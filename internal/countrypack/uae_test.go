@@ -421,3 +421,24 @@ func TestUAEPackVAT201(t *testing.T) {
 		}
 	}
 }
+
+// TestUAEPackVAT201SignedOff: the VAT 201 the tax specialist signed off
+// (T61k's sign-off leaf, product owner 2026-11-09) is 2026.2's, box for box,
+// in UAE 2026.4, the version signed off: the sign-off froze the return as
+// TestUAEPackVAT201 holds it to packs/ae/TAX-PENDING-T61k.md.
+func TestUAEPackVAT201SignedOff(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	was, signed := lib.Get("AE", "2026.2"), lib.Get("AE", "2026.4")
+	if was == nil || signed == nil || signed.Return("VAT201") == nil {
+		t.Fatalf("Get(AE, 2026.2) and Get(AE, 2026.4).Return(VAT201): got %v and %v, want both with the return", was, signed)
+	}
+	if !reflect.DeepEqual(signed.Return("VAT201"), was.Return("VAT201")) {
+		t.Error("2026.4's VAT 201: got other than 2026.2's, want the return unchanged")
+	}
+	if !signed.SignedOff() {
+		t.Error("2026.4 SignedOff: got false, want true")
+	}
+}

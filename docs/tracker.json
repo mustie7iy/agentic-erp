@@ -2343,9 +2343,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "VAT 201 signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes; one version with T62f's sign-off), after the specialist confirms 2026.2's boxes against EmaraTax's labels, the columns of boxes 2-7, the totals 8, 11, 12 and 13 written from memory, the emirates' letters and ISO codes, and how the tenant's codes map to the boxes (packs/ae/TAX-PENDING-T61k.md)",
-        "r": "after T61k and the emirate guard below · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k)",
+        "r": "packs/ae/2026.4 (one version with T62f's sign-off, Musto Ibrahim 2026-11-09) · packs/ae/TAX-PENDING-T61k.md · TestUAEPackVAT201SignedOff · ADR-0049 §11 As built (T61k: Signed off) and Sources As built · ADR-0048 As built (T62f and T61k sign-offs) · walkthrough step 41 · after T61k and the emirate guard below · po:2026-11-09",
         "src": "split:T61k · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []

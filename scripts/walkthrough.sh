@@ -434,8 +434,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off), the FPZ-500 for a"
-  say "    Quebec registrant and the UAE VAT 201's sign-off (T61k: step 41 files it, not signed off): step 11 prepares,"
+  say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off) and the FPZ-500 for a"
+  say "    Quebec registrant (step 41 files the UAE VAT 201, signed off with UAE pack 2026.4): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -3939,10 +3939,11 @@ uae_return() {
   done
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
-  say "ADR-0049's record of the FTA's guide through secondary summaries; their columns and totals it does not record"
-  say "say so in their labels, and all wait for the tax specialist (packs/ae/TAX-PENDING-T61k.md). Boxes not zero:"
+  say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
+  say "(2026.4; packs/ae/TAX-PENDING-T61k.md); the labels still carry the markers of the unsigned version. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.4"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
   expect "boxes 1a and 1b, by emirate" "$(field '[.boxes[] | select(.code | test("^1[ab]_(amount|vat)$")) | .amount.amount] | join(" ")')" "4000.00 200.00 10000.00 500.00"
   expect "boxes 3, 4, 5 and 6" "$(field '[.boxes[] | select(.code | test("^[3-6]_")) | .amount.amount] | join(" ")')" "2000.00 100.00 3000.00 1500.00 10000.00 500.00"

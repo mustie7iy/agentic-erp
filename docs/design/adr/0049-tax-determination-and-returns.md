@@ -1471,6 +1471,24 @@ companies (all in the tenant, under RLS). A registration change is financial
     correction -100.00 (375.00 after); the next quarter shows a late
     invoice's VAT apart, below the threshold and then, at 11,050.00 of
     earlier input VAT, above it.
+  - **Signed off (2026-11-09).** The product owner reported that the tax
+    specialist, Musto Ibrahim, signed off the VAT 201 as written: the
+    boxes against EmaraTax's labels, the columns of boxes 2-7, the totals'
+    sums of 8, 11, 12 and 13, the emirates' letters a-g and ISO 3166-2
+    codes (guarded since 2026.3, §7 As built), and the mapping of the
+    tenant's codes, items 1-10 of `packs/ae/TAX-PENDING-T61k.md`, with
+    the AED 10,000 prior-period threshold (P7) and the amendment carrying
+    the corrected figures and the differences as built. UAE pack 2026.4
+    carries this sign-off with T62f's, one version as the leaf says
+    (ADR-0048 As built, UAE 2026.4), its `returns.yaml` 2026.2's byte for
+    byte (`TestUAEPackVAT201SignedOff`). **Decided by default:** the box
+    labels keep the markers ("column pending the tax specialist", "from
+    memory, pending the tax specialist", "its ISO code pending") they had,
+    since the sign-off froze the content and dropping them is a content
+    change (a later version, for the product owner). **Still open:** the
+    threshold's measure (T61h above), which declaration the FTA takes an
+    amendment in, and the due dates (§10, not built), questions the
+    approval of what exists does not answer.
   - **Walkthrough.** Step 41 applies 2026.2 to Maple Gulf Trading, whose
     proposed company carries its FTA registration (quarterly, from the
     latest quarter ended in Dubai); Carla posts the quarter's sales by
@@ -1822,3 +1840,11 @@ rewritten.
   company's weekend (no source recorded) and apportionment for a business
   that also makes exempt supplies (P8 (b), a later step), as
   `packs/ae/TAX-PENDING-T62f.md` lists them.
+- **Confirmed as written (VAT 201, T61k):** the boxes, columns, totals,
+  letters, ISO codes and mapping of `packs/ae/TAX-PENDING-T61k.md` (§11 As
+  built, T61k: Signed off), in 2026.4 with the pack's. With the UAE pack's
+  and the VAT 201's sign-offs, the UAE items of "Still pending" under
+  T62h's note above are confirmed as written but these: the threshold's
+  measure after the 2026 procedures amendments, the scope of the five-year
+  limit and the FTA's side of the amended return, which stay open as
+  questions.
