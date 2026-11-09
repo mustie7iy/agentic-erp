@@ -632,6 +632,11 @@ commit-time check, like the balance trigger).
   the supply's value instead is listed for the specialist. Every UAE code
   of the pack carries its UN/CEFACT category (§1) but import VAT, IM5,
   for which this ADR records none (pending the specialist).
+- **As built (T62f sign-off, 2026-11-09):** UAE pack 2026.4 is signed off
+  (Sources, As built: sign-off of the UAE pack), and its tier is the
+  same without `pending_sign_off`: an invoice above AED 10,000 without a
+  UAE tax identifier is warned with `pending_sign_off: false`. The
+  earlier versions, unsigned, keep their pending tier.
 
 
 ### 7. Output tax and the pilot's sales
@@ -1789,3 +1794,31 @@ confirm or for the tax specialist stand confirmed.
   pack sets a threshold, the UAE's will); and whether a predecessor
   registration's unfiled period's items belong to its own return or the
   new code's (§11 As built, not decided).
+
+**As built (sign-off of the UAE pack, T62f; product owner, 2026-11-09):**
+the product owner reported that the tax specialist, Musto Ibrahim, signed
+off the UAE pack on 2026-11-09, as written; UAE pack 2026.4 records it
+(`sign_off: {tax_specialist: "Musto Ibrahim", date: 2026-11-09}`, the
+model's `SignOff`; ADR-0048 As built, UAE 2026.4), the version that also
+carries the VAT 201's sign-off (T61k's leaf: one version for both). The
+approval freezes what exists and builds nothing new; nothing above is
+rewritten.
+- **Confirmed as written (UAE pack, T62f):** the nine VAT codes, the
+  standard rate of 5% and the zero, exempt and out-of-scope categories,
+  each rate from 2026-01-01 as the pack starts it (an earlier start is a
+  later version, if a document dated before 2026 needs it); the codes
+  chosen (V5, VB5, RC5, DR5, IM5, S5 by emirate, Z0, E0, OS; no
+  zero-rated or exempt purchase code); recovery wholly on 1300, VB5's
+  blocked input recovering nothing (Executive Regulation Art. 53), with
+  VAT Law Art. 55's six-month payment rule unchecked by the ERP as built;
+  the UN/CEFACT categories, none for import VAT; the documentary tier
+  (§6 As built: above AED 10,000, measured on the invoice's gross total,
+  the supplier's TRN alone, any tax identifier scheme named after the UAE,
+  Executive Regulation Art. 59), so 2026.4's tier is no longer
+  `pending_sign_off` and its warning says so; `rate_type: average` (VAT
+  Law Art. 69) and `rounding: document`; the bases recorded in
+  `packs/ae/TAX-PENDING-T62f.md`, Art. 51 (designated zones) among them.
+- **Still open, not in the pack:** the UAE's public holidays and the
+  company's weekend (no source recorded) and apportionment for a business
+  that also makes exempt supplies (P8 (b), a later step), as
+  `packs/ae/TAX-PENDING-T62f.md` lists them.

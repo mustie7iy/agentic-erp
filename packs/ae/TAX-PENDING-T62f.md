@@ -97,3 +97,12 @@ Sources (in `2026.1/pack.yaml`):
 - FTA clarification, reverse charge for electronic devices (WAM): https://wam.ae/en/details/1395303213742
 - VAT 201 guide, as summarised by Zoho (secondary): https://www.zoho.com/ae/books/vat/guides/vat-return.html
 - VAT 201 guide, as summarised by ClearTax (secondary): https://cleartax.com/ae/vat-return-uae
+
+Signed off (`2026.4/pack.yaml`): the tax specialist, Musto Ibrahim,
+confirmed the codes, rates and their start, recovery, categories and tax
+settings above, items 1-7, as written on 2026-11-09 (reported by the
+product owner), with the VAT 201 (item 8, `TAX-PENDING-T61k.md`) in the
+same version. 2026.4's documentary tier is no longer pending sign-off.
+Items 9 and 10 (holidays and the weekend; apportionment) are not in the
+pack and stay open (ADR-0049, Sources, As built: sign-off of the UAE
+pack). The table above describes 2026.1, which stays released, unsigned.

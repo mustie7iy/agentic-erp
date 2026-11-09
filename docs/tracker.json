@@ -5886,7 +5886,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Country packs",
       "r": "ADR-0048 · T62 (split T62a-T62f)",
       "c": [
@@ -5934,9 +5934,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "UAE pack signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes) and its documentary tier no longer pending, after the specialist confirms 2026.1's VAT codes, rates and their start, recovery, categories, tax settings and the items of packs/ae/TAX-PENDING-T62f.md",
-        "r": "after T62f · ADR-0048 As built (T62f) · ADR-0049 §6 As built (T62f)",
+        "r": "packs/ae/2026.4 (sign_off Musto Ibrahim 2026-11-09, the tier not pending) · packs/released.sha256 · packs/ae/TAX-PENDING-T62f.md · TestUAEPack2026_4 · ADR-0048 As built (T62f and T61k sign-offs) · ADR-0049 §6 As built (T62f sign-off) and Sources As built (sign-off of the UAE pack) · walkthrough step 41 · after T62f · po:2026-11-09",
         "src": "split:T62f · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []

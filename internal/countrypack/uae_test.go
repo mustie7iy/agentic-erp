@@ -229,7 +229,7 @@ var emirates = []string{"AE-AZ", "AE-DU", "AE-SH", "AE-AJ", "AE-UQ", "AE-RK", "A
 // emirates boxes 1a-1g select, and nothing else differs: every file but
 // pack.yaml and tax.yaml is 2026.2's byte for byte, and the manifest is
 // 2026.2's but for its version (its header comment aside), with no
-// sign-off.
+// sign-off (2026.4 has it).
 func TestUAEPack2026_3(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -258,9 +258,6 @@ func TestUAEPack2026_3(t *testing.T) {
 	if boxed = slices.Compact(boxed); !reflect.DeepEqual(boxed, emirates) {
 		t.Errorf("the emirates of boxes 1a-1g: got %v, want S5's %v", boxed, emirates)
 	}
-	if got := lib.Latest("AE"); got != ae {
-		t.Errorf("Latest(AE): got %s, want ae/2026.3", got.Dir())
-	}
 	same := *ae
 	same.Manifest.Version = prev.Manifest.Version
 	same.Tax.TaxCodes = slices.Clone(ae.Tax.TaxCodes)
@@ -272,6 +269,52 @@ func TestUAEPack2026_3(t *testing.T) {
 		t.Error("2026.3 without its version and S5's subdivisions: got other than 2026.2, want it unchanged")
 	}
 	sameFiles(t, "ae/2026.2", "ae/2026.3", "pack.yaml", "tax.yaml")
+}
+
+// UAE 2026.4 is 2026.3 signed off (T62f's and T61k's sign-off leaves, one
+// version): the tax specialist's sign-off as the product owner reported it
+// on 2026-11-09, the documentary tier no longer pending, and nothing else:
+// every file but pack.yaml and tax.yaml is 2026.3's byte for byte, and the
+// manifest differs only in its version and sign-off (its header comment
+// aside). It is the latest UAE pack, and applies without the note that no
+// tax specialist signed it off.
+func TestUAEPack2026_4(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ae := lib.Get("AE", "2026.3"), lib.Get("AE", "2026.4")
+	if prev == nil || ae == nil {
+		t.Fatalf("Get(AE, 2026.3) and Get(AE, 2026.4): got %v and %v, want both", prev, ae)
+	}
+	if got, want := ae.Manifest.SignOff, (&SignOff{TaxSpecialist: "Musto Ibrahim", Date: "2026-11-09"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("sign-off: got %+v, want %+v", got, want)
+	}
+	if !ae.SignedOff() {
+		t.Error("SignedOff: got false, want true")
+	}
+	tiers := ae.Tax.Settings.DocumentaryRequirements
+	if len(tiers) != 1 || tiers[0].PendingSignOff {
+		t.Fatalf("documentary tiers: got %+v, want the one tier, not pending", tiers)
+	}
+	same := *ae
+	same.Manifest.Version, same.Manifest.SignOff = prev.Manifest.Version, nil
+	same.Tax.Settings.DocumentaryRequirements = []config.DocumentaryRequirement{tiers[0]}
+	same.Tax.Settings.DocumentaryRequirements[0].PendingSignOff = true
+	if !reflect.DeepEqual(&same, prev) {
+		t.Error("2026.4 without its version, sign-off and the tier's pending flag: got other than 2026.3, want it unchanged")
+	}
+	if got := lib.Latest("AE"); got != ae {
+		t.Errorf("Latest(AE): got %s, want ae/2026.4", got.Dir())
+	}
+	sameFiles(t, "ae/2026.3", "ae/2026.4", "pack.yaml", "tax.yaml")
+	_, notes, err := Apply(companyIn(t, "AE", "AED"), ae, lib, Options{Company: "1000", On: time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), FiscalYear: 2026})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if hasNote(notes, "packs[1000]", "no tax specialist has signed this pack off") {
+		t.Errorf("notes: got %v, want none saying the pack is not signed off", notes)
+	}
 }
 
 // sameFiles fails unless every file of dir but those excepted has the
