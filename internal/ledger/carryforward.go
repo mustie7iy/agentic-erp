@@ -83,19 +83,19 @@ func (e *Endpoints) RunBalanceCarryForward(ctx context.Context, req *gen.Balance
 	if err := carryForwardReady(ctx, tx, r, ledgers, periods); err != nil {
 		return nil, err
 	}
-	out := gen.BalanceCarryForwardRuns{Items: make([]gen.BalanceCarryForward, 0, len(ledgers))}
+	runs := make([]CarryForwardRun, 0, len(ledgers))
 	for _, l := range ledgers {
 		run, err := carryForward(ctx, tx, p, r, l, periods)
 		if err != nil {
 			return nil, err
 		}
-		rep, err := e.carryForwardToAPI(ctx, tx, run)
-		if err != nil {
-			return nil, err
-		}
-		out.Items = append(out.Items, rep)
+		runs = append(runs, run)
 	}
-	return &gen.BalanceCarryForwardRunsHeaders{Response: out}, nil
+	items, err := e.carryForwardsToAPI(ctx, tx, runs)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.BalanceCarryForwardRunsHeaders{Response: gen.BalanceCarryForwardRuns{Items: items}}, nil
 }
 
 // visibleEntity is the legal entity of a request's legal_entity_id, one
@@ -280,7 +280,8 @@ func carryForward(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r carryFor
 // since, or a period of its years it did not read: its figures may have
 // changed, so the previous year is carried forward again first.
 func notStale(ctx context.Context, tx pgx.Tx, prev CarryForwardRun, l keptLedger) error {
-	opened, err := openedSince(ctx, tx, prev)
+	stale, err := openedSinceOf(ctx, tx, []uuid.UUID{prev.ID})
+	opened := stale[prev.ID]
 	if err != nil || len(opened) == 0 {
 		return err
 	}
@@ -395,18 +396,7 @@ func recordCarryForward(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run 
 // carriedForward audits a run, with the run it superseded, and publishes
 // BalanceCarriedForward with the year's result per currency.
 func carriedForward(ctx context.Context, tx pgx.Tx, r carryForwardRequest, run CarryForwardRun, superseded *CarryForwardRun) error {
-	totals, err := carryForwardTotals(ctx, tx, run.ID, r.entity.LocalCurrency, r.group)
-	if err != nil {
-		return err
-	}
-	results := []map[string]any{}
-	for _, t := range totals {
-		if t.hasResult {
-			results = append(results, map[string]any{"currency": t.currency, "result": money.EventAmount(t.result.tc, t.currency, t.expTC),
-				"result_lc": money.EventAmount(t.result.lc, t.currencyLC, t.expLC), "result_gc": money.EventAmount(t.result.gc, t.currencyGC, t.expGC)})
-		}
-	}
-	all, err := carryForwardRunTotals(ctx, tx, run.ID)
+	byRun, err := carryForwardTotalsOf(ctx, tx, []uuid.UUID{run.ID})
 	if err != nil {
 		return err
 	}
@@ -414,6 +404,15 @@ func carriedForward(ctx context.Context, tx pgx.Tx, r carryForwardRequest, run C
 	if err != nil {
 		return err
 	}
+	lc, gc := r.entity.LocalCurrency, r.group
+	results := []map[string]any{}
+	for _, t := range byRun[run.ID] {
+		if t.hasResult {
+			results = append(results, map[string]any{"currency": t.currency, "result": money.EventAmount(t.result.tc, t.currency, t.expTC),
+				"result_lc": money.EventAmount(t.result.lc, lc, exps[lc]), "result_gc": money.EventAmount(t.result.gc, gc, exps[gc])})
+		}
+	}
+	all := overall(byRun[run.ID])
 	var supersededID *uuid.UUID
 	if superseded != nil {
 		supersededID = &superseded.ID

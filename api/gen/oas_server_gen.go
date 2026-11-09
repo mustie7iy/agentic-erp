@@ -1227,7 +1227,14 @@ type Handler interface {
 	// One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
 	// account, status, who ran it, and its totals per transaction currency: the year's result carried to
 	// retained earnings and the debit and credit totals of its rows in transaction, local and group
-	// currency (debits equal credits). A run of a company the caller cannot act in is not found.
+	// currency (debits equal credits). `stale` is judged at the read (ADR-0060 §6, T64m3): a run is stale
+	// when a period of its ledger in its year or an earlier year that it read is open now or has been
+	// opened since, or one it did not read (set up later) is open or has been opened; `opened_since` names
+	// them. A posting needs an open period, so a run that is not stale carries every posting of its years;
+	// a stale one is carried forward again once the periods are closed, and the new run supersedes it. A
+	// run of a company the caller cannot act in is not found. The run's rows are
+	// `listBalanceCarryForwardBalances`'s. The ETag is the representation's, which `stale` moves without
+	// the run changing.
 	//
 	// GET /v1/balance-carry-forwards/{id}
 	GetBalanceCarryForward(ctx context.Context, params GetBalanceCarryForwardParams) (GetBalanceCarryForwardRes, error)
@@ -2182,6 +2189,32 @@ type Handler interface {
 	//
 	// GET /v1/audit-events
 	ListAuditEvents(ctx context.Context, params ListAuditEventsParams) (ListAuditEventsRes, error)
+	// ListBalanceCarryForwardBalances implements listBalanceCarryForwardBalances operation.
+	//
+	// A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per
+	// account, kind and transaction currency, each with its account's number, name and type, its kind
+	// (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss
+	// in that currency carried to the retained earnings account) and its amounts in transaction, local and
+	// group currency, debit positive. Ordered and paged by account number (as the database orders text,
+	// byte by byte), then currency, then kind; `account_id` keeps one account's rows. `totals` and the
+	// run's figures beside them are those of the whole run, every row whatever the filter, on every page
+	// alike: per transaction currency the year's result and the debit and credit totals, and over every
+	// currency the result, debits and credits in local and group currency (debits equal credits). A run's
+	// rows never change, so the pages and the totals agree. A run of a company the caller cannot act in is
+	// not found.
+	//
+	// GET /v1/balance-carry-forwards/{id}/balances
+	ListBalanceCarryForwardBalances(ctx context.Context, params ListBalanceCarryForwardBalancesParams) (ListBalanceCarryForwardBalancesRes, error)
+	// ListBalanceCarryForwards implements listBalanceCarryForwards operation.
+	//
+	// The carry-forward runs of the legal entities the caller may act in (ADR-0060 §7, T64m3), each as
+	// `getBalanceCarryForward` shows it: its company, ledger, years, basis, retained earnings account,
+	// status, who ran it, whether it is stale with the periods opened since, and its totals. Filters: the
+	// company, the fiscal year carried forward (`fiscal_year`), the ledger and the status (`current` or
+	// `superseded`). Sortable by: `created_at` (the default) and `fiscal_year`; ties by run id.
+	//
+	// GET /v1/balance-carry-forwards
+	ListBalanceCarryForwards(ctx context.Context, params ListBalanceCarryForwardsParams) (ListBalanceCarryForwardsRes, error)
 	// ListBalances implements listBalances operation.
 	//
 	// Period totals per account; `legal_entity_id` and `fiscal_year` are required filters. Sortable by:

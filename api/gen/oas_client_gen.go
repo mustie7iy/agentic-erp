@@ -1248,7 +1248,14 @@ type Invoker interface {
 	// One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
 	// account, status, who ran it, and its totals per transaction currency: the year's result carried to
 	// retained earnings and the debit and credit totals of its rows in transaction, local and group
-	// currency (debits equal credits). A run of a company the caller cannot act in is not found.
+	// currency (debits equal credits). `stale` is judged at the read (ADR-0060 §6, T64m3): a run is stale
+	// when a period of its ledger in its year or an earlier year that it read is open now or has been
+	// opened since, or one it did not read (set up later) is open or has been opened; `opened_since` names
+	// them. A posting needs an open period, so a run that is not stale carries every posting of its years;
+	// a stale one is carried forward again once the periods are closed, and the new run supersedes it. A
+	// run of a company the caller cannot act in is not found. The run's rows are
+	// `listBalanceCarryForwardBalances`'s. The ETag is the representation's, which `stale` moves without
+	// the run changing.
 	//
 	// GET /v1/balance-carry-forwards/{id}
 	GetBalanceCarryForward(ctx context.Context, params GetBalanceCarryForwardParams) (GetBalanceCarryForwardRes, error)
@@ -2203,6 +2210,32 @@ type Invoker interface {
 	//
 	// GET /v1/audit-events
 	ListAuditEvents(ctx context.Context, params ListAuditEventsParams) (ListAuditEventsRes, error)
+	// ListBalanceCarryForwardBalances invokes listBalanceCarryForwardBalances operation.
+	//
+	// A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per
+	// account, kind and transaction currency, each with its account's number, name and type, its kind
+	// (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss
+	// in that currency carried to the retained earnings account) and its amounts in transaction, local and
+	// group currency, debit positive. Ordered and paged by account number (as the database orders text,
+	// byte by byte), then currency, then kind; `account_id` keeps one account's rows. `totals` and the
+	// run's figures beside them are those of the whole run, every row whatever the filter, on every page
+	// alike: per transaction currency the year's result and the debit and credit totals, and over every
+	// currency the result, debits and credits in local and group currency (debits equal credits). A run's
+	// rows never change, so the pages and the totals agree. A run of a company the caller cannot act in is
+	// not found.
+	//
+	// GET /v1/balance-carry-forwards/{id}/balances
+	ListBalanceCarryForwardBalances(ctx context.Context, params ListBalanceCarryForwardBalancesParams) (ListBalanceCarryForwardBalancesRes, error)
+	// ListBalanceCarryForwards invokes listBalanceCarryForwards operation.
+	//
+	// The carry-forward runs of the legal entities the caller may act in (ADR-0060 §7, T64m3), each as
+	// `getBalanceCarryForward` shows it: its company, ledger, years, basis, retained earnings account,
+	// status, who ran it, whether it is stale with the periods opened since, and its totals. Filters: the
+	// company, the fiscal year carried forward (`fiscal_year`), the ledger and the status (`current` or
+	// `superseded`). Sortable by: `created_at` (the default) and `fiscal_year`; ties by run id.
+	//
+	// GET /v1/balance-carry-forwards
+	ListBalanceCarryForwards(ctx context.Context, params ListBalanceCarryForwardsParams) (ListBalanceCarryForwardsRes, error)
 	// ListBalances invokes listBalances operation.
 	//
 	// Period totals per account; `legal_entity_id` and `fiscal_year` are required filters. Sortable by:
@@ -20048,7 +20081,14 @@ func (c *Client) sendGetAssetTransfer(ctx context.Context, params GetAssetTransf
 // One carry-forward run (ADR-0060 §7) with its company, ledger, years, basis, retained earnings
 // account, status, who ran it, and its totals per transaction currency: the year's result carried to
 // retained earnings and the debit and credit totals of its rows in transaction, local and group
-// currency (debits equal credits). A run of a company the caller cannot act in is not found.
+// currency (debits equal credits). `stale` is judged at the read (ADR-0060 §6, T64m3): a run is stale
+// when a period of its ledger in its year or an earlier year that it read is open now or has been
+// opened since, or one it did not read (set up later) is open or has been opened; `opened_since` names
+// them. A posting needs an open period, so a run that is not stale carries every posting of its years;
+// a stale one is carried forward again once the periods are closed, and the new run supersedes it. A
+// run of a company the caller cannot act in is not found. The run's rows are
+// `listBalanceCarryForwardBalances`'s. The ETag is the representation's, which `stale` moves without
+// the run changing.
 //
 // GET /v1/balance-carry-forwards/{id}
 func (c *Client) GetBalanceCarryForward(ctx context.Context, params GetBalanceCarryForwardParams) (GetBalanceCarryForwardRes, error) {
@@ -34484,6 +34524,443 @@ func (c *Client) sendListAuditEvents(ctx context.Context, params ListAuditEvents
 
 	stage = "DecodeResponse"
 	result, err := decodeListAuditEventsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBalanceCarryForwardBalances invokes listBalanceCarryForwardBalances operation.
+//
+// A carry-forward run's rows (ADR-0060 §7, T64m3), the opening balances of the next fiscal year: per
+// account, kind and transaction currency, each with its account's number, name and type, its kind
+// (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss
+// in that currency carried to the retained earnings account) and its amounts in transaction, local and
+// group currency, debit positive. Ordered and paged by account number (as the database orders text,
+// byte by byte), then currency, then kind; `account_id` keeps one account's rows. `totals` and the
+// run's figures beside them are those of the whole run, every row whatever the filter, on every page
+// alike: per transaction currency the year's result and the debit and credit totals, and over every
+// currency the result, debits and credits in local and group currency (debits equal credits). A run's
+// rows never change, so the pages and the totals agree. A run of a company the caller cannot act in is
+// not found.
+//
+// GET /v1/balance-carry-forwards/{id}/balances
+func (c *Client) ListBalanceCarryForwardBalances(ctx context.Context, params ListBalanceCarryForwardBalancesParams) (ListBalanceCarryForwardBalancesRes, error) {
+	res, err := c.sendListBalanceCarryForwardBalances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBalanceCarryForwardBalances(ctx context.Context, params ListBalanceCarryForwardBalancesParams) (res ListBalanceCarryForwardBalancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBalanceCarryForwardBalances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/balance-carry-forwards/{id}/balances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBalanceCarryForwardBalancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/balance-carry-forwards/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/balances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "account_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "account_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AccountID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBalanceCarryForwardBalancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBalanceCarryForwardBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBalanceCarryForwards invokes listBalanceCarryForwards operation.
+//
+// The carry-forward runs of the legal entities the caller may act in (ADR-0060 §7, T64m3), each as
+// `getBalanceCarryForward` shows it: its company, ledger, years, basis, retained earnings account,
+// status, who ran it, whether it is stale with the periods opened since, and its totals. Filters: the
+// company, the fiscal year carried forward (`fiscal_year`), the ledger and the status (`current` or
+// `superseded`). Sortable by: `created_at` (the default) and `fiscal_year`; ties by run id.
+//
+// GET /v1/balance-carry-forwards
+func (c *Client) ListBalanceCarryForwards(ctx context.Context, params ListBalanceCarryForwardsParams) (ListBalanceCarryForwardsRes, error) {
+	res, err := c.sendListBalanceCarryForwards(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBalanceCarryForwards(ctx context.Context, params ListBalanceCarryForwardsParams) (res ListBalanceCarryForwardsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBalanceCarryForwards"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/balance-carry-forwards"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBalanceCarryForwardsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/balance-carry-forwards"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "ledger_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "ledger_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LedgerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBalanceCarryForwardsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBalanceCarryForwardsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

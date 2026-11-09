@@ -245,6 +245,8 @@ var operationRolesOidc = map[string][]string{
 	ListAssetTransfersOperation:                    []string{},
 	ListAssetsOperation:                            []string{},
 	ListAuditEventsOperation:                       []string{},
+	ListBalanceCarryForwardBalancesOperation:       []string{},
+	ListBalanceCarryForwardsOperation:              []string{},
 	ListBalancesOperation:                          []string{},
 	ListBankAccountsOperation:                      []string{},
 	ListBankFilesOperation:                         []string{},

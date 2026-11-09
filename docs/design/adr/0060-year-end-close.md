@@ -823,3 +823,53 @@ for the product owner to overrule:
    currency in every amount, and 0L's result (CAD -1,790.00: the sale, the
    rent, the audit adjustment and the revaluation gain) is `PREV`'s profit
    and loss in the trial balance.
+
+**T64m3, reading the carry-forward, staleness and re-runs** (no
+migration). Built as §6-§7 say; the choices taken by default (ADR-0053 d),
+for the product owner to overrule:
+1. *Staleness on every read.* `stale` and `opened_since` (each period's
+   ledger id and code, fiscal year and period, by year and period) are on
+   every representation of a run, `POST`'s, `GET`'s and the list's, judged
+   at the read by T64m2's rule (`openedSinceOf`, one statement for all the
+   runs of a page): a recorded period open now or whose opened count moved,
+   or an unrecorded one of the run's years open or opened. A superseded run
+   is judged the same way, so it may read stale too; its `status` says it
+   was replaced. A later year's period opening leaves a run current.
+2. *The ETag of a run* is its representation's (`apitypes.ETagOf`), no
+   longer its version: `stale` changes without the run changing, and no
+   write takes `If-Match` on a run.
+3. *The list* (`listBalanceCarryForwards`) filters by company, fiscal year
+   carried forward, ledger and status, over the companies the caller may
+   act in, cursor-paged by `created_at` (the default) or `fiscal_year`,
+   ties by run id; each item is the full run as `GET` shows it, read for
+   the whole page in a fixed number of statements (companies, names,
+   totals and staleness by run), not per run.
+4. *The balances* (`listBalanceCarryForwardBalances`) page by account
+   number byte by byte (`COLLATE "C"`), then currency, then kind (the row's
+   key in its run, so no id is needed), filter `account_id`; each row names
+   its account (number, name, type). Beside the rows, every page carries the
+   whole run's totals whatever the filter, the run's local and group
+   currencies and its result and debits and credits in them, the figures
+   `GET` shows. A run's rows are insert-only, so the pages and totals agree
+   without a snapshot.
+5. *Budgets* (01 §1.3; scale 1, then 2, load 12-22 on 10 cores):
+   `TestCarryForwardAllYearsBudget`, a run from every year over ten years
+   of the 5,000 accounts in 3 currencies (2.4 million balance rows):
+   median 2.68 s, p95 2.84 s (scale 1) and 2.47 s (scale 2) against 10 s;
+   `TestCarryForwardBudget` adds a page of 500 of the chained run's 7,506
+   rows, the first and one deep in the run alternately, after one warm
+   read: median 19 ms, p95 20 ms (scale 1) and 40 ms (scale 2) against
+   150 ms. The chained run itself measured 436 ms median, p95 508 ms and
+   651 ms. A page reads the run's totals with every page, an aggregate
+   over its rows by the primary key's leading columns.
+6. *Walkthrough* (`step_year_end`): Carla lists `PREV`'s runs, current and
+   not stale; reads 0L's opening balances: the retained earnings `result`
+   row equal to the run's result per currency and the RBC USD account's
+   rows in USD (2,000.00, CAD 2,720.00) and CAD (the revaluation's gain,
+   40.00), the page's totals the run's; she opens special period 13 again
+   in both ledgers and posts a late adjustment of CAD 100.00: both runs
+   read stale naming `PREV/13`, and a re-run while it is open is refused
+   with `ledger.carry_forward_periods_open`; she closes it (the runs stay
+   stale), carries `PREV` forward again: the new runs are current and not
+   stale, 0L's result is CAD 100.00 more, the first runs read superseded
+   by them, and the list of current runs is the new ones.
