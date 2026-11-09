@@ -61,14 +61,15 @@ type Handler interface {
 	// have the companies correct their postings and run the group again. It becomes `accepted`, with who
 	// accepted it, when and why; it stays eliminated as it was, to the elimination's difference account,
 	// and no longer stops finalizing the run. The run's version moves with it, so a view of the run read
-	// before refuses `:finalize`. Refused for a difference that is not open (409
-	// `consolidation.difference_not_open`) and for a run that is not computed (409
-	// `consolidation.run_not_computed`: a draft is accepted before it is finalized; a final run has none
-	// open). `If-Match` is the difference's ETag, its `version` (412 `request.version_mismatch` when it
-	// moved since). Published as IntercompanyDifferenceAccepted and audited. A run of a group whose parent
-	// or a member the caller may not act in, or a difference that is not the run's, is not found (404).
-	// Besides `consolidation.difference.accept` the caller needs `ledger.entry.read`, since the difference
-	// shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+	// before refuses `:finalize`: read the run again (`getConsolidationRun`) for its new ETag. Refused for
+	// a difference that is not open (409 `consolidation.difference_not_open`) and for a run that is not
+	// computed (409 `consolidation.run_not_computed`: a draft is accepted before it is finalized; a final
+	// run has none open). `If-Match` is the difference's ETag, its `version` (412
+	// `request.version_mismatch` when it moved since). Published as IntercompanyDifferenceAccepted and
+	// audited. A run of a group whose parent or a member the caller may not act in, or a difference that
+	// is not the run's, is not found (404). Besides `consolidation.difference.accept` the caller needs
+	// `ledger.entry.read`, since the difference shows figures (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Human-only.
 	//
 	// POST /v1/consolidation-runs/{id}/differences/{difference_id}:accept
 	AcceptIntercompanyDifference(ctx context.Context, req *ReasonInput, params AcceptIntercompanyDifferenceParams) (AcceptIntercompanyDifferenceRes, error)

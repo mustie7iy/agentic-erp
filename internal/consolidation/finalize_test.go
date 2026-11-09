@@ -120,10 +120,11 @@ func TestAcceptIntercompanyDifference(t *testing.T) {
 		matched["items"].([]any)[0].(map[string]any)["id"].(string)+":accept", `{"reason": "r"}`, `"1"`)
 	e.Problem(404, "request.not_found", "POST", runsPath+"/"+run.String()+"/differences/"+uuid.NewString()+":accept", `{"reason": "r"}`, `"1"`)
 	var event, audited string
-	pgtest.Scan(t, `SELECT payload->>'reason' || ' ' || (payload->'difference'->>'amount') || ' ' || (payload->>'run_version') FROM consolidation.outbox
+	pgtest.Scan(t, `SELECT payload->>'reason' || ' ' || (payload->'difference'->>'amount') || ' ' || (payload->>'run_version') || ' ' ||
+		(payload->>'company_code') || '/' || (payload->>'partner_code') FROM consolidation.outbox
 		WHERE tenant_id = $1 AND event_type LIKE '%intercompany_difference_accepted%'`, []any{e.Tenant.ID}, &event)
 	pgtest.Scan(t, `SELECT action FROM audit.audit_event WHERE tenant_id = $1 AND object_type = 'consolidation.run_difference'`, []any{e.Tenant.ID}, &audited)
-	if w := fmt.Sprintf("The revenue is booked at the invoice date's rate -20.00 %v", after["version"]); event != w ||
+	if w := fmt.Sprintf("The revenue is booked at the invoice date's rate -20.00 %v 1000/2000", after["version"]); event != w ||
 		audited != "consolidation.difference.accepted" {
 		t.Errorf("the event and audit record: got %q and %q, want %q and consolidation.difference.accepted", event, audited, w)
 	}

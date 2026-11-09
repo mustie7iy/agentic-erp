@@ -74,7 +74,7 @@ func translated(ms []Member) bool {
 func moved(r Run, ms []Member, now map[periodKey]Period) []Member {
 	var out []Member
 	for _, m := range ms {
-		if now[periodKey{company: m.LegalEntityID, year: r.FiscalYear, period: r.Period}].Version != *m.PeriodVersion {
+		if m.PeriodVersion == nil || now[periodKey{company: m.LegalEntityID, year: r.FiscalYear, period: r.Period}].Version != *m.PeriodVersion {
 			out = append(out, m)
 		}
 	}
@@ -133,6 +133,8 @@ func (e *Endpoints) FinalizeConsolidationRun(ctx context.Context, params gen.Fin
 	if err != nil {
 		return nil, err
 	}
+	// ogen names the run-with-ETag response, shared with :discard, after
+	// the first operation that returns it.
 	return &gen.DiscardConsolidationRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: out}, nil
 }
 
@@ -183,7 +185,9 @@ func (e *Endpoints) finalizable(ctx context.Context, tx pgx.Tx, r Run) error {
 func locked(r Run, ms []Member, now map[periodKey]Period) error {
 	var not []string
 	for _, m := range ms {
-		then, current := *m.PeriodStatus, now[periodKey{company: m.LegalEntityID, year: r.FiscalYear, period: r.Period}].Status
+		// Computed means every company translated (CompleteConsolidationRun),
+		// which the schema does not hold: one never read counts as none.
+		then, current := orNone(deref(m.PeriodStatus)), now[periodKey{company: m.LegalEntityID, year: r.FiscalYear, period: r.Period}].Status
 		if then != "locked" || current != "locked" {
 			not = append(not, fmt.Sprintf("company %s (%s when the run read its figures, %s now)", m.CompanyCode, then, orNone(current)))
 		}
@@ -214,6 +218,14 @@ func fresh(r Run, ms []Member, now map[periodKey]Period) error {
 	}
 	return problem.Conflict("consolidation.run_stale", fmt.Sprintf("The leading-ledger periods %d/%d changed since run %s read their figures: %s. "+
 		"Run the group again and finalize the new run.", r.FiscalYear, r.Period, r.ID, strings.Join(named, ", ")))
+}
+
+// deref is a recorded status, "" when none was recorded.
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // orNone is a period's status now, "none" when the ledger has no such
@@ -304,8 +316,18 @@ func (e *Endpoints) accepted(ctx context.Context, tx pgx.Tx, r Run, id uuid.UUID
 	if n.people, err = e.acceptors(ctx, []storedDifference{d}); err != nil {
 		return nil, err
 	}
+	ms, err := members(ctx, tx, []uuid.UUID{r.ID})
+	if err != nil {
+		return nil, err
+	}
+	partnerCode := "" // a pair's partner is always a company of the run
+	for _, m := range ms[r.ID] {
+		if m.LegalEntityID == *d.partner {
+			partnerCode = m.CompanyCode
+		}
+	}
 	out := n.differenceAPI(d)
-	payload := map[string]any{"difference_id": d.id, "run_id": r.ID, "group_code": r.GroupCode, "fiscal_year": r.FiscalYear, "fiscal_period": r.Period,
+	payload := map[string]any{"company_code": d.code, "partner_code": partnerCode, "difference_id": d.id, "run_id": r.ID, "group_code": r.GroupCode, "fiscal_year": r.FiscalYear, "fiscal_period": r.Period,
 		"elimination_code": d.elimination, "legal_entity_id": d.company, "partner_id": d.partner, "difference": out.Difference.Value,
 		"tolerance": out.Tolerance.Value, "reason": *d.reason, "status": d.status, "version": d.version, "run_version": r.Version + 1}
 	if err := audit.Record(ctx, "consolidation.difference.accepted", "consolidation.run_difference", d.id, payload,

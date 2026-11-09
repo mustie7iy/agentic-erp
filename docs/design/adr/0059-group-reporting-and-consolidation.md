@@ -1557,9 +1557,9 @@ default, for the product owner to overrule:
   the column's check would. An accepted difference stays eliminated as
   it was; it is counted and totalled as `accepted`, after `open`.
   `IntercompanyDifferenceAccepted` names the run, group, period,
-  elimination, the pair by legal entity id, the difference and tolerance
-  in the group currency, the reason and both versions (no company names,
-  as the run's event; offered to webhooks); its audit record is
+  elimination, the pair by legal entity id and company code, the
+  difference and tolerance in the group currency, the reason and both
+  versions (no company names; offered to webhooks); its audit record is
   `consolidation.difference.accepted`. A difference written `accepted` is
   refused but by an import (000230's `platform.importing`).
 - **Finalizing, in this order.** 409 `consolidation.run_not_computed`;
