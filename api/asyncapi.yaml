@@ -4822,6 +4822,9 @@ components:
         profit_centers: {type: integer, minimum: 1, description: 'Profit centers (CEPC, CEPCT, CEPC_BUKRS) created active, the run their approval.'}
         profit_centers_extended: {type: integer, minimum: 1, description: Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).}
         cost_centers: {type: integer, minimum: 1, description: 'Cost centers (CSKS, CSKT) created active, the run their approval.'}
+        hierarchies: {type: integer, minimum: 1, description: 'Alternative hierarchies created from SAP''s center groups (sets 0101, 0106).'}
+        hierarchy_nodes: {type: integer, minimum: 1, description: 'SAP center groups loaded as hierarchy nodes, the run their approval.'}
+        hierarchy_places: {type: integer, minimum: 1, description: 'Centers this run created placed at a leaf of SAP''s groups.'}
 
     # --------------------------------------------------------------- agents
     RecommendationMadeV1:

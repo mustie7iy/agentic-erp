@@ -756,34 +756,108 @@ const openEnded = "99991231"
 // in English and, for 3100, German. Their categories (KOSAR) are the
 // mock's own codes, those the walkthrough's configuration has (ADMIN,
 // SALES); the pilot's KOSAR keys are pending the SAP specialist
-// (docs/migration.md), and the configuration needs a category for each. It
-// draws nothing from the generator, so the rest of the extract is the same
-// as without it.
+// (docs/migration.md), and the configuration needs a category for each.
+// Each center names its leaf of the standard hierarchy (KHINR) among the
+// groups, and the company's accounts are cost elements (T56h2). It draws
+// nothing from the generator, so the rest of the extract is the same as
+// without it.
 func (g *mockGen) centers(cc string) {
 	g.e.FAGL_SEGM = append(g.e.FAGL_SEGM, FAGLSegm{SEGMENT: "SEG-CAN"})
 	g.e.FAGL_SEGMT = append(g.e.FAGL_SEGMT, FAGLSegmt{SEGMENT: "SEG-CAN", LANGU: "E", NAME: "Canada"})
 	lockFrom := g.date(10, 1)
 	g.e.CEPC = append(g.e.CEPC,
-		CEPC{KOKRS: mockArea, PRCTR: "P3100", DATAB: "20200101", DATBI: openEnded, SEGMENT: "SEG-CAN", VERAK: "R. Gagnon"},
-		CEPC{KOKRS: mockArea, PRCTR: "P3200", DATAB: "20200101", DATBI: dayBefore(lockFrom), SEGMENT: "SEG-CAN", VERAK: "R. Gagnon"},
-		CEPC{KOKRS: mockArea, PRCTR: "P3200", DATAB: lockFrom, DATBI: openEnded, SEGMENT: "SEG-CAN", VERAK: "R. Gagnon", LOCK_IND: "X"})
+		CEPC{KOKRS: mockArea, PRCTR: "P3100", DATAB: "20200101", DATBI: openEnded, SEGMENT: "SEG-CAN", KHINR: "PH-ON", VERAK: "R. Gagnon"},
+		CEPC{KOKRS: mockArea, PRCTR: "P3200", DATAB: "20200101", DATBI: dayBefore(lockFrom), SEGMENT: "SEG-CAN", KHINR: "PH-QC", VERAK: "R. Gagnon"},
+		CEPC{KOKRS: mockArea, PRCTR: "P3200", DATAB: lockFrom, DATBI: openEnded, SEGMENT: "SEG-CAN", KHINR: "PH-QC", VERAK: "R. Gagnon", LOCK_IND: "X"})
 	for _, pc := range [][2]string{{"P3100", "Ontario operations"}, {"P3200", "Quebec operations"}} {
 		g.e.CEPC_BUKRS = append(g.e.CEPC_BUKRS, CEPCBukrs{KOKRS: mockArea, PRCTR: pc[0], BUKRS: cc})
 		g.e.CEPCT = append(g.e.CEPCT, CEPCT{KOKRS: mockArea, PRCTR: pc[0], DATBI: openEnded, SPRAS: "E", KTEXT: pc[1]})
 	}
 	moveOn := g.date(7, 1)
 	g.e.CSKS = append(g.e.CSKS,
-		CSKS{KOKRS: mockArea, KOSTL: "3100", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", WAERS: "CAD"},
-		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: "20200101", DATBI: dayBefore(moveOn), BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", WAERS: "CAD"},
-		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: moveOn, DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3200", WAERS: "CAD"},
-		CSKS{KOKRS: mockArea, KOSTL: "3200", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "SALES", VERAK: "L. Roy", PRCTR: "P3200", WAERS: "CAD"},
-		CSKS{KOKRS: mockArea, KOSTL: "3300", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "SALES", VERAK: "L. Roy", PRCTR: "P3100", BKZER: "X", WAERS: "CAD"})
+		CSKS{KOKRS: mockArea, KOSTL: "3100", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", KHINR: "H3100",
+			WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: "20200101", DATBI: dayBefore(moveOn), BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100",
+			KHINR: "H3100", WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: moveOn, DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3200", KHINR: "H3100",
+			WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3200", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "SALES", VERAK: "L. Roy", PRCTR: "P3200", KHINR: "H3200",
+			WAERS: "CAD"},
+		CSKS{KOKRS: mockArea, KOSTL: "3300", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "SALES", VERAK: "L. Roy", PRCTR: "P3100", KHINR: "H3200",
+			BKZER: "X", WAERS: "CAD"})
 	g.e.CSKT = append(g.e.CSKT,
 		CSKT{KOKRS: mockArea, KOSTL: "3100", DATBI: openEnded, SPRAS: "D", KTEXT: "Finanzen"},
 		CSKT{KOKRS: mockArea, KOSTL: "3100", DATBI: openEnded, SPRAS: "E", KTEXT: "Finance", LTEXT: "Finance and controlling, Toronto"},
 		CSKT{KOKRS: mockArea, KOSTL: "3120", DATBI: openEnded, SPRAS: "E", KTEXT: "Facilities"},
 		CSKT{KOKRS: mockArea, KOSTL: "3200", DATBI: openEnded, SPRAS: "E", KTEXT: "Sales Quebec"},
 		CSKT{KOKRS: mockArea, KOSTL: "3300", DATBI: openEnded, SPRAS: "E", KTEXT: "Sales Ontario"})
+	g.groups()
+	g.costElements(cc)
+}
+
+// mockSet is a center group of the mock (SETHEADER) with its text, its
+// subsets (SETNODE) and its values (SETLEAF: sign, option, from, to).
+type mockSet struct {
+	class, name, text string
+	subsets           []string
+	values            [][4]string
+}
+
+// mockSets are the mock's center groups in controlling area 1000 (T56h2):
+// the standard hierarchy of cost centers H1000 (TKA01-KHINR), Canada
+// H3000 below it with administration H3100, the range 3100 to 3199 (3100
+// and 3120), and sales H3200, 3200 and 3300 one by one; an alternative
+// hierarchy of regions, Ontario with 3100 and 3300, Quebec the range 3100
+// to 3299 without 3100 and 3300 (3120 and 3200); and the profit centers'
+// hierarchy PH1000, P3100 in Ontario and P3200 in Quebec, the leaves the
+// profit centers name (CEPC-KHINR) as the cost centers name theirs
+// (CSKS-KHINR).
+var mockSets = []mockSet{
+	{SetClassCostCenters, "H1000", "Maple group", []string{"H3000"}, nil},
+	{SetClassCostCenters, "H3000", "Maple Industries Canada", []string{"H3100", "H3200"}, nil},
+	{SetClassCostCenters, "H3100", "Administration", nil, [][4]string{{"I", "BT", "3100", "3199"}}},
+	{SetClassCostCenters, "H3200", "Sales", nil, [][4]string{{"I", "EQ", "3200", ""}, {"I", "EQ", "3300", ""}}},
+	{SetClassCostCenters, "REGIONS", "Regions", []string{"ON", "QC"}, nil},
+	{SetClassCostCenters, "ON", "Ontario", nil, [][4]string{{"I", "EQ", "3100", ""}, {"I", "EQ", "3300", ""}}},
+	{SetClassCostCenters, "QC", "Quebec", nil, [][4]string{{"I", "BT", "3100", "3299"}, {"E", "EQ", "3100", ""}, {"E", "EQ", "3300", ""}}},
+	{SetClassProfitCenters, "PH1000", "Maple profit centers", []string{"PH-ON", "PH-QC"}, nil},
+	{SetClassProfitCenters, "PH-ON", "Ontario", nil, [][4]string{{"I", "EQ", "P3100", ""}}},
+	{SetClassProfitCenters, "PH-QC", "Quebec", nil, [][4]string{{"I", "EQ", "P3200", ""}}},
+}
+
+// groups adds the mock's controlling area with its standard hierarchy and
+// its center groups (mockSets).
+func (g *mockGen) groups() {
+	g.e.TKA01 = append(g.e.TKA01, TKA01{KOKRS: mockArea, KHINR: "H1000"})
+	for _, s := range mockSets {
+		g.e.SETHEADER = append(g.e.SETHEADER, SETHEADER{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name})
+		g.e.SETHEADERT = append(g.e.SETHEADERT, SETHEADERT{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name, LANGU: "E", DESCRIPT: s.text})
+		for i, sub := range s.subsets {
+			g.e.SETNODE = append(g.e.SETNODE, SETNODE{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name, LINEID: fmt.Sprintf("%010d", i+1),
+				SUBSETCLS: s.class, SUBSETSCLS: mockArea, SUBSETNAME: sub})
+		}
+		for i, v := range s.values {
+			g.e.SETLEAF = append(g.e.SETLEAF, SETLEAF{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name, LINEID: fmt.Sprintf("%010d", i+1),
+				VALSIGN: v[0], VALOPTION: v[1], VALFROM: v[2], VALTO: v[3]})
+		}
+	}
+}
+
+// costElements adds the cost elements (CSKB) of the company's profit and
+// loss accounts: its sales revenue a revenue element (KATYP 11), its
+// expenses primary costs (01), and its exchange rate gains and losses
+// none, so that they take no cost object (cost_element none).
+func (g *mockGen) costElements(cc string) {
+	for _, a := range g.e.SKB1 {
+		if a.BUKRS != cc || a.XBILK == "X" || a.SAKNR == "0000480000" || a.SAKNR == "0000680000" {
+			continue
+		}
+		katyp := "01"
+		if a.SAKNR == "0000400000" {
+			katyp = "11"
+		}
+		g.e.CSKB = append(g.e.CSKB, CSKB{KOKRS: mockArea, KSTAR: a.SAKNR, DATBI: openEnded, KATYP: katyp})
+	}
 }
 
 // dayBefore is the SAP date before d, the DATBI of a slice the next starts

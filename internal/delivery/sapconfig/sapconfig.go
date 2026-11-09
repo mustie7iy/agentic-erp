@@ -89,7 +89,7 @@ var documentTypes = map[string]string{"journal_sa": "", "journal_ab": "", "journ
 
 // Generate builds a draft configuration; validate it before proposing it.
 func Generate(e *sap.Extract, opts Options) (*config.Config, []Note) {
-	g := &gen{e: e, opts: opts}
+	g := &gen{e: e, opts: opts, areas: areasOf(e)}
 	c := &config.Config{Version: 1, Output: config.Output{PurchaseOrderChannel: "email"}}
 	for _, t := range e.T001 {
 		c.Companies = append(c.Companies, g.company(t))
@@ -116,6 +116,7 @@ type gen struct {
 	e     *sap.Extract
 	opts  Options
 	notes []Note
+	areas map[string][]string // controlling areas by company code (areasOf)
 }
 
 func (g *gen) note(path, msg string) { g.notes = append(g.notes, Note{Path: path, Message: msg}) }
@@ -256,6 +257,7 @@ func (g *gen) company(t sap.T001) config.Company {
 	g.note(p+".manual_entry_approval_limit", "SAP releases parked documents by amount in its FI workflow, not in the extract; manual entries above "+
 		g.opts.ManualEntryApprovalLimit+" need the controller's approval")
 	co.ChartOfAccounts = g.chartOfAccounts(p, t.BUKRS)
+	g.costElements(p, t.BUKRS, co.ChartOfAccounts)
 	for _, r := range g.e.T030 {
 		if r.BUKRS != t.BUKRS {
 			continue

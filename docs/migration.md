@@ -222,10 +222,63 @@ revenues, PKZKP plan), a profit center's lock (LOCK_IND). A center's name
 and description are its text in English (CSKT and CEPCT KTEXT and LTEXT,
 FAGL_SEGMT NAME, language key E or EN) of its latest slice, else its text
 in another language with a warning; its person responsible is VERAK of its
-latest slice. Centers go to the standard hierarchy's UNASSIGNED leaf, as a
-center created without a node does; SAP's hierarchies (sets 0101 and 0106)
-are T56h2, the default assignments (OKB9) T56h3 and the centers on
-migrated journal lines (ACDOCA RCNTR, PRCTR, SEGMENT) T56h4.
+latest slice. Each center is created at its leaf of SAP's standard
+hierarchy (below), or at the standard hierarchy's UNASSIGNED leaf, as a
+center created without a node is, when the extract has none for its
+controlling area; the default assignments (OKB9) are T56h3 and the centers
+on migrated journal lines (ACDOCA RCNTR, PRCTR, SEGMENT) T56h4.
+
+SAP's cost and profit center groups (sets of class 0101 and 0106 of the
+controlling area: SETHEADER with their texts from SETHEADERT, their
+subgroups from SETNODE in line order and their values from SETLEAF) load
+before the centers, as hierarchies (T56h2). The controlling area's
+standard hierarchy of cost centers is the group TKA01-KHINR names; that
+of profit centers is the one tree holding the groups the profit centers
+name as their place (CEPC-KHINR), as the extract reads no field naming it.
+Each loads below the root of the tenant's standard hierarchy of its kind
+(created coded STANDARD when the tenant has none), so what the tenant's
+tree already holds, an earlier run's UNASSIGNED leaf included, is kept.
+Every other group no group includes tops an alternative hierarchy coded
+as it. Each group is a node, its creation a hierarchy change the run
+applied with no approval request of its own, as the centers are
+(`hierarchies`, `hierarchy_nodes`). A group's values are ranges (VALSIGN I
+includes, E excludes; VALOPTION EQ one value, BT a range, both ends
+included), compared as SAP keeps codes (digits alone padded with leading
+zeros to ten) and expanded against the extract's centers of the area: a
+center sits at the leaves whose values take it and, in the standard
+hierarchy, at the leaf its KHINR names, which must be one; it sits in an
+alternative hierarchy at the leaf that takes it, if any (`hierarchy_places`
+counts both). A later run keeps what is loaded: a group it finds loaded is
+not renamed or moved, a group SAP added is added below its parent, and a
+center an earlier run loaded keeps its places (a controller places it
+through the API). The quality gate refuses a group code that is not one
+(up to 15 of 0-9, A-Z, _ and -), a group without a name in any language
+(warning of one only in another language than English), a group holding
+both subgroups and values, a line naming a group the extract lacks or a
+subgroup of another class or area, a value whose sign or option is
+another (patterns, CP, are not expanded) or whose range ends before it
+starts, groups that include each other, a tree deeper than 12 levels (11
+below the standard root), a standard hierarchy (TKA01-KHINR) that is not
+a group, profit centers' places in more than one tree, a group name in the
+standard hierarchies of two controlling areas or topping alternative ones
+in two, a center in no leaf of its standard hierarchy, in two leaves of
+one hierarchy, or whose KHINR is not a leaf of it. It warns of a value
+taking no center of the extract (it places nothing) and of an area with
+groups but no standard hierarchy, whose centers go to the UNASSIGNED leaf.
+An alternative hierarchy whose code the tenant already has is refused by
+the load and fails the run.
+
+The configuration draft (`erp config generate`) takes each profit and loss
+account's cost element from SAP's cost element category (CSKB-KATYP of its
+latest slice, in the controlling areas of the company's centers; T56h2): 01
+`primary_cost` on an expense account, 11 or 12 `revenue` on a revenue
+account, and `none` for an account that is not a cost element in SAP (no
+CSKB row), so its lines take no cost object (ADR-0050 §4). A category the
+account's type cannot take, a secondary or statistical one (which the
+platform does not hold until T60) or areas that disagree leave the type's
+default, with a note for the reviewer, as does a company whose areas have
+no cost elements or whose area the extract does not tell (a company code
+without centers: TKA02 is not read).
 
 A later run keeps what an earlier one loaded: it assigns a profit center
 it finds there to the run's company codes it is not yet assigned to
@@ -428,6 +481,23 @@ stopped the run before the load.
   the walkthrough's ADMIN and SALES). The OData mapping reads none of
   these tables yet: an OData run loads no centers until the cost and
   profit center read APIs are mapped against the pilot's `$metadata`.
+- The center groups and cost elements (T56h2; ADR-0050 §10 names the
+  tables from memory): that TKA01 carries the cost centers' standard
+  hierarchy as KHINR, and whether it (or another table) names the profit
+  centers' standard hierarchy, which the load derives from CEPC-KHINR
+  instead; that SETHEADER keys a set by SETCLASS, SUBCLASS (the
+  controlling area for classes 0101 and 0106) and SETNAME, SETHEADERT
+  gives its text as DESCRIPT by LANGU, SETNODE its subsets as SUBSETCLS,
+  SUBSETSCLS and SUBSETNAME by LINEID, and SETLEAF its values as VALSIGN,
+  VALOPTION, VALFROM and VALTO by LINEID; that values hold centers in
+  their internal form (numeric codes zero-padded to ten), that I and E
+  and EQ and BT are the signs and options cost and profit center groups
+  use, and that CSKS-KHINR and CEPC-KHINR name a leaf of the standard
+  hierarchy; how long a set name may be (the platform holds 15
+  characters); that CSKB carries KOKRS, KSTAR, DATBI and KATYP, with 01
+  primary costs and 11 and 12 revenues and sales deductions; and whether
+  the extract should read TKA02 to tell a company code's controlling area.
+  The OData mapping reads none of these tables.
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

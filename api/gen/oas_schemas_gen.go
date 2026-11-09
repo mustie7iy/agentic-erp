@@ -42337,6 +42337,18 @@ type MigrationExtractCounts struct {
 	FaglSegm int `json:"fagl_segm"`
 	// Rows of SAP table FAGL_SEGMT (segment texts; ADR-0050 §10, T56h).
 	FaglSegmt int `json:"fagl_segmt"`
+	// Rows of SAP table TKA01 (controlling areas with their cost centers' standard hierarchy, KHINR;
+	// ADR-0050 §10, T56h2).
+	Tka01 int `json:"tka01"`
+	// Rows of SAP table SETHEADER of classes 0101 and 0106 (cost and profit center groups; ADR-0050 §10,
+	// T56h2).
+	Setheader int `json:"setheader"`
+	// Rows of SAP table SETHEADERT (the groups' texts; T56h2).
+	Setheadert int `json:"setheadert"`
+	// Rows of SAP table SETNODE (the groups' subgroups; ADR-0050 §10, T56h2).
+	Setnode int `json:"setnode"`
+	// Rows of SAP table SETLEAF (the groups' values, single centers or ranges; ADR-0050 §10, T56h2).
+	Setleaf int `json:"setleaf"`
 }
 
 // GetT001 returns the value of T001.
@@ -42474,6 +42486,31 @@ func (s *MigrationExtractCounts) GetFaglSegmt() int {
 	return s.FaglSegmt
 }
 
+// GetTka01 returns the value of Tka01.
+func (s *MigrationExtractCounts) GetTka01() int {
+	return s.Tka01
+}
+
+// GetSetheader returns the value of Setheader.
+func (s *MigrationExtractCounts) GetSetheader() int {
+	return s.Setheader
+}
+
+// GetSetheadert returns the value of Setheadert.
+func (s *MigrationExtractCounts) GetSetheadert() int {
+	return s.Setheadert
+}
+
+// GetSetnode returns the value of Setnode.
+func (s *MigrationExtractCounts) GetSetnode() int {
+	return s.Setnode
+}
+
+// GetSetleaf returns the value of Setleaf.
+func (s *MigrationExtractCounts) GetSetleaf() int {
+	return s.Setleaf
+}
+
 // SetT001 sets the value of T001.
 func (s *MigrationExtractCounts) SetT001(val int) {
 	s.T001 = val
@@ -42609,6 +42646,31 @@ func (s *MigrationExtractCounts) SetFaglSegmt(val int) {
 	s.FaglSegmt = val
 }
 
+// SetTka01 sets the value of Tka01.
+func (s *MigrationExtractCounts) SetTka01(val int) {
+	s.Tka01 = val
+}
+
+// SetSetheader sets the value of Setheader.
+func (s *MigrationExtractCounts) SetSetheader(val int) {
+	s.Setheader = val
+}
+
+// SetSetheadert sets the value of Setheadert.
+func (s *MigrationExtractCounts) SetSetheadert(val int) {
+	s.Setheadert = val
+}
+
+// SetSetnode sets the value of Setnode.
+func (s *MigrationExtractCounts) SetSetnode(val int) {
+	s.Setnode = val
+}
+
+// SetSetleaf sets the value of Setleaf.
+func (s *MigrationExtractCounts) SetSetleaf(val int) {
+	s.Setleaf = val
+}
+
 // A finding of the quality gate, the load or the reconciliation on a row of the extract.
 // Ref: #/components/schemas/MigrationIssue
 type MigrationIssue struct {
@@ -42710,8 +42772,19 @@ type MigrationLoadedCounts struct {
 	// Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).
 	ProfitCentersExtended OptInt `json:"profit_centers_extended"`
 	// Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as
-	// periods, at the standard hierarchy's UNASSIGNED leaf: the run is their approval (ADR-0050 §10).
+	// periods, at their leaf of SAP's standard hierarchy, or its UNASSIGNED leaf when the extract has none
+	// for their controlling area: the run is their approval (ADR-0050 §10).
 	CostCenters OptInt `json:"cost_centers"`
+	// Alternative hierarchies created from SAP's cost and profit center groups (sets 0101, 0106) that no
+	// group includes, each coded as its top group (ADR-0050 §10, T56h2). SAP's standard hierarchies are
+	// loaded below the tenant's standard hierarchy's root, created when the tenant has none.
+	Hierarchies OptInt `json:"hierarchies"`
+	// SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy, each a node change the
+	// run applied: the run is their approval (ADR-0050 §10, T56h2).
+	HierarchyNodes OptInt `json:"hierarchy_nodes"`
+	// Centers this run created placed at a leaf of SAP's groups, in the standard or an alternative
+	// hierarchy, their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2).
+	HierarchyPlaces OptInt `json:"hierarchy_places"`
 }
 
 // GetSuppliers returns the value of Suppliers.
@@ -42794,6 +42867,21 @@ func (s *MigrationLoadedCounts) GetCostCenters() OptInt {
 	return s.CostCenters
 }
 
+// GetHierarchies returns the value of Hierarchies.
+func (s *MigrationLoadedCounts) GetHierarchies() OptInt {
+	return s.Hierarchies
+}
+
+// GetHierarchyNodes returns the value of HierarchyNodes.
+func (s *MigrationLoadedCounts) GetHierarchyNodes() OptInt {
+	return s.HierarchyNodes
+}
+
+// GetHierarchyPlaces returns the value of HierarchyPlaces.
+func (s *MigrationLoadedCounts) GetHierarchyPlaces() OptInt {
+	return s.HierarchyPlaces
+}
+
 // SetSuppliers sets the value of Suppliers.
 func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
 	s.Suppliers = val
@@ -42872,6 +42960,21 @@ func (s *MigrationLoadedCounts) SetProfitCentersExtended(val OptInt) {
 // SetCostCenters sets the value of CostCenters.
 func (s *MigrationLoadedCounts) SetCostCenters(val OptInt) {
 	s.CostCenters = val
+}
+
+// SetHierarchies sets the value of Hierarchies.
+func (s *MigrationLoadedCounts) SetHierarchies(val OptInt) {
+	s.Hierarchies = val
+}
+
+// SetHierarchyNodes sets the value of HierarchyNodes.
+func (s *MigrationLoadedCounts) SetHierarchyNodes(val OptInt) {
+	s.HierarchyNodes = val
+}
+
+// SetHierarchyPlaces sets the value of HierarchyPlaces.
+func (s *MigrationLoadedCounts) SetHierarchyPlaces(val OptInt) {
+	s.HierarchyPlaces = val
 }
 
 // Merged schema.

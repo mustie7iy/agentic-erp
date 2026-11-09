@@ -21557,6 +21557,7 @@ paths:
         - ledger.gr_ir_position_exists
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
+        - ledger.hierarchy_node_exists
         - ledger.invalid_center_status
         - ledger.invalid_clearing_entry
         - ledger.invalid_tax_code
@@ -44914,6 +44915,11 @@ components:
         - cepc_bukrs
         - fagl_segm
         - fagl_segmt
+        - tka01
+        - setheader
+        - setheadert
+        - setnode
+        - setleaf
       properties:
         t001:
           type: integer
@@ -45023,6 +45029,26 @@ components:
           type: integer
           minimum: 0
           description: "Rows of SAP table FAGL_SEGMT (segment texts; ADR-0050 §10, T56h)."
+        tka01:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table TKA01 (controlling areas with their cost centers' standard hierarchy, KHINR; ADR-0050 §10, T56h2)."
+        setheader:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETHEADER of classes 0101 and 0106 (cost and profit center groups; ADR-0050 §10, T56h2)."
+        setheadert:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETHEADERT (the groups' texts; T56h2)."
+        setnode:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETNODE (the groups' subgroups; ADR-0050 §10, T56h2)."
+        setleaf:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table SETLEAF (the groups' values, single centers or ranges; ADR-0050 §10, T56h2)."
     MigrationLoadedCounts:
       type: object
       description: "What a migration run's load created, by kind; a kind it created none of is absent. A rehearsal, and a load with an `error` refusal, are rolled back: their counts are what the load created before the rollback, and nothing of it stays. A kept load counts only what no earlier kept run loaded, so a run of the same extract again counts nothing."
@@ -45090,7 +45116,19 @@ components:
         cost_centers:
           type: integer
           minimum: 1
-          description: "Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as periods, at the standard hierarchy's UNASSIGNED leaf: the run is their approval (ADR-0050 §10)."
+          description: "Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as periods, at their leaf of SAP's standard hierarchy, or its UNASSIGNED leaf when the extract has none for their controlling area: the run is their approval (ADR-0050 §10)."
+        hierarchies:
+          type: integer
+          minimum: 1
+          description: "Alternative hierarchies created from SAP's cost and profit center groups (sets 0101, 0106) that no group includes, each coded as its top group (ADR-0050 §10, T56h2). SAP's standard hierarchies are loaded below the tenant's standard hierarchy's root, created when the tenant has none."
+        hierarchy_nodes:
+          type: integer
+          minimum: 1
+          description: "SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy, each a node change the run applied: the run is their approval (ADR-0050 §10, T56h2)."
+        hierarchy_places:
+          type: integer
+          minimum: 1
+          description: "Centers this run created placed at a leaf of SAP's groups, in the standard or an alternative hierarchy, their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2)."
     MigrationIssue:
       type: object
       description: A finding of the quality gate, the load or the reconciliation on a row of the extract.

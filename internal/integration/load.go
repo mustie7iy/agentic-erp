@@ -68,6 +68,11 @@ type loader struct {
 	// foreign are the documents posted in their foreign document currency,
 	// with that currency (foreignDocuments).
 	foreign map[string]string
+	// plan is the extract's center groups (planGroups), and created the
+	// centers this run created by set class/area/code, which it places in
+	// the alternative hierarchies (groupPlaces).
+	plan    *groupPlan
+	created map[string]uuid.UUID
 }
 
 type loadedEntry struct {
