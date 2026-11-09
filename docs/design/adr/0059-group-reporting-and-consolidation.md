@@ -476,9 +476,11 @@ or failed run (409 `consolidation.run_not_discardable` otherwise).
 ### 7. Currency translation
 **The method** (to confirm with an accounting specialist; a question for
 the product owner below; confirmed by the specialist on 2026-11-09 with
-additions, question 1: the difference is other comprehensive income, and
-the part of group-currency revaluation and of net investment items that is
-translation moves there). Each member is translated from its
+additions, question 1: the difference is other comprehensive income; the
+part of a group-currency revaluation beyond the functional-currency
+difference translated moves there, and so does the whole exchange
+difference on a monetary item forming part of a net investment in a
+foreign operation, IAS 21.32). Each member is translated from its
 leading-ledger local-currency figures into the group currency:
 - **Assets and liabilities** at the **closing rate**: the latest rate of
   the configured `rate_type` from the member's local currency into the

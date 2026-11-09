@@ -89,7 +89,12 @@ const baselineItems = 949
 // leaf), TKA02, centers checked against the derivation at posting, values
 // on inner groups, 24-character group codes and the CSKB slice at cutover
 // (the T56h leaves), and the VAT 201's threshold measure (the VAT 201 leaf).
-const pilotItems = 111
+// 114 since its review (review round 1): A9 split into its profit center
+// and segment halves (+1), the empty-WAERS house bank leaf tagged as the
+// SAP house bank leaf it changes (+1), and SAP amounts in internal or
+// external format (D10's planning default), tagged as the foreign-currency
+// open items leaf (+1).
+const pilotItems = 114
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

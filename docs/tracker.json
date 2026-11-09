@@ -2364,7 +2364,7 @@
        {
         "s": "T",
         "t": "Tax registration number formats: the check digits and form of a Canadian BN with its GST/HST program account (RT) and QST number, and of a UAE TRN, from the authorities' primary sources, stated by the tax specialist; T61g checks only that a number is given; the UAE answered by the tax specialist on 2026-11-09 (C12): a TRN is 15 digits, numeric [H], a registered business's typically beginning with 100 [M], its first 10 digits the TIN used in e-invoicing [H], and no check digit is published [L], so length and digits are checked (the FTA's TRN verification on EmaraTax for certainty); the Canadian formats stay open",
-        "r": "config.TaxRegistration · ADR-0049 §10 · after T61g · ADR-0049 §10 (answered for the UAE)",
+        "r": "config.TaxRegistration · ADR-0049 §10 (answered for the UAE) · after T61g",
         "src": "split:T61g · po:2026-11-09",
         "pilot": "po:2026-10-31 · split:T61g",
         "c": []
@@ -2516,7 +2516,7 @@
        },
        {
         "s": "T",
-        "t": "E-invoice validation and refusals: the process activity (FOR UPDATE, only from received); parsing without DTD or entities; the PINT AE fields read, citing the specification the specialist or provider supplies; decimals; lines summing to the net and net plus tax to the gross (no tax-rate check: P5 at posting); the buyer a company of the connector with its FTA registration's TRN; refused with einvoicing.unreadable, unsupported_document, missing_field, amount_precision, totals_inconsistent, not_addressed_to_company, document_too_large; a fuzz test of the parser; an nfr budget of the processing transaction; walkthrough: a malformed e-invoice and one addressed to another TRN refused with their reasons, the valid one still received; the specification and fields as the UAE tax specialist cited them (po:2026-11-09, C1-C7; ADR-0061 §5, answered): PINT AE Billing, published by OpenPeppol for the Ministry of Finance (UBL 2.1; the release validated against and the document's IBT-024 recorded), each field read by its business term and path, only invoice 380 and credit note 381, IBT-006 and IBT-111 required when IBT-005 is not AED; the buyer judged by the IBT-049 endpoint (scheme 0235 and the company's TIN, the first 10 digits of its own Corporate Tax TRN, a VAT group member's own and not the representative's, which the configuration carries where the company's VAT TRN is its group's) and IBT-048 checked apart rather than required to equal it digit for digit; the published Schematron vendored only once its licence is read",
+        "t": "E-invoice validation and refusals: the process activity (FOR UPDATE, only from received); parsing without DTD or entities; the PINT AE fields read, citing the specification the specialist or provider supplies; decimals; lines summing to the net and net plus tax to the gross (no tax-rate check: P5 at posting); the buyer a company of the connector with its FTA registration's TRN; refused with einvoicing.unreadable, unsupported_document, missing_field, amount_precision, totals_inconsistent, not_addressed_to_company, document_too_large; a fuzz test of the parser; an nfr budget of the processing transaction; walkthrough: a malformed e-invoice and one addressed to another TRN refused with their reasons, the valid one still received; the specification and fields as the UAE tax specialist cited them (po:2026-11-09, C1-C7; ADR-0061 §5, answered): PINT AE Billing, published by OpenPeppol for the Ministry of Finance (UBL 2.1; the release validated against and the document's IBT-024 recorded), each field read by its business term [H] and UBL path [M], only invoice 380 and credit note 381 [M], IBT-006 and IBT-111 required when IBT-005 is not AED; the buyer judged by the IBT-049 endpoint (scheme 0235 and the company's TIN, the first 10 digits of its own Corporate Tax TRN, a VAT group member's own and not the representative's, which the configuration carries where the company's VAT TRN is its group's) and IBT-048 checked apart rather than required to equal it digit for digit; the published Schematron vendored only once its licence is read",
         "r": "ADR-0061 §4, §5, §14 · T65c · ADR-0061 §5 (answered, C1-C7)",
         "src": "adr:ADR-0061 · po:2026-11-09",
         "c": []
@@ -2914,7 +2914,15 @@
        },
        {
         "s": "T",
-        "t": "Centers on migrated journal lines checked against the derivation valid at posting, and ACDOCA-KOKRS read (SAP specialist, po:2026-11-09, A9; for T56h4): a line's PRCTR is derived from CSKS-PRCTR at posting and keeps that derivation, a cost center without a profit center taking the dummy profit center [M]; SEGMENT comes from CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it or the profit center's segment changed after posting [M]; so the quality gate and the reconciliation compare a migrated line's profit center and segment with the master data valid at its posting date, not today's; and ACDOCA-KOKRS is read [H], a blank one naming a company code without CO active",
+        "t": "Profit centers on migrated journal lines checked against the cost center period valid at posting, and ACDOCA-KOKRS read (SAP specialist, po:2026-11-09, A9(b), (d); for T56h4): a line's PRCTR is derived from CSKS-PRCTR at posting and keeps that derivation [M], so it may differ from today's master after a change, and a cost center without a profit center takes the dummy profit center; the quality gate and the reconciliation compare a migrated line's profit center with the cost_center_period valid at its posting date, not the current one; ACDOCA-KOKRS is read [H], a blank one naming a company code without CO active",
+        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A migrated line's segment that differs from its profit center's (SAP specialist, po:2026-11-09, A9(c) [M], to verify on the pilot system; for T56h4): SAP derives SEGMENT from CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it, or the profit center's segment changed after posting, while T56h4's quality gate refuses a segment that is not the profit center's and ADR-0050 gives a profit center one segment without validity; the step decides by default whether such a line loads with SAP's segment or is refused with an issue of its own naming the case, and amends ADR-0050 §5 if loading needs time-dependent segments",
         "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
@@ -2930,7 +2938,7 @@
        },
        {
         "s": "T",
-        "t": "SAP group codes up to 24 characters (SAP specialist, po:2026-11-09, A11(c) [M]): SETHEADER-SETNAME holds 24 characters, 15 being the limit of the CO transactions; the quality gate's group code check (up to 15 of 0-9, A-Z, _ and -) and the hierarchy node's code, which the platform holds at 15, take 24, so a set kept with a longer name (GS02) migrates",
+        "t": "SAP group codes up to 24 characters (SAP specialist, po:2026-11-09, A11(c) [M]): SETHEADER-SETNAME holds 24 characters, 15 being the limit of the CO transactions; the quality gate's group code check (up to 15 of 0-9, A-Z, _ and -) and the hierarchy node's code, which the platform holds at 15, take 24, so a set kept with a longer name (GS02) migrates; implied: the contract's code patterns ^[0-9A-Z_-]{1,15}$ (api/openapi.yaml) widen, the check of migration 000139_hierarchies changes in a new migration, and the breaking-change check applies",
         "r": "internal/integration sets.go · ledger hierarchy_node · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
@@ -8760,6 +8768,7 @@
       "t": "A house bank account without T012K-WAERS drafted in its G/L account's currency (SAP specialist, po:2026-11-09, A5 [M], to verify on the pilot system): an empty WAERS means no currency was maintained, so SAP does not restrict the account, and the binding currency is that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the company code's; the configuration draft takes SKB1-WAERS, noted for the reviewers, instead of currency UNKNOWN, which remains where neither gives a currency; FI-BAM (FCLM_BAM_AMD) a possible cross-check",
       "r": "delivery/sapconfig (house banks) · internal/sap T012K, SKB1 · ADR-0038 As built (SAP house banks in their account's currency, answered) · docs/migration.md",
       "src": "po:2026-11-09",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
      }
     ]
@@ -9410,6 +9419,14 @@
       "t": "Load SAP open items in a foreign document currency in that currency (product owner 2026-10-31, as recommended): an open vendor item or open down payment whose document currency (ACDOCA RWCUR, amount WSL) is not the company's is loaded as a document-currency item beside its company code amount (HSL), so a payment or final invoice in its own currency can clear it, instead of the quality gate refusing it; the open GR/IR position lines are the next leaf; an OData extract's open items, refused today because its mapping does not carry RWCUR and WSL, load once those properties are mapped",
       "r": "internal/integration/currency.go foreignDocuments · sourceRate · documentCurrencies · load.go journalPosting · downpayments.go takeOverDownPayment · reconcile Open items in <currency> · ledger.Posting.Rate · PostingLine.LC of a line of local amount only · Reports.OpenForeignItems · sap mock foreignInvoice · walkthrough steps 1, 3 and 9 · ADR-0005 As built · docs/migration.md · the OData mapping waits on the pilot system's $metadata (SAP S/4HANA OData V2 read connector)",
       "src": "review:batch20 · po:2026-10-31",
+      "pilot": "po:2026-10-31",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "SAP amounts in internal or external format told apart (the pilot customer questionnaire's D10 planning default, to be confirmed by the customer before go-live, po:2026-11-09: tables exported with SE16H or a custom report in SAP's internal amount format): the quality gate parses amounts with the currency's ISO exponent, i.e. in external format, and nothing reads TCURX, so a JPY 1,000 stored internally as 10.00 would load as 10 yen. To change, the step deciding which: either the extract reads TCURX and converts internal amounts of currencies with other than two decimals, or the customer is asked for external format and the gate refuses an internal one; in either case the gate refuses an amount whose format it cannot tell",
+      "r": "internal/integration/quality.go (amount parsing) · internal/sap · docs/migration.md (pilot customer facts, D10; amounts for currencies with no or three decimals)",
+      "src": "po:2026-11-09",
       "pilot": "po:2026-10-31",
       "c": []
      },
