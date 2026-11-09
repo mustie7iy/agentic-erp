@@ -1028,16 +1028,14 @@ companies (all in the tenant, under RLS). A registration change is financial
   - **Prior-period items** (dated before the period's start, unreported)
     are part of each box and shown apart (`prior_period_amount`; an
     expression box's is its expression over the earlier boxes' parts);
-    their signed tax is summed for information. **The threshold's measure
-    is open** (product owner and tax specialist: net or gross, per earlier
-    period or pooled, per error; answered by the UAE tax specialist on
-    2026-11-09, below); until it is settled `above_threshold` is
+    their signed tax is summed for information. The threshold's measure
+    was open (product owner and tax specialist: net or gross, per earlier
+    period or pooled, per error) and was answered by the UAE tax
+    specialist on 2026-11-09 (below). Until then `above_threshold` was
     raised, conservatively, when the input or the output tax of the items
-    of any one earlier period (by the registration's periods; one bucket
-    before its first) exceeds the pack's threshold in magnitude, so
-    directions and periods never cancel and the flag errs towards a
-    person's review. No threshold means always the next return (P7,
-    Canada's case). No released pack sets one yet (T61k's UAE pack will).
+    of any one earlier period exceeded the threshold in magnitude. No
+    threshold means always the next return (P7, Canada's case); the UAE
+    pack's (2026.2) is AED 10,000.
     **The UAE tax specialist's answer (po:2026-11-09, C11, each [M]; Federal
     Decree-Law No. 28 of 2022 on Tax Procedures, Art. 10, and Cabinet
     Decision No. 74 of 2023, its Executive Regulation, Art. 10):** the
@@ -1047,9 +1045,25 @@ companies (all in the tenant, under RLS). A registration change is financial
     disclosure is made per return. The threshold concerns underpaid tax
     (over-declared tax may be corrected either way); a voluntary disclosure
     is due within 20 business days of discovery, and is needed even below
-    AED 10,000 when no return is available to correct it. So the flag is to
-    become "a net payable-tax shortfall above AED 10,000 per earlier
-    period", with the 20-business-day disclosure shown: a tracker leaf.
+    AED 10,000 when no return is available to correct it.
+    **As built (C11, po:2026-11-09):** `above_threshold` is raised when the
+    items of any one earlier period (by the registration's periods; one
+    bucket before its first), all of them together, make a net shortfall
+    of payable tax above the pack's threshold. Each item counts what it
+    puts on the tax accounts, as `ledger.check_tax_items` holds it to the
+    journal: an output item its tax, an input item the part recovered (the
+    non-recoverable rest is cost, not tax paid). A period's sum, signed like
+    the journal, is a shortfall when it is a credit; a shortfall of exactly
+    the threshold does not raise the flag. Over-declared tax (a net debit)
+    never raises it, and one period's overpayment does not offset
+    another's shortfall: periods are never pooled. The measure is the
+    engine's, for every pack that sets a threshold (only the UAE's does);
+    the amount stays the pack's. The 20 business days are stated in the
+    contract's description of `above_threshold` (draft and stored return),
+    since the released UAE pack carries no field for them and a released
+    pack version never changes; a stored return keeps the flag it was
+    prepared with. A disclosure needed below the threshold when no return
+    can correct it is not flagged (not asked for).
   - **Refusals** (problem values): a `period_start` that starts none of
     the registration's periods (422 `tax.not_a_period`); a period not yet
     ended on the registrant's date in its time zone (409

@@ -144,8 +144,12 @@ The return's rules:
     C11, [M]; Tax Procedures Decree-Law No. 28 of 2022 Art. 10, Cabinet
     Decision No. 74 of 2023 Art. 10): net payable tax, per earlier tax
     period, all its errors together, on underpaid tax; a voluntary
-    disclosure within 20 business days of discovery (ADR-0049 §11, a
-    tracker leaf).
+    disclosure within 20 business days of discovery. Built (C11,
+    2026-11-09): the engine raises `above_threshold` on a net shortfall of
+    payable tax above AED 10,000 in any one earlier period, and the
+    contract states the 20 business days (ADR-0049 §11 As built); this
+    pack's own comment on the threshold ("its measure open") predates the
+    answer and is left as released.
 12. The amendment carries both the corrected figures and the differences
     (ADR-0049 §11 As built, T61i): which the FTA takes in a voluntary
     disclosure.

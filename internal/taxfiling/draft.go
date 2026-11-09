@@ -47,26 +47,20 @@ type boxSum struct {
 }
 
 // returnSums are the selection boxes' sums by code, and the items some box
-// selects: their count, and the prior-period ones' count and tax, in all
-// and by the earlier period and direction they belong to.
+// selects: their count, and the prior-period ones' count and tax in all,
+// and what they put on the tax accounts by the earlier period they belong
+// to (the registration's period's start; zero before its first).
 type returnSums struct {
 	boxes             map[string]boxSum
 	items, priorItems int64
 	priorTax          money.Minor
-	priorBy           map[priorKey]money.Minor
-}
-
-// priorKey is an earlier period of the registration (its start; zero
-// before its first) and a direction.
-type priorKey struct {
-	period    time.Time
-	direction string
+	priorPosted       map[time.Time]money.Minor
 }
 
 // sum sums each selection box's measure over the groups it selects, and
 // counts the items some box selects, once.
 func (s *returnScope) sum(groups []ledger.TaxItemGroup) (returnSums, error) {
-	out := returnSums{boxes: map[string]boxSum{}, priorBy: map[priorKey]money.Minor{}}
+	out := returnSums{boxes: map[string]boxSum{}, priorPosted: map[time.Time]money.Minor{}}
 	selected := make([]bool, len(groups))
 	for _, b := range s.def.Boxes {
 		if b.Select == nil {
@@ -92,32 +86,37 @@ func (s *returnScope) sum(groups []ledger.TaxItemGroup) (returnSums, error) {
 	return out, nil
 }
 
-// addPrior adds a prior-period group's tax in all and to its earlier
-// period and direction.
+// addPrior adds a prior-period group's tax in all, and what it puts on
+// the tax accounts to its earlier period: an output item its tax, an input
+// item the part recovered (as ledger.check_tax_items holds them to the
+// journal), so that a period's sum is the tax its items leave payable or
+// recoverable, signed like the journal.
 func (s *returnScope) addPrior(out *returnSums, g ledger.TaxItemGroup) error {
 	var err error
 	if out.priorTax, err = money.Sum(out.priorTax, g.TaxLC); err != nil {
 		return err
 	}
-	k := priorKey{direction: g.Direction}
+	var period time.Time
 	if ps := config.TaxPeriods(s.reg.FirstPeriodStart, s.reg.Frequency, nil, *g.PriorTaxDate); len(ps) > 0 {
-		k.period = ps[len(ps)-1].Start
+		period = ps[len(ps)-1].Start
 	}
-	if out.priorBy[k], err = money.Sum(out.priorBy[k], g.TaxLC); err != nil {
+	posted := g.TaxLC - g.NonRecoverableLC() // the part of the tax's sign and at most it that is not recovered: in range
+	if out.priorPosted[period], err = money.Sum(out.priorPosted[period], posted); err != nil {
 		return err
 	}
 	out.priorItems += g.Items
 	return nil
 }
 
-// aboveThreshold reports whether the input or the output tax of the items
-// of any one earlier period exceeds the threshold in magnitude: the
-// conservative reading of P7 until the tax specialist settles the measure
-// (net or gross, per period or pooled, per error), so that the flag errs
-// towards a person's review (ADR-0049 §11 As built).
+// aboveThreshold reports whether the items of any one earlier period,
+// all together, make a shortfall of payable tax above the threshold: their
+// output tax less their recovered input tax, a credit on the tax accounts
+// (negative). Over-declared tax, a net debit, never raises it, and periods
+// are never pooled: the UAE tax specialist's measure (po:2026-11-09, C11;
+// ADR-0049 §11 As built).
 func (r returnSums) aboveThreshold(threshold money.Minor) bool {
-	for _, v := range r.priorBy {
-		if v.Abs() > threshold {
+	for _, v := range r.priorPosted {
+		if v < -threshold { // a shortfall of -v; the pack's threshold is at most 13 digits, so its negation is in range
 			return true
 		}
 	}
