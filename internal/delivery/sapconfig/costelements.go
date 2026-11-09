@@ -19,10 +19,11 @@ const (
 	katypSalesDeductions = "12"
 )
 
-// areasOf are the controlling areas of each company code, as the extract
-// tells them: the areas of its cost centers (CSKS) and of the profit
-// centers assigned to it (CEPC_BUKRS). SAP assigns a company code to its
-// area in TKA02, which the extract does not read.
+// areasOf are the controlling areas of each company code: the one TKA02
+// assigns it to, as a company code belongs to exactly one (the SAP
+// specialist, po:2026-11-09, A8), else, for an extract without TKA02 (an
+// OData one), the areas of its cost centers (CSKS) and of the profit
+// centers assigned to it (CEPC_BUKRS).
 func areasOf(e *sap.Extract) map[string][]string {
 	out := map[string][]string{}
 	add := func(company, area string) {
@@ -38,6 +39,9 @@ func areasOf(e *sap.Extract) map[string][]string {
 	}
 	for _, areas := range out {
 		slices.Sort(areas)
+	}
+	for _, r := range e.TKA02 {
+		out[r.BUKRS] = []string{r.KOKRS}
 	}
 	return out
 }
@@ -69,7 +73,7 @@ func (g *gen) costElements(p, company string, accounts []config.Account) {
 	if len(byAccount) == 0 {
 		if len(g.e.CSKB) > 0 {
 			g.note(p+".chart_of_accounts", "the extract has no cost elements (CSKB) of the company's controlling areas ("+
-				cmp.Or(strings.Join(areas, ", "), "none known: the company has no centers, and TKA02 is not read")+"); its accounts take their type's cost element")
+				cmp.Or(strings.Join(areas, ", "), "none known: the company has no centers, and the extract no TKA02 row of it")+"); its accounts take their type's cost element")
 		}
 		return
 	}

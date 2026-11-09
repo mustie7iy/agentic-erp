@@ -1145,7 +1145,8 @@ pending the SAP specialist, docs/migration.md):
   SETHEADERT (a set's text, not in the list above), SETNODE and SETLEAF of
   classes 0101 and 0106, and CSKB (KOKRS, KSTAR, DATBI, KATYP). A scope
   keeps those of the controlling areas of the centers it keeps; a company
-  code without centers has no known area (TKA02 is not read). The mock's
+  code without centers has no known area (TKA02 is not read; read since,
+  below). The mock's
   area 1000 has the standard hierarchy H1000 (H3000 Canada, H3100
   administration as the range 3100 to 3199, H3200 sales), an alternative
   REGIONS (Quebec as 3100 to 3299 without 3100 and 3300), the profit
@@ -1348,6 +1349,19 @@ pilot's release, docs/migration.md):
 - **Not checked**: the orders and profit centers a row names (AUFK with
   JEST/JCDS, CEPC), as no such row is proposed; the ledger checks the
   cost center again when the change activates (`ledger.Setup.Check`).
+
+As built for the SAP specialist's answers (lane sapctr, po:2026-11-09;
+fixes of the leaves above, each named by its question):
+- **TKA02 (A8)**: `internal/sap` carries TKA02 (BUKRS, KOKRS), kept by
+  the scope's company codes, read only by the configuration draft. A
+  company code's area is TKA02's (decided by default: the specialist
+  answers that a company code belongs to exactly one area, which TKA02
+  names), else, for an extract without it (no released OData API), the
+  areas of its centers as before; the scope keeps the cost elements
+  (CSKB) of the TKA02 areas too, but not their groups, which place
+  centers and are kept by the areas of the centers loaded. The mock
+  assigns 3000 to area 1000 and 1000 and 2000 to area 2000, which has no
+  cost elements.
 
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not

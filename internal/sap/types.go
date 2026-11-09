@@ -342,6 +342,18 @@ type TKA01 struct {
 	KHINR string `json:"KHINR"`
 }
 
+// TKA02 - the controlling area KOKRS company code BUKRS is assigned to. A
+// company code belongs to exactly one controlling area, and TKA02 names it
+// (the SAP specialist, po:2026-11-09, A8 [H]). Read by the configuration
+// draft (delivery/sapconfig), which takes a company code's area from it
+// rather than from its centers, so a company code without centers has
+// one, and by FilterScope, which keeps that area's cost elements and
+// groups. There is no released OData API for it (file extract only).
+type TKA02 struct {
+	BUKRS string `json:"BUKRS"`
+	KOKRS string `json:"KOKRS"`
+}
+
 // Set classes of the center groups (SETHEADER-SETCLASS): cost center
 // groups and profit center groups, whose subclass (SUBCLASS) is the
 // controlling area (ADR-0050 §10, pending the SAP specialist).
@@ -696,6 +708,7 @@ type Extract struct {
 	FAGL_SEGM  []FAGLSegm   `json:"FAGL_SEGM,omitempty"`
 	FAGL_SEGMT []FAGLSegmt  `json:"FAGL_SEGMT,omitempty"`
 	TKA01      []TKA01      `json:"TKA01,omitempty"`
+	TKA02      []TKA02      `json:"TKA02,omitempty"`
 	SETHEADER  []SETHEADER  `json:"SETHEADER,omitempty"`
 	SETHEADERT []SETHEADERT `json:"SETHEADERT,omitempty"`
 	SETNODE    []SETNODE    `json:"SETNODE,omitempty"`
@@ -738,7 +751,7 @@ type Extract struct {
 // tables a migration run reads and the customizing its report has always
 // counted. The payment method tables (T042*) are read only by the
 // configuration draft (delivery/sapconfig), so a run's report does not
-// count them, nor CSKB, the default account assignments (TKA3A, TKA3C,
+// count them, nor CSKB, TKA02, the default account assignments (TKA3A, TKA3C,
 // TKA3P) and the currencies' decimals (TCURX), which the quality gate
 // reads to convert amounts.
 func (e *Extract) Counts() map[string]int {

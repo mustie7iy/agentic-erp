@@ -901,10 +901,17 @@ var mockSets = []mockSet{
 	{SetClassProfitCenters, "PH-QC", "Quebec", nil, [][4]string{{"I", "EQ", "P3200", ""}}},
 }
 
+// mockAreaOther is the controlling area the mock assigns its companies
+// 1000 and 2000 to (TKA02), which has no centers and no cost elements.
+const mockAreaOther = "2000"
+
 // groups adds the mock's controlling area with its standard hierarchy and
-// its center groups (mockSets).
+// its center groups (mockSets), and the company codes' assignment to the
+// areas (TKA02, A8): 3000 to the mock's area, 1000 and 2000 to another.
 func (g *mockGen) groups() {
 	g.e.TKA01 = append(g.e.TKA01, TKA01{KOKRS: mockArea, KHINR: "H1000"})
+	g.e.TKA02 = append(g.e.TKA02, TKA02{BUKRS: "1000", KOKRS: mockAreaOther}, TKA02{BUKRS: "2000", KOKRS: mockAreaOther},
+		TKA02{BUKRS: "3000", KOKRS: mockArea})
 	for _, s := range mockSets {
 		g.e.SETHEADER = append(g.e.SETHEADER, SETHEADER{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name})
 		g.e.SETHEADERT = append(g.e.SETHEADERT, SETHEADERT{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name, LANGU: "E", DESCRIPT: s.text})

@@ -2912,9 +2912,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP migration reads TKA02 (SAP specialist, po:2026-11-09, A8 [H]): a company code belongs to exactly one controlling area, which TKA02 (BUKRS to KOKRS) names; the extract carries it and the configuration draft takes a company code's controlling area from it, so a company code without cost centers no longer has an unknown area (docs/migration.md: \"TKA02 is not read\")",
-        "r": "internal/sap types.go · delivery/sapconfig costelements.go · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/sap types.go TKA02, source.go filterAreas (CSKB of the TKA02 areas), mock (3000 to area 1000, 1000 and 2000 to 2000) · delivery/sapconfig costelements.go areasOf (TKA02's area, else the centers' for an extract without it) · TestCostElementCategories, TestFilterScopeKeepsTheAssignedAreasCostElements · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

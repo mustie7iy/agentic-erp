@@ -368,17 +368,23 @@ are up to 24 characters in SETHEADER, not 15 (below, "What to check").
 
 The configuration draft (`erp config generate`) takes each profit and loss
 account's cost element from SAP's cost element category (CSKB-KATYP of its
-latest slice, in the controlling areas of the company's centers; T56h2): 01
+latest slice, in the company code's controlling area; T56h2): 01
 `primary_cost` on an expense account, 11 or 12 `revenue` on a revenue
 account, and `none` for an account that is not a cost element in SAP (no
 CSKB row), so its lines take no cost object (ADR-0050 §4). A category the
 account's type cannot take, a secondary or statistical one (which the
 platform does not hold until T60) or areas that disagree leave the type's
-default, with a note for the reviewer, as does a company whose areas have
-no cost elements or whose area the extract does not tell (a company code
-without centers: TKA02 is not read). To change after the SAP specialist's
-answers of 2026-11-09 (tracker leaves, po:2026-11-09): the slice valid at
-the cutover date is taken rather than the latest, and TKA02 is read.
+default, with a note for the reviewer, as does a company whose area has
+no cost elements or whose area the extract does not tell. A company code's
+controlling area is the one TKA02 assigns it to (BUKRS to KOKRS; the SAP
+specialist's answer A8 [H], po:2026-11-09), so a company code without
+centers has one; an extract without TKA02 (an OData one: there is no
+released API for it) takes the areas of the company's cost centers and of
+the profit centers assigned to it, as before. A scope keeps the TKA02 row
+of each of its company codes and the cost elements of those areas, but
+not their groups, which place centers. To change after the SAP
+specialist's answers of 2026-11-09 (tracker leaf, po:2026-11-09): the
+slice valid at the cutover date is taken rather than the latest.
 
 A later run keeps what an earlier one loaded: it assigns a profit center
 it finds there to the run's company codes it is not yet assigned to
@@ -708,8 +714,8 @@ others record a confirmation.
   costs), PKZER (plan revenues); VERAK_USER holds the responsible user's
   ID. The language key is stored as `E` (SE16 may show `EN`, its ISO
   form): the extract reads raw values. A company code belongs to exactly
-  one controlling area, which TKA02 (BUKRS to KOKRS) names; it is to be
-  read (tracker leaf). Which KOSAR keys the pilot uses waits for the
+  one controlling area, which TKA02 (BUKRS to KOKRS) names; the
+  configuration draft reads it (above). Which KOSAR keys the pilot uses waits for the
   pilot customer (below).
 - The centers on journal lines (T56h4; ADR-0050 §10 names the fields
   from memory): that ACDOCA carries a line's cost center, profit center

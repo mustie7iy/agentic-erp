@@ -12,7 +12,8 @@ import (
 // TestCostElementsFromMockSAP: the mock's company 3000 takes its accounts'
 // cost elements from CSKB-KATYP (T56h2): revenue 11, expenses 01, and its
 // exchange rate accounts, which are no cost elements, none; 1000, which
-// has no centers, keeps its types' defaults.
+// has no centers and whose area (TKA02) has no cost elements, keeps its
+// types' defaults.
 func TestCostElementsFromMockSAP(t *testing.T) {
 	c, notes := Generate(sap.GenerateMock(42, "2026"), zoned())
 	ca := c.Company("3000")
@@ -29,7 +30,7 @@ func TestCostElementsFromMockSAP(t *testing.T) {
 	}
 	text := notesText(notes)
 	for _, want := range []string{"companies[3000].chart_of_accounts[480000].cost_element: not a cost element in SAP (no CSKB row): none",
-		"companies[1000].chart_of_accounts: the extract has no cost elements (CSKB) of the company's controlling areas (none known"} {
+		"companies[1000].chart_of_accounts: the extract has no cost elements (CSKB) of the company's controlling areas (2000)"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("notes: got\n%s\nwant %q", text, want)
 		}
@@ -66,10 +67,19 @@ func TestCostElementCategories(t *testing.T) {
 		"another area's only": {[]sap.CSKB{{KOKRS: "A9", KSTAR: "0000510000", DATBI: "99991231", KATYP: "01"}}, "510000", "",
 			"companies[1000].chart_of_accounts: the extract has no cost elements (CSKB) of the company's controlling areas (A1)"},
 		"none at all": {nil, "510000", "", ""},
+		"no area known": {[]sap.CSKB{{KOKRS: "A1", KSTAR: "0000510000", DATBI: "99991231", KATYP: "01"}}, "510000", "",
+			"controlling areas (none known: the company has no centers, and the extract no TKA02 row of it)"},
+		"area from TKA02": {[]sap.CSKB{{KOKRS: "A7", KSTAR: "0000510000", DATBI: "99991231", KATYP: "01"}}, "510000", config.CostElementPrimaryCost, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			x := base()
 			x.CSKB = tc.cskb
+			switch name {
+			case "no area known": // a company code without centers, of an extract without TKA02
+				x.CSKS = nil
+			case "area from TKA02": // TKA02 names the area of a company code without centers (A8)
+				x.CSKS, x.TKA02 = nil, []sap.TKA02{{BUKRS: "1000", KOKRS: "A7"}}
+			}
 			if slices.ContainsFunc(tc.cskb, func(r sap.CSKB) bool { return r.KOKRS == "A2" }) { // a second area of the company, by its profit centers
 				x.CEPC_BUKRS = []sap.CEPCBukrs{{KOKRS: "A2", PRCTR: "P1", BUKRS: "1000"}, {KOKRS: "A2", PRCTR: "P2", BUKRS: "1000"}}
 			}
