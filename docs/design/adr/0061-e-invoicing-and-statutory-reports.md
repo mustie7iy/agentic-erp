@@ -673,10 +673,10 @@ tracker item only when one does (07 §7.5).
 (Filled in by the slices T65a-T65h.)
 
 **T65a (fetching e-invoices on demand).** Built as §2-§4, §11, §12 and
-§15 for recording: migrations 000230 (schema `einvoicing` with its
+§15 for recording: migrations 000231 (schema `einvoicing` with its
 outbox, `einvoicing.einvoice`, the permissions `einvoicing.einvoice.read`
 and `.manage`, and the connector kind check widened NOT VALID to
-`einvoice_provider`) and 000231 (that check validated). The leaf
+`einvoice_provider`) and 000232 (that check validated). The leaf
 `einvoicing` (`internal/einvoicing`; `internal/layout` lists it among the
 leaves, importing no context) declares the ports `Connectors` (over
 integration's published `EInvoiceProviders`: a connector resolved with
@@ -751,7 +751,7 @@ earlier attempt and `already_recorded` otherwise. Decided by default:
   use (`EInvoiceProviders.RefuseStandIn`); a change of an active
   connector's settings to the stand-in is refused at use, as §3 says of a
   stored one.
-- **Permissions.** Migration 000230 creates the two permissions and gives
+- **Permissions.** Migration 000231 creates the two permissions and gives
   them to no role: no migration since 000013 grants a role a permission
   (§11's "as earlier slices did" is not what the repository does); the
   tenant's administrators receive every permission at provisioning, and

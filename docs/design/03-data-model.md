@@ -3683,8 +3683,8 @@ creates the schema `consolidation` (with its outbox, for
 ADR-0061, T65a-T65f. A leaf context: it reads integration's connectors,
 tenancy, tax filing's registrations and partner's tax identifier
 fingerprints through ports, and enters supplier invoices through
-payables' published API; no context reads it. T65a (migrations 000230,
-000231) builds `einvoicing.einvoice` with what a fetch records: the
+payables' published API; no context reads it. T65a (migrations 000231,
+000232) builds `einvoicing.einvoice` with what a fetch records: the
 connector, the provider's message id (unique per tenant and connector,
 `einvoice_message_once`), the participant it was listed for and the
 connector's company of it (none when it names none), the SHA-256, size

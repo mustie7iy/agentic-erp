@@ -9,7 +9,7 @@
 -- legal_entity_id the tenancy context's, fetch_operation_id the
 -- platform's: no foreign key leaves the schema (02 §2.1). Expand only: a
 -- new schema, the connector kind check widened NOT VALID to the new kind
--- einvoice_provider (06 §6.4, validated by 000231) and two permissions,
+-- einvoice_provider (06 §6.4, validated by 000232) and two permissions,
 -- which the previous version neither reads nor writes.
 ALTER TABLE integration.connector
   DROP CONSTRAINT connector_kind_check,

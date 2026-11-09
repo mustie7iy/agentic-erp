@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestEInvoicingPermissions (T65a, migration 000230; ADR-0061 §11): the
+// TestEInvoicingPermissions (T65a, migration 000231; ADR-0061 §11): the
 // e-invoice read and manage permissions are seeded and are no approval
 // permissions.
 func TestEInvoicingPermissions(t *testing.T) {
@@ -27,7 +27,7 @@ func TestEInvoicingPermissions(t *testing.T) {
 	}
 }
 
-// TestEInvoiceRules (T65a, migration 000230; ADR-0061 §4, §7): an e-invoice
+// TestEInvoiceRules (T65a, migration 000231; ADR-0061 §4, §7): an e-invoice
 // is recorded received, once per connector and message id; its status does
 // not move yet (T65c-T65f widen the trigger); what was recorded is fixed,
 // its acknowledgement set once and never before it was received; it is
@@ -146,7 +146,7 @@ func TestEInvoiceIsTheTenants(t *testing.T) {
 	})
 }
 
-// TestEInvoiceProviderKind (migrations 000230, 000231): an integration
+// TestEInvoiceProviderKind (migrations 000231, 000232): an integration
 // connector may be of the kind einvoice_provider (ADR-0061 §3).
 func TestEInvoiceProviderKind(t *testing.T) {
 	need(t)
