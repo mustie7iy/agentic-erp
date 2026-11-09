@@ -141,8 +141,9 @@ func (im *Importer) importTenant(ctx context.Context, tx pgx.Tx, m manifest, ord
 		return err
 	}
 	// Columns the database keeps for itself, such as a period's opened
-	// count (ADR-0060 §6), are restored as exported while app.importing
-	// names the tenant: for this transaction only (migration 000229).
+	// count (ADR-0060 §6), and rows past their first state, such as a
+	// signed-off close, are restored as exported while app.importing names
+	// the tenant: for this transaction only (migrations 000229, 000230).
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.importing', $1, true)`, m.TenantID.String()); err != nil {
 		return fmt.Errorf("offboarding: mark the import of %s: %w", m.TenantID, err)
 	}
@@ -239,54 +240,61 @@ func (im *Importer) readPart(ctx context.Context, name string, p exportedTable, 
 // insertInPasses inserts the tables' rows. Tables whose rows still
 // reference rows not yet inserted wait for the next pass; each table's
 // insert runs under a savepoint so a foreign key violation does not end
-// the transaction.
+// the transaction. A trigger that reads another table's rows, such as a
+// journal entry's check that its company keeps its ledger, refuses with a
+// check violation while those rows are not inserted yet: such a table
+// waits too, and when a pass inserts nothing, what refused each table that
+// still waits is the import's error.
 func (im *Importer) insertInPasses(ctx context.Context, tx pgx.Tx, order []string, idents map[string]string, cols map[string][]string, rows map[string][]json.RawMessage, out *Imported) error {
 	todo := order
 	for pass := 1; len(todo) > 0; pass++ {
 		var next []string
+		var refusals []error
 		for _, name := range todo {
-			n, wait, err := im.insertTable(ctx, tx, name, idents[name], cols[name], rows[name])
+			n, refused, err := im.insertTable(ctx, tx, name, idents[name], cols[name], rows[name])
 			if err != nil {
 				return err
 			}
-			if wait {
+			if refused != nil {
 				next = append(next, name)
+				refusals = append(refusals, refused)
 				continue
 			}
 			out.Rows[name] = n
 			out.Tables++
 		}
 		if len(next) == len(todo) {
-			return fmt.Errorf("offboarding: rows of %s stay referenced after %d passes", strings.Join(next, ", "), pass)
+			return fmt.Errorf("offboarding: rows of %s stay referenced or refused after %d passes: %w", strings.Join(next, ", "), pass, errors.Join(refusals...))
 		}
 		todo = next
 	}
 	return nil
 }
 
-// insertTable inserts a table's rows under a savepoint. When they
-// reference rows not inserted yet, the savepoint is rolled back and wait
-// is set: the table waits for the next pass.
-func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name, ident string, cols []string, rows []json.RawMessage) (n int64, wait bool, err error) {
+// insertTable inserts a table's rows under a savepoint. When the database
+// refuses them for a foreign key or a check, which rows inserted later
+// may satisfy, the savepoint is rolled back and refused is what refused
+// them: the table waits for the next pass.
+func (im *Importer) insertTable(ctx context.Context, tx pgx.Tx, name, ident string, cols []string, rows []json.RawMessage) (n int64, refused, err error) {
 	sp, err := tx.Begin(ctx)
 	if err != nil {
-		return 0, false, fmt.Errorf("offboarding: open savepoint for %s: %w", name, err)
+		return 0, nil, fmt.Errorf("offboarding: open savepoint for %s: %w", name, err)
 	}
 	n, err = im.insert(ctx, sp, ident, cols, rows)
 	var pg *pgconn.PgError
-	if errors.As(err, &pg) && pg.Code == "23503" { // foreign_key_violation
+	if errors.As(err, &pg) && (pg.Code == "23503" || pg.Code == "23514") { // foreign_key_violation, check_violation
 		if err := sp.Rollback(ctx); err != nil {
-			return 0, false, fmt.Errorf("offboarding: roll back savepoint for %s: %w", name, err)
+			return 0, nil, fmt.Errorf("offboarding: roll back savepoint for %s: %w", name, err)
 		}
-		return 0, true, nil
+		return 0, fmt.Errorf("inserting into %s: %w", name, err), nil
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("offboarding: inserting into %s: %w", name, err)
+		return 0, nil, fmt.Errorf("offboarding: inserting into %s: %w", name, err)
 	}
 	if err := sp.Commit(ctx); err != nil {
-		return 0, false, fmt.Errorf("offboarding: release savepoint for %s: %w", name, err)
+		return 0, nil, fmt.Errorf("offboarding: release savepoint for %s: %w", name, err)
 	}
-	return n, false, nil
+	return n, nil, nil
 }
 
 // checkChainHead compares the imported audit chain head with the one the
@@ -341,19 +349,56 @@ func (im *Importer) tenantRow(ctx context.Context, tx pgx.Tx, m manifest) error 
 
 // insert writes a table's rows from their JSON into the columns given (the
 // table's, without the generated ones the database computes), and lets the
-// database check the rest. ident is the table's quoted identifier.
+// database check the rest. A column a row does not name, as in an export
+// written before the column was added, takes its default (ADR-0029):
+// json_populate_record alone would give it NULL. ident is the table's
+// quoted identifier.
 func (im *Importer) insert(ctx context.Context, tx pgx.Tx, ident string, cols []string, rows []json.RawMessage) (int64, error) {
-	list := make([]string, len(cols))
-	for i, c := range cols {
-		list[i] = pgx.Identifier{c}.Sanitize()
-	}
-	stmt := fmt.Sprintf(`INSERT INTO %s (%s) SELECT %s FROM json_populate_record(NULL::%s, $1::json)`, ident, strings.Join(list, ", "), strings.Join(list, ", "), ident)
+	stmts := map[string]string{} // by the columns a row names; an export's rows all name the same
 	for i, row := range rows {
+		named, err := namedColumns(cols, row)
+		if err != nil {
+			return 0, fmt.Errorf("insert row %d: %w", i+1, err)
+		}
+		key := strings.Join(named, ",")
+		stmt, ok := stmts[key]
+		if !ok {
+			stmt = insertStatement(ident, named)
+			stmts[key] = stmt
+		}
 		if _, err := tx.Exec(ctx, stmt, string(row)); err != nil {
 			return 0, fmt.Errorf("insert row %d: %w", i+1, err)
 		}
 	}
 	return int64(len(rows)), nil
+}
+
+// namedColumns is cols, in order, without those row does not name.
+func namedColumns(cols []string, row json.RawMessage) ([]string, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(row, &fields); err != nil {
+		return nil, fmt.Errorf("the row is not a JSON object: %w", err)
+	}
+	named := make([]string, 0, len(cols))
+	for _, c := range cols {
+		if _, ok := fields[c]; ok {
+			named = append(named, c)
+		}
+	}
+	if len(named) == 0 {
+		return nil, errors.New("the row names none of the table's columns")
+	}
+	return named, nil
+}
+
+// insertStatement inserts one row, given as $1, into the columns of the
+// table ident.
+func insertStatement(ident string, cols []string) string {
+	list := make([]string, len(cols))
+	for i, c := range cols {
+		list[i] = pgx.Identifier{c}.Sanitize()
+	}
+	return fmt.Sprintf(`INSERT INTO %s (%s) SELECT %s FROM json_populate_record(NULL::%s, $1::json)`, ident, strings.Join(list, ", "), strings.Join(list, ", "), ident)
 }
 
 // columns lists a table's columns that can be inserted: not generated, not

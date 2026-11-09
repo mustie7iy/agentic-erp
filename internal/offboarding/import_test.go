@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/offboarding"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
@@ -21,11 +22,12 @@ import (
 )
 
 // exportThenErase offboards, exports and erases a fresh tenant and returns
-// its id and the manifest key.
-func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uuid.UUID, string) {
+// its id, the manifest key and the rows past their first state it held.
+func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uuid.UUID, string, map[string]int64) {
 	t.Helper()
 	ctx := context.Background()
-	e := fixture.New(t, "payables.invoice.read")
+	e := fixture.New(t, "payables.invoice.read", "ledger.entry.park", "ledger.entry.post", "ledger.entry.read")
+	pastFirstStates(t, e)
 	// One period closed and opened again: its opened count of 2 (ADR-0060 §6) is a value the database keeps,
 	// which the import restores as exported.
 	// The row is read once by its unique order: each company has a period 1 on the same ledger.
@@ -38,6 +40,12 @@ func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uu
 	if got := count(t, `SELECT count(*) FROM ledger.period_status WHERE tenant_id = $1 AND opened_count = 2`, e.Tenant.ID); got != 1 {
 		t.Fatalf("periods opened twice before the export: got %d, want 1", got)
 	}
+	held := pastFirstStatesHeld(t, e.Tenant.ID)
+	for name, n := range held {
+		if n == 0 {
+			t.Fatalf("%s before the export: got none, want some", name)
+		}
+	}
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', version = version + 1 WHERE id = $1`, e.Tenant.ID)
 	clock := time.Now().UTC()
 	w := worker(t, pool, store, &clock)
@@ -49,7 +57,107 @@ func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uu
 	if _, err := w.Erase(ctx, e.Tenant.ID, offboarding.Actor, nil); err != nil {
 		t.Fatal(err)
 	}
-	return e.Tenant.ID, ex.Ref
+	return e.Tenant.ID, ex.Ref, held
+}
+
+// pastFirstStates gives the tenant of e rows past the state the database
+// inserts them in, each reached through its transitions: a period close
+// signed off with its task done, a posted parked entry with its lines, a
+// final consolidation run with its members and a balance, and a
+// carry-forward run superseded by a second (ADR-0029, migration 000230).
+func pastFirstStates(t *testing.T, e fixture.Env) {
+	t.Helper()
+	ten, who, closeID := e.Tenant.ID, e.Tenant.Human.ID, uuid.New()
+	pgtest.Exec(t, `INSERT INTO closing.period_close (tenant_id, id, legal_entity_id, fiscal_year, fiscal_period, period_end, config_version, created_by,
+		updated_by) VALUES ($1, $2, $3, 2026, 1, '2026-01-31', 1, $4, $4)`, ten, closeID, e.DE, who)
+	pgtest.Exec(t, `INSERT INTO closing.close_task (tenant_id, close_id, code, seq, name, kind, due_on, created_by, updated_by)
+		VALUES ($1, $2, 'AP', 1, 'Payables', 'manual', '2026-02-03', $3, $3)`, ten, closeID, who)
+	pgtest.Exec(t, `UPDATE closing.close_task SET status = 'done', completed_by = $2, completed_at = now(), version = version + 1 WHERE close_id = $1`,
+		closeID, who)
+	pgtest.Exec(t, `UPDATE closing.period_close SET status = 'signed_off', version = version + 1 WHERE id = $1`, closeID)
+	pgtest.Exec(t, `INSERT INTO closing.sign_off (tenant_id, id, close_id, signed_by, locked) VALUES ($1, gen_random_uuid(), $2, $3, '[{"locked": true}]')`,
+		ten, closeID, who)
+	parked := e.Park(t, "2026-03-15", "Imported", [2]string{"520000", "10.00"}, [2]string{"100000", "-10.00"})
+	_, tag := e.Must(200, "GET", "/v1/parked-journal-entries/"+parked.String(), "", "")
+	e.Must(200, "POST", "/v1/parked-journal-entries/"+parked.String()+":post", "", tag)
+	finalRun(t, e)
+	supersededCarryForward(t, e)
+}
+
+// finalRun gives the tenant of e a final consolidation run of companies
+// 2000 (the parent) and 1000, with 1000's translation difference.
+func finalRun(t *testing.T, e fixture.Env) {
+	t.Helper()
+	ten, who, run := e.Tenant.ID, e.Tenant.Human.ID, uuid.New()
+	pgtest.Exec(t, `INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start, period_end,
+		config_version, group_currency, rate_type, status, operation_id, created_by, updated_by) VALUES ($1, $2, 'GROUP', $3, ARRAY[$3, $4]::uuid[], 2026, 1,
+		'2026-01-01', '2026-01-31', 1, 'EUR', 'closing', 'queued', gen_random_uuid(), $5, $5)`, ten, run, e.DE, e.US, who)
+	pgtest.Exec(t, `UPDATE consolidation.run SET status = 'running', version = version + 1 WHERE id = $1`, run)
+	pgtest.Exec(t, `INSERT INTO consolidation.run_member (tenant_id, run_id, legal_entity_id, company_code, role, ownership_percent, first_fiscal_year,
+		first_fiscal_period, local_currency, closing_rate, rate_valid_from) VALUES ($1, $2, $3, '2000', 'parent', NULL, NULL, NULL, 'EUR', 1, NULL),
+		($1, $2, $4, '1000', 'member', 100, 2026, 1, 'USD', 0.9, '2026-01-31')`, ten, run, e.DE, e.US)
+	pgtest.Exec(t, `UPDATE consolidation.run_member SET period_status = 'open', period_version = 1, translated_at = now() WHERE run_id = $1`, run)
+	pgtest.Exec(t, `INSERT INTO consolidation.run_balance (tenant_id, run_id, legal_entity_id, line_no, group_account, kind, amount_gc)
+		VALUES ($1, $2, $3, 1, 'G3900', 'cta', 5)`, ten, run, e.US)
+	pgtest.Exec(t, `UPDATE consolidation.run SET status = 'computed', computed_at = now(), version = version + 1 WHERE id = $1`, run)
+	pgtest.Exec(t, `UPDATE consolidation.run SET status = 'final', finalized_by = updated_by, finalized_at = now(), version = version + 1 WHERE id = $1`, run)
+}
+
+// supersededCarryForward gives company 2000 of e a retained earnings
+// account and a carry-forward of 2025 into 2026 of its leading ledger, run
+// twice: the first run superseded by the second, which names it.
+func supersededCarryForward(t *testing.T, e fixture.Env) {
+	t.Helper()
+	ten, who, equity, first, second := e.Tenant.ID, e.Tenant.Human.ID, uuid.New(), uuid.New(), uuid.New()
+	pgtest.Exec(t, `INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, status, created_by, updated_by)
+		SELECT $1, $2, c.id, '330000', 'Retained earnings', 'equity', 'active', $3, $3 FROM ledger.chart_of_accounts c WHERE c.tenant_id = $1 AND c.code = '2000'`,
+		ten, equity, who)
+	pgtest.Exec(t, `INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by) VALUES ($1, $2, $3, $4, $4)`,
+		ten, e.DE, equity, who)
+	run := `INSERT INTO ledger.carry_forward_run (tenant_id, id, legal_entity_id, ledger_id, from_fiscal_year, to_fiscal_year, basis,
+		retained_earnings_account_id, row_count, created_by) SELECT $1, $2, $3, l.id, 2025, 2026, 'all_years', $4, 0, $5 FROM ledger.ledger l
+		WHERE l.tenant_id = $1 AND l.code = '` + config.LeadingLedger + `'`
+	pgtest.Exec(t, run, ten, first, e.DE, equity, who)
+	// The successor names the run it supersedes in the same transaction (superseded_by_id is checked at commit).
+	ctx := context.Background()
+	tx, err := pgtest.Admin(t).Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }() // after the commit a no-op; before it, the failure already reported
+	if _, err := tx.Exec(ctx, `UPDATE ledger.carry_forward_run SET status = 'superseded', superseded_by_id = $2, superseded_at = now(),
+		version = version + 1 WHERE id = $1`, first, second); err != nil {
+		t.Fatalf("supersede the first run: %v", err)
+	}
+	if _, err := tx.Exec(ctx, run, ten, second, e.DE, equity, who); err != nil {
+		t.Fatalf("insert the second run: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit the second run: %v", err)
+	}
+}
+
+// pastFirstStatesHeld counts the rows pastFirstStates leaves in the
+// tenant, by table and state.
+func pastFirstStatesHeld(t *testing.T, tenant uuid.UUID) map[string]int64 {
+	t.Helper()
+	held := map[string]int64{}
+	for name, sql := range map[string]string{
+		"signed-off closes":     `SELECT count(*) FROM closing.period_close WHERE tenant_id = $1 AND status = 'signed_off'`,
+		"done close tasks":      `SELECT count(*) FROM closing.close_task WHERE tenant_id = $1 AND status = 'done'`,
+		"posted parked entries": `SELECT count(*) FROM ledger.parked_entry WHERE tenant_id = $1 AND status = 'posted' AND journal_entry_id IS NOT NULL`,
+		"posted parked entries' lines": `SELECT count(*) FROM ledger.parked_entry_line l JOIN ledger.parked_entry p ON p.tenant_id = l.tenant_id
+			AND p.id = l.parked_entry_id WHERE l.tenant_id = $1 AND p.status = 'posted'`,
+		"final runs":           `SELECT count(*) FROM consolidation.run WHERE tenant_id = $1 AND status = 'final'`,
+		"translated members":   `SELECT count(*) FROM consolidation.run_member WHERE tenant_id = $1 AND translated_at IS NOT NULL`,
+		"final runs' balances": `SELECT count(*) FROM consolidation.run_balance WHERE tenant_id = $1`,
+		"superseded carry-forwards": `SELECT count(*) FROM ledger.carry_forward_run WHERE tenant_id = $1 AND status = 'superseded'
+			AND superseded_by_id IS NOT NULL`,
+		"current carry-forwards": `SELECT count(*) FROM ledger.carry_forward_run WHERE tenant_id = $1 AND status = 'current'`,
+	} {
+		held[name] = count(t, sql, tenant)
+	}
+	return held
 }
 
 // TestReonboarding: an erased tenant comes back from its export, row for
@@ -58,7 +166,7 @@ func TestReonboarding(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.Pool(t)
 	store := blobstore.Dir{Root: t.TempDir()}
-	tenant, ref := exportThenErase(t, pool, store)
+	tenant, ref, held := exportThenErase(t, pool, store)
 	var manifest struct {
 		Tables []struct {
 			Name string
@@ -127,6 +235,11 @@ func TestReonboarding(t *testing.T) {
 	}
 	if got := count(t, `SELECT count(*) FROM ledger.period_status WHERE tenant_id = $1 AND opened_count = 2`, tenant); got != 1 {
 		t.Errorf("periods opened twice after the import: got %d, want the 1 exported", got)
+	}
+	for name, n := range pastFirstStatesHeld(t, tenant) {
+		if n != held[name] {
+			t.Errorf("%s after the import: got %d, want the %d exported", name, n, held[name])
+		}
 	}
 	var status string
 	var erased *time.Time
@@ -208,7 +321,10 @@ func TestImportRefusals(t *testing.T) {
 	if !t.Run("each statement failing", sc.eachStatementFailing) {
 		t.FailNow()
 	}
-	t.Run("creating a tenant failing", sc.creatingATenantFailing)
+	if !t.Run("creating a tenant failing", sc.creatingATenantFailing) {
+		t.FailNow()
+	}
+	t.Run("an older export's defaults", sc.olderExportsDefaults)
 }
 
 // refusalsScenario is the state TestImportRefusals's steps share: a store
@@ -322,6 +438,20 @@ func (sc *refusalsScenario) rowsAndTablesRefused(t *testing.T) {
 	sumB := sc.put(t, sc.d+"/identity.role.00001.jsonl", `{"tenant_id":"`+sc.tenant.String()+`","id":"`+uuid.NewString()+`","name":"No code"}`+"\n")
 	_, err = sc.im.Import(sc.ctx, sc.manifest(t, sc.d, `{"name":"identity.role","part":1,"key":"`+sc.d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sumB+`"}`))
 	pgtest.WantErr(t, err, "inserting into identity.role")
+	// Rows that are no JSON object or name none of the table's columns; a row a check refuses, which waits for rows a later
+	// pass might insert until a pass inserts nothing, then reported as such.
+	for _, tc := range []struct{ name, line, want string }{
+		{"no object", `[1]`, "not a JSON object"},
+		{"no column", `{"nothing":1}`, "names none of the table's columns"},
+		{"a check refused", strings.Replace(sc.roleLine, `"code":"NOBODY"`, `"code":"no body"`, 1), "stay referenced or refused after 1 passes: inserting into identity.role"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := "tenants/" + sc.tenant.String() + "/exports/" + strings.ReplaceAll(tc.name, " ", "-")
+			sum := sc.put(t, d+"/identity.role.00001.jsonl", strings.TrimSuffix(tc.line, "\n")+"\n")
+			_, err := sc.im.Import(sc.ctx, sc.manifest(t, d, `{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,"sha256":"`+sum+`"}`))
+			pgtest.WantErr(t, err, tc.want)
+		})
+	}
 	// A table the cell does not have.
 	sc.d = "tenants/" + sc.tenant.String() + "/exports/table"
 	sumT := sc.put(t, sc.d+"/nowhere.thing.00001.jsonl", `{"tenant_id":"`+sc.tenant.String()+`"}`+"\n")
@@ -403,6 +533,28 @@ func (sc *refusalsScenario) creatingATenantFailing(t *testing.T) {
 		t.Error("no injected failure reached the creation of a new tenant")
 	}
 	sc.im.InTx = nil
+}
+
+// olderExportsDefaults is the step "an older export's defaults" of
+// TestImportRefusals: a column an export written before it was added does
+// not name takes its default, not NULL (ADR-0029).
+func (sc *refusalsScenario) olderExportsDefaults(t *testing.T) {
+	fresh := uuid.Must(uuid.NewV7()).String()
+	d := "tenants/" + fresh + "/exports/older"
+	line := `{"tenant_id":"` + fresh + `","id":"` + uuid.NewString() + `","code":"OLDER","name":"Older","status":"active","created_by":"` +
+		uuid.NewString() + `","updated_by":"` + uuid.NewString() + `"}` + "\n" // no created_at, updated_at or version
+	sum := sc.put(t, d+"/identity.role.00001.jsonl", line)
+	key := d + "/manifest.json"
+	sc.put(t, key, `{"tenant_id":"`+fresh+`","tenant":{"id":"`+fresh+`","name":"Older","region":"eu-west","group_currency":"EUR","status":"active"},
+		"exported_at":"2026-10-12T00:00:00Z","tables":[{"name":"identity.role","part":1,"key":"`+d+`/identity.role.00001.jsonl","rows":1,"bytes":1,
+		"sha256":"`+sum+`"}]}`)
+	if _, err := sc.im.Import(sc.ctx, key); err != nil {
+		t.Fatalf("import an older export: %v", err)
+	}
+	if n := count(t, `SELECT count(*) FROM identity.role WHERE tenant_id = $1 AND version = 1 AND created_at IS NOT NULL AND updated_at IS NOT NULL`,
+		fresh); n != 1 {
+		t.Errorf("roles imported with their defaults: got %d, want 1", n)
+	}
 }
 
 // wipeTrail removes a tenant's audit trail the way a destination cell
