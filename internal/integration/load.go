@@ -73,6 +73,8 @@ type loader struct {
 	// the alternative hierarchies (groupPlaces).
 	plan    *groupPlan
 	created map[string]uuid.UUID
+	// lines finds the centers a journal line names (lineCentersOf).
+	lines lineCenterIndex
 }
 
 type loadedEntry struct {
@@ -162,6 +164,7 @@ func (l *loader) load(ctx context.Context) error {
 	l.downPayments = downPaymentDocs(l.ext)
 	l.foreign, _ = foreignDocuments(l.ext, l.t) // the quality gate refused the conflicts
 	l.grir, l.viaGRIR = grirPositions(l.ext, l.t), map[string]bool{}
+	l.lines = lineCentersOf(l.ext)
 	for _, fn := range []func(context.Context) error{l.centers, l.partners, l.orders, l.lockOrderItems, l.invoiced, l.receipts, l.takeOverGRIR, l.invoices, l.journal, l.clearings,
 		l.blocked} {
 		if err := fn(ctx); err != nil {
@@ -546,7 +549,11 @@ func (l *loader) journal(ctx context.Context) error {
 // the shared savepoint is defence in depth (TestTakeOverDownPayment shows
 // the refusal propagating).
 func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.ACDOCA, currency map[string]string) error {
-	in, posted := l.journalPosting(lines, currency)
+	in, posted, unloaded := l.journalPosting(lines, currency)
+	if unloaded != "" {
+		l.issue("ACDOCA", key, unloaded)
+		return nil
+	}
 	_, downPayment := l.downPayments[key]
 	done, err := l.step(ctx, "ACDOCA", key, func() error {
 		entry, err := l.e.Postings.Post(ctx, in)
@@ -581,14 +588,15 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 // code amount are left out (they have no document amount either, which
 // the quality gate checks: foreignLine, documentCurrencies, leftOutLines),
 // so it also maps each SAP line to its platform line number, the same in
-// every run.
-func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (ledger.Posting, loadedEntry) {
+// every run. Each line carries its centers (assignCenters); unloaded
+// names one the load did not load, which refuses the document.
+func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (in ledger.Posting, posted loadedEntry, unloaded string) {
 	slices.SortFunc(lines, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
 	first := lines[0]
 	date, _ := sapDate(first.BUDAT) // checked by the quality gate
 	text := "SAP document " + first.BELNR
 	local := currency[first.RBUKRS]
-	in := ledger.Posting{LegalEntityID: l.t.entities[first.RBUKRS].ID, DocumentType: first.BLART, DocumentDate: date, PostingDate: date,
+	in = ledger.Posting{LegalEntityID: l.t.entities[first.RBUKRS].ID, DocumentType: first.BLART, DocumentDate: date, PostingDate: date,
 		Currency: local, HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID}
 	if foreign := l.foreign[documentKey(first)]; foreign != "" {
 		in.Currency = foreign
@@ -597,7 +605,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 	if first.XBLNR != "" {
 		in.Reference = &first.XBLNR
 	}
-	posted := loadedEntry{lines: map[string]int32{}, date: date}
+	posted = loadedEntry{lines: map[string]int32{}, date: date}
 	var dp *sap.ACDOCA
 	if open := openDownPayments(lines); len(open) == 1 {
 		dp = &open[0]
@@ -613,10 +621,13 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 			pl.PartnerID = &partnerID
 		}
 		downPaymentPosting(&pl, line, dp)
+		if why := l.assignCenters(line, &pl); why != "" && unloaded == "" {
+			unloaded = why
+		}
 		in.Lines = append(in.Lines, pl)
 		posted.lines[line.DOCLN] = int32(len(in.Lines))
 	}
-	return in, posted
+	return in, posted, unloaded
 }
 
 // openingEntries posts one opening entry per company: the balance of each
@@ -795,7 +806,7 @@ func (l *loader) earlierEntries(ctx context.Context, groups map[string][]sap.ACD
 		currency[c.BUKRS] = c.WAERS
 	}
 	for key, lines := range docs {
-		_, e := l.journalPosting(lines, currency)
+		_, e, _ := l.journalPosting(lines, currency) // only its line numbers: the document is posted already
 		id := l.refs["ACDOCA/"+key]
 		e.ref = ledger.ItemRef{FiscalYear: years[id], EntryID: id}
 		out[key] = e

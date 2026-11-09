@@ -111,6 +111,10 @@ var DefaultEntities = []EntityMapping{
 	// document currency, rather than assume the company's; once they are
 	// mapped (the pilot system's $metadata), such items load in their
 	// document currency as a file extract's do.
+	// Nor are ACDOCA-RCNTR, PRCTR and SEGMENT (a line's centers, T56h4):
+	// the API's properties for them are not recorded, so an OData
+	// extract's lines load without centers, the ledger deriving them as
+	// for any line without, until the pilot's $metadata names them (T56h5).
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Static: map[string]string{"RLDNR": "0L"},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",

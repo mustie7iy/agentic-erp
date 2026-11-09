@@ -43523,8 +43523,11 @@ type MigrationDiff struct {
 	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>`
 	// or `open items of partner <id> (<name>)` (the number of open payable items),
 	// `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items
-	// in a foreign document currency, in it), or `cost center <KOKRS>/<KOSTL>` or
-	// `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10).
+	// in a foreign document currency, in it), `cost center <KOKRS>/<KOSTL>` or
+	// `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), or
+	// `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
+	// `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center
+	// reports', documents mode).
 	Key string `json:"key"`
 	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
 	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load

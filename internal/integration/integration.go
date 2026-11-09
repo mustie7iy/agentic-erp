@@ -166,6 +166,7 @@ type Endpoints struct {
 	Postings      Postings
 	Reports       Reports
 	Centers       Centers
+	Actuals       CenterActuals
 	Secrets       Secrets
 	Requesters    Requesters       // the workflow's Execute refuses a requester no longer active
 	Keys          Sealer           // seals webhook secrets with the tenant's key

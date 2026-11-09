@@ -232,8 +232,25 @@ in another language with a warning; its person responsible is VERAK of its
 latest slice. Each center is created at its leaf of SAP's standard
 hierarchy (below), or at the standard hierarchy's UNASSIGNED leaf, as a
 center created without a node is, when the extract has none for its
-controlling area; the default assignments (OKB9) are T56h3 and the centers
-on migrated journal lines (ACDOCA RCNTR, PRCTR, SEGMENT) T56h4.
+controlling area; the default assignments (OKB9) are T56h3.
+
+Each SAP line the run posts as it stands carries SAP's account assignment
+(ACDOCA RCNTR, PRCTR and SEGMENT; T56h4): the cost center, profit center
+and segment of the same code the run migrated, each center the one of the
+line's company code (CSKS-BUKRS, CEPC_BUKRS), as the extract reads no
+controlling area on the line. The ledger checks them as it checks any
+posting (ADR-0050 §5): a profit center other than the cost center's on the
+posting date, a center not valid or locked on it, or a cost center on an
+account that takes none refuses the document, and the run fails. A line without them is derived as any
+line is. The quality gate refuses beforehand a line naming a cost center
+that is not one of its company code's in the extract (CSKS), a profit
+center not assigned to it (CEPC_BUKRS) or a center in two controlling
+areas of it, so not migrated, and a segment that is not the line's profit
+center's (CEPC-SEGMENT), or one on a line without a profit center. In
+`documents` mode that is every line; in `balances` mode only the lines of
+the documents posted as entries of their own (an open down payment's, an
+open item's in a foreign currency), as the opening entry carries
+balances, not SAP's lines, and so no centers (ADR-0050 §10).
 
 SAP's cost and profit center groups (sets of class 0101 and 0106 of the
 controlling area: SETHEADER with their texts from SETHEADERT, their
@@ -344,6 +361,20 @@ They must be equal.
   profit center) as SAP's slices give them against the platform's
   (differences listed by `cost center <KOKRS>/<KOSTL>` and
   `profit center <KOKRS>/<PRCTR>`; T56h)
+- Cost center, profit center and segment totals per company code
+  (`documents` mode), where either side has any: SAP's lines on profit and
+  loss accounts (SKB1-XBILK blank) added up by RCNTR, PRCTR and SEGMENT in
+  company code currency, against the center reports' actuals of the
+  centers runs loaded over the fiscal year in the leading ledger (as `GET
+  /v1/cost-center-balances` and `/v1/profit-center-balances` read them), a
+  segment's the sum of its profit centers' (differences listed by
+  `cost center total <KOKRS>/<KOSTL>`, `profit center total
+  <KOKRS>/<PRCTR>` and `segment total <SEGMENT>`; T56h4). A line SAP left
+  without a profit center that the ledger derives from its cost center,
+  or without a segment that the ledger derives from its profit center,
+  shows as a difference rather than being assumed. A `balances` run has
+  no such control: its opening entry carries the profit and loss balances
+  without centers
 - Each vendor's payments bank account: SAP's first LFBK row as it loads
   (scheme, bank country, Canadian routing, last four characters) against the
   supplier's account valid today (differences listed by vendor; T72d). The
@@ -599,6 +630,16 @@ others record a confirmation.
   one controlling area, which TKA02 (BUKRS to KOKRS) names; it is to be
   read (tracker leaf). Which KOSAR keys the pilot uses waits for the
   pilot customer (below).
+- The centers on journal lines (T56h4; ADR-0050 §10 names the fields
+  from memory): that ACDOCA carries a line's cost center, profit center
+  and segment as RCNTR, PRCTR and SEGMENT, in the same form as CSKS-KOSTL,
+  CEPC-PRCTR and FAGL_SEGM-SEGMENT (numeric codes zero-padded alike); that
+  SAP fills PRCTR wherever it fills RCNTR, and SEGMENT from the profit
+  center's master; and whether the extract should read the line's
+  controlling area (the load takes the one of the line's company code).
+  The OData mapping reads none of the three: an OData extract's lines load
+  without centers until `A_JournalEntryItemBasic`'s properties for them
+  are confirmed in the pilot's `$metadata` (T56h5).
 - The center groups and cost elements (T56h2; ADR-0050 §10 names the
   tables from memory): that TKA01 carries the cost centers' standard
   hierarchy as KHINR, and whether it (or another table) names the profit
@@ -642,6 +683,18 @@ others record a confirmation.
   cutover date, not the latest [M]: the latest only when none covers it,
   and the account flagged, since an expired cost element means CO postings
   were stopped on purpose (tracker leaf).
+- The default account assignments (OKB9, T56h3; not built, waiting on
+  these answers): ADR-0050 §10 names their tables from memory as TKA3A
+  "and its detail tables", and no field of them is written down, so the
+  extract does not read them. To be confirmed: which tables and fields of
+  the pilot's release hold a default cost center per company code and
+  account (the platform's `default_assignments` hold exactly that); the
+  names of the detail tables and the key of each; whether a default is
+  time-dependent; what a default given by business area, valuation area
+  or profit center, rather than by company code alone, should become
+  (the platform has one cost center per company and account); and whether
+  a default naming an order or another object than a cost center can
+  occur and is to be noted only.
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents
