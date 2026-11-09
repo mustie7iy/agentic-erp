@@ -22,4 +22,8 @@ echo "budgets in: ${pkgs[*]}"
 # Compile the test binaries in parallel first (-exec true runs none), so
 # only the measured runs are one package at a time.
 go test -exec true "$@" "${pkgs[@]}" >/dev/null
-go test -count=1 -p 1 -run 'Test[A-Za-z0-9]*(Budget|Perf)' "$@" "${pkgs[@]}"
+# The limit only guards against a hang: go test's default 10 minutes per
+# package stopped main's run after batch 61, when workflows' consolidation
+# and depreciation budgets, seeding their scaled data, passed but together
+# took over 10 minutes on the runner (run 42685494844).
+go test -count=1 -p 1 -timeout 30m -run 'Test[A-Za-z0-9]*(Budget|Perf)' "$@" "${pkgs[@]}"
