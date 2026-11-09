@@ -4109,7 +4109,7 @@ components:
         comment: {type: [string, 'null'], description: "The rejection's comment."}
     EInvoiceChangedV1:
       type: object
-      required: [einvoice_id, connector_id, message_id, legal_entity_id, legal_entity_code, status, status_before, sha256, changed_sha256, changed_fetch_operation_id, fetch_operation_id, version]
+      required: [einvoice_id, connector_id, message_id, legal_entity_id, legal_entity_code, status, status_before, sha256, fetch_operation_id, version]
       properties:
         einvoice_id: {$ref: '#/components/schemas/Uuid', description: '`einvoicing.einvoice.id`.'}
         connector_id: {$ref: '#/components/schemas/Uuid', description: The `einvoice_provider` connector it was received through.}
@@ -4119,8 +4119,8 @@ components:
         status: {type: string, description: "The document's status after the change. Open enum: received."}
         status_before: {type: [string, 'null'], description: "Its status before; null when it was received."}
         sha256: {type: string, description: "The SHA-256 of its bytes as received, hex."}
-        changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`)."}
-        changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those other bytes: its Operation; null with `changed_sha256`."}
+        changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`). Added within v1, so not required (ADR-0041); every event carries it."}
+        changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those other bytes: its Operation; null with `changed_sha256`. Added within v1, so not required (ADR-0041); every event carries it."}
         fetch_operation_id: {$ref: '#/components/schemas/Uuid', description: 'The fetch that recorded it: its Operation.'}
         version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:

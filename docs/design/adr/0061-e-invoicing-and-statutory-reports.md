@@ -962,7 +962,9 @@ default:
   `changed_hash`, `changed_at` and the fetch, guarded by `sha256 <> $new
   AND changed_hash IS DISTINCT FROM $new` (ADR-0008), with the audit
   record `einvoicing.einvoice.bytes_changed` and EInvoiceChanged
-  (`changed_sha256` and `changed_fetch_operation_id` added; the status
+  (`changed_sha256` and `changed_fetch_operation_id` added, optional in
+  the v1 schema as ADR-0041 requires of a field added within a version,
+  and carried by every event; integration, batch 61; the status
   does not move, so `status_before` is the status); the outcome is
   `changed`, a fetch's new count. The fetch that found the change is the
   document's `changed_fetch_operation_id`, and the list's
