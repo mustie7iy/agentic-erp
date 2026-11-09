@@ -12,7 +12,8 @@
 -- context's, the ledgers the ledger context's, the principals the identity
 -- context's: no foreign key leaves the schema. Every write on a close or
 -- its tasks reads the close FOR UPDATE and moves its version.
--- The trigger functions of 000194 and 000196 are shared: they now name the
+-- The trigger functions of 000194 and 000196, as 000230 left them (an
+-- import restores rows in any state), are shared: they now name the
 -- table they guard (TG_TABLE_NAME) in their messages and constraint names,
 -- which for the period close's tables are what they were.
 -- Expand only: new tables, which the previous version neither reads nor
@@ -39,7 +40,7 @@ CREATE TABLE closing.year_close (
 CREATE INDEX year_close_by_end ON closing.year_close (tenant_id, year_end, id);
 CREATE TRIGGER year_close_touch BEFORE UPDATE ON closing.year_close FOR EACH ROW EXECUTE FUNCTION platform.touch();
 
--- As 000194's, naming the table it guards: a close starts open and moves
+-- As 000230's, naming the table it guards: a close starts open and moves
 -- open -> signed_off -> open, or keeps its status while its tasks change.
 CREATE OR REPLACE FUNCTION closing.check_period_close() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -48,7 +49,7 @@ DECLARE
   what text := replace(TG_TABLE_NAME, '_', ' ');
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    IF NEW.status <> 'open' THEN
+    IF NEW.status <> 'open' AND NOT platform.importing(NEW.tenant_id) THEN
       RAISE EXCEPTION 'a % starts open, not %', what, NEW.status
         USING ERRCODE = 'check_violation', CONSTRAINT = TG_TABLE_NAME || '_transition';
     END IF;
@@ -120,7 +121,7 @@ CREATE TABLE closing.year_close_task (
 );
 CREATE TRIGGER year_close_task_touch BEFORE UPDATE ON closing.year_close_task FOR EACH ROW EXECUTE FUNCTION platform.touch();
 
--- As 000196's, naming the table it guards: a task starts open and
+-- As 000230's, naming the table it guards: a task starts open and
 -- unchecked, moves open <-> done, keeps what the template gave it and its
 -- completion while it stands, and a check result once recorded.
 CREATE OR REPLACE FUNCTION closing.check_close_task() RETURNS trigger
@@ -131,6 +132,9 @@ DECLARE
   what text := replace(TG_TABLE_NAME, '_', ' ');
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    IF platform.importing(NEW.tenant_id) THEN
+      RETURN NEW;
+    END IF;
     IF NEW.status <> 'open' THEN
       RAISE EXCEPTION 'a % starts open, not %', what, NEW.status
         USING ERRCODE = 'check_violation', CONSTRAINT = TG_TABLE_NAME || '_transition';

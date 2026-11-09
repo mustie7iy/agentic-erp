@@ -79,7 +79,7 @@ func scanClose(r pgx.Row) (closeRow, error) {
 	var c closeRow
 	err := r.Scan(&c.ID, &c.LegalEntityID, &c.FiscalYear, &c.FiscalPeriod, &c.PeriodEnd, &c.ConfigVersion, &c.Status, &c.Version,
 		&c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Total, &c.Done, &c.OpenDue, &c.FirstDue, &c.LastDue, &c.SignedAt, &c.SignedBy)
-	return c, errs.Wrapf(err, "scan period close")
+	return c, errs.Wrapf(err, "scan close")
 }
 
 // readClose reads a close of a kind of a legal entity the caller may act
@@ -181,7 +181,7 @@ func tasksOf(ctx context.Context, tx pgx.Tx, k *closeKind, closeID uuid.UUID) ([
 	rows, _ := tx.Query(ctx, k.q(taskSelect+` WHERE t.close_id = $1 ORDER BY t.seq`), closeID)
 	ts, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (task, error) { return scanTask(r) })
 	if err != nil {
-		return nil, fmt.Errorf("closing: tasks of close %s: %w", closeID, err)
+		return nil, fmt.Errorf("closing: tasks of %s %s: %w", k.noun, closeID, err)
 	}
 	return ts, nil
 }
@@ -194,7 +194,7 @@ func readTask(ctx context.Context, tx pgx.Tx, k *closeKind, closeID uuid.UUID, c
 		return task{}, problem.NotFound(k.title + " " + closeID.String() + " has no task " + code + ".")
 	}
 	if err != nil {
-		return task{}, fmt.Errorf("closing: task %s of close %s: %w", code, closeID, err)
+		return task{}, fmt.Errorf("closing: task %s of %s %s: %w", code, k.noun, closeID, err)
 	}
 	return t, nil
 }

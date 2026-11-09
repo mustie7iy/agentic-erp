@@ -1,7 +1,25 @@
 -- Reverses 000233: drops the year close's tables and restores the trigger
--- functions as 000194 and 000196 left them.
+-- functions as 000230 left them.
 DROP TABLE closing.year_close_task, closing.year_close_ledger, closing.year_close;
 
+CREATE OR REPLACE FUNCTION closing.check_period_close() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+  changing text[] := ARRAY['status', 'version', 'updated_at', 'updated_by'];
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.status <> 'open' AND NOT platform.importing(NEW.tenant_id) THEN
+      RAISE EXCEPTION 'a period close starts open, not %', NEW.status
+        USING ERRCODE = 'check_violation', CONSTRAINT = 'period_close_transition';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF to_jsonb(NEW) - changing IS DISTINCT FROM to_jsonb(OLD) - changing THEN
+    RAISE EXCEPTION 'period close % changes only its status', OLD.id
+      USING ERRCODE = 'check_violation', CONSTRAINT = 'period_close_fixed';
+  END IF;
+  RETURN NEW;
+END $$;
 CREATE OR REPLACE FUNCTION closing.check_close_task() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -9,6 +27,9 @@ DECLARE
     'checked_at', 'checked_by', 'check_passed', 'check_result'];
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    IF platform.importing(NEW.tenant_id) THEN
+      RETURN NEW;
+    END IF;
     IF NEW.status <> 'open' THEN
       RAISE EXCEPTION 'a close task starts open, not %', NEW.status
         USING ERRCODE = 'check_violation', CONSTRAINT = 'close_task_transition';
@@ -33,25 +54,6 @@ BEGIN
   IF OLD.checked_at IS NOT NULL AND NEW.checked_at IS NULL THEN
     RAISE EXCEPTION 'close task % of close % keeps its check result', OLD.code, OLD.close_id
       USING ERRCODE = 'check_violation', CONSTRAINT = 'close_task_transition';
-  END IF;
-  RETURN NEW;
-END $$;
-
-CREATE OR REPLACE FUNCTION closing.check_period_close() RETURNS trigger
-LANGUAGE plpgsql AS $$
-DECLARE
-  changing text[] := ARRAY['status', 'version', 'updated_at', 'updated_by'];
-BEGIN
-  IF TG_OP = 'INSERT' THEN
-    IF NEW.status <> 'open' THEN
-      RAISE EXCEPTION 'a period close starts open, not %', NEW.status
-        USING ERRCODE = 'check_violation', CONSTRAINT = 'period_close_transition';
-    END IF;
-    RETURN NEW;
-  END IF;
-  IF to_jsonb(NEW) - changing IS DISTINCT FROM to_jsonb(OLD) - changing THEN
-    RAISE EXCEPTION 'period close % changes only its status', OLD.id
-      USING ERRCODE = 'check_violation', CONSTRAINT = 'period_close_fixed';
   END IF;
   RETURN NEW;
 END $$;

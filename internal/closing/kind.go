@@ -19,6 +19,11 @@ type closeKind struct {
 	// run: {close}, {task} and {ledger} its tables, {period} its period
 	// (none for a year close: 0), {end} the last day its tasks' due dates
 	// count from, and {signed} the latest sign-off of a close c signed off.
+	// api TestProblemCodes reads the table a statement writes from its
+	// text, so it does not see these: a problem registered on a
+	// constraint of the closes', tasks' or ledgers' tables (none is but
+	// the closes' *_once, which no statement here can break) needs the
+	// test taught first.
 	sql *strings.Replacer
 }
 

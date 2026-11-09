@@ -916,9 +916,13 @@ product owner to overrule:
    period of the year of its covered ledgers is locked, and is reopened by
    the first one after an unlock (ADR-0058 §7); its sign-off is T64m6's,
    and `TestYearCloseAfterUnlock` sets the status as that will. The
-   triggers of 000194 and 000196 guard the year close's tables too,
-   naming the table they guard (`TG_TABLE_NAME`) in their messages and
-   constraint names, which for the period close's tables are unchanged.
+   triggers of 000194 and 000196, as 000230 left them, guard the year
+   close's tables too, naming the table they guard (`TG_TABLE_NAME`) in
+   their messages and constraint names, which for the period close's
+   tables are unchanged; an import (`app.importing`, ADR-0029) restores a
+   signed-off year close and its done tasks as it does a period close's
+   (review round 1: 000233 first replaced them from their 000194/000196
+   text, dropping 000230's exemption).
 6. *Problem codes.* Each create operation gives the shared `openClose` its
    own checklist and insert (`opening`), so `api` `TestProblemCodes`
    attributes `closing.special_period` and `closing.close_exists` to
