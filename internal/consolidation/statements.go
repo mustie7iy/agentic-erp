@@ -101,6 +101,8 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 	if err != nil {
 		return nil, fmt.Errorf("consolidation: currency %s: %w", r.GroupCurrency, err)
 	}
+	// The run's configuration version never changes and was activated
+	// with its group (validation), so Group is never nil, as runAPI reads it.
 	s := statement{chart: doc.Consolidation, sums: sums, group: r.GroupCurrency, exp: exp}
 	out := gen.ConsolidatedStatement{RunID: r.ID, GroupCode: r.GroupCode, GroupName: doc.Consolidation.Group(r.GroupCode).Name, FiscalYear: int32(r.FiscalYear),
 		Period: int32(r.Period), PeriodEnd: r.PeriodEnd, RunStatus: r.Status, Statement: params.Statement, GroupCurrency: r.GroupCurrency,
@@ -146,10 +148,10 @@ type statement struct {
 }
 
 // accounts are the group chart's accounts of the types, by number.
-func (s statement) accounts(types ...[]config.AccountType) []config.GroupAccount {
+func (s statement) accounts(types []config.AccountType) []config.GroupAccount {
 	var out []config.GroupAccount
 	for _, a := range s.chart.Accounts {
-		if slices.ContainsFunc(types, func(ts []config.AccountType) bool { return slices.Contains(ts, a.Type) }) {
+		if slices.Contains(types, a.Type) {
 			out = append(out, a)
 		}
 	}

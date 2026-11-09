@@ -65,7 +65,8 @@ func statementTotals(page map[string]any, names ...string) string {
 // liabilities, equity and the year's profit summing to zero, the profit
 // and loss's revenue, expenses and profit. Each row's reported figure is
 // the balances list's total of its group account; the balance sheet pages
-// by number; a final run reads alike.
+// by number; a final run reads alike; a caller who may not act in every
+// company of the group finds no run (ADR-0059 §12).
 func TestConsolidatedStatements(t *testing.T) {
 	e := runEnv(t)
 	sameCalendar(t, e)
@@ -119,6 +120,8 @@ func TestConsolidatedStatements(t *testing.T) {
 		}
 	}
 	statementPages(t, e, run)
+	reader := e.As(e.Reader(t, "Reader of 2000", e.DE))
+	reader.Problem(404, "request.not_found", "GET", statementPath(run, "balance_sheet"), "", "")
 	pgtest.Exec(t, `UPDATE consolidation.run SET status = 'final', finalized_by = $2, finalized_at = now(), version = version + 1 WHERE id = $1`, run,
 		e.Tenant.Human.ID)
 	final, _ := e.Must(200, "GET", statementPath(run, "balance_sheet"), "", "")
