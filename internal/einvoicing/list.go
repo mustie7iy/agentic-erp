@@ -32,15 +32,26 @@ type EInvoice struct {
 	Size                              int64
 	ReceivedAt                        time.Time
 	AcknowledgedAt                    *time.Time
-	Version                           int32
+	// ChangedHash is the SHA-256 of other bytes the provider delivered
+	// later under the message id, the latest, and ChangedAt when a fetch
+	// found them; nil while there are none (ADR-0061 §4).
+	ChangedHash []byte
+	ChangedAt   *time.Time
+	Version     int32
 }
 
-const einvoiceColumns = `id, connector_id, message_id, receiver, legal_entity_id, status, sha256, size, fetch_operation_id, received_at, acknowledged_at, version`
+const einvoiceColumns = `id, connector_id, message_id, receiver, legal_entity_id, status, sha256, size, fetch_operation_id, received_at, acknowledged_at,
+	changed_hash, changed_at, version`
+
+// fields are the destinations of einvoiceColumns, in order.
+func (d *EInvoice) fields() []any {
+	return []any{&d.ID, &d.ConnectorID, &d.MessageID, &d.Receiver, &d.LegalEntityID, &d.Status, &d.SHA256, &d.Size, &d.FetchOperationID, &d.ReceivedAt,
+		&d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.Version}
+}
 
 func scanEInvoice(r pgx.Row) (EInvoice, error) {
 	var d EInvoice
-	err := r.Scan(&d.ID, &d.ConnectorID, &d.MessageID, &d.Receiver, &d.LegalEntityID, &d.Status, &d.SHA256, &d.Size, &d.FetchOperationID, &d.ReceivedAt,
-		&d.AcknowledgedAt, &d.Version)
+	err := r.Scan(d.fields()...)
 	return d, errs.Wrapf(err, "scan e-invoice")
 }
 
@@ -184,6 +195,13 @@ func (n names) toAPI(d EInvoice) gen.EInvoice {
 		out.AcknowledgedAt.SetTo(*d.AcknowledgedAt)
 	} else {
 		out.AcknowledgedAt.SetToNull()
+	}
+	if d.ChangedAt != nil {
+		out.ChangedSHA256.SetTo(hex.EncodeToString(d.ChangedHash))
+		out.ChangedAt.SetTo(*d.ChangedAt)
+	} else {
+		out.ChangedSHA256.SetToNull()
+		out.ChangedAt.SetToNull()
 	}
 	return out
 }

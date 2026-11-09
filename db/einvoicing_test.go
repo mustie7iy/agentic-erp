@@ -70,7 +70,7 @@ func TestEInvoiceRules(t *testing.T) {
 		}, "permission denied"},
 		{"an acknowledgement moved", func(tx pgx.Tx, s scene) error {
 			return all(tx, recorded(s), update("acknowledged_at = now()"), update("acknowledged_at = now() + interval '1 hour'"))
-		}, "keeps what was recorded and its acknowledgement"},
+		}, "keeps what was recorded, its acknowledgement"},
 		{"an acknowledgement before the document was received", func(tx pgx.Tx, s scene) error {
 			return all(tx, recorded(s), update("acknowledged_at = now() - interval '1 hour'"))
 		}, "einvoice_acknowledged"},
@@ -154,5 +154,59 @@ func TestEInvoiceProviderKind(t *testing.T) {
 	mustApp(t, tenant, func(tx pgx.Tx) error {
 		return exec(tx, `INSERT INTO integration.connector (tenant_id, id, kind, name, settings, status, created_by, updated_by)
 			VALUES ($1, $2, 'einvoice_provider', 'Provider', '{}', 'active', $3, $3)`, tenant, id(), actor)
+	})
+}
+
+// TestEInvoiceChange (T65b, migration 000233; ADR-0061 §4, §8): a change
+// of an e-invoice's bytes is recorded beside its first bytes, its hash,
+// time and fetch set together, never to the bytes kept, never before the
+// document was received, and never undone; the worker role reads when a
+// document was received and acknowledged, for the gauge, and nothing else.
+func TestEInvoiceChange(t *testing.T) {
+	need(t)
+	const row = `INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref, fetch_operation_id,
+		created_by, updated_by) VALUES ($1, gen_random_uuid(), gen_random_uuid(), 'M', 'received', sha256('x'::bytea), 1, 'k', gen_random_uuid(), $1, $1)`
+	update := func(set string) stmt {
+		return step(`UPDATE einvoicing.einvoice SET ` + set + `, version = version + 1`)
+	}
+	const changed = "changed_hash = sha256('y'::bytea), changed_at = now(), changed_fetch_operation_id = gen_random_uuid()"
+	for _, c := range []struct {
+		name string
+		set  []string
+		want string // empty: allowed
+	}{
+		{"a change recorded, then another", []string{changed, "changed_hash = sha256('z'::bytea), changed_at = now()"}, ""},
+		{"a change without its fetch", []string{"changed_hash = sha256('y'::bytea), changed_at = now()"}, "einvoice_changed"},
+		{"a change to the bytes kept", []string{"changed_hash = sha256, changed_at = now(), changed_fetch_operation_id = gen_random_uuid()"}, "einvoice_changed"},
+		{"a change before the document was received", []string{
+			"changed_hash = sha256('y'::bytea), changed_at = now() - interval '1 hour', changed_fetch_operation_id = gen_random_uuid()"}, "einvoice_changed"},
+		{"a change of a malformed hash", []string{"changed_hash = 'y'::bytea, changed_at = now(), changed_fetch_operation_id = gen_random_uuid()"},
+			"einvoice_changed_hash_check"},
+		{"a change undone", []string{changed, "changed_hash = NULL, changed_at = NULL, changed_fetch_operation_id = NULL"},
+			"keeps what was recorded, its acknowledgement and its change of bytes"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant := id()
+			steps := []stmt{step(row, tenant)}
+			for _, set := range c.set {
+				steps = append(steps, update(set))
+			}
+			err := asApp(t, tenant, func(tx pgx.Tx) error { return all(tx, steps...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("the worker role", func(t *testing.T) {
+		if err := inRole(t, "erp_worker", func(tx pgx.Tx) error {
+			return exec(tx, `SELECT count(*) FROM einvoicing.einvoice WHERE acknowledged_at IS NULL AND received_at < now()`)
+		}); err != nil {
+			t.Errorf("the gauge's read: got %v, want it allowed", err)
+		}
+		failsWith(t, inRole(t, "erp_worker", func(tx pgx.Tx) error { return exec(tx, `SELECT sha256 FROM einvoicing.einvoice`) }), "permission denied")
 	})
 }

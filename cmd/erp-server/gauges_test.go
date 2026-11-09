@@ -19,7 +19,7 @@ import (
 // businessNames are the gauges businessGauges registers.
 var businessNames = []string{"erp_supplier_invoices_on_hold", "erp_supplier_invoices_parked_stale", "erp_payment_runs_proposed",
 	"erp_payment_runs_failed_recent", "erp_bank_files_unacknowledged", "erp_bank_files_unacknowledged_age_seconds",
-	"erp_bank_files_rejected_recent", "erp_approvals_pending", "erp_approvals_pending_age_seconds", "erp_periods_overdue"}
+	"erp_bank_files_rejected_recent", "erp_approvals_pending", "erp_approvals_pending_age_seconds", "erp_einvoices_unacknowledged", "erp_periods_overdue"}
 
 // scrape reads the business gauges. A read that outlasts its timeout on a
 // loaded machine is left out of that scrape, so it scrapes until every
@@ -94,6 +94,12 @@ func gaugeFixtures(t *testing.T) {
 		`INSERT INTO workflow.approval_request (tenant_id, id, object_type, object_id, title, requester_id, status, completed_at, created_at, created_by) VALUES
 			($1, gen_random_uuid(), 't', gen_random_uuid(), 't', $2, 'pending', NULL, now() - interval '400 days', $2),
 			($1, gen_random_uuid(), 't', gen_random_uuid(), 't', $2, 'approved', now(), now() - interval '500 days', $2)`,
+		// Only the e-invoice unacknowledged for over an hour counts: not
+		// the one just received, nor the one acknowledged.
+		`INSERT INTO einvoicing.einvoice (tenant_id, id, connector_id, message_id, status, sha256, size, content_ref, fetch_operation_id,
+			received_at, acknowledged_at, created_by, updated_by)
+			SELECT $1, gen_random_uuid(), $2, m, 'received', sha256(m::bytea), 1, 'k', $2, now() - r, a, $2, $2
+			FROM (VALUES ('M1', interval '2 hours', NULL::timestamptz), ('M2', interval '0', NULL), ('M3', interval '2 hours', now())) AS v(m, r, a)`,
 		// Only the open normal period past its end counts: not the closed
 		// one, the one still running, or the special period.
 		`INSERT INTO ledger.fiscal_period (tenant_id, calendar_id, fiscal_year, period, start_date, end_date, is_special) VALUES
@@ -126,7 +132,7 @@ func TestBusinessGauges(t *testing.T) {
 	after := scrape(t, m)
 	for name, want := range map[string]float64{"erp_supplier_invoices_on_hold": 1, "erp_supplier_invoices_parked_stale": 1,
 		"erp_payment_runs_proposed": 1, "erp_payment_runs_failed_recent": 1, "erp_bank_files_unacknowledged": 1,
-		"erp_bank_files_rejected_recent": 1, "erp_approvals_pending": 1, "erp_periods_overdue": 1} {
+		"erp_bank_files_rejected_recent": 1, "erp_approvals_pending": 1, "erp_einvoices_unacknowledged": 1, "erp_periods_overdue": 1} {
 		if got := after[name] - before[name]; got != want {
 			t.Errorf("%s: got %v more, want %v", name, got, want)
 		}

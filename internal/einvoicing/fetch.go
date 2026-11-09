@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/blobstore"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -27,6 +28,17 @@ func connectorPath(id uuid.UUID) string { return "/v1/connectors/" + id.String()
 // resource once it succeeded.
 func fetchedPath(operation uuid.UUID) string {
 	return "/v1/e-invoices?fetch_operation_id=" + operation.String()
+}
+
+// QueueEInvoiceFetch records, in the caller's transaction, the Operation of
+// a scheduled fetch from the connector (ADR-0061 §4): the workflow
+// ScheduledEInvoiceFetch chose its id and carries it out, so the Operation
+// names that workflow at once and no dispatcher starts another. Recording
+// it again is not an error, so the step runs any number of times. The
+// connector is resolved by the fetch's first step, which fails the
+// Operation with the problem when it cannot be fetched from.
+func (e *Endpoints) QueueEInvoiceFetch(ctx context.Context, operation, connector uuid.UUID, workflowID string) error {
+	return e.Runs.Queue(ctx, operation, connectorPath(connector), gen.EInvoiceFetch{ConnectorID: connector}, workflowID)
 }
 
 // FetchEInvoices implements POST /v1/e-invoices:fetch (ADR-0061 §4): the
@@ -96,6 +108,8 @@ func (e *Endpoints) PendingEInvoices(ctx context.Context, connector uuid.UUID, i
 // is idempotent: a message recorded before is not inserted again and its
 // acknowledgement is sent again, so a lost acknowledgement is repaired;
 // one this fetch recorded on an earlier attempt still counts as recorded.
+// A message recorded before whose bytes differ is recorded as changed
+// (redelivered), once per different bytes.
 func (e *Endpoints) RecordEInvoice(ctx context.Context, connector, operation uuid.UUID, m Message, in Within) (string, error) {
 	c, p, tenant, err := e.provider(ctx, connector, in)
 	if err != nil {
@@ -149,12 +163,49 @@ func (e *Endpoints) record(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c
 		ON CONFLICT ON CONSTRAINT einvoice_message_once DO NOTHING RETURNING `+einvoiceColumns,
 		p.TenantID, uuid.Must(uuid.NewV7()), c.ID, m.ID, receiver, companyID(company), d.sum, d.size, d.ref, operation, p.ID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return recordedBy(ctx, tx, c.ID, m.ID, operation)
+		return e.redelivered(ctx, tx, p, c.ID, operation, m.ID, d.sum)
 	}
 	if err != nil {
 		return "", fmt.Errorf("einvoicing: record message %s of connector %s: %w", m.ID, c.ID, err)
 	}
-	return Recorded, recordChange(ctx, doc, company)
+	return Recorded, recordChange(ctx, doc, company, nil)
+}
+
+// redelivered handles a message recorded before (ADR-0061 §4). Bytes other
+// than those kept and than the change last recorded set changed_hash, by
+// an update guarded on that, with the audit record and EInvoiceChanged:
+// the row keeps its first bytes, the legal original (§8), and the same
+// changed bytes delivered again (their acknowledgement lost) change and
+// publish nothing again. Otherwise it says who recorded what was found.
+func (e *Endpoints) redelivered(ctx context.Context, tx pgx.Tx, p reqctx.Principal, connector, operation uuid.UUID, message string, sum []byte) (string, error) {
+	doc, err := scanEInvoice(tx.QueryRow(ctx, `UPDATE einvoicing.einvoice SET changed_hash = $3, changed_at = now(), changed_fetch_operation_id = $4,
+			version = version + 1, updated_by = $5
+		WHERE connector_id = $1 AND message_id = $2 AND sha256 <> $3 AND changed_hash IS DISTINCT FROM $3 RETURNING `+einvoiceColumns,
+		connector, message, sum, operation, p.ID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return recordedBy(ctx, tx, connector, message, sum, operation)
+	}
+	if err != nil {
+		return "", fmt.Errorf("einvoicing: record the change of message %s of connector %s: %w", message, connector, err)
+	}
+	company, err := e.companyOf(ctx, doc)
+	if err != nil {
+		return "", err
+	}
+	return Changed, recordChange(ctx, doc, company, &doc.Status)
+}
+
+// companyOf is the document's company; none when it has none.
+func (e *Endpoints) companyOf(ctx context.Context, d EInvoice) (*Company, error) {
+	if d.LegalEntityID == nil {
+		return nil, nil
+	}
+	named, err := idref.Resolve(ctx, e.Companies.Named, []uuid.UUID{*d.LegalEntityID}, companyRef)
+	if err != nil {
+		return nil, err
+	}
+	co := named[*d.LegalEntityID]
+	return &co, nil
 }
 
 // addressee is the connector's company of the participant the message is
@@ -181,18 +232,24 @@ func companyID(c *Company) *uuid.UUID {
 	return &c.ID
 }
 
-// recordedBy says whether the message recorded before was recorded by
-// this fetch (on an earlier attempt of the step) or an earlier one.
-func recordedBy(ctx context.Context, tx pgx.Tx, connector uuid.UUID, message string, operation uuid.UUID) (string, error) {
-	var by uuid.UUID
-	if err := tx.QueryRow(ctx, `SELECT fetch_operation_id FROM einvoicing.einvoice WHERE connector_id = $1 AND message_id = $2`, connector, message).
-		Scan(&by); err != nil {
+// recordedBy says, of a message recorded before with the bytes sum (the
+// first, or the change last recorded), whether this fetch recorded them
+// (on an earlier attempt of the step: recorded or changed) or an earlier
+// one (already recorded).
+func recordedBy(ctx context.Context, tx pgx.Tx, connector uuid.UUID, message string, sum []byte, operation uuid.UUID) (string, error) {
+	var first bool
+	var by *uuid.UUID
+	if err := tx.QueryRow(ctx, `SELECT sha256 = $3, CASE WHEN sha256 = $3 THEN fetch_operation_id ELSE changed_fetch_operation_id END
+		FROM einvoicing.einvoice WHERE connector_id = $1 AND message_id = $2`, connector, message, sum).Scan(&first, &by); err != nil {
 		return "", fmt.Errorf("einvoicing: read message %s of connector %s: %w", message, connector, err)
 	}
-	if by == operation {
+	switch {
+	case by == nil || *by != operation:
+		return AlreadyRecorded, nil
+	case first:
 		return Recorded, nil
 	}
-	return AlreadyRecorded, nil
+	return Changed, nil
 }
 
 // acknowledged records that the provider was told the message is kept,
@@ -205,17 +262,24 @@ func acknowledged(ctx context.Context, tx pgx.Tx, p reqctx.Principal, connector 
 	return nil
 }
 
-// recordChange audits a document's change of status and publishes
-// EInvoiceChanged (api/asyncapi.yaml); in T65a the one change is its
-// receipt, so status_before is null (the processing slices add the others).
-func recordChange(ctx context.Context, d EInvoice, company *Company) error {
+// recordChange audits a document's change and publishes EInvoiceChanged
+// (api/asyncapi.yaml): its receipt (status_before nil, the action its
+// status) or a change of its bytes (status_before its status, which does
+// not move; the action einvoicing.einvoice.bytes_changed). The processing
+// slices add the changes of status.
+func recordChange(ctx context.Context, d EInvoice, company *Company, statusBefore *string) error {
 	payload := map[string]any{"einvoice_id": d.ID, "connector_id": d.ConnectorID, "message_id": d.MessageID, "legal_entity_id": d.LegalEntityID,
-		"legal_entity_code": nil, "status": d.Status, "status_before": nil, "sha256": hex.EncodeToString(d.SHA256), "fetch_operation_id": d.FetchOperationID,
-		"version": d.Version}
+		"legal_entity_code": nil, "status": d.Status, "status_before": statusBefore, "sha256": hex.EncodeToString(d.SHA256), "changed_sha256": nil,
+		"fetch_operation_id": d.FetchOperationID, "version": d.Version}
 	if company != nil {
 		payload["legal_entity_code"] = company.Code
 	}
-	return audit.Record(ctx, "einvoicing.einvoice."+d.Status, "einvoicing.einvoice", d.ID, payload,
+	action := "einvoicing.einvoice." + d.Status
+	if d.ChangedHash != nil {
+		payload["changed_sha256"] = hex.EncodeToString(d.ChangedHash)
+		action = "einvoicing.einvoice.bytes_changed"
+	}
+	return audit.Record(ctx, action, "einvoicing.einvoice", d.ID, payload,
 		outbox.Event{Context: "einvoicing", Name: "einvoice_changed", AggregateType: "einvoicing.einvoice", AggregateID: d.ID, Payload: payload})
 }
 
@@ -229,6 +293,7 @@ type Failure struct {
 type Counts struct {
 	Recorded        int `json:"recorded"`
 	AlreadyRecorded int `json:"already_recorded"`
+	Changed         int `json:"changed"`
 }
 
 // FinishEInvoiceFetch ends the fetch's Operation in the caller's
@@ -263,8 +328,8 @@ func incomplete(operation uuid.UUID, counts Counts, failed []Failure) *problem.P
 		named[i] = f.ID + " (" + f.Code + ")"
 	}
 	return problem.Unprocessable("einvoicing.fetch_incomplete", fmt.Sprintf("The provider's messages %s were not recorded; a message that failed on "+
-		"platform.unavailable is taken again by the next fetch, a refused one is refused again. Recorded %d, already recorded %d: GET %s.",
-		strings.Join(named, ", "), counts.Recorded, counts.AlreadyRecorded, fetchedPath(operation)), errs...)
+		"platform.unavailable is taken again by the next fetch, a refused one is refused again. Recorded %d, already recorded %d, changed %d: GET %s.",
+		strings.Join(named, ", "), counts.Recorded, counts.AlreadyRecorded, counts.Changed, fetchedPath(operation)), errs...)
 }
 
 // FailEInvoiceFetch fails the fetch's Operation with the problem that

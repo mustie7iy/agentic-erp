@@ -20875,6 +20875,7 @@ func (*ConflictHeaders) getCloseCalendarRes()                      {}
 func (*ConflictHeaders) getConsolidatedStatementRes()              {}
 func (*ConflictHeaders) getConsolidationGroupRes()                 {}
 func (*ConflictHeaders) getConsolidationRunRes()                   {}
+func (*ConflictHeaders) getEInvoiceContentRes()                    {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
@@ -28042,7 +28043,13 @@ type EInvoice struct {
 	ReceivedAt time.Time `json:"received_at"`
 	// When the provider was told it is kept; null until then (the next fetch acknowledges it again).
 	AcknowledgedAt NilDateTime `json:"acknowledged_at"`
-	Version        int32       `json:"version"`
+	// The SHA-256 of other bytes the provider delivered later under the same message id, the latest such,
+	// hex; null while it delivered none. The document keeps its first bytes, the legal original (`sha256`,
+	// `getEInvoiceContent`); a person takes a change up with the supplier or the provider.
+	ChangedSHA256 NilString `json:"changed_sha256"`
+	// When a fetch found those bytes; null with `changed_sha256`.
+	ChangedAt NilDateTime `json:"changed_at"`
+	Version   int32       `json:"version"`
 }
 
 // GetID returns the value of ID.
@@ -28113,6 +28120,16 @@ func (s *EInvoice) GetReceivedAt() time.Time {
 // GetAcknowledgedAt returns the value of AcknowledgedAt.
 func (s *EInvoice) GetAcknowledgedAt() NilDateTime {
 	return s.AcknowledgedAt
+}
+
+// GetChangedSHA256 returns the value of ChangedSHA256.
+func (s *EInvoice) GetChangedSHA256() NilString {
+	return s.ChangedSHA256
+}
+
+// GetChangedAt returns the value of ChangedAt.
+func (s *EInvoice) GetChangedAt() NilDateTime {
+	return s.ChangedAt
 }
 
 // GetVersion returns the value of Version.
@@ -28188,6 +28205,16 @@ func (s *EInvoice) SetReceivedAt(val time.Time) {
 // SetAcknowledgedAt sets the value of AcknowledgedAt.
 func (s *EInvoice) SetAcknowledgedAt(val NilDateTime) {
 	s.AcknowledgedAt = val
+}
+
+// SetChangedSHA256 sets the value of ChangedSHA256.
+func (s *EInvoice) SetChangedSHA256(val NilString) {
+	s.ChangedSHA256 = val
+}
+
+// SetChangedAt sets the value of ChangedAt.
+func (s *EInvoice) SetChangedAt(val NilDateTime) {
+	s.ChangedAt = val
 }
 
 // SetVersion sets the value of Version.
@@ -32195,6 +32222,35 @@ func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
 type GetEInvoiceBadRequest Problem
 
 func (*GetEInvoiceBadRequest) getEInvoiceRes() {}
+
+type GetEInvoiceContentBadRequest Problem
+
+func (*GetEInvoiceContentBadRequest) getEInvoiceContentRes() {}
+
+type GetEInvoiceContentForbidden Problem
+
+func (*GetEInvoiceContentForbidden) getEInvoiceContentRes() {}
+
+type GetEInvoiceContentNotFound Problem
+
+func (*GetEInvoiceContentNotFound) getEInvoiceContentRes() {}
+
+// The document bytes.
+type GetEInvoiceContentOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetEInvoiceContentOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+func (*GetEInvoiceContentOK) getEInvoiceContentRes() {}
 
 type GetEInvoiceForbidden Problem
 
@@ -63134,6 +63190,7 @@ func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
 func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
+func (*ServiceUnavailableHeaders) getEInvoiceContentRes()                    {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
 func (*ServiceUnavailableHeaders) grantRolePermissionRes()                   {}
 func (*ServiceUnavailableHeaders) holdSupplierInvoiceRes()                   {}
@@ -67545,6 +67602,7 @@ func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
+func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
 func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                       {}
@@ -68037,6 +68095,7 @@ func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
+func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
 func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                       {}

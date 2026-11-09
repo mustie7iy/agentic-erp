@@ -17,11 +17,19 @@
 // transaction) and acknowledges it to the provider after that commit, and
 // FinishEInvoiceFetch ends the Operation with its counts; each is
 // idempotent. ListEInvoices and GetEInvoice read the documents of the
-// companies the caller may act in. The provider's only adapter is the
+// companies the caller may act in.
+//
+// T65b adds the scheduled fetch, the original and its changes (ADR-0061
+// §4, §8): QueueEInvoiceFetch records the Operation of a fetch the workflow
+// dispatcher starts once per period for each active connector, which then
+// runs the same steps; a message recorded before whose bytes differ is
+// recorded as changed (changed_hash, once per different bytes), the first
+// bytes kept as the legal original, which GetEInvoiceContent serves,
+// compared with their hash. The provider's only adapter is the
 // stand-in (StandIn), which production refuses; the ERP polls and opens
 // no endpoint for a provider (ADR-0061 Q1, Q3). Validation, entering,
 // credit notes and people's resolution of held documents follow in
-// T65b-T65f.
+// T65c-T65f.
 package einvoicing
 
 import (
@@ -50,6 +58,7 @@ const (
 const (
 	Recorded        = "recorded"         // recorded by this fetch
 	AlreadyRecorded = "already_recorded" // recorded by an earlier fetch; acknowledged again
+	Changed         = "changed"          // recorded before, found by this fetch with other bytes
 )
 
 // FetcherActor is the principal fetches act as, in every tenant: a system
@@ -98,9 +107,12 @@ type Companies interface {
 	Named(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]Company, error)
 }
 
-// Runs keeps a fetch's Operation (operations, 04 §4.8).
+// Runs keeps a fetch's Operation (operations, 04 §4.8): Start queues one
+// for the dispatcher; Queue records, once, one with the id a scheduled
+// fetch's workflow chose, naming that workflow.
 type Runs interface {
 	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
+	Queue(ctx context.Context, id uuid.UUID, resource string, request any, workflowID string) error
 	Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error
 	Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error
 }

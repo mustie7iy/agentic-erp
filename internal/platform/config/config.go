@@ -243,6 +243,10 @@ type Temporal struct {
 	// from its bank channel (ERP_STATEMENT_FETCH_INTERVAL, default 1h; 0
 	// fetches none; ADR-0047).
 	StatementFetch time.Duration
+	// EInvoiceFetch is the period of each einvoice_provider connector's
+	// fetch from its provider (ERP_EINVOICE_FETCH_INTERVAL, default 1h; 0
+	// fetches none; ADR-0061 §4).
+	EInvoiceFetch time.Duration
 }
 
 // Load reads and validates the configuration. The settings in
@@ -580,6 +584,9 @@ func (l *loader) temporal(c *Config) {
 	}
 	if c.Temporal.StatementFetch, err = time.ParseDuration(get("ERP_STATEMENT_FETCH_INTERVAL", "1h")); err != nil || c.Temporal.StatementFetch < 0 {
 		l.errs = append(l.errs, errors.New("ERP_STATEMENT_FETCH_INTERVAL must be a duration such as 1h, or 0 not to fetch statements"))
+	}
+	if c.Temporal.EInvoiceFetch, err = time.ParseDuration(get("ERP_EINVOICE_FETCH_INTERVAL", "1h")); err != nil || c.Temporal.EInvoiceFetch < 0 {
+		l.errs = append(l.errs, errors.New("ERP_EINVOICE_FETCH_INTERVAL must be a duration such as 1h, or 0 not to fetch e-invoices"))
 	}
 	// The deadline workflow counts escalations in an int16 and stores them in a
 	// smallint, so a larger setting would wrap rather than escalate further.

@@ -66,6 +66,12 @@ func businessGauges(pool *database.Pool, cfg config.Config, m *telemetry.Metrics
 		count(cfg.WorkerRole, `SELECT coalesce(extract(epoch FROM now() - min(created_at)), 0)::float8 FROM workflow.approval_request WHERE status = 'pending'`))
 	// Special periods share the year's last end date and stay open for
 	// the auditors' adjustments on purpose, so only normal periods count.
+	// An e-invoice is acknowledged right after the commit that recorded
+	// it, and a lost acknowledgement is repaired by the next fetch, so one
+	// still unacknowledged an hour on means the provider keeps refusing it
+	// or nothing fetches (ADR-0061 §4).
+	m.Gauge("erp_einvoices_unacknowledged", "E-invoices recorded over an hour ago and not yet acknowledged to their provider.",
+		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM einvoicing.einvoice WHERE acknowledged_at IS NULL AND received_at < now() - interval '1 hour'`))
 	m.Gauge("erp_periods_overdue", "Posting periods past their end date and still open.",
 		count(cfg.WorkerRole, `SELECT count(*)::float8 FROM ledger.period_status s
 			JOIN ledger.fiscal_period f USING (tenant_id, calendar_id, fiscal_year, period)

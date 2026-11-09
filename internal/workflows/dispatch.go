@@ -47,6 +47,9 @@ type Dispatcher struct {
 	// Statements is the period of each house bank's statement fetch
 	// (ERP_STATEMENT_FETCH_INTERVAL, ADR-0047); 0 fetches none.
 	Statements time.Duration
+	// EInvoices is the period of each einvoice_provider connector's fetch
+	// (ERP_EINVOICE_FETCH_INTERVAL, ADR-0061 §4); 0 fetches none.
+	EInvoices time.Duration
 	// Recurring finds the entry templates' due dates (ADR-0056); nil
 	// parks none.
 	Recurring *Recurrences
@@ -58,8 +61,9 @@ type Dispatcher struct {
 	// Begin starts transactions; nil means Pool.Begin. Tests inject failures.
 	Begin database.BeginFunc
 
-	fetched     time.Time // the last fetch period started without a failure
-	snapshotted time.Time // the last minute whose due snapshots were started without a failure
+	fetched          time.Time // the last statement fetch period started without a failure
+	einvoicesFetched time.Time // the last e-invoice fetch period started without a failure
+	snapshotted      time.Time // the last minute whose due snapshots were started without a failure
 }
 
 func (d *Dispatcher) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
@@ -145,15 +149,8 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 			n++
 		}
 	}
-	if d.Deadline > 0 {
-		k, err := d.watch(ctx, tx)
-		n += k
-		if err != nil {
-			failures = append(failures, err)
-		}
-	}
-	if d.Statements > 0 {
-		k, err := d.fetch(ctx, tx)
+	for _, step := range []func(context.Context, pgx.Tx) (int, error){d.watch, d.fetch, d.fetchEInvoices} {
+		k, err := step(ctx, tx)
 		n += k
 		if err != nil {
 			failures = append(failures, err)
@@ -208,8 +205,12 @@ func DeadlineWorkflowID(tenant, request uuid.UUID) string {
 }
 
 // watch starts a deadline workflow for every pending approval request that
-// has none and records it on the request.
+// has none and records it on the request; with no escalation period it
+// watches none.
 func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
+	if d.Deadline <= 0 {
+		return 0, nil
+	}
 	pending, err := approvals.Unwatched(ctx, tx)
 	if err != nil {
 		return 0, fmt.Errorf("dispatcher: %w", err)
@@ -238,8 +239,11 @@ func (d *Dispatcher) watch(ctx context.Context, tx pgx.Tx) (int, error) {
 // bank whose bank channel names statement directories (ADR-0047, T49d).
 // The workflow id names the period, so the engine starts each once however
 // many replicas dispatch; a period started with no failure is not looked
-// at again by this dispatcher.
+// at again by this dispatcher. With no period it fetches none.
 func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
+	if d.Statements <= 0 {
+		return 0, nil
+	}
 	slot := clock.Now(d.Now).UTC().Truncate(d.Statements)
 	if slot.Equal(d.fetched) {
 		return 0, nil
@@ -252,14 +256,57 @@ func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("dispatcher: %w", err)
 	}
+	var starts []workflow.Start
+	for _, b := range banks {
+		if channels[integration.TenantConnector{TenantID: b.TenantID, ID: b.ConnectorID}] {
+			starts = append(starts, workflow.Start{ID: FetchWorkflowID(b.TenantID, b.HouseBankID, slot), Queue: d.Queue, Name: FetchWorkflow,
+				Args: []any{FetchInput{TenantID: b.TenantID, HouseBankID: b.HouseBankID}}})
+		}
+	}
+	n, err := d.startAll(ctx, starts)
+	if err == nil {
+		d.fetched = slot
+	}
+	return n, err
+}
+
+// fetchEInvoices starts, once per period, an e-invoice fetch from every
+// active einvoice_provider connector of an active tenant (ADR-0061 §4).
+// As fetch's, the workflow id names the connector and the period, so the
+// engine starts each once however many replicas dispatch, and a period
+// started with no failure is not looked at again. With no period it
+// fetches none.
+func (d *Dispatcher) fetchEInvoices(ctx context.Context, tx pgx.Tx) (int, error) {
+	if d.EInvoices <= 0 {
+		return 0, nil
+	}
+	period := clock.Now(d.Now).UTC().Truncate(d.EInvoices)
+	if period.Equal(d.einvoicesFetched) {
+		return 0, nil
+	}
+	connectors, err := integration.EInvoiceConnectors(ctx, tx)
+	if err != nil {
+		return 0, fmt.Errorf("dispatcher: %w", err)
+	}
+	starts := make([]workflow.Start, len(connectors))
+	for i, c := range connectors {
+		starts[i] = workflow.Start{ID: ScheduledEInvoiceFetchWorkflowID(c.TenantID, c.ID, period), Queue: d.Queue, Name: ScheduledEInvoiceFetchWorkflow,
+			Args: []any{ScheduledEInvoiceFetchInput(c.TenantID, c.ID, period)}}
+	}
+	n, err := d.startAll(ctx, starts)
+	if err == nil {
+		d.einvoicesFetched = period
+	}
+	return n, err
+}
+
+// startAll starts each workflow and says how many the engine started (one
+// it knew already is not); a refused start does not stop the others.
+func (d *Dispatcher) startAll(ctx context.Context, starts []workflow.Start) (int, error) {
 	n := 0
 	var failures []error
-	for _, b := range banks {
-		if !channels[integration.TenantConnector{TenantID: b.TenantID, ID: b.ConnectorID}] {
-			continue
-		}
-		started, err := d.Client.Start(ctx, workflow.Start{ID: FetchWorkflowID(b.TenantID, b.HouseBankID, slot), Queue: d.Queue, Name: FetchWorkflow,
-			Args: []any{FetchInput{TenantID: b.TenantID, HouseBankID: b.HouseBankID}}})
+	for _, s := range starts {
+		started, err := d.Client.Start(ctx, s)
 		if err != nil {
 			failures = append(failures, err)
 			continue
@@ -267,9 +314,6 @@ func (d *Dispatcher) fetch(ctx context.Context, tx pgx.Tx) (int, error) {
 		if started {
 			n++
 		}
-	}
-	if len(failures) == 0 {
-		d.fetched = slot
 	}
 	return n, errors.Join(failures...)
 }
@@ -370,5 +414,6 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterWorkflowWithOptions(ConsolidationRun, sdkworkflow.RegisterOptions{Name: ConsolidationWorkflow})
 	r.RegisterActivity(c)
 	r.RegisterWorkflowWithOptions(FetchEInvoices, sdkworkflow.RegisterOptions{Name: EInvoiceFetchWorkflow})
+	r.RegisterWorkflowWithOptions(ScheduledEInvoiceFetch, sdkworkflow.RegisterOptions{Name: ScheduledEInvoiceFetchWorkflow})
 	r.RegisterActivity(e)
 }

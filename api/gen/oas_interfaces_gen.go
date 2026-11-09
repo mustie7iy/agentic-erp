@@ -525,6 +525,10 @@ type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
 }
 
+type GetEInvoiceContentRes interface {
+	getEInvoiceContentRes()
+}
+
 type GetEInvoiceRes interface {
 	getEInvoiceRes()
 }

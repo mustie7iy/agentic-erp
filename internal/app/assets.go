@@ -239,6 +239,10 @@ func (r runOperations) Start(ctx context.Context, resource string, request any) 
 	return operations.ToAPI(o), nil
 }
 
+func (r runOperations) Queue(ctx context.Context, id uuid.UUID, resource string, request any, workflowID string) error {
+	return operations.StartTaken(ctx, id, r.kind, request, resource, workflowID)
+}
+
 func (runOperations) Report(ctx context.Context, id uuid.UUID, done, total int64) error {
 	return operations.Report(ctx, id, done, total)
 }

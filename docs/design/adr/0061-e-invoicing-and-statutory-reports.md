@@ -777,3 +777,62 @@ earlier attempt and `already_recorded` otherwise. Decided by default:
   operation with the stand-in's SHA-256 and acknowledged; the stand-in
   loses the acknowledgement, and a second fetch counts the document as
   already recorded and acknowledges it again.
+
+**T65b (scheduled fetch, changed bytes and the original).** Built as §4,
+§8, §11 and §15 for the schedule, a changed redelivery and the original:
+migrations 000233 (`changed_hash`, `changed_at` and
+`changed_fetch_operation_id` on `einvoicing.einvoice`, set together, never
+to the bytes kept, never before receipt, `einvoice_changed`; the trigger
+replaced so they may be set and never undone; the worker role's read of
+`received_at` and `acknowledged_at`) and 000234 (the cell-wide partial
+index `einvoice_unacknowledged`, built concurrently as the other gauges'
+indexes are). Decided by default:
+
+- **A scheduled fetch is an Operation too.** The dispatcher starts, once
+  per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h, 0 none) and active
+  `einvoice_provider` connector of an active tenant
+  (`integration.EInvoiceConnectors`, `tenancy.tenant.status = 'active'`:
+  a suspended or offboarded tenant's provider is not polled), the workflow
+  `ScheduledEInvoiceFetch` under `{tenant}-connector-{connector}-einvoices-{period}`
+  (ADR-0047's pattern: replicas start each once; a period started without
+  a failure is not looked at again). Its first step records the fetch's
+  Operation (kind `einvoicing.fetch`, created by `einvoicing.Fetcher`,
+  the connector as its resource) under an id the dispatcher derives from
+  the tenant, connector and period, a UUIDv7 of the period's start, so the
+  step is idempotent and the Operation sorts by its period; the Operation
+  names the workflow at once (`operations.StartTaken`), so no dispatcher
+  starts another for it. The fetch then runs `FetchEInvoices`'s steps: the
+  documents name that Operation as their `fetch_operation_id`, and its
+  counts and failures are an on-demand fetch's. A connector refused since
+  the dispatch (disabled, its secret gone) fails that Operation with the
+  problem. A cell without a workflow engine fetches on demand only, as it
+  fetches no statements on a schedule (ADR-0047).
+- **A changed redelivery.** A message recorded before whose bytes are
+  neither the bytes kept nor the change last recorded sets
+  `changed_hash`, `changed_at` and the fetch, guarded by `sha256 <> $new
+  AND changed_hash IS DISTINCT FROM $new` (ADR-0008), with the audit
+  record `einvoicing.einvoice.bytes_changed` and EInvoiceChanged
+  (`changed_sha256` added; the status does not move, so `status_before` is
+  the status); the outcome is `changed`, a fetch's new count. The same
+  changed bytes again, or the first bytes again, are `already_recorded`;
+  a step run again after its commit counts the change as its fetch's, as
+  a recording does (`changed_fetch_operation_id`). The row keeps its first
+  bytes, the original (§8). The new bytes are kept in object storage
+  under their own hash too, since they are kept before the row is read;
+  nothing serves them, and `changed_sha256` names them. The list and the
+  document carry `changed_sha256` and `changed_at`.
+- **The original.** `GET /v1/e-invoices/{id}/content` serves the bytes
+  as first received, `application/octet-stream` as
+  `getSupplierInvoiceDocument` serves a captured document, visible as the
+  document is, compared with the recorded SHA-256 on every read (409
+  `einvoicing.document_changed` otherwise), human-only (`x-agent: false`,
+  §11), and not audited, as other downloads are not (§10).
+- **The gauge.** `erp_einvoices_unacknowledged` counts the documents
+  recorded over an hour ago and not yet acknowledged, cell-wide as the
+  worker role (ADR-0043's business gauges), reading only those two
+  columns.
+- **The walkthrough.** `step_einvoice` goes on: Alex downloads GOI-2001,
+  its SHA-256 the stand-in's; the stand-in delivers it again with other
+  bytes and a fetch counts it `changed`, the document keeping its first
+  bytes and naming the new ones' hash; the same bytes delivered once more
+  are counted already recorded, the change named once.
