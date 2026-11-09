@@ -382,6 +382,34 @@ type Invoker interface {
 	//
 	// POST /v1/period-closes/{id}/tasks/{code}:check
 	CheckCloseTask(ctx context.Context, params CheckCloseTaskParams) (CheckCloseTaskRes, error)
+	// CheckYearCloseTask invokes checkYearCloseTask operation.
+	//
+	// Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8,
+	// T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who
+	// ran it and what it found; the task is set done when it passed and open when it did not. The checks
+	// read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes
+	// when no parked entry of the company dated in the fiscal year (the leading ledger's first regular
+	// period's first day to its last regular period's last day) is `parked` or `pending_approval`, those
+	// parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them;
+	// `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the
+	// year's last day (its last regular period's), and names each ledger with its run;
+	// `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year,
+	// `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it
+	// would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning),
+	// and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`);
+	// `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the
+	// fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its
+	// run, or without one, and with the periods opened since that make it stale. A check is a statement
+	// about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409
+	// `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
+	// `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
+	// Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year
+	// close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it
+	// (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open
+	// again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+	//
+	// POST /v1/year-closes/{id}/tasks/{code}:check
+	CheckYearCloseTask(ctx context.Context, params CheckYearCloseTaskParams) (CheckYearCloseTaskRes, error)
 	// ClearSupplierInvoiceDownPayments invokes clearSupplierInvoiceDownPayments operation.
 	//
 	// Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;
@@ -9857,6 +9885,204 @@ func (c *Client) sendCheckCloseTask(ctx context.Context, params CheckCloseTaskPa
 
 	stage = "DecodeResponse"
 	result, err := decodeCheckCloseTaskResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CheckYearCloseTask invokes checkYearCloseTask operation.
+//
+// Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8,
+// T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who
+// ran it and what it found; the task is set done when it passed and open when it did not. The checks
+// read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes
+// when no parked entry of the company dated in the fiscal year (the leading ledger's first regular
+// period's first day to its last regular period's last day) is `parked` or `pending_approval`, those
+// parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them;
+// `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the
+// year's last day (its last regular period's), and names each ledger with its run;
+// `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year,
+// `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it
+// would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning),
+// and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`);
+// `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the
+// fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its
+// run, or without one, and with the periods opened since that make it stale. A check is a statement
+// about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409
+// `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
+// `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
+// Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year
+// close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it
+// (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open
+// again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+//
+// POST /v1/year-closes/{id}/tasks/{code}:check
+func (c *Client) CheckYearCloseTask(ctx context.Context, params CheckYearCloseTaskParams) (CheckYearCloseTaskRes, error) {
+	res, err := c.sendCheckYearCloseTask(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCheckYearCloseTask(ctx context.Context, params CheckYearCloseTaskParams) (res CheckYearCloseTaskRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("checkYearCloseTask"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/year-closes/{id}/tasks/{code}:check"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CheckYearCloseTaskOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/year-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/tasks/"
+	{
+		// Encode "code" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "code",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Code))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":check"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CheckYearCloseTaskOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCheckYearCloseTaskResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

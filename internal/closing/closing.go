@@ -53,7 +53,12 @@
 // (ADR-0060 §8): one per fiscal year, its checklist the configuration's
 // year tasks (close.year_tasks), covering each ledger's periods of the
 // year, stored apart from period closes and worked by the same code
-// (closeKind).
+// (closeKind). T64m5 runs a year close's checks (ADR-0060 §8, §11): no
+// parked entry left in the year, special periods included; each covered
+// ledger's revaluation posted on the year's last day; T64k's depreciation
+// check passing in every regular period of each covered ledger; and each
+// covered ledger's balance carry-forward from the year current and not
+// stale, read through the ledger's port.
 package closing
 
 import (
@@ -204,9 +209,11 @@ type EntryStatus struct {
 // code, and with their periods of a fiscal year (YearPeriods, a year
 // close's, ADR-0060 §2); how many of its parked entries with a posting date from from to to
 // are in one of the statuses, and the first limit of them by posting date,
-// those parked for a special period left out (ADR-0060 §3: the year's);
-// its ledger's posted revaluation run at a key date, ok false when there
-// is none; every profit and loss account of it with its net movement of a
+// those parked for a special period counted only when special is true (a
+// year close's, ADR-0060 §3, §8); its ledger's posted revaluation run at a
+// key date, ok false when there is none; its ledger's current balance
+// carry-forward from a fiscal year with the periods that make it stale
+// (CarryForward, ADR-0060 §6, §8); every profit and loss account of it with its net movement of a
 // fiscal year and period in the leading ledger, by account number; and
 // those of the ids that are its posted journal entries in the leading
 // ledger, each with the periods it has a line on the account in; the
@@ -226,8 +233,9 @@ type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
 	YearPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]LedgerYear, error)
-	Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []ParkedEntry, error)
+	Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, special bool, limit int) (int, []ParkedEntry, error)
 	PostedRevaluation(ctx context.Context, legalEntity, ledger uuid.UUID, keyDate time.Time) (run uuid.UUID, ok bool, err error)
+	CarryForward(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear int16) (CarryForward, error)
 	Lock(ctx context.Context, period uuid.UUID, version int32) error
 	ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]AccountNet, error)
 	Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]CitedEntry, error)
@@ -237,6 +245,15 @@ type Ledger interface {
 	Park(ctx context.Context, entry ParkEntry) (uuid.UUID, error)
 	Statuses(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]EntryStatus, error)
 	Cancel(ctx context.Context, id uuid.UUID, reason string) error
+}
+
+// CarryForward is a ledger's current balance carry-forward from a fiscal
+// year as the carry_forward_current check reads it: its run, nil without
+// one, and the periods opened since it that make it stale (ADR-0060 §6),
+// by fiscal year and period, none when it is not.
+type CarryForward struct {
+	Run         *uuid.UUID
+	OpenedSince []FiscalPeriod
 }
 
 // Document is a supplier invoice or a purchase order as an accrual's
@@ -304,7 +321,9 @@ type PeriodDepreciation struct {
 	Late     []LateAsset
 }
 
-// FiscalPeriod is a fiscal year and regular period.
+// FiscalPeriod is a fiscal year and period: a regular period (1-12), or
+// any period (1-16) where a stale carry-forward names those opened since
+// it.
 type FiscalPeriod struct{ FiscalYear, Period int16 }
 
 // LaterDepreciation is a posted depreciation run of a later period: its

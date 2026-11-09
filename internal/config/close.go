@@ -53,10 +53,13 @@ const (
 var CloseChecks = []string{"no_parked_entries", "revaluation_posted", "variances_explained", "depreciation_posted", "accruals_decided", "accruals_reversed"}
 
 // YearCloseChecks are the checks this build runs on a year close (ADR-0060
-// §8), which a year task may name: none until T64m5 builds them, so a year
-// task is manual until then, as the period close's were before T64c. The
-// period checks (CloseChecks) are not among them.
-var YearCloseChecks = []string{}
+// §8, T64m5), which a year task may name: no parked entry left in the
+// year, special periods included; each covered ledger's revaluation posted
+// at the year's last day; each covered ledger's depreciation posted, or
+// nothing to depreciate, in every regular period; and each covered
+// ledger's carry-forward from the year current and not stale. The period
+// checks but the first two are not among them.
+var YearCloseChecks = []string{"no_parked_entries", "revaluation_posted", "depreciation_year_posted", "carry_forward_current"}
 
 // Close template bounds (ADR-0058 §3).
 const (

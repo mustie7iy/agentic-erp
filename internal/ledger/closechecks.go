@@ -15,8 +15,10 @@ import (
 )
 
 // CloseChecks is the ledger's port for a financial close's checks
-// (ADR-0058 §4, §6, T64c): the parked entries a period still holds, and
-// whether a ledger's foreign-currency revaluation of a key date is posted.
+// (ADR-0058 §4, §6, T64c) and a year close's (ADR-0060 §8, T64m5): the
+// parked entries a period or a year still holds, whether a ledger's
+// foreign-currency revaluation of a key date is posted, and a ledger's
+// current balance carry-forward from a year with what makes it stale.
 type CloseChecks struct{}
 
 // OpenParked is a parked entry a close's check names: what identifies it
@@ -35,10 +37,11 @@ type OpenParked struct {
 // Parked returns how many parked entries of the legal entity with a
 // posting date from from to to are in one of the statuses, and the first
 // limit of them by posting date and id: none for a legal entity the
-// caller may not act in. An entry parked for a special period is left
-// out: dated in the year's last regular period, it would hold that
-// period's close for months, and it is the year close's (ADR-0060 §3).
-func (CloseChecks) Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []OpenParked, error) {
+// caller may not act in. An entry parked for a special period is counted
+// only when special is true, as a year close counts it: dated in the
+// year's last regular period, it would hold that period's close for
+// months, and it is the year close's (ADR-0060 §3, §8).
+func (CloseChecks) Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, special bool, limit int) (int, []OpenParked, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return 0, nil, err
@@ -49,9 +52,9 @@ func (CloseChecks) Parked(ctx context.Context, legalEntity uuid.UUID, from, to t
 	}
 	total := 0
 	rows, _ := tx.Query(ctx, `SELECT id, document_type, posting_date, status, reference, header_text, created_by, created_by_kind, count(*) OVER ()
-		FROM ledger.parked_entry WHERE ($1 OR legal_entity_id = ANY($2)) AND legal_entity_id = $3 AND posting_date BETWEEN $4 AND $5 AND fiscal_period IS NULL
+		FROM ledger.parked_entry WHERE ($1 OR legal_entity_id = ANY($2)) AND legal_entity_id = $3 AND posting_date BETWEEN $4 AND $5 AND (fiscal_period IS NULL OR $8)
 			AND status = ANY($6)
-		ORDER BY posting_date, id LIMIT $7`, access.All, access.IDs, legalEntity, from, to, statuses, limit)
+		ORDER BY posting_date, id LIMIT $7`, access.All, access.IDs, legalEntity, from, to, statuses, limit, special)
 	found, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (OpenParked, error) {
 		var p OpenParked
 		err := row.Scan(&p.ID, &p.DocumentType, &p.PostingDate, &p.Status, &p.Reference, &p.HeaderText, &p.CreatedBy, &p.CreatedByKind, &total)
@@ -85,4 +88,42 @@ func (CloseChecks) PostedRevaluation(ctx context.Context, legalEntity, ledgerID 
 		return uuid.Nil, false, fmt.Errorf("ledger: revaluation of ledger %s of %s at %s: %w", ledgerID, legalEntity, keyDate.Format(time.DateOnly), err)
 	}
 	return run, true, nil
+}
+
+// CurrentCarryForward is a ledger's current balance carry-forward from a
+// fiscal year as a year close's check reads it: its run, nil without
+// one, and the periods that make it stale (ADR-0060 §6), none when it is
+// not.
+type CurrentCarryForward struct {
+	Run         *uuid.UUID
+	OpenedSince []PeriodRef
+}
+
+// CarryForward returns the current carry-forward run of the legal
+// entity's ledger from the fiscal year with the periods opened since it,
+// judged as every read of a run judges them (openedSinceOf): no run for a
+// legal entity the caller may not act in.
+func (CloseChecks) CarryForward(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear int16) (CurrentCarryForward, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return CurrentCarryForward{}, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return CurrentCarryForward{}, err
+	}
+	var run uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT id FROM ledger.carry_forward_run WHERE ($1 OR legal_entity_id = ANY($2)) AND legal_entity_id = $3 AND ledger_id = $4
+		AND from_fiscal_year = $5 AND status = 'current'`, access.All, access.IDs, legalEntity, ledgerID, fiscalYear).Scan(&run)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return CurrentCarryForward{}, nil
+	}
+	if err != nil {
+		return CurrentCarryForward{}, fmt.Errorf("ledger: current carry-forward of ledger %s of %s from %d: %w", ledgerID, legalEntity, fiscalYear, err)
+	}
+	opened, err := openedSinceOf(ctx, tx, []uuid.UUID{run})
+	if err != nil {
+		return CurrentCarryForward{}, err
+	}
+	return CurrentCarryForward{Run: &run, OpenedSince: opened[run]}, nil
 }

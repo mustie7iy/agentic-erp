@@ -164,7 +164,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		if t.Kind != config.CloseCheck {
 			continue
 		}
-		passed, f, err := e.run(ctx, tx, t)
+		passed, f, err := e.run(ctx, tx, periodCloses, t)
 		if err != nil {
 			return err
 		}
@@ -183,7 +183,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 		return pr
 	}
 	for _, r := range results {
-		if err := recordCheck(ctx, tx, p, r.t, true, r.f); err != nil {
+		if err := recordCheck(ctx, tx, periodCloses, p, r.t, true, r.f); err != nil {
 			return err
 		}
 	}
@@ -304,7 +304,7 @@ func (e *Endpoints) writable(ctx context.Context, tx pgx.Tx, k *closeKind, close
 // them now: a period close's period, a year close's periods of the year.
 func (e *Endpoints) coveredOf(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow) ([]LedgerYear, error) {
 	if k.year {
-		return e.yearCovered(ctx, tx, c)
+		return e.yearCoveredOf(ctx, tx, c.ID, c.LegalEntityID, c.FiscalYear)
 	}
 	covered, err := e.coveredPeriods(ctx, tx, c.ID, c.LegalEntityID, c.FiscalYear, c.FiscalPeriod)
 	out := make([]LedgerYear, len(covered))

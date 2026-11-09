@@ -941,3 +941,64 @@ product owner to overrule:
    `closing.task_blocked`; she assigns the adjustments task to herself and
    completes it, which unblocks the review; a second year close of `PREV`
    is refused with `closing.year_close_exists`, and the list shows the one.
+
+**T64m5, year-close checks** (no migration). Built as §8 and §11 say; the
+choices taken by default (ADR-0053 d), for the product owner to overrule:
+1. *The checks a year task may name.* `config.YearCloseChecks` is the
+   table's four: `no_parked_entries` and `revaluation_posted` (the period
+   checks' names, read over the year), `depreciation_year_posted` and
+   `carry_forward_current`. Every other period check, `depreciation_posted`
+   included, is refused on a year task, and the two year-only checks on a
+   period task (`close.tasks`).
+2. *The operation.* `POST /v1/year-closes/{id}/tasks/{code}:check`
+   (`checkYearCloseTask`) is `checkCloseTask`'s: the same act (`check`), its
+   refusals, If-Match, permissions and recording (`recordCheck` on the
+   kind's task table), published as YearCloseChanged `task_checked` with
+   `check_passed`. `run` sends a year close's task to `runYear`, which reads
+   the covered ledgers' periods of the year live (`yearCoveredOf`, the read
+   the representation uses). `YearCloseTask` gains `check_result`
+   (`CloseCheckResult`, additive); the sign-off's `FailingCheck` is
+   T64m6's.
+3. *`no_parked_entries` over the year* reads the parked entries dated from
+   the leading ledger's first regular period's first day to its last
+   regular period's last day, those parked for a special period included:
+   `CloseChecks.Parked` and `closing.Ledger.Parked` take a `special` flag,
+   false for a period close (T64m1's rule unchanged), true for a year close.
+4. *`revaluation_posted`* gives each covered ledger its last regular
+   period, so the key date is that ledger's year end, as the period check
+   gives its period's; the summary says "the year's last day".
+5. *`depreciation_year_posted`* asks T64k's port once per covered ledger and
+   regular period (`ledgerDepreciation`, now shared with
+   `depreciation_posted`), in the ledgers' order, then by period; a period
+   passes as T64k's check passes it (a posted run, nothing a run would
+   select, or a posted run of a later period, its assets then
+   `depreciation_catch_up` warnings). An asset late for a period is late
+   for every period after it up to the later run's (its depreciation is
+   missing from that period through the run's), so the periods one later
+   run catches up warn of each asset once, as the last of them reads it,
+   not once per period (review round 1). The result
+   names only the periods that fail, each a `ledgers` row with
+   `fiscal_period` and the assets a run would select, the first 20 with
+   `ledger_periods_count` counting them all: every period of two ledgers
+   would pass `ledgers`' bound of 20, and a passing period adds nothing to
+   act on. The summary names each failing ledger with its periods.
+6. *`carry_forward_current`* reads each covered ledger's current run from
+   the year through the new port method `closing.Ledger.CarryForward`
+   (`ledger.CloseChecks.CarryForward`, under the caller's companies), with
+   T64m3's staleness (`openedSinceOf`), so the check and `GET
+   /v1/balance-carry-forwards/{id}` never disagree. Each covered ledger is a
+   `ledgers` row keyed on the year's last day, `posted` when it has a
+   current run, with `carry_forward_run_id`, `stale` and `opened_since`
+   (`CarryForwardOpenedPeriod`, as the run's representation names them).
+   It fails naming the ledgers without a run and those whose run is stale
+   with the periods opened since; a stale run stays stale when the period
+   is closed again, until the year is carried forward again.
+7. *Walkthrough* (`year_end_checks`, after `year_end_close`): Ada's change
+   request of the year tasks adds the four checks (`NO_PARKED`,
+   `REVALUED`, `DEPRECIATED`, `CARRIED_FORWARD`, the last after the
+   auditors' adjustments); Carla runs them on `PREV`: nothing parked, both
+   ledgers revalued on `PREV`'s last day, nothing to depreciate in any
+   period, the carry-forward current; she posts one more adjustment into
+   period 13 and closes it, the carry-forward check fails naming `PREV/13`
+   in 0L and 2L, and passes, naming the new runs, once she carries `PREV`
+   forward again.
