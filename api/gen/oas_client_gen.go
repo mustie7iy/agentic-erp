@@ -1096,10 +1096,15 @@ type Invoker interface {
 	// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
 	// after that commit the provider is told the document is kept (its acknowledgement), and
 	// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
-	// is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves
-	// the document's version without an event. When the fetch is done its Operation succeeds with the
-	// counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents
-	// it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation
+	// is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again
+	// under its id with other bytes (T65b) is not recorded again either: the document keeps its first
+	// bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`,
+	// with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes
+	// delivered again change nothing more. Its acknowledgement moves the document's version without an
+	// event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+	// `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the
+	// documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one
+	// names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation
 	// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
 	// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
 	// the store or the database failed (after five tries in the workflow engine, one in process), which
@@ -1112,7 +1117,10 @@ type Invoker interface {
 	// `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
 	// `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
 	// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
-	// for the provider to call. Human-only (`x-agent: false`).
+	// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
+	// every active `einvoice_provider` connector of an active tenant once per
+	// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
+	// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 	//
 	// POST /v1/e-invoices:fetch
 	FetchEInvoices(ctx context.Context, request *EInvoiceFetch, params FetchEInvoicesParams) (FetchEInvoicesRes, error)
@@ -1598,6 +1606,19 @@ type Invoker interface {
 	//
 	// GET /v1/e-invoices/{id}
 	GetEInvoice(ctx context.Context, params GetEInvoiceParams) (GetEInvoiceRes, error)
+	// GetEInvoiceContent invokes getEInvoiceContent operation.
+	//
+	// The e-invoice's bytes, the legal original, byte for byte as the provider first delivered them
+	// (ADR-0061 §4, §8, T65b): kept write-once in object storage under their SHA-256, which every read
+	// compares with the `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ
+	// from it). Other bytes the provider delivered later under the same message id are not served here:
+	// the document names their hash as `changed_sha256`. Visible as `getEInvoice` is: one of a company the
+	// caller may not act in, or addressed to none of the connector's companies to a caller who may not act
+	// in every company, is not found (404); 503 while the server has no object storage. Human-only
+	// (`x-agent: false`): agents read a document's fields, not its content (ADR-0061 §11).
+	//
+	// GET /v1/e-invoices/{id}/content
+	GetEInvoiceContent(ctx context.Context, params GetEInvoiceContentParams) (GetEInvoiceContentRes, error)
 	// GetEntryTemplate invokes getEntryTemplate operation.
 	//
 	// Returns one entry template with its lines, its schedule's next due date (`next_due_on`), the last
@@ -2588,11 +2609,12 @@ type Invoker interface {
 	// received first: those of the companies the caller may act in, and, to a caller who may act in every
 	// company, those addressed to none of the connector's companies. Each carries its connector by id and
 	// name, its company by id, code and name, the provider's message id and the participant it was listed
-	// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
-	// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
-	// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
-	// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
-	// which add it here.
+	// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it, when it
+	// was received and acknowledged, and the hash of other bytes the provider delivered later under its id
+	// (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company,
+	// connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
+	// its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is
+	// read by the processing slices (T65c, T65d), which add it here.
 	//
 	// GET /v1/e-invoices
 	ListEInvoices(ctx context.Context, params ListEInvoicesParams) (ListEInvoicesRes, error)
@@ -18108,10 +18130,15 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 // of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
 // after that commit the provider is told the document is kept (its acknowledgement), and
 // `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
-// is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves
-// the document's version without an event. When the fetch is done its Operation succeeds with the
-// counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents
-// it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation
+// is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again
+// under its id with other bytes (T65b) is not recorded again either: the document keeps its first
+// bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`,
+// with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes
+// delivered again change nothing more. Its acknowledgement moves the document's version without an
+// event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+// `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the
+// documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one
+// names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation
 // with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
 // field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
 // the store or the database failed (after five tries in the workflow engine, one in process), which
@@ -18124,7 +18151,10 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 // `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
 // `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
 // object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
-// for the provider to call. Human-only (`x-agent: false`).
+// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
+// every active `einvoice_provider` connector of an active tenant once per
+// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
+// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 //
 // POST /v1/e-invoices:fetch
 func (c *Client) FetchEInvoices(ctx context.Context, request *EInvoiceFetch, params FetchEInvoicesParams) (FetchEInvoicesRes, error) {
@@ -24532,6 +24562,145 @@ func (c *Client) sendGetEInvoice(ctx context.Context, params GetEInvoiceParams) 
 
 	stage = "DecodeResponse"
 	result, err := decodeGetEInvoiceResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetEInvoiceContent invokes getEInvoiceContent operation.
+//
+// The e-invoice's bytes, the legal original, byte for byte as the provider first delivered them
+// (ADR-0061 §4, §8, T65b): kept write-once in object storage under their SHA-256, which every read
+// compares with the `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ
+// from it). Other bytes the provider delivered later under the same message id are not served here:
+// the document names their hash as `changed_sha256`. Visible as `getEInvoice` is: one of a company the
+// caller may not act in, or addressed to none of the connector's companies to a caller who may not act
+// in every company, is not found (404); 503 while the server has no object storage. Human-only
+// (`x-agent: false`): agents read a document's fields, not its content (ADR-0061 §11).
+//
+// GET /v1/e-invoices/{id}/content
+func (c *Client) GetEInvoiceContent(ctx context.Context, params GetEInvoiceContentParams) (GetEInvoiceContentRes, error) {
+	res, err := c.sendGetEInvoiceContent(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetEInvoiceContent(ctx context.Context, params GetEInvoiceContentParams) (res GetEInvoiceContentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getEInvoiceContent"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/e-invoices/{id}/content"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetEInvoiceContentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/content"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetEInvoiceContentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetEInvoiceContentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -42334,11 +42503,12 @@ func (c *Client) sendListDownPaymentRequests(ctx context.Context, params ListDow
 // received first: those of the companies the caller may act in, and, to a caller who may act in every
 // company, those addressed to none of the connector's companies. Each carries its connector by id and
 // name, its company by id, code and name, the provider's message id and the participant it was listed
-// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
-// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
-// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
-// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
-// which add it here.
+// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it, when it
+// was received and acknowledged, and the hash of other bytes the provider delivered later under its id
+// (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company,
+// connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
+// its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is
+// read by the processing slices (T65c, T65d), which add it here.
 //
 // GET /v1/e-invoices
 func (c *Client) ListEInvoices(ctx context.Context, params ListEInvoicesParams) (ListEInvoicesRes, error) {

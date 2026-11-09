@@ -3965,10 +3965,15 @@ uae_return() {
 # company's participant; Alex fetches, finds it in the list received under
 # the fetch's operation, its bytes the stand-in's, acknowledged; the
 # stand-in loses the acknowledgement and lists it again, and a second
-# fetch counts it as already recorded and acknowledges it again.
+# fetch counts it as already recorded and acknowledges it again. T65b's
+# (ADR-0061 §4, §8): Alex downloads the e-invoice as received, its SHA-256
+# the stand-in's; the stand-in delivers it again under its id with other
+# bytes, and a fetch counts it as changed, the document keeping its first
+# bytes and naming the new ones' hash; the same bytes delivered once more
+# are not a change again.
 step_einvoice() {
-  heading "Step 43 — E-invoices fetched on demand: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged"
-  local connector op doc sum
+  heading "Step 43 — E-invoices fetched: the UAE company's provider connected, a supplier's e-invoice recorded once and acknowledged, downloaded as received, a redelivery with other bytes recorded as its change once"
+  local connector op doc sum changed
   as ada
   say "The UAE company $AE receives its suppliers' e-invoices through an accredited provider (ADR-0049, ADR-0061). No"
   say "provider is chosen yet (ADR-0061 Q1), so Ada connects the provider's stand-in on this machine: an einvoice_provider"
@@ -4015,7 +4020,49 @@ step_einvoice() {
   expect "still the first fetch's" "$(field .fetch_operation_id)" "$op"
   QUIET=1 api 200 '' listEInvoices -p "connector_id=$connector"
   expect "the connector's documents" "$(field '.items | length')" 1
+  einvoice_original "$connector" "$doc" "$sum"
   passed
+}
+
+# einvoice_original is T65b's part of step_einvoice: the e-invoice
+# downloaded as received, and the provider's redelivery under its id with
+# other bytes recorded as its change, once.
+einvoice_original() {
+  local connector=$1 doc=$2 sum=$3 changed op
+  say "Alex downloads GOI-2001 as received, the legal original kept write-once; its SHA-256 is the stand-in's, and the"
+  say "server compares it with the hash recorded on every read:"
+  api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/GOI-2001.downloaded.xml"
+  say "  $(wc -c <"$WORK/provider/GOI-2001.downloaded.xml" | tr -d ' ') bytes, SHA-256 $(shasum -a 256 "$WORK/provider/GOI-2001.downloaded.xml" | cut -c1-16)…"
+  expect "the download's SHA-256" "$(shasum -a 256 "$WORK/provider/GOI-2001.downloaded.xml" | cut -d' ' -f1)" "$sum"
+  say "The provider delivers GOI-2001 again under the same id with other bytes (the supplier changed it after sending). The"
+  say "next fetch does not replace the original: it records the new bytes' hash as the document's change, once, for a person"
+  say "to take up with the supplier:"
+  sed 's/<ID>GOI-2001<\/ID>/<ID>GOI-2001<\/ID><Note>Corrected<\/Note>/' "$WORK/provider/GOI-2001.downloaded.xml" >"$WORK/provider/inbox/GOI-2001.xml"
+  rm "$WORK/provider/inbox/GOI-2001.acknowledged"
+  changed=$(shasum -a 256 "$WORK/provider/inbox/GOI-2001.xml" | cut -d' ' -f1)
+  [ "$changed" != "$sum" ] || fail "the redelivered GOI-2001 has the same bytes"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), changed \(.result.changed)"'
+  expect "the redelivery's counts" "$(field '"\(.result.recorded) \(.result.already_recorded) \(.result.changed)"')" "0 0 1"
+  op=$(field .id)
+  say "The fetch's documents, its Operation's resource, are those it recorded or found changed:"
+  api 200 '.items[] | "  \(.message_id): \(.status), its bytes \(.sha256[0:16])…, changed to \(.changed_sha256[0:16])… at \(.changed_at) by this fetch \(.changed_fetch_operation_id == "'"$op"'")"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's changed documents" "$(field '[.items[].id] | join(" ")')" "$doc"
+  expect "the bytes kept" "$(field '.items[0].sha256')" "$sum"
+  expect "the change recorded" "$(field '.items[0].changed_sha256')" "$changed"
+  expect "the fetch that found it" "$(field '.items[0].changed_fetch_operation_id')" "$op"
+  QUIET=1 api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/GOI-2001.downloaded-again.xml"
+  expect "the download after the change" "$(shasum -a 256 "$WORK/provider/GOI-2001.downloaded-again.xml" | cut -d' ' -f1)" "$sum"
+  say "The provider loses that acknowledgement too and delivers the same changed bytes again; it is not a change again:"
+  rm "$WORK/provider/inbox/GOI-2001.acknowledged"
+  api 202 '"operation \(.kind): \(.status)"' fetchEInvoices -body "{\"connector_id\": \"$connector\"}"
+  wait_op
+  excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), changed \(.result.changed)"'
+  expect "the same changed bytes' counts" "$(field '"\(.result.recorded) \(.result.already_recorded) \(.result.changed)"')" "0 1 0"
+  QUIET=1 api 200 '' getEInvoice -p "id=$doc"
+  expect "still the one change" "$(field .changed_sha256)" "$changed"
 }
 
 # step_year_end is the year-end close of the fiscal year before today's,

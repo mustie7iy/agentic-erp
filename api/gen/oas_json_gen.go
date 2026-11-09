@@ -69106,12 +69106,24 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 		s.AcknowledgedAt.Encode(e, json.EncodeDateTime)
 	}
 	{
+		e.FieldStart("changed_sha256")
+		s.ChangedSHA256.Encode(e)
+	}
+	{
+		e.FieldStart("changed_at")
+		s.ChangedAt.Encode(e, json.EncodeDateTime)
+	}
+	{
+		e.FieldStart("changed_fetch_operation_id")
+		s.ChangedFetchOperationID.Encode(e)
+	}
+	{
 		e.FieldStart("version")
 		e.Int32(s.Version)
 	}
 }
 
-var jsonFieldsNameOfEInvoice = [15]string{
+var jsonFieldsNameOfEInvoice = [18]string{
 	0:  "id",
 	1:  "connector_id",
 	2:  "connector_name",
@@ -69126,7 +69138,10 @@ var jsonFieldsNameOfEInvoice = [15]string{
 	11: "fetch_operation_id",
 	12: "received_at",
 	13: "acknowledged_at",
-	14: "version",
+	14: "changed_sha256",
+	15: "changed_at",
+	16: "changed_fetch_operation_id",
+	17: "version",
 }
 
 // Decode decodes EInvoice from json.
@@ -69134,7 +69149,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode EInvoice to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -69296,8 +69311,38 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"acknowledged_at\"")
 			}
-		case "version":
+		case "changed_sha256":
 			requiredBitSet[1] |= 1 << 6
+			if err := func() error {
+				if err := s.ChangedSHA256.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"changed_sha256\"")
+			}
+		case "changed_at":
+			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				if err := s.ChangedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"changed_at\"")
+			}
+		case "changed_fetch_operation_id":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				if err := s.ChangedFetchOperationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"changed_fetch_operation_id\"")
+			}
+		case "version":
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -69317,9 +69362,10 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11111111,
-		0b01111111,
+		0b11111111,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -81733,6 +81779,120 @@ func (s *GetEInvoiceBadRequest) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *GetEInvoiceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetEInvoiceContentBadRequest as json.
+func (s *GetEInvoiceContentBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetEInvoiceContentBadRequest from json.
+func (s *GetEInvoiceContentBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetEInvoiceContentBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetEInvoiceContentBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetEInvoiceContentBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetEInvoiceContentBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetEInvoiceContentForbidden as json.
+func (s *GetEInvoiceContentForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetEInvoiceContentForbidden from json.
+func (s *GetEInvoiceContentForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetEInvoiceContentForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetEInvoiceContentForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetEInvoiceContentForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetEInvoiceContentForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes GetEInvoiceContentNotFound as json.
+func (s *GetEInvoiceContentNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes GetEInvoiceContentNotFound from json.
+func (s *GetEInvoiceContentNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode GetEInvoiceContentNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = GetEInvoiceContentNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *GetEInvoiceContentNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *GetEInvoiceContentNotFound) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

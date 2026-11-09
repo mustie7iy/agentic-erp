@@ -107,6 +107,28 @@ func start(ctx context.Context, kind string, req any, resource *string) (Operati
 	return o, nil
 }
 
+// StartTaken records, in the request's transaction, a queued operation a
+// workflow already carries out: one a workflow started on a schedule
+// records under the id it chose (an e-invoice fetch, ADR-0061 §4), naming
+// that workflow at once, so no dispatcher starts another for it (the
+// dispatchers take only operations without a workflow). Recording it again
+// changes nothing, so the workflow's step may run any number of times.
+func StartTaken(ctx context.Context, id uuid.UUID, kind string, req any, resource, workflowID string) error {
+	tx, p, err := request(ctx)
+	if err != nil {
+		return err
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("operations: request: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO platform.operation (tenant_id, id, kind, status, request, resource, workflow_id, created_by, updated_by)
+		VALUES ($1, $2, $3, 'queued', $4, $5, $6, $7, $7) ON CONFLICT DO NOTHING`, p.TenantID, id, kind, body, resource, workflowID, p.ID); err != nil {
+		return fmt.Errorf("operations: start %s %s: %w", kind, id, err)
+	}
+	return nil
+}
+
 // Get reads an operation in the request's transaction.
 func Get(ctx context.Context, id uuid.UUID) (Operation, error) {
 	tx, _, err := request(ctx)

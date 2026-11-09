@@ -126,7 +126,7 @@ func TestFetchEInvoicesWorkflow(t *testing.T) {
 	if err := s.runEInvoiceFetch(t, first); err != nil {
 		t.Fatalf("the fetch: %v", err)
 	}
-	if got := fetchOutcome(t, first); got != `succeeded {"recorded": 2, "already_recorded": 0}` {
+	if got := fetchOutcome(t, first); got != `succeeded {"changed": 0, "recorded": 2, "already_recorded": 0}` {
 		t.Errorf("the fetch: got %s, want both recorded", got)
 	}
 	s.srv.Fail("POST /messages/MSG-1/acknowledge", 1) // lost once: the activity's retry acknowledges it
@@ -181,7 +181,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 	if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 		t.Fatalf("round: got %d %v, want the fetch ended", n, err)
 	}
-	if got := fetchOutcome(t, in); got != `succeeded {"recorded": 1, "already_recorded": 0}` {
+	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "recorded": 1, "already_recorded": 0}` {
 		t.Errorf("the fetch: got %s, want MSG-1 recorded", got)
 	}
 	t.Run("failures", func(t *testing.T) {
@@ -217,7 +217,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if n, err := w.RunOnce(ctx); err != nil || n < 1 {
 			t.Errorf("the next round: got %d %v, want the fetch carried out", n, err)
 		}
-		if got := fetchOutcome(t, stuck); got != `succeeded {"recorded": 0, "already_recorded": 0}` {
+		if got := fetchOutcome(t, stuck); got != `succeeded {"changed": 0, "recorded": 0, "already_recorded": 0}` {
 			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})
@@ -235,7 +235,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if _, err := w.RunOnce(ctx); err != nil {
 			t.Fatalf("round: %v", err)
 		}
-		if got := fetchOutcome(t, again); got != `succeeded {"recorded": 0, "already_recorded": 1}` {
+		if got := fetchOutcome(t, again); got != `succeeded {"changed": 0, "recorded": 0, "already_recorded": 1}` {
 			t.Errorf("the next fetch: got %s, want MSG-2 already recorded", got)
 		}
 	})
@@ -261,7 +261,7 @@ func TestEInvoiceFetcher(t *testing.T) {
 		if _, err := w.RunOnce(ctx); err != nil {
 			t.Errorf("the next round: got %v, want no error", err)
 		}
-		if got := fetchOutcome(t, left); got != `succeeded {"recorded": 0, "already_recorded": 0}` {
+		if got := fetchOutcome(t, left); got != `succeeded {"changed": 0, "recorded": 0, "already_recorded": 0}` {
 			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})

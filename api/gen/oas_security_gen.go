@@ -184,6 +184,7 @@ var operationRolesOidc = map[string][]string{
 	GetDepreciationRunOperation:                    []string{},
 	GetDownPaymentRequestOperation:                 []string{},
 	GetEInvoiceOperation:                           []string{},
+	GetEInvoiceContentOperation:                    []string{},
 	GetEntryTemplateOperation:                      []string{},
 	GetExchangeRateOperation:                       []string{},
 	GetFiscalPeriodOperation:                       []string{},

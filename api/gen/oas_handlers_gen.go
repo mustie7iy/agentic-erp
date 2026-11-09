@@ -18492,10 +18492,15 @@ func (s *Server) handleExcludeBankStatementLineRequest(args [2]string, argsEscap
 // of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
 // after that commit the provider is told the document is kept (its acknowledgement), and
 // `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
-// is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves
-// the document's version without an event. When the fetch is done its Operation succeeds with the
-// counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents
-// it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation
+// is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again
+// under its id with other bytes (T65b) is not recorded again either: the document keeps its first
+// bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`,
+// with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes
+// delivered again change nothing more. Its acknowledgement moves the document's version without an
+// event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+// `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the
+// documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one
+// names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation
 // with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
 // field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
 // the store or the database failed (after five tries in the workflow engine, one in process), which
@@ -18508,7 +18513,10 @@ func (s *Server) handleExcludeBankStatementLineRequest(args [2]string, argsEscap
 // `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
 // `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
 // object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
-// for the provider to call. Human-only (`x-agent: false`).
+// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
+// every active `einvoice_provider` connector of an active tenant once per
+// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
+// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 //
 // POST /v1/e-invoices:fetch
 func (s *Server) handleFetchEInvoicesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -27058,6 +27066,200 @@ func (s *Server) handleGetEInvoiceRequest(args [1]string, argsEscaped bool, w ht
 	}
 
 	if err := encodeGetEInvoiceResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetEInvoiceContentRequest handles getEInvoiceContent operation.
+//
+// The e-invoice's bytes, the legal original, byte for byte as the provider first delivered them
+// (ADR-0061 §4, §8, T65b): kept write-once in object storage under their SHA-256, which every read
+// compares with the `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ
+// from it). Other bytes the provider delivered later under the same message id are not served here:
+// the document names their hash as `changed_sha256`. Visible as `getEInvoice` is: one of a company the
+// caller may not act in, or addressed to none of the connector's companies to a caller who may not act
+// in every company, is not found (404); 503 while the server has no object storage. Human-only
+// (`x-agent: false`): agents read a document's fields, not its content (ADR-0061 §11).
+//
+// GET /v1/e-invoices/{id}/content
+func (s *Server) handleGetEInvoiceContentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getEInvoiceContent"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/e-invoices/{id}/content"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetEInvoiceContentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetEInvoiceContentOperation,
+			ID:   "getEInvoiceContent",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetEInvoiceContentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetEInvoiceContentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetEInvoiceContentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetEInvoiceContentOperation,
+			OperationSummary: "Download an e-invoice as received",
+			OperationID:      "getEInvoiceContent",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetEInvoiceContentParams
+			Response = GetEInvoiceContentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetEInvoiceContentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetEInvoiceContent(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetEInvoiceContent(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetEInvoiceContentResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -46412,11 +46614,12 @@ func (s *Server) handleListDownPaymentRequestsRequest(args [0]string, argsEscape
 // received first: those of the companies the caller may act in, and, to a caller who may act in every
 // company, those addressed to none of the connector's companies. Each carries its connector by id and
 // name, its company by id, code and name, the provider's message id and the participant it was listed
-// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
-// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
-// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
-// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
-// which add it here.
+// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it, when it
+// was received and acknowledged, and the hash of other bytes the provider delivered later under its id
+// (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company,
+// connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
+// its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is
+// read by the processing slices (T65c, T65d), which add it here.
 //
 // GET /v1/e-invoices
 func (s *Server) handleListEInvoicesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

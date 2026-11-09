@@ -3692,8 +3692,17 @@ and object key of the bytes, the fetch's Operation, `received_at`,
 `acknowledged_at` (set once, never before receipt) and the version; the
 status `received` alone, which a trigger holds, with what was recorded
 fixed and only the acknowledgement written after (column grants and the
-trigger); the connector kind check widened to `einvoice_provider`. The
-other columns below arrive with the slices that write them (T65b-T65f).
+trigger); the connector kind check widened to `einvoice_provider`. T65b
+(migrations 000233-000236) adds `changed_hash`, `changed_at` and
+`changed_fetch_operation_id`: other bytes the provider delivered later
+under the id, set together, never to the bytes kept, never before
+receipt and never undone (`einvoice_changed`, the trigger), the first
+bytes staying the original; the worker role reads `received_at` and
+`acknowledged_at` for the gauge `erp_einvoices_unacknowledged`, served
+by the cell-wide partial index `einvoice_unacknowledged`; the list's
+fetch filter also matches `changed_fetch_operation_id`
+(`einvoice_by_changed_fetch`). The other
+columns below arrive with the slices that write them (T65c-T65f).
 
 | Table | Purpose |
 |---|---|

@@ -138,6 +138,7 @@ const (
 	GetDepreciationRunOperation                    OperationName = "GetDepreciationRun"
 	GetDownPaymentRequestOperation                 OperationName = "GetDownPaymentRequest"
 	GetEInvoiceOperation                           OperationName = "GetEInvoice"
+	GetEInvoiceContentOperation                    OperationName = "GetEInvoiceContent"
 	GetEntryTemplateOperation                      OperationName = "GetEntryTemplate"
 	GetExchangeRateOperation                       OperationName = "GetExchangeRate"
 	GetFiscalPeriodOperation                       OperationName = "GetFiscalPeriod"

@@ -1075,10 +1075,15 @@ type Handler interface {
 	// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
 	// after that commit the provider is told the document is kept (its acknowledgement), and
 	// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
-	// is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves
-	// the document's version without an event. When the fetch is done its Operation succeeds with the
-	// counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents
-	// it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation
+	// is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again
+	// under its id with other bytes (T65b) is not recorded again either: the document keeps its first
+	// bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`,
+	// with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes
+	// delivered again change nothing more. Its acknowledgement moves the document's version without an
+	// event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
+	// `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the
+	// documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one
+	// names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation
 	// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
 	// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
 	// the store or the database failed (after five tries in the workflow engine, one in process), which
@@ -1091,7 +1096,10 @@ type Handler interface {
 	// `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
 	// `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
 	// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
-	// for the provider to call. Human-only (`x-agent: false`).
+	// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
+	// every active `einvoice_provider` connector of an active tenant once per
+	// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
+	// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 	//
 	// POST /v1/e-invoices:fetch
 	FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (FetchEInvoicesRes, error)
@@ -1577,6 +1585,19 @@ type Handler interface {
 	//
 	// GET /v1/e-invoices/{id}
 	GetEInvoice(ctx context.Context, params GetEInvoiceParams) (GetEInvoiceRes, error)
+	// GetEInvoiceContent implements getEInvoiceContent operation.
+	//
+	// The e-invoice's bytes, the legal original, byte for byte as the provider first delivered them
+	// (ADR-0061 §4, §8, T65b): kept write-once in object storage under their SHA-256, which every read
+	// compares with the `sha256` recorded (409 `einvoicing.document_changed` when the stored bytes differ
+	// from it). Other bytes the provider delivered later under the same message id are not served here:
+	// the document names their hash as `changed_sha256`. Visible as `getEInvoice` is: one of a company the
+	// caller may not act in, or addressed to none of the connector's companies to a caller who may not act
+	// in every company, is not found (404); 503 while the server has no object storage. Human-only
+	// (`x-agent: false`): agents read a document's fields, not its content (ADR-0061 §11).
+	//
+	// GET /v1/e-invoices/{id}/content
+	GetEInvoiceContent(ctx context.Context, params GetEInvoiceContentParams) (GetEInvoiceContentRes, error)
 	// GetEntryTemplate implements getEntryTemplate operation.
 	//
 	// Returns one entry template with its lines, its schedule's next due date (`next_due_on`), the last
@@ -2567,11 +2588,12 @@ type Handler interface {
 	// received first: those of the companies the caller may act in, and, to a caller who may act in every
 	// company, those addressed to none of the connector's companies. Each carries its connector by id and
 	// name, its company by id, code and name, the provider's message id and the participant it was listed
-	// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
-	// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
-	// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
-	// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
-	// which add it here.
+	// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it, when it
+	// was received and acknowledged, and the hash of other bytes the provider delivered later under its id
+	// (`changed_sha256`, T65b). Its bytes as received are `getEInvoiceContent`. Filters: company,
+	// connector, status, the fetch's Operation (`fetch_operation_id`, as a fetch's Operation names it in
+	// its `resource`) and when received. What a document says (number, issue date, supplier, amounts) is
+	// read by the processing slices (T65c, T65d), which add it here.
 	//
 	// GET /v1/e-invoices
 	ListEInvoices(ctx context.Context, params ListEInvoicesParams) (ListEInvoicesRes, error)
