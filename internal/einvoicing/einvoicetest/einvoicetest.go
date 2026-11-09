@@ -63,7 +63,7 @@ func Handler(store Store, token string) http.Handler {
 			http.NotFound(w, r)
 		default:
 			w.Header().Set("Content-Type", "application/xml")
-			_, _ = w.Write(body) // as above
+			_, _ = w.Write(body) // #nosec G705 -- the test double serves the document it was given, as XML, to the ERP alone; as above, a client gone gets nothing
 		}
 	})
 	mux.HandleFunc("POST /messages/{id}/acknowledge", func(w http.ResponseWriter, r *http.Request) {

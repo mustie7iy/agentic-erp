@@ -1,6 +1,7 @@
 package workflows_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -132,10 +133,13 @@ func TestFetchEInvoicesWorkflow(t *testing.T) {
 	s.srv.Deliver("MSG-3", fetchParticipant, einvoicetest.Invoice("INV-3"))
 	s.srv.Deliver("BAD", fetchParticipant, einvoicetest.Invoice("INV-4"))
 	s.srv.Fail("GET /messages/BAD", 10)
+	s.srv.Deliver("BIG", fetchParticipant, bytes.Repeat([]byte("x"), einvoicing.MaxDocument+1))
 	second := s.queue(t, true)
 	err := s.runEInvoiceFetch(t, second)
-	if err == nil || !strings.Contains(err.Error(), "BAD") {
-		t.Errorf("a message failing: got %v, want the workflow failed naming it", err)
+	for _, want := range []string{"BAD (platform.unavailable)", "BIG (einvoicing.document_too_large)"} {
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("messages failing: got %v, want the workflow failed naming %s", err, want)
+		}
 	}
 	if got := fetchOutcome(t, second); got != "failed einvoicing.fetch_incomplete" {
 		t.Errorf("a message failing: got %s, want the fetch incomplete", got)
@@ -210,8 +214,21 @@ func TestEInvoiceFetcher(t *testing.T) {
 			t.Errorf("the queue's statement failing: got %v, want the injected failure", err)
 		}
 		s.f.Begin = nil
-		if n, err := w.RunOnce(ctx); err != nil || n < 1 || fetchOutcome(t, stuck) != `succeeded {"recorded": 0, "already_recorded": 0}` {
-			t.Errorf("the next round: got %d %v and %s, want the fetch carried out", n, err, fetchOutcome(t, stuck))
+		if n, err := w.RunOnce(ctx); err != nil || n < 1 {
+			t.Errorf("the next round: got %d %v, want the fetch carried out", n, err)
+		}
+		if got := fetchOutcome(t, stuck); got != `succeeded {"recorded": 0, "already_recorded": 0}` {
+			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
+		}
+	})
+	t.Run("the provider failing once fails the fetch, tried once", func(t *testing.T) {
+		s.srv.Fail("GET /messages", 1)
+		once := s.queue(t, false)
+		if _, err := w.RunOnce(ctx); err == nil {
+			t.Error("round: got nil, want the fetch's failure reported")
+		}
+		if got := fetchOutcome(t, once); got != "failed platform.unavailable" {
+			t.Errorf("the fetch: got %s, want it failed with platform.unavailable", got)
 		}
 	})
 	t.Run("Run logs its rounds and stops with the context", func(t *testing.T) {

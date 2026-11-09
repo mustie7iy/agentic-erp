@@ -1344,19 +1344,23 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
 // after that commit the provider is told the document is kept (its acknowledgement), and
 // `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
-// is sent again, so an acknowledgement lost is repaired by the next fetch. When the fetch is done its
-// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`) and its
-// `resource` the list of the documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a
-// document the provider could not give after five tries fails the Operation with
-// `einvoicing.fetch_incomplete`, naming it, and is fetched again by the next fetch, the others
-// recorded. A connector that is not an active `einvoice_provider` connector with credentials that
-// resolve is refused before anything is queued (404 `request.not_found`, 422
-// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
-// `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so
-// is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only
-// adapter until a provider is chosen. A server without object storage refuses every fetch (503
-// `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Human-only
-// (`x-agent: false`).
+// is sent again, so an acknowledgement lost is repaired by the next fetch. Its acknowledgement moves
+// the document's version without an event. When the fetch is done its Operation succeeds with the
+// counts in its `result` (`recorded`, `already_recorded`) and its `resource` the list of the documents
+// it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation
+// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
+// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider
+// could not give it (after five tries in the workflow engine, one in process), which the next fetch
+// takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not
+// recorded until validation records it refused, T65c), which the next fetch meets again. A provider
+// whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an
+// active `einvoice_provider` connector with credentials that resolve is refused before anything is
+// queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
+// `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`,
+// `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
+// `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
+// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
+// for the provider to call. Human-only (`x-agent: false`).
 //
 // POST /v1/e-invoices:fetch
 func (UnimplementedHandler) FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (r FetchEInvoicesRes, _ error) {

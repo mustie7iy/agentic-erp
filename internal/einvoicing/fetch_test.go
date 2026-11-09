@@ -218,9 +218,19 @@ func TestRecordEInvoice(t *testing.T) {
 		t.Errorf("the bytes kept: got %q %v, want the document's", kept, err)
 	}
 	events := apitest.Published(t, s.f.Tenant, outbox.Event{Context: "einvoicing", Name: "einvoice_changed"})
-	if len(events) != 2 || events[0]["status"] != "received" || events[0]["legal_entity_code"] != "1000" || events[1]["legal_entity_code"] != nil ||
-		events[0]["sha256"] != hex.EncodeToString(sum[:]) {
-		t.Errorf("EInvoiceChanged: got %v, want one received per message, MSG-1's of 1000", events)
+	if len(events) != 2 {
+		t.Fatalf("EInvoiceChanged: got %d events, want one per message", len(events))
+	}
+	for field, c := range map[string]struct{ got, want any }{
+		"MSG-1's status":   {events[0]["status"], "received"},
+		"MSG-1's company":  {events[0]["legal_entity_code"], "1000"},
+		"MSG-1's SHA-256":  {events[0]["sha256"], hex.EncodeToString(sum[:])},
+		"MSG-2's company":  {events[1]["legal_entity_code"], nil},
+		"MSG-2's previous": {events[1]["status_before"], nil},
+	} {
+		if c.got != c.want {
+			t.Errorf("EInvoiceChanged, %s: got %v, want %v", field, c.got, c.want)
+		}
 	}
 	var audits int
 	pgtest.Scan(t, `SELECT count(*) FROM audit.audit_event WHERE tenant_id = $1 AND action = 'einvoicing.einvoice.received' AND actor_id = $2`,
@@ -360,7 +370,7 @@ func TestFinishEInvoiceFetch(t *testing.T) {
 		return got
 	}
 	done := s.fetch(t, s.connector)
-	finish := func(op uuid.UUID, failed []string) error {
+	finish := func(op uuid.UUID, failed []einvoicing.Failure) error {
 		return s.within()(ctx, func(ctx context.Context) error {
 			return s.e.FinishEInvoiceFetch(ctx, op, einvoicing.Counts{Recorded: 2, AlreadyRecorded: 1}, failed)
 		})
@@ -374,7 +384,7 @@ func TestFinishEInvoiceFetch(t *testing.T) {
 		t.Errorf("a fetch done: got %s, want %s", got, want)
 	}
 	incomplete := s.fetch(t, s.connector)
-	if err := finish(incomplete, []string{"MSG-9"}); err != nil {
+	if err := finish(incomplete, []einvoicing.Failure{{ID: "MSG-9", Code: "platform.unavailable"}, {ID: "BIG", Code: "einvoicing.document_too_large"}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := state(incomplete); got != "failed /v1/connectors/"+s.connector.String()+" - einvoicing.fetch_incomplete" {
@@ -382,8 +392,16 @@ func TestFinishEInvoiceFetch(t *testing.T) {
 	}
 	var detail string
 	pgtest.Scan(t, `SELECT error->>'detail' FROM platform.operation WHERE id = $1`, []any{incomplete}, &detail)
-	if !strings.Contains(detail, "MSG-9") || !strings.Contains(detail, "fetch_operation_id="+incomplete.String()) {
-		t.Errorf("its detail: got %q, want the message and the fetch's list named", detail)
+	for _, want := range []string{"MSG-9 (platform.unavailable)", "BIG (einvoicing.document_too_large)", "fetch_operation_id=" + incomplete.String()} {
+		if !strings.Contains(detail, want) {
+			t.Errorf("its detail: got %q, want it to name %s", detail, want)
+		}
+	}
+	var fields string
+	pgtest.Scan(t, `SELECT string_agg(e->>'field' || '=' || (e->>'code'), ' ' ORDER BY e->>'field') FROM platform.operation, jsonb_array_elements(error->'errors') e
+		WHERE id = $1`, []any{incomplete}, &fields)
+	if want := "messages.BIG=einvoicing.document_too_large messages.MSG-9=platform.unavailable"; fields != want {
+		t.Errorf("its field errors: got %q, want %q", fields, want)
 	}
 	stopped := s.fetch(t, s.connector)
 	for range 2 {

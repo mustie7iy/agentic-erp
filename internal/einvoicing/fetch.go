@@ -219,6 +219,12 @@ func recordChange(ctx context.Context, d EInvoice, company *Company) error {
 		outbox.Event{Context: "einvoicing", Name: "einvoice_changed", AggregateType: "einvoicing.einvoice", AggregateID: d.ID, Payload: payload})
 }
 
+// Failure is a message a fetch did not record: its id and the problem code
+// that stopped it (platform.unavailable for a failure of the machinery).
+type Failure struct {
+	ID, Code string
+}
+
 // Counts are what a fetch found, its Operation's result.
 type Counts struct {
 	Recorded        int `json:"recorded"`
@@ -227,11 +233,11 @@ type Counts struct {
 
 // FinishEInvoiceFetch ends the fetch's Operation in the caller's
 // transaction: succeeded with the counts and the list of the documents it
-// recorded as its resource, or, when messages could not be fetched (failed,
-// their ids), failed with einvoicing.fetch_incomplete naming them; the
+// recorded as its resource, or, when messages were not recorded (failed),
+// failed with einvoicing.fetch_incomplete naming each with its code; the
 // next fetch takes them again. An Operation already finished (cancelled)
 // is left as it is, so finishing twice changes nothing.
-func (e *Endpoints) FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts Counts, failed []string) error {
+func (e *Endpoints) FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts Counts, failed []Failure) error {
 	var err error
 	if len(failed) > 0 {
 		err = e.Runs.Fail(ctx, operation, incomplete(operation, counts, failed))
@@ -244,11 +250,21 @@ func (e *Endpoints) FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID
 	return err
 }
 
-// incomplete is the problem a fetch fails with when messages could not be
-// fetched.
-func incomplete(operation uuid.UUID, counts Counts, failed []string) *problem.Problem {
-	return problem.Unprocessable("einvoicing.fetch_incomplete", fmt.Sprintf("The provider's messages %s could not be fetched; the next fetch takes "+
-		"them again. Recorded %d, already recorded %d: GET %s.", strings.Join(failed, ", "), counts.Recorded, counts.AlreadyRecorded, fetchedPath(operation)))
+// incomplete is the problem a fetch fails with when messages were not
+// recorded: each message is a field error, messages.<id>, with the code
+// that stopped it, so a consumer tells a refusal (einvoicing.document_too_large,
+// which the next fetch meets again) from a failure of the machinery
+// (platform.unavailable, which the next fetch may get past).
+func incomplete(operation uuid.UUID, counts Counts, failed []Failure) *problem.Problem {
+	errs := make([]problem.FieldError, len(failed))
+	named := make([]string, len(failed))
+	for i, f := range failed {
+		errs[i] = problem.FieldError{Field: "messages." + f.ID, Code: f.Code, Message: "Not recorded: " + f.Code + "."}
+		named[i] = f.ID + " (" + f.Code + ")"
+	}
+	return problem.Unprocessable("einvoicing.fetch_incomplete", fmt.Sprintf("The provider's messages %s were not recorded; a message that failed on "+
+		"platform.unavailable is taken again by the next fetch, a refused one is refused again. Recorded %d, already recorded %d: GET %s.",
+		strings.Join(named, ", "), counts.Recorded, counts.AlreadyRecorded, fetchedPath(operation)), errs...)
 }
 
 // FailEInvoiceFetch fails the fetch's Operation with the problem that

@@ -3443,7 +3443,9 @@ components:
         (`received`, status_before null). The processing slices add its
         entering, holding, refusal and dismissal (T65c-T65f). It carries
         no document content. `GET /v1/e-invoices/{id}` returns the
-        document at `version`. Subject is the e-invoice id.
+        document at `version` or later: its acknowledgement to the
+        provider, which sets `acknowledged_at`, moves the version without
+        an event. Subject is the e-invoice id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:

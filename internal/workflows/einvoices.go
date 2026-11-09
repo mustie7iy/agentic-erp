@@ -40,6 +40,14 @@ type EInvoiceMessage struct {
 	Receiver string `json:"receiver,omitempty"`
 }
 
+// EInvoiceFailure is a message a fetch did not record: its id and the
+// problem code that stopped it (platform.unavailable for a failure of the
+// machinery that outlasted the step's tries).
+type EInvoiceFailure struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+}
+
 // EInvoiceCounts are what a fetch found: the messages it recorded and
 // those recorded by an earlier fetch.
 type EInvoiceCounts struct {
@@ -62,7 +70,7 @@ type EInvoices interface {
 	Fetcher(tenant uuid.UUID) reqctx.Principal
 	PendingEInvoices(ctx context.Context, connector uuid.UUID, in Within) ([]EInvoiceMessage, error)
 	RecordEInvoice(ctx context.Context, connector, operation uuid.UUID, m EInvoiceMessage, in Within) (string, error)
-	FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts EInvoiceCounts, failed []string) error
+	FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts EInvoiceCounts, failed []EInvoiceFailure) error
 	FailEInvoiceFetch(ctx context.Context, operation uuid.UUID, why *problem.Problem) error
 }
 
@@ -89,19 +97,29 @@ func EInvoiceFetchWorkflowID(tenant, operation uuid.UUID) string {
 type fetchSteps struct {
 	pending func() ([]EInvoiceMessage, error)
 	record  func(m EInvoiceMessage) (string, error)
-	finish  func(counts EInvoiceCounts, failed []string) error
+	finish  func(counts EInvoiceCounts, failed []EInvoiceFailure) error
 	fail    func(why problem.Problem) error
 }
 
 // unlisted is the problem a fetch fails with when the provider's messages
-// could not be listed after the step's retries.
+// could not be listed: after the step's five tries in the workflow, after
+// one in process (EInvoiceFetcher).
 func unlisted() problem.Problem {
-	return *problem.Unavailable("The provider's messages could not be listed after five tries; nothing was fetched. Fetch again.", 0)
+	return *problem.Unavailable("The provider's messages could not be listed; nothing was fetched. Fetch again.", 0)
+}
+
+// failure is how a message's step failed: its problem's code, or
+// platform.unavailable for a failure of the machinery.
+func failure(id string, err error) EInvoiceFailure {
+	if why, ok := problemOf(err); ok {
+		return EInvoiceFailure{ID: id, Code: why.Code}
+	}
+	return EInvoiceFailure{ID: id, Code: "platform.unavailable"}
 }
 
 // run lists the provider's messages and records each; one that fails
-// after its retries does not stop the others, and the fetch then fails
-// naming it, for the next fetch. A business problem listing them (the
+// after its tries does not stop the others, and the fetch then fails
+// naming it with the code that stopped it. A business problem listing them (the
 // connector refused since the fetch was queued) fails the fetch with it;
 // any other error fails it as unlisted and is returned, so the workflow
 // fails with it for the operators. In a workflow it only sequences the
@@ -115,12 +133,12 @@ func (s fetchSteps) run() error {
 		return errors.Join(err, s.fail(unlisted()))
 	}
 	var counts EInvoiceCounts
-	var failed []string
+	var failed []EInvoiceFailure
 	for _, m := range messages {
 		outcome, err := s.record(m)
 		switch {
 		case err != nil:
-			failed = append(failed, m.ID)
+			failed = append(failed, failure(m.ID, err))
 		case outcome == "recorded":
 			counts.Recorded++
 		default:
@@ -131,7 +149,11 @@ func (s fetchSteps) run() error {
 		return err
 	}
 	if len(failed) > 0 {
-		return temporal.NewNonRetryableApplicationError("messages not fetched: "+strings.Join(failed, ", "), "EInvoicesNotFetched", nil) //nolint:wrapcheck // constructs the engine's non-retryable ApplicationError; nothing to wrap
+		ids := make([]string, len(failed))
+		for i, f := range failed {
+			ids[i] = f.ID + " (" + f.Code + ")"
+		}
+		return temporal.NewNonRetryableApplicationError("messages not fetched: "+strings.Join(ids, ", "), "EInvoicesNotFetched", nil) //nolint:wrapcheck // constructs the engine's non-retryable ApplicationError; nothing to wrap
 	}
 	return nil
 }
@@ -162,7 +184,7 @@ func FetchEInvoices(ctx workflow.Context, in EInvoiceFetchInput) error {
 			err := workflow.ExecuteActivity(ctx, a.RecordEInvoice, in, m).Get(ctx, &outcome)
 			return outcome, err //nolint:wrapcheck // the workflow result, see FetchEInvoices
 		},
-		finish: func(counts EInvoiceCounts, failed []string) error {
+		finish: func(counts EInvoiceCounts, failed []EInvoiceFailure) error {
 			return workflow.ExecuteActivity(recording(ctx), a.FinishEInvoiceFetch, in, counts, failed).Get(ctx, nil)
 		},
 		fail: func(why problem.Problem) error {
@@ -212,7 +234,7 @@ func (f *EInvoiceFetches) RecordEInvoice(ctx context.Context, in EInvoiceFetchIn
 }
 
 // FinishEInvoiceFetch ends the fetch's Operation with its counts.
-func (f *EInvoiceFetches) FinishEInvoiceFetch(ctx context.Context, in EInvoiceFetchInput, counts EInvoiceCounts, failed []string) error {
+func (f *EInvoiceFetches) FinishEInvoiceFetch(ctx context.Context, in EInvoiceFetchInput, counts EInvoiceCounts, failed []EInvoiceFailure) error {
 	return asProblem(f.within(in)(ctx, func(ctx context.Context) error {
 		return f.Fetches.FinishEInvoiceFetch(ctx, in.OperationID, counts, failed)
 	}))
@@ -226,8 +248,12 @@ func (f *EInvoiceFetches) FailEInvoiceFetch(ctx context.Context, in EInvoiceFetc
 
 // EInvoiceFetcher is the in-process fetch worker of a cell without a
 // workflow engine: each round it carries out, with the steps the workflow
-// runs, every fetch of every tenant still queued; one failing on the
-// machinery stays queued and is tried again the next round.
+// runs, every fetch of every tenant still queued. It tries each step once,
+// without the workflow's retries: a provider that fails a step fails the
+// fetch as the workflow's fifth failed try would (unlisted, or the message
+// named with platform.unavailable), and the person fetches again. Only a
+// fetch whose Operation cannot be ended (the database failing) stays
+// queued, and is tried again the next round.
 type EInvoiceFetcher struct {
 	Fetches  *EInvoiceFetches
 	Interval time.Duration // between rounds; default 1 second
@@ -241,7 +267,7 @@ func (w *EInvoiceFetcher) Fetch(ctx context.Context, in EInvoiceFetchInput) erro
 	return fetchSteps{
 		pending: func() ([]EInvoiceMessage, error) { return f.PendingEInvoices(ctx, in) },
 		record:  func(m EInvoiceMessage) (string, error) { return f.RecordEInvoice(ctx, in, m) },
-		finish: func(counts EInvoiceCounts, failed []string) error {
+		finish: func(counts EInvoiceCounts, failed []EInvoiceFailure) error {
 			return f.FinishEInvoiceFetch(ctx, in, counts, failed)
 		},
 		fail: func(why problem.Problem) error { return f.FailEInvoiceFetch(ctx, in, why) },

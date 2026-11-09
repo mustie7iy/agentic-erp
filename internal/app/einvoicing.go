@@ -90,8 +90,12 @@ func (f einvoiceFetches) RecordEInvoice(ctx context.Context, connector, operatio
 	return f.e.RecordEInvoice(ctx, connector, operation, einvoicing.Message{ID: m.ID, Receiver: m.Receiver}, in)
 }
 
-func (f einvoiceFetches) FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts workflows.EInvoiceCounts, failed []string) error {
-	return f.e.FinishEInvoiceFetch(ctx, operation, einvoicing.Counts{Recorded: counts.Recorded, AlreadyRecorded: counts.AlreadyRecorded}, failed)
+func (f einvoiceFetches) FinishEInvoiceFetch(ctx context.Context, operation uuid.UUID, counts workflows.EInvoiceCounts, failed []workflows.EInvoiceFailure) error {
+	out := make([]einvoicing.Failure, len(failed))
+	for i, m := range failed {
+		out[i] = einvoicing.Failure{ID: m.ID, Code: m.Code}
+	}
+	return f.e.FinishEInvoiceFetch(ctx, operation, einvoicing.Counts{Recorded: counts.Recorded, AlreadyRecorded: counts.AlreadyRecorded}, out)
 }
 
 func (f einvoiceFetches) FailEInvoiceFetch(ctx context.Context, operation uuid.UUID, why *problem.Problem) error {

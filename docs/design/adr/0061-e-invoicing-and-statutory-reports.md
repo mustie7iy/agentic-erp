@@ -708,14 +708,21 @@ earlier attempt and `already_recorded` otherwise. Decided by default:
   queued (the dispatcher's hand-off) and the list of what it recorded,
   `/v1/e-invoices?fetch_operation_id={id}`, once it succeeds; its
   `result` counts `recorded` and `already_recorded` (the slices that find
-  changed, entered, held and refused documents add those counts). A
-  message the provider cannot give after five tries fails it with
-  `einvoicing.fetch_incomplete`, naming the messages and the list, the
-  others recorded; a provider that cannot be listed after five tries with
-  `platform.unavailable`; a connector refused since the fetch was queued
-  with its problem. A document above `MaxDocument` is refused with
-  `einvoicing.document_too_large` and not recorded until T65c records it
-  refused (§5).
+  changed, entered, held and refused documents add those counts). Messages
+  not recorded fail it with `einvoicing.fetch_incomplete`, the others
+  recorded: each is a field error `messages.{id}` with the code that
+  stopped it, `platform.unavailable` for the provider failing (which the
+  next fetch may get past) or a refusal such as
+  `einvoicing.document_too_large` (a document above `MaxDocument`, not
+  recorded until T65c records it refused, §5, which the next fetch meets
+  again), so a consumer tells the two apart (review round 1). A provider
+  that cannot be listed fails it with `platform.unavailable`; a connector
+  refused since the fetch was queued with its problem. The workflow tries
+  each step five times; the in-process fetcher of a cell without an
+  engine tries each once and leaves the retry to the person, a fetch whose
+  Operation cannot be ended staying queued for its next round. The
+  acknowledgement sets `acknowledged_at` and moves the version without an
+  event: it changes no status (§12).
 - **The company.** The provider's listing names the participant a
   message is addressed to; the document takes the connector's company of
   that participant, or none (T65c refuses it,
