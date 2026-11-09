@@ -258,8 +258,11 @@ func TestEInvoiceFetcher(t *testing.T) {
 			t.Errorf("the fetch: got %s, want it still queued", got)
 		}
 		s.f.Begin = nil
-		if _, err := w.RunOnce(ctx); err != nil || fetchOutcome(t, left) == "queued -" {
-			t.Errorf("the next round: got %v, want the fetch ended", err)
+		if _, err := w.RunOnce(ctx); err != nil {
+			t.Errorf("the next round: got %v, want no error", err)
+		}
+		if got := fetchOutcome(t, left); got != `succeeded {"recorded": 0, "already_recorded": 0}` {
+			t.Errorf("the fetch after the next round: got %s, want it succeeded", got)
 		}
 	})
 	t.Run("the provider failing once fails the fetch, tried once", func(t *testing.T) {
