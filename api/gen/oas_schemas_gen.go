@@ -22069,8 +22069,9 @@ func (s *ConsolidatedStatementTotals) SetOwnersOfTheParent(val OptConsolidatedFi
 // measured at the period before its first, or read from those the group's first final run including it
 // froze (`frozen`). Absent for the parent, and for a member until the run's companies are eliminated.
 // Goodwill and the non-controlling interest are zero: a run consolidates only a member the parent
-// incorporated and holds whole, whose investment equals its net assets at acquisition (ADR-0059 As
-// built T68h).
+// incorporated and holds whole, whose investment equals its share capital as booked through the run's
+// period and is eliminated against it alone, its earlier results and translation reserve staying the
+// group's (ADR-0059 As built T68h2).
 // Ref: #/components/schemas/ConsolidationAcquisition
 type ConsolidationAcquisition struct {
 	// The fiscal year of the period its acquisition is measured at, the one before its first.
@@ -22084,12 +22085,13 @@ type ConsolidationAcquisition struct {
 	RateValidFrom OptDate `json:"rate_valid_from"`
 	// Its assets and liabilities through that period, in its local currency, debit positive.
 	NetAssets Money `json:"net_assets"`
-	// Those translated at that period's closing rate, each balance rounded once, in the group currency:
-	// its equity at acquisition, which the investment entry reverses.
+	// Those translated at that period's closing rate, each balance rounded once, in the group currency.
+	// The investment entry reverses its share capital, not these.
 	NetAssetsGroup Money `json:"net_assets_group"`
-	// The parent's balance on its investment account through the run's period, in the group currency.
+	// The parent's balance on its investment account through the run's period, in the group currency: the
+	// member's share capital, which the investment entry eliminates it against.
 	Investment Money `json:"investment"`
-	// The investment less the net assets plus the interest: zero.
+	// Zero: a member the parent incorporated has no goodwill (B5(a)).
 	Goodwill Money `json:"goodwill"`
 	// The non-controlling interest at acquisition: zero.
 	NonControllingInterest Money `json:"non_controlling_interest"`
@@ -22676,11 +22678,10 @@ type ConsolidationEntryLine struct {
 	AccountID      OptUUID            `json:"account_id"`
 	Account        OptAssetAccountRef `json:"account"`
 	TradingPartner OptTradingPartner  `json:"trading_partner"`
-	// An investment entry's line (ADR-0059 §9): `acquisition_equity`, the member's equity at acquisition
-	// on a group account reversed, of the member and no company account; `investment`, the parent's
-	// investment reversed, of its investment account. Absent on an intercompany entry's line. Open
-	// enumeration: clients must accept and preserve values not listed here; values may be added within
-	// /v1.
+	// An investment entry's line (ADR-0059 §9): `acquisition_equity`, the member's share capital on a
+	// group account reversed, of the member and no company account; `investment`, the parent's investment
+	// reversed, of its investment account. Absent on an intercompany entry's line. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Component OptString `json:"component"`
 	// The amount in the group currency, debit positive.
 	Amount Money `json:"amount"`

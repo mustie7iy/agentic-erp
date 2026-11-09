@@ -577,7 +577,9 @@ the debits (each entry's credits equal them).
 the product owner below; answered by the specialist on 2026-11-09,
 question 2: fair values unless the subsidiary was incorporated or under
 common control, goodwill retranslated, a bargain purchase gain posted after
-confirmation, dividends to the interest). For each member M held at ownership q (a
+confirmation, dividends to the interest; As built T68h2: a member the
+parent incorporated has its investment eliminated against its share
+capital alone, its results and reserve staying the group's). For each member M held at ownership q (a
 fraction, `ownership_percent / 100`) and first consolidated in period F,
 with F−1 the regular period before F (the previous fiscal year's last
 when F is period 1):
@@ -1771,7 +1773,7 @@ the product owner to overrule:
   it waits for), rather than consolidate it without goodwill, fair values
   or the interest.
 - **No goodwill.** A member whose investment differs from its net assets
-  at acquisition fails the run (`consolidation.investment_mismatch`,
+  at acquisition (its share capital since T68h2) fails the run (`consolidation.investment_mismatch`,
   naming both): an incorporated subsidiary has no goodwill (B5(a)), so
   the run does not explain a difference; `consolidation.negative_goodwill`
   stays B7's. `run_acquisition` and `acquisition` keep `goodwill_gc` and
@@ -1831,24 +1833,79 @@ the product owner to overrule:
   capital; the statements show G1700 eliminated and the profit the
   owners'; `close_consolidation`'s final run freezes the acquisition, and
   a later run, discarded, reads it frozen.
-- **For the pilot (open, not decided here):** an opening entry migrated
-  into the first consolidated period puts the subsidiary's equity after
-  F-1, so its acquisition at F-1 is empty while the parent's investment
-  is not, and the run refuses with `consolidation.investment_mismatch`;
-  the pilot's `first_period` then has to follow the opening entry's
-  period, or the specialist says how an incorporated subsidiary's equity
-  before the first consolidated period is treated.
-- **Open accounting question (review:T68h, for the product owner and the
-  specialist):** as built, an incorporated subsidiary's equity at F-1 is
-  eliminated whole, its results through F-1 and its translation reserve
-  with its share capital, as §9 and the brief ("pre-acquisition results
-  eliminated", B8) have it. The reviewer reads B5(a) ("the investment is
-  simply eliminated against share capital") and B8 (results count from
-  when control is obtained, for an incorporated subsidiary its
-  incorporation) as keeping those earlier results and the reserve in the
-  group, eliminating only the share capital. Under that reading a
-  subsidiary whose retained earnings at F-1 are not zero is refused today
-  (`consolidation.investment_mismatch`), and one whose investment happened
-  to equal all its equity would lose its earlier results from the group's
-  retained earnings. Which applies is an accounting rule; it is asked, not
-  decided here.
+- **For the pilot** and the **open accounting question (review:T68h)**:
+  decided in As built T68h2 below, which replaces the elimination of the
+  whole equity at F-1 with that of the share capital alone.
+
+**T68h2 (an incorporated subsidiary's investment eliminated against its
+share capital alone; a correction of T68h).** The open question of
+As built T68h is settled by the sources, not decided here: the
+accounting specialist's answers (po:2026-11-09) B5(a), "incorporated by
+the parent: IFRS 3 does not apply, no goodwill, and the investment is
+simply eliminated against share capital"; B3, prior results sit in
+retained earnings at their group-currency amounts; B8, results count
+from when control is obtained, which for a subsidiary the parent
+incorporated is its incorporation, so none of its results is
+pre-acquisition; and the product owner's answer to open question 4
+(po:2026-11-05): migrated equity's group amounts are at the migration
+date's rate, and the translation reserve starts at zero at go-live.
+Built in `internal/consolidation/investment.go` and migration 000244:
+- **What is eliminated.** For an `incorporated` member the investment
+  entry reverses its share capital only, per group account (component
+  `acquisition_equity`, kept as the name of the frozen part), against the
+  parent's investment. Its retained earnings, every result through F-1
+  (§7's `prior_results` row and its own retained earnings account) and
+  its translation reserve stay in the group's equity; §9's "every other
+  translated row" and its pre-acquisition results apply to an `acquired`
+  member, which a run still refuses (`consolidation.structure_unsupported`,
+  as below 100%).
+- **Share capital, decided by default.** The member's rows on its equity
+  accounts other than its retained earnings account (ADR-0060 §4,
+  `year_end.retained_earnings_account`), at their booked group amounts:
+  §7 already translates equity so, at each posting's rate (B3's historical
+  rates; po:2026-11-05 for a migrated opening entry, at its date's rate).
+  A member without a retained earnings account configured has every equity
+  account counted, so earnings booked to one show as a difference and the
+  run refuses rather than eliminate them, its detail naming the missing
+  setting. Reserves appropriated from
+  earnings on an account of their own (a statutory reserve, for instance;
+  from memory, not checked against a source) would count as share capital
+  and be refused alike: listed for the specialist, not built.
+- **When it is measured, decided by default.** Through the run's period,
+  from the run's own translated rows, as §9 measures the investment I;
+  both are frozen by the first final run (`acquisition_equity` then holds
+  the share capital), and a later run reads them. So an opening entry
+  migrated into the first consolidated period F, carrying share capital
+  and retained earnings, is eliminated by its share capital and the
+  pilot's `first_period` need not follow it. The acquisition at F-1 (net
+  assets, closing rate) is still measured and shown, as the steps that
+  compute goodwill need it; for an incorporated member it no longer
+  equals the investment. F-1 must still be in the member's ledger and
+  locked before the first final run (§9, As built T68h), its closing rate
+  recorded for a member in another currency.
+- **The refusal.** `consolidation.investment_mismatch` compares the
+  investment with the share capital and names both; there is no goodwill
+  for an incorporated member.
+- **Goodwill held to zero.** Migration 000244 replaces both goodwill
+  checks: an `incorporated` member's goodwill is zero whatever its net
+  assets, an `acquired` member's §9's residual (investment - net assets +
+  the interest). Expand only: the previous version wrote an incorporated
+  member's investment equal to its net assets, so its rows hold both.
+- **Contract.** Descriptions only: `ConsolidationAcquisition` (the
+  investment is the member's share capital, goodwill zero, the net assets
+  not what the entry reverses), the `acquisition_equity` component and
+  `createConsolidationRun`; no field changes.
+- **Walkthrough.** In `consolidation_investment` Acme Corp US also sells
+  USD 800.00 on F-1's last day; step 40's run shows it as its
+  `prior_results` row on G3800, its net assets at F-1 USD 5,800.00 with
+  Maple's investment still its share capital, the investment entry
+  against G3000 alone, and the consolidated retained earnings keeping
+  the 800.00 at its booked rate, uneliminated; `close_consolidation`'s
+  later run reads the investment frozen.
+- **Tests.** `TestInvestmentOpeningEntry` is the pilot's case: an opening
+  entry dated in November, the first period, with share capital and
+  retained earnings on the member's retained earnings account; the
+  elimination step run twice writes its entry and acquisition once, the
+  final run freezes the share capital alone. The fixture's investment is
+  its member's share capital (400.00 EUR); the statements keep its
+  results before November on retained earnings and its whole reserve.

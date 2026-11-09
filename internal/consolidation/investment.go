@@ -36,7 +36,8 @@ type acquired struct {
 	rate              string
 	rateFrom          *time.Time
 	investment        money.Minor
-	equity            map[string]money.Minor // group account -> translated, credit negative
+	equity            map[string]money.Minor // its share capital: group account -> as booked, credit negative
+	allEquity         bool                   // measured without a retained earnings account: every equity account counted
 	frozenBy          *uuid.UUID
 }
 
@@ -195,19 +196,33 @@ func (e *Endpoints) acquisitionOf(ctx context.Context, tx pgx.Tx, r Run, in inve
 		a.code = m.CompanyCode
 		return a, frozenChecks(a, m, gm, acc, invested, in.exp, r.GroupCurrency)
 	}
-	a, err := e.measure(ctx, tx, r, m)
+	a, err := e.measure(ctx, tx, r, in, m)
 	if err != nil {
 		return acquired{}, err
 	}
 	a.origin, a.investmentAccount, a.investment = gm.Origin, acc.ID, invested
-	if invested != a.netGC {
+	if capital := a.shareCapital(); invested != capital {
+		counted := ""
+		if a.allEquity {
+			counted = " (it has no retained earnings account (companies[].year_end.retained_earnings_account), so every equity account counts)"
+		}
 		return acquired{}, problem.Unprocessable("consolidation.investment_mismatch", fmt.Sprintf("The parent's investment in company %s, %s %s on "+
-			"account %s, differs from its net assets at acquisition, %s %s; for a member the parent incorporated and holds whole the investment is "+
-			"eliminated against its equity at acquisition without goodwill (B5(a)), and a difference waits for the accounting specialist: %s.", m.CompanyCode, invested.Plain(in.exp), r.GroupCurrency, acc.Number,
-			a.netGC.Plain(in.exp), r.GroupCurrency, nonPilot), problem.FieldError{Field: "group_code", Code: "investment_mismatch",
-			Message: "company " + m.CompanyCode + "'s investment equal to its net assets at acquisition"})
+			"account %s, differs from its share capital, %s %s as booked%s; for a member the parent incorporated and holds whole the investment is "+
+			"eliminated against its share capital without goodwill (B5(a)), and a difference waits for the accounting specialist: %s.", m.CompanyCode,
+			invested.Plain(in.exp), r.GroupCurrency, acc.Number, capital.Plain(in.exp), r.GroupCurrency, counted, nonPilot), problem.FieldError{Field: "group_code",
+			Code: "investment_mismatch", Message: "company " + m.CompanyCode + "'s investment equal to its share capital"})
 	}
 	return a, nil
+}
+
+// shareCapital is the member's share capital its investment entry
+// eliminates, debit positive: minus its acquisition equity.
+func (a acquired) shareCapital() money.Minor {
+	var sum money.Minor
+	for _, amount := range a.equity {
+		sum -= amount
+	}
+	return sum
 }
 
 // frozenChecks refuses a run whose member's configuration or parent's
@@ -230,11 +245,11 @@ func frozenChecks(a acquired, m Member, gm config.GroupMember, acc Account, inve
 	return nil
 }
 
-// measure measures a member's acquisition at the period before its first:
-// its rows translated through it at its closing rate, the net assets the
-// asset and liability rows, every other row on its group account but the
-// results, which go to retained earnings, as the earlier results do.
-func (e *Endpoints) measure(ctx context.Context, tx pgx.Tx, r Run, m Member) (acquired, error) {
+// measure measures a member's acquisition: its net assets at the period
+// before its first, its asset and liability rows translated through it at
+// its closing rate (§9), and its share capital (shareCapital), its
+// acquisition equity.
+func (e *Endpoints) measure(ctx context.Context, tx pgx.Tx, r Run, in investing, m Member) (acquired, error) {
 	co := Company{ID: m.LegalEntityID, Code: m.CompanyCode, LocalCurrency: m.LocalCurrency}
 	_, rate, err := e.measurePeriod(ctx, r.RateType, r.GroupCurrency, co, *m.FirstYear, *m.FirstPeriod)
 	if err != nil {
@@ -250,29 +265,61 @@ func (e *Endpoints) measure(ctx context.Context, tx pgx.Tx, r Run, m Member) (ac
 		return acquired{}, err
 	}
 	a := acquired{company: m.LegalEntityID, code: m.CompanyCode, ownership: *m.OwnershipPercent, firstYear: *m.FirstYear, firstP: *m.FirstPeriod,
-		rate: rate.Shown, equity: map[string]money.Minor{}}
+		rate: rate.Shown}
 	if co.LocalCurrency != r.GroupCurrency {
 		a.rate, a.rateFrom = plainRate(rate.Shown), &rate.ValidFrom
 	}
-	retained := f.role(config.RoleRetainedEarnings)
 	for _, row := range rows {
-		switch {
-		case row.atClosingRate:
+		if row.atClosingRate {
 			a.netLC, a.netGC = a.netLC+*row.lc, a.netGC+row.gc
-		case row.account != nil && (row.account.Type == config.Revenue || row.account.Type == config.Expense):
-			a.equity[retained] += row.gc
-		default:
-			a.equity[row.groupAccount] += row.gc
 		}
 	}
-	return a, nil
+	var retained string
+	if c := in.doc.Company(m.CompanyCode); c != nil {
+		retained = c.YearEnd.RetainedEarningsAccount
+	}
+	a.allEquity = retained == ""
+	a.equity, err = shareCapital(ctx, tx, r.ID, m, f.accounts, retained)
+	return a, err
 }
 
-// investmentEntry is a member's investment entry: its acquisition equity
-// reversed per group account, of the member and no company account, and
-// the parent's rows on its investment account reversed, lines of zero
-// left out; none when no line is left. Goodwill and the interest are zero
-// (a run refuses a member that needs them), so it sums to zero.
+// shareCapital is a member's share capital as the run translated it, per
+// group account, credit negative: its rows through the run's period on
+// its equity accounts other than its retained earnings account (ADR-0060
+// §4), at their booked group amounts, each posting's rate (§7; B3's
+// historical rates; po:2026-11-05, a migrated opening entry's at its
+// date's). Only it is eliminated against the investment (B5(a),
+// po:2026-11-09): the member's results and retained earnings stay the
+// group's, its income counted from its incorporation (B8), and so does its
+// translation reserve. It is read through the run's period, as the
+// investment is, so that share capital an opening entry migrated into the
+// first consolidated period carries is eliminated; the first final run
+// freezes both.
+func shareCapital(ctx context.Context, tx pgx.Tx, run uuid.UUID, m Member, accounts map[uuid.UUID]Account, retained string) (map[string]money.Minor, error) {
+	var ids []uuid.UUID
+	for id, a := range accounts {
+		if a.Type == config.Equity && a.Number != retained {
+			ids = append(ids, id)
+		}
+	}
+	rows, _ := tx.Query(ctx, `SELECT group_account, sum(amount_gc)::bigint FROM consolidation.run_balance
+		WHERE run_id = $1 AND legal_entity_id = $2 AND kind = 'balance' AND account_id = ANY($3) GROUP BY group_account`, run, m.LegalEntityID, ids)
+	out := map[string]money.Minor{}
+	var group string
+	var amount int64
+	_, err := pgx.ForEachRow(rows, []any{&group, &amount}, func() error {
+		out[group] = money.Minor(amount)
+		return nil
+	})
+	return out, errs.Wrapf(err, "consolidation: share capital of %s in run %s", m.CompanyCode, run)
+}
+
+// investmentEntry is a member's investment entry: its acquisition equity,
+// its share capital, reversed per group account, of the member and no
+// company account, and the parent's rows on its investment account
+// reversed, lines of zero left out; none when no line is left. Goodwill
+// and the interest are zero (a run refuses a member that needs them), so
+// it sums to zero.
 func investmentEntry(a acquired, parent Member, rows []investmentRow) (entry, bool) {
 	en := entry{kind: EntryInvestment, company: a.company}
 	member, parentID := a.company, parent.LegalEntityID
@@ -293,7 +340,9 @@ func investmentEntry(a acquired, parent Member, rows []investmentRow) (entry, bo
 	return en, len(en.lines) > 0
 }
 
-// writeAcquisitions writes a run's acquisitions in one statement.
+// writeAcquisitions writes a run's acquisitions in one statement, without
+// goodwill or an interest: a run includes only members the parent
+// incorporated and holds whole (000244).
 func writeAcquisitions(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run uuid.UUID, acqs []acquired) error {
 	n := len(acqs)
 	companies, accounts, origins, rates := make([]uuid.UUID, n), make([]uuid.UUID, n), make([]string, n), make([]string, n)
@@ -308,7 +357,7 @@ func writeAcquisitions(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run u
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO consolidation.run_acquisition (tenant_id, run_id, legal_entity_id, origin, investment_account_id, net_assets_lc,
 			closing_rate, rate_valid_from, net_assets_gc, investment_gc, goodwill_gc, nci_gc, frozen)
-		SELECT $1, $2, x.c, x.o, x.a, x.lc, x.r::numeric, x.f, x.gc, x.i, x.i - x.gc, 0, x.z
+		SELECT $1, $2, x.c, x.o, x.a, x.lc, x.r::numeric, x.f, x.gc, x.i, 0, 0, x.z
 		FROM unnest($3::uuid[], $4::text[], $5::uuid[], $6::bigint[], $7::text[], $8::date[], $9::bigint[], $10::bigint[], $11::boolean[])
 			AS x(c, o, a, lc, r, f, gc, i, z)`, p.TenantID, run, companies, origins, accounts, lc, rates, froms, gc, invested, frozen)
 	return errs.Wrapf(err, "consolidation: acquisitions of run %s", run)

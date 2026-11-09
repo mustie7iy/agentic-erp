@@ -522,10 +522,12 @@ func TestConsolidationDifferenceAcceptance(t *testing.T) {
 	}
 }
 
-// TestConsolidationAcquisitionRules (T68h, migration 000243; ADR-0059 §5,
-// §9): a run's acquisitions are written while it runs, of its companies,
-// never changed, their goodwill the residual (investment - net assets +
-// the interest); an acquisition is frozen by a final run of its group,
+// TestConsolidationAcquisitionRules (T68h, migrations 000243 and 000244;
+// ADR-0059 §5, §9, As built T68h2): a run's acquisitions are written while
+// it runs, of its companies, never changed, an incorporated member's
+// without goodwill whatever its net assets (its investment is eliminated
+// against its share capital, B5(a)), an acquired member's goodwill the
+// residual (investment - net assets + the interest); an acquisition is frozen by a final run of its group,
 // once per group and member, never changed or removed, but an import
 // writes it as exported; its equity is never zero and of an acquisition;
 // an entry line's component is one the investment entry has.
@@ -546,6 +548,10 @@ func TestConsolidationAcquisitionRules(t *testing.T) {
 			nci_gc, run_id, created_by)
 			SELECT tenant_id, $1, legal_entity_id, origin, 100, 2026, 11, investment_account_id, 'USD', net_assets_lc, closing_rate, rate_valid_from, net_assets_gc,
 				investment_gc, $2, nci_gc, run_id, gen_random_uuid() FROM consolidation.run_acquisition`
+		// acqNet is acqRow with the net assets $6.
+		acqNet = `INSERT INTO consolidation.run_acquisition (tenant_id, run_id, legal_entity_id, origin, investment_account_id, net_assets_lc, closing_rate,
+			rate_valid_from, net_assets_gc, investment_gc, goodwill_gc, nci_gc, frozen)
+			VALUES ($1, $2, $3, $4, gen_random_uuid(), 500000, 1.35, '2026-10-31', $6, 675000, $5, 0, false)`
 		equityRow = `INSERT INTO consolidation.acquisition_equity (tenant_id, group_code, legal_entity_id, group_account, amount_gc) VALUES ($1, 'MAPLE', $2, 'G3000', $3)`
 		lineRow   = `INSERT INTO consolidation.run_entry_line (tenant_id, run_id, entry_no, line_no, group_account, legal_entity_id, component, amount_gc)
 			VALUES ($1, $2, 1, 1, 'G3000', $3, $4, 1)`
@@ -569,8 +575,20 @@ func TestConsolidationAcquisitionRules(t *testing.T) {
 	}{
 		{"measured while it runs", measured, ""},
 		{"frozen by a final run, with its equity", func(s scene) []stmt { return with(frozen(s), step(equityRow, s.tenant, s.member, -675000)) }, ""},
-		{"a goodwill other than the residual", func(s scene) []stmt {
+		{"an incorporated member's goodwill", func(s scene) []stmt {
 			return with(running(s), step(acqRow, s.tenant, s.run, s.member, "incorporated", 1))
+		}, "run_acquisition_goodwill"},
+		{"an incorporated member's investment above its net assets, without goodwill", func(s scene) []stmt {
+			return with(running(s), step(acqNet, s.tenant, s.run, s.member, "incorporated", 0, 500000))
+		}, ""},
+		{"an incorporated member's investment above its net assets, with the residual", func(s scene) []stmt {
+			return with(running(s), step(acqNet, s.tenant, s.run, s.member, "incorporated", 175000, 500000))
+		}, "run_acquisition_goodwill"},
+		{"an acquired member's goodwill the residual", func(s scene) []stmt {
+			return with(running(s), step(acqNet, s.tenant, s.run, s.member, "acquired", 175000, 500000))
+		}, ""},
+		{"an acquired member's goodwill other than the residual", func(s scene) []stmt {
+			return with(running(s), step(acqNet, s.tenant, s.run, s.member, "acquired", 0, 500000))
 		}, "run_acquisition_goodwill"},
 		{"an unknown origin", func(s scene) []stmt {
 			return with(running(s), step(acqRow, s.tenant, s.run, s.member, "merged", 0))
@@ -591,8 +609,17 @@ func TestConsolidationAcquisitionRules(t *testing.T) {
 		{"imported from a computed run", func(s scene) []stmt {
 			return with(measured(s), computed, step(`SELECT set_config('app.importing', $1, true)`, s.tenant.String()), step(frozenRow, "MAPLE", 0))
 		}, ""},
-		{"frozen with a goodwill other than the residual", func(s scene) []stmt {
+		{"frozen with an incorporated member's goodwill", func(s scene) []stmt {
 			return with(measured(s), computed, final, step(frozenRow, "MAPLE", 1))
+		}, "acquisition_goodwill"},
+		{"frozen of an incorporated member above its net assets", func(s scene) []stmt {
+			return with(running(s), step(acqNet, s.tenant, s.run, s.member, "incorporated", 0, 500000), computed, final, step(frozenRow, "MAPLE", 0))
+		}, ""},
+		{"frozen of an acquired member, its goodwill the residual", func(s scene) []stmt {
+			return with(running(s), step(acqNet, s.tenant, s.run, s.member, "acquired", 175000, 500000), computed, final, step(frozenRow, "MAPLE", 175000))
+		}, ""},
+		{"frozen of an acquired member without the residual", func(s scene) []stmt {
+			return with(running(s), step(acqNet, s.tenant, s.run, s.member, "acquired", 175000, 500000), computed, final, step(frozenRow, "MAPLE", 0))
 		}, "acquisition_goodwill"},
 		{"frozen twice", func(s scene) []stmt { return with(frozen(s), step(frozenRow, "MAPLE", 0)) }, "duplicate key"},
 		{"a frozen acquisition changed", func(s scene) []stmt {
