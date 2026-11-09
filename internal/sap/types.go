@@ -230,14 +230,15 @@ type ACDOCA struct {
 	EBELN string `json:"EBELN,omitempty"`
 	EBELP string `json:"EBELP,omitempty"`
 	// RCNTR, PRCTR and SEGMENT are the line's cost center, profit center
-	// and segment, the Universal Journal's account assignment as ADR-0050
-	// names it from memory (§10, T56h4). A documents-mode load posts them
-	// on the line as the cost center (CSKS-KOSTL), profit center
+	// and segment, in the master data's internal form (the SAP specialist,
+	// po:2026-11-09, A9(a) [H]), and KOKRS its controlling area, blank in a
+	// company code without CO active (A9(d) [H]). A documents-mode load
+	// posts them on the line as the cost center (CSKS-KOSTL), profit center
 	// (CEPC-PRCTR) and segment (FAGL_SEGM-SEGMENT) of the same code, each
-	// center the one of the line's company code (RBUKRS): the line's
-	// controlling area is not read, a company code being taken to belong
-	// to one area. The names, and that the codes are in the master data's
-	// form, are pending the SAP specialist (docs/migration.md).
+	// center the one of the line's company code (RBUKRS) in its area.
+	// PRCTR is the profit center SAP derived from the cost center on the
+	// posting date, kept after a change of the cost center (A9(b) [M]).
+	KOKRS   string `json:"KOKRS,omitempty"`
 	RCNTR   string `json:"RCNTR,omitempty"`
 	PRCTR   string `json:"PRCTR,omitempty"`
 	SEGMENT string `json:"SEGMENT,omitempty"`

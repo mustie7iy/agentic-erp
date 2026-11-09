@@ -303,16 +303,27 @@ configuration's versions keep the platform's.
 Each SAP line the run posts as it stands carries SAP's account assignment
 (ACDOCA RCNTR, PRCTR and SEGMENT; T56h4): the cost center, profit center
 and segment of the same code the run migrated, each center the one of the
-line's company code (CSKS-BUKRS, CEPC_BUKRS), as the extract reads no
-controlling area on the line. The ledger checks them as it checks any
+line's company code (CSKS-BUKRS, CEPC_BUKRS) in the line's controlling
+area (ACDOCA KOKRS, blank in a company code without CO active; the SAP
+specialist's answer A9(d) [H], po:2026-11-09). The ledger checks them as it checks any
 posting (ADR-0050 §5): a profit center other than the cost center's on the
 posting date, a center not valid or locked on it, or a cost center on an
 account that takes none refuses the document, and the run fails. A line without them is derived as any
-line is. The quality gate refuses beforehand a line naming a cost center
-that is not one of its company code's in the extract (CSKS), a profit
-center not assigned to it (CEPC_BUKRS) or a center in two controlling
-areas of it, so not migrated, and a segment that is not the line's profit
-center's (CEPC-SEGMENT), or one on a line without a profit center. In
+line is. SAP derived a line's profit center from its cost center on the
+posting date and keeps that derivation after a change of the cost center
+(A9(b) [M], to verify on the pilot system), so a line is compared with
+the cost center's slice valid on its posting date (BUDAT), not today's;
+a cost center without a profit center gave SAP's line the dummy profit
+center, which loads as a profit center given beside a cost center without
+one. The quality gate refuses beforehand a line naming a center without a
+controlling area (KOKRS blank), a cost center that is not one of its
+company code's of the line's area in the extract (CSKS), a profit center
+not assigned to it (CEPC_BUKRS), so not migrated, a cost center no slice
+of which covers the posting date, a profit center other than that slice's
+(when it has one), and a segment that is not the line's profit
+center's (CEPC-SEGMENT), or one on a line without a profit center. The
+reconciliation, which extracts again without the gate, refuses the same
+lines and counts them for no center. In
 `documents` mode that is every line; in `balances` mode only the lines of
 the documents posted as entries of their own (an open down payment's, an
 open item's in a foreign currency), as the opening entry carries
@@ -735,7 +746,11 @@ others record a confirmation.
   the BAdI FAGL_DERIVE_SEGMENT or a manual entry set it, or the profit
   center's segment changed after posting [M]. The controlling area is the
   company code's [H]; ACDOCA also carries KOKRS, worth reading, as it
-  shows company codes without CO active (KOKRS blank).
+  shows company codes without CO active (KOKRS blank). Built: the load
+  reads KOKRS and checks a line's profit center against the cost center's
+  slice valid on its posting date (above); to verify on the pilot system
+  [M]: that lines keep the profit center of their posting date and carry
+  the dummy profit center where the cost center had none.
 - The center groups and cost elements (T56h2; ADR-0050 §10 names the
   tables from memory): that TKA01 carries the cost centers' standard
   hierarchy as KHINR, and whether it (or another table) names the profit

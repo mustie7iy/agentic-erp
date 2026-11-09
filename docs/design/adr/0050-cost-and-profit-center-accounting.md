@@ -1362,6 +1362,18 @@ fixes of the leaves above, each named by its question):
   centers and are kept by the areas of the centers loaded. The mock
   assigns 3000 to area 1000 and 1000 and 2000 to area 2000, which has no
   cost elements.
+- **Centers of a line's posting date and area (A9(a), (b), (d))**: ACDOCA
+  carries KOKRS, and a line's centers are those of its company code in
+  that area (replacing T56h4's "a company code taken to belong to one
+  area" and its refusal of a center in two areas); a line naming a center
+  with KOKRS blank (CO not active) is refused. The gate, and the
+  reconciliation reading the extract again, compare a line's profit center
+  with its cost center's CSKS slice valid on BUDAT, not the latest, and
+  refuse a cost center no slice of which covers BUDAT (decided by default:
+  the ledger refuses both at posting, which fails the run late; the gate
+  names them first). A slice without a profit center accepts the line's
+  (SAP's dummy profit center, which the ledger takes beside a cost center
+  without one). The mock's lines carry their company code's TKA02 area.
 
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not

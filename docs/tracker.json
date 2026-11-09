@@ -2920,9 +2920,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Profit centers on migrated journal lines checked against the cost center period valid at posting, and ACDOCA-KOKRS read (SAP specialist, po:2026-11-09, A9(b), (d); for T56h4): a line's PRCTR is derived from CSKS-PRCTR at posting and keeps that derivation [M], so it may differ from today's master after a change, and a cost center without a profit center takes the dummy profit center; the quality gate and the reconciliation compare a migrated line's profit center with the cost_center_period valid at its posting date, not the current one; ACDOCA-KOKRS is read [H], a blank one naming a company code without CO active",
-        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "r": "T56h4 · internal/sap ACDOCA KOKRS, mock lines' area · internal/integration linecenters.go centers (the line's area, KOKRS blank refused), postedProfitCenter (the CSKS slice valid on BUDAT; none: SAP's dummy) · TestLineCenterQualityGate · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

@@ -853,10 +853,16 @@ func (g *mockGen) defaultAssignments(cc string) {
 // with the cost center's profit center and that one's segment, and sales
 // revenue on profit center P3100 without a cost center. The company buys
 // only before 1 July, when 3120 moves to P3200 (purchaseOrder, and the
-// documents after it are June's), so its purchases name P3100.
+// documents after it are June's), so its purchases name P3100. Every line
+// names its company code's controlling area (KOKRS, as TKA02 assigns it).
 func (g *mockGen) lineCenters(cc string) {
+	areas := map[string]string{}
+	for _, r := range g.e.TKA02 {
+		areas[r.BUKRS] = r.KOKRS
+	}
 	for i := range g.e.ACDOCA {
 		l := &g.e.ACDOCA[i]
+		l.KOKRS = areas[l.RBUKRS]
 		if l.RBUKRS != cc {
 			continue
 		}
