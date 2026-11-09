@@ -514,6 +514,24 @@ func (UnimplementedHandler) CompleteCloseTask(ctx context.Context, req OptCloseT
 	return r, ht.ErrNotImplemented
 }
 
+// CompleteYearCloseTask implements completeYearCloseTask operation.
+//
+// Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as
+// `completeCloseTask` does a period close's: refused while a task it depends on is open (409
+// `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and
+// for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is
+// the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and
+// published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's)
+// whose covered ledgers' periods of the year are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
+// (ADR-0060 §8, ADR-0058 §7).
+//
+// POST /v1/year-closes/{id}/tasks/{code}:complete
+func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteYearCloseTaskParams) (r CompleteYearCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateAsset implements createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -1193,6 +1211,26 @@ func (UnimplementedHandler) CreateVarianceComment(ctx context.Context, req *Vari
 //
 // POST /v1/webhook-subscriptions
 func (UnimplementedHandler) CreateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionCreate, params CreateWebhookSubscriptionParams) (r CreateWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateYearClose implements createYearClose operation.
+//
+// Opens the close of a company's fiscal year (ADR-0060 §8, T64m4): its checklist is the active
+// configuration's year tasks (`close.year_tasks`, the close template's tasks of a year close) as given
+// to the company, copied into the close with each task's due date (`due_day` business days of the
+// company after the fiscal year's last day, the leading ledger's period 12's) and the configuration
+// version, so a later change of the template leaves the close as it was. It covers the ledgers
+// `ledger_ids` names, by default every ledger the company keeps; the leading ledger is always among
+// them (422 `request.validation_failed` otherwise), each must be kept by the company (422
+// `ledger.ledger_not_kept`) and have periods of the year (422 `closing.period_unknown`, naming the
+// ledger). Refused when the year tasks give the company none (409 `closing.no_template`) and when the
+// company has a close of the year already (409 `closing.year_close_exists`, with its `Location`). A
+// legal entity the caller cannot act in is 422 `request.reference_not_found`. People only. Audited,
+// and published as YearCloseChanged (`created`).
+//
+// POST /v1/year-closes
+func (UnimplementedHandler) CreateYearClose(ctx context.Context, req *YearCloseCreate, params CreateYearCloseParams) (r CreateYearCloseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2647,6 +2685,21 @@ func (UnimplementedHandler) GetWebhookSubscription(ctx context.Context, params G
 	return r, ht.ErrNotImplemented
 }
 
+// GetYearClose implements getYearClose operation.
+//
+// One year close with its company, the ledgers it covers (each with its periods of the year, regular
+// and special, and their live posting status), its tasks in the template's order (at most 200) and
+// their counts; a task is `overdue` while it is open and due before the company's date at the read in
+// its time zone (`read_date`, `time_zone`). Its ETag is the version every change to the close or its
+// tasks moves, which the task actions take as `If-Match`. A close of a legal entity the caller cannot
+// act in is not found. Besides `closing.close.read` the caller needs `ledger.entry.read`
+// (`x-also-permissions`).
+//
+// GET /v1/year-closes/{id}
+func (UnimplementedHandler) GetYearClose(ctx context.Context, params GetYearCloseParams) (r GetYearCloseRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GrantRolePermission implements grantRolePermission operation.
 //
 // Adds an effective-dated permission grant to the role.
@@ -4007,6 +4060,20 @@ func (UnimplementedHandler) ListWebhookSubscriptions(ctx context.Context, params
 	return r, ht.ErrNotImplemented
 }
 
+// ListYearCloses implements listYearCloses operation.
+//
+// The year closes of the legal entities the caller may act in (ADR-0060 §8, T64m4), without their
+// tasks and ledgers (`GET /v1/year-closes/{id}` has them): each with its company, fiscal year, status
+// and its tasks' counts, overdue judged on the company's date at the read in its configured time zone
+// (`read_date`, `time_zone`; UTC when it has none). Sortable by: `year_end` (default), `created_at`.
+// Besides `closing.close.read` the caller needs `ledger.entry.read`, as for every read of a close
+// (ADR-0058 §13; `x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/year-closes
+func (UnimplementedHandler) ListYearCloses(ctx context.Context, params ListYearClosesParams) (r ListYearClosesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // LockCostCenter implements lockCostCenter operation.
 //
 // Sets or clears the cost center's locks for actual primary costs, actual revenue and plan from
@@ -4986,6 +5053,23 @@ func (UnimplementedHandler) ReopenCloseTask(ctx context.Context, req *ReasonInpu
 	return r, ht.ErrNotImplemented
 }
 
+// ReopenYearCloseTask implements reopenYearCloseTask operation.
+//
+// Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open
+// one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and
+// the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing
+// else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task,
+// with the close's new ETag. People only. Audited, and published as YearCloseChanged
+// (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods
+// of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was
+// unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first,
+// published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+//
+// POST /v1/year-closes/{id}/tasks/{code}:reopen
+func (UnimplementedHandler) ReopenYearCloseTask(ctx context.Context, req *ReasonInput, params ReopenYearCloseTaskParams) (r ReopenYearCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ReplayWebhookDeliveries implements replayWebhookDeliveries operation.
 //
 // Queues again every kept delivery of the subscription whose event occurred at or after `since`,
@@ -5790,6 +5874,24 @@ func (UnimplementedHandler) UpdateSupplierInvoice(ctx context.Context, req *Supp
 //
 // PATCH /v1/webhook-subscriptions/{id}
 func (UnimplementedHandler) UpdateWebhookSubscription(ctx context.Context, req *WebhookSubscriptionUpdate, params UpdateWebhookSubscriptionParams) (r UpdateWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateYearCloseTask implements updateYearCloseTask operation.
+//
+// Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as
+// `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's
+// company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or
+// a person without access to the close's company). `If-Match` is the close's ETag, so a change made on
+// a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag.
+// People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close
+// (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
+// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
+// (ADR-0060 §8, ADR-0058 §7).
+//
+// PATCH /v1/year-closes/{id}/tasks/{code}
+func (UnimplementedHandler) UpdateYearCloseTask(ctx context.Context, req *CloseTaskUpdate, params UpdateYearCloseTaskParams) (r UpdateYearCloseTaskRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

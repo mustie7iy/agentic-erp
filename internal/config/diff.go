@@ -154,9 +154,9 @@ var tierRules = []struct {
 	{rx(`^companies\[\*\]\.asset_accounts`), TierPostingRelated},
 	// A close task's name is cosmetic; the tasks, their checks, due days
 	// and dependencies decide what a sign-off requires and post nothing
-	// (ADR-0058 §3). A company's weekend is its calendar's, operational
-	// by the calendars rule above.
-	{rx(`^close\.tasks\[\*\]\.name$`), TierCosmetic},
+	// (ADR-0058 §3), and a year task's alike (ADR-0060 §8). A company's
+	// weekend is its calendar's, operational by the calendars rule above.
+	{rx(`^close\.(tasks|year_tasks)\[\*\]\.name$`), TierCosmetic},
 	// A company's variance settings decide which rows of its variance
 	// report need a comment before sign-off and post nothing (ADR-0058 §3).
 	{rx(`^companies\[\*\]\.close\.variance(\.|$)`), TierOperational},
@@ -222,8 +222,9 @@ var listKeys = map[string]string{
 	// Asset classes by code, their terms by ledger, a company's asset
 	// accounts by class (ADR-0057 §3).
 	"asset_classes": "code", "terms": "ledger", "asset_accounts": "class",
-	// The close template's tasks by code (ADR-0058 §3).
-	"tasks": "code",
+	// The close template's tasks and year tasks by code (ADR-0058 §3,
+	// ADR-0060 §8).
+	"tasks": "code", "year_tasks": "code",
 	// Group reporting (ADR-0059 §3): eliminations and groups by code, a
 	// group's members by company; an elimination's accounts are numbers.
 	"eliminations": "code", "groups": "code", "members": "company",

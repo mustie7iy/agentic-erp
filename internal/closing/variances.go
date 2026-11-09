@@ -48,7 +48,7 @@ type varianceRow struct {
 // company's settings for the basis read with its currency's digits, the
 // period compared against and, for the plan basis, the category.
 type report struct {
-	close                periodClose
+	close                closeRow
 	company              Company
 	leading              LedgerPeriod
 	exp                  int
@@ -137,7 +137,7 @@ func (r *report) commenters() []uuid.UUID {
 // a report without rows and settings when the company does not configure
 // the basis (refused says so).
 func (e *Endpoints) report(ctx context.Context, tx pgx.Tx, id uuid.UUID, basis string) (report, error) {
-	c, err := readClose(ctx, tx, id)
+	c, err := readClose(ctx, tx, periodCloses, id)
 	if err != nil {
 		return report{}, err
 	}

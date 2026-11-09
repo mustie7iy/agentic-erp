@@ -911,3 +911,69 @@ for the product owner to overrule:
    stale), carries `PREV` forward again: the new runs are current and not
    stale, 0L's result is CAD 100.00 more, the first runs read superseded
    by them, and the list of current runs is the new ones.
+
+**T64m4, the year close and its manual checklist** (migration 000233).
+Built as §8 says; the choices taken by default (ADR-0053 d), for the
+product owner to overrule:
+1. *The template.* `close.year_tasks` has `close.tasks`' shape and rules,
+   checked by the same validator on its own path and codes (a year task may
+   repeat a period task's code, and depends only on year tasks); a name is
+   tier 1, the rest tier 2, as `close.tasks`. No check is known on a year
+   close yet (`config.YearCloseChecks` is empty), so a year task is manual
+   until T64m5 builds the year checks, as the period's were before T64c
+   (ADR-0058 As built, T64a); a period check is refused there.
+2. *The year's last day* (`year_end`, from which the tasks' due dates
+   count, business days of the company as ADR-0058 §3) is the leading
+   ledger's last regular period's end. As for a period close, the leading
+   ledger is always covered (`request.validation_failed` without it); a
+   ledger with no periods of the year is 422 `closing.period_unknown` on
+   `fiscal_year`, or on `ledger_ids[i]` when named.
+3. *The covered ledgers carry no period* (`year_close_ledger`): a year
+   close reads each one's periods of the year live, through the new port
+   method `closing.Ledger.YearPeriods` over `ledger.ClosePeriods.OfYear`
+   (§2), and shows them per ledger, regular and special, each with its id,
+   number, `is_special` and status.
+4. *Representations of their own* (`YearClose`, `YearCloseItem`,
+   `YearCloseTask`, `YearCloseLedger`, `YearClosePeriod`): `CloseTask`
+   requires a `fiscal_period`, so it cannot carry a year close's task
+   without a breaking change. The request bodies are the period close's
+   (`CloseTaskUpdate`, `CloseTaskComplete`, `ReasonInput`). A year close's
+   signed-off fields and sign-offs are T64m6's and a task's
+   `check_result` T64m5's, each additive then. Year-close tasks are not in
+   `GET /v1/close-tasks`, whose rows carry a period (a gap above).
+5. *Shared code* (CLAUDE.md: no copied helper). `closing.closeKind` names
+   each kind's tables, records and events; the statements both kinds run
+   name their tables through it (`closeKind.q`), so the task actions
+   (`taskAction` with the shared `assign`, `complete` and `reopenTask`),
+   the reads, the list (`listCloses`), the audit record and event
+   (`record`: `closing.year_close.<action>`, `YearCloseChanged` with the
+   fiscal year and no period) and the reopening after an unlock are one
+   code path. A signed-off year close refuses a task action while every
+   period of the year of its covered ledgers is locked, and is reopened by
+   the first one after an unlock (ADR-0058 §7); its sign-off is T64m6's,
+   and `TestYearCloseAfterUnlock` sets the status as that will. The
+   triggers of 000194 and 000196, as 000230 left them, guard the year
+   close's tables too, naming the table they guard (`TG_TABLE_NAME`) in
+   their messages and constraint names, which for the period close's
+   tables are unchanged; an import (`app.importing`, ADR-0029) restores a
+   signed-off year close and its done tasks as it does a period close's
+   (review round 1: 000233 first replaced them from their 000194/000196
+   text, dropping 000230's exemption).
+6. *Problem codes.* Each create operation gives the shared `openClose` its
+   own checklist and insert (`opening`), so `api` `TestProblemCodes`
+   attributes `closing.special_period` and `closing.close_exists` to
+   `createPeriodClose` alone and `closing.year_close_exists` (409, with
+   `Location`, mapped from `year_close_once` too) to `createYearClose`.
+   The statements written through `closeKind.q` are not read by the test's
+   written-table rule; none of them can break a registered constraint (a
+   close's keys never change, `closing.check_period_close`), so the
+   derived codes drop `closing.close_exists` from the period close's task,
+   accrual and comment operations, where it could never occur.
+7. *Walkthrough* (`year_end_close`, the end of `step_year_end`): Ada adds
+   two year tasks (the auditors' adjustments, then the equity review
+   depending on it), a tier 2 change the process owner approves; Carla
+   opens `PREV`'s year close, covering 0L and 2L with their 16 periods
+   each; completing the review first is refused with
+   `closing.task_blocked`; she assigns the adjustments task to herself and
+   completes it, which unblocks the review; a second year close of `PREV`
+   is refused with `closing.year_close_exists`, and the list shows the one.

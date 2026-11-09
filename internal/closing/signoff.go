@@ -65,7 +65,7 @@ func (e *Endpoints) SignOffPeriodClose(ctx context.Context, req gen.OptPeriodClo
 	if err != nil {
 		return nil, err
 	}
-	tasks, err := tasksOf(ctx, tx, c.ID)
+	tasks, err := tasksOf(ctx, tx, periodCloses, c.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -100,33 +100,37 @@ func (e *Endpoints) SignOffPeriodClose(ctx context.Context, req gen.OptPeriodClo
 // and reads it with its covered ledgers' periods as they are now; a close
 // signed off whose covered periods are all locked is refused: nothing is
 // left to sign off.
-func (e *Endpoints) lockedForSignOff(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch string) (periodClose, []LedgerPeriod, error) {
-	version, err := lockClose(ctx, tx, id)
+func (e *Endpoints) lockedForSignOff(ctx context.Context, tx pgx.Tx, id uuid.UUID, ifMatch string) (closeRow, []LedgerPeriod, error) {
+	version, err := lockClose(ctx, tx, periodCloses, id)
 	if err != nil {
-		return periodClose{}, nil, err
+		return closeRow{}, nil, err
 	}
 	if err := etag.IfMatch(ifMatch)(version); err != nil {
-		return periodClose{}, nil, err
+		return closeRow{}, nil, err
 	}
-	c, err := readClose(ctx, tx, id)
+	c, err := readClose(ctx, tx, periodCloses, id)
 	if err != nil {
-		return periodClose{}, nil, err
+		return closeRow{}, nil, err
 	}
 	covered, err := e.coveredPeriods(ctx, tx, c.ID, c.LegalEntityID, c.FiscalYear, c.FiscalPeriod)
 	if err != nil {
-		return periodClose{}, nil, err
+		return closeRow{}, nil, err
 	}
 	if c.Status == CloseSignedOff && !slices.ContainsFunc(covered, func(k LedgerPeriod) bool { return k.Period.Status != periodLocked }) {
-		return periodClose{}, nil, signedOffConflict(c)
+		return closeRow{}, nil, signedOffConflict(periodCloses, c)
 	}
 	return c, covered, nil
 }
 
-// signedOffConflict refuses a write on a close signed off whose covered
-// periods are all locked (ADR-0058 §7).
-func signedOffConflict(c periodClose) error {
-	return problem.Conflict("closing.close_signed_off", fmt.Sprintf("Close %s of %d/%d is signed off and its periods are locked; "+
-		"an approved unlock of a period (unlockFiscalPeriod) lets it be worked on again.", c.ID, c.FiscalYear, c.FiscalPeriod))
+// signedOffConflict refuses a write on a close of a kind signed off whose
+// covered periods are all locked (ADR-0058 §7, ADR-0060 §8).
+func signedOffConflict(k *closeKind, c closeRow) error {
+	of := fmt.Sprintf("%d/%d", c.FiscalYear, c.FiscalPeriod)
+	if k.year {
+		of = fmt.Sprint(c.FiscalYear)
+	}
+	return problem.Conflict("closing.close_signed_off", fmt.Sprintf("%s %s of %s is signed off and its periods are locked; "+
+		"an approved unlock of a period (unlockFiscalPeriod) lets it be worked on again.", k.title, c.ID, of))
 }
 
 // manualDone refuses a sign-off while a manual task is open, naming them;
@@ -189,7 +193,7 @@ func (e *Endpoints) checksPass(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 // periodsClosed refuses a sign-off while a covered period is open, naming
 // its ledgers: a close is signed off after its period stopped taking
 // postings, and a sign-off never closes a period itself.
-func periodsClosed(c periodClose, covered []LedgerPeriod) error {
+func periodsClosed(c closeRow, covered []LedgerPeriod) error {
 	var open []string
 	for _, k := range covered {
 		if k.Period.Status == periodOpen {
@@ -225,22 +229,22 @@ func (e *Endpoints) lockPeriods(ctx context.Context, covered []LedgerPeriod) ([]
 
 // signedOff writes a sign-off and sets its close signed off, moving its
 // version; it returns the close and the sign-off as stored.
-func signedOff(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s signOff) (periodClose, signOff, error) {
+func signedOff(ctx context.Context, tx pgx.Tx, p reqctx.Principal, s signOff) (closeRow, signOff, error) {
 	locked, _ := json.Marshal(s.Ledgers) // ids, strings and booleans always encode
 	if err := tx.QueryRow(ctx, `INSERT INTO closing.sign_off (tenant_id, id, close_id, signed_by, note, locked) VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING signed_at`, p.TenantID, s.ID, s.CloseID, s.SignedBy, s.Note, locked).Scan(&s.SignedAt); err != nil {
-		return periodClose{}, signOff{}, fmt.Errorf("closing: sign off close %s: %w", s.CloseID, err)
+		return closeRow{}, signOff{}, fmt.Errorf("closing: sign off close %s: %w", s.CloseID, err)
 	}
 	if _, err := tx.Exec(ctx, `UPDATE closing.period_close SET status = 'signed_off', version = version + 1, updated_by = $2 WHERE id = $1`,
 		s.CloseID, p.ID); err != nil {
-		return periodClose{}, signOff{}, fmt.Errorf("closing: set close %s signed off: %w", s.CloseID, err)
+		return closeRow{}, signOff{}, fmt.Errorf("closing: set close %s signed off: %w", s.CloseID, err)
 	}
-	c, err := readClose(ctx, tx, s.CloseID)
+	c, err := readClose(ctx, tx, periodCloses, s.CloseID)
 	return c, s, err
 }
 
 // recordSignOff audits a sign-off and publishes it.
-func recordSignOff(ctx context.Context, c periodClose, s signOff) error {
+func recordSignOff(ctx context.Context, c closeRow, s signOff) error {
 	periods := make([]map[string]any, len(s.Ledgers))
 	for i, l := range s.Ledgers {
 		periods[i] = map[string]any{"ledger_id": l.LedgerID, "ledger_code": l.LedgerCode, "fiscal_period_id": l.PeriodID, "locked": l.Locked}
@@ -267,47 +271,64 @@ func signOffsOf(ctx context.Context, tx pgx.Tx, closeID uuid.UUID) ([]signOff, e
 	return out, nil
 }
 
-// writable tells whether a write may go ahead on a close the caller holds
-// the lock of (ADR-0058 §7): an open close, yes; a signed-off close whose
-// covered periods are all locked, no (closing.close_signed_off); a
-// signed-off close one of whose periods is no longer locked (an approved
-// unlock, T32), yes, after reopen: it returns those periods' ledgers.
-func (e *Endpoints) writable(ctx context.Context, tx pgx.Tx, closeID uuid.UUID) ([]string, error) {
-	c, err := readClose(ctx, tx, closeID)
+// writable tells whether a write may go ahead on a close of a kind the
+// caller holds the lock of (ADR-0058 §7, ADR-0060 §8): an open close, yes;
+// a signed-off close whose covered periods are all locked, no
+// (closing.close_signed_off); a signed-off close one of whose periods is no
+// longer locked (an approved unlock, T32), yes, after reopen: it returns
+// those periods' ledgers. A period close covers its period of each
+// ledger, a year close every period of the year.
+func (e *Endpoints) writable(ctx context.Context, tx pgx.Tx, k *closeKind, closeID uuid.UUID) ([]string, error) {
+	c, err := readClose(ctx, tx, k, closeID)
 	if err != nil || c.Status != CloseSignedOff {
 		return nil, err
 	}
-	covered, err := e.coveredPeriods(ctx, tx, c.ID, c.LegalEntityID, c.FiscalYear, c.FiscalPeriod)
+	covered, err := e.coveredOf(ctx, tx, k, c)
 	if err != nil {
 		return nil, err
 	}
 	var unlocked []string
-	for _, k := range covered {
-		if k.Period.Status != periodLocked {
-			unlocked = append(unlocked, k.Code)
+	for _, l := range covered {
+		if slices.ContainsFunc(l.Periods, func(p Period) bool { return p.Status != periodLocked }) {
+			unlocked = append(unlocked, l.Code)
 		}
 	}
 	if len(unlocked) == 0 {
-		return nil, signedOffConflict(c)
+		return nil, signedOffConflict(k, c)
 	}
 	return unlocked, nil
 }
 
-// reopen sets a signed-off close open again on its first write after an
-// unlock, audited as reopened and published, before the write's own
-// change; unlocked names the ledgers whose periods are no longer locked.
-// Nothing is done for a close that is open (unlocked empty).
-func reopen(ctx context.Context, tx pgx.Tx, p reqctx.Principal, closeID uuid.UUID, unlocked []string) error {
+// coveredOf are the ledgers a close of a kind covers, the leading one
+// first, then by code, each with the periods it covers as the ledger holds
+// them now: a period close's period, a year close's periods of the year.
+func (e *Endpoints) coveredOf(ctx context.Context, tx pgx.Tx, k *closeKind, c closeRow) ([]LedgerYear, error) {
+	if k.year {
+		return e.yearCovered(ctx, tx, c)
+	}
+	covered, err := e.coveredPeriods(ctx, tx, c.ID, c.LegalEntityID, c.FiscalYear, c.FiscalPeriod)
+	out := make([]LedgerYear, len(covered))
+	for i, l := range covered {
+		out[i] = LedgerYear{LedgerID: l.LedgerID, Code: l.Code, Name: l.Name, Leading: l.Leading, Periods: []Period{*l.Period}}
+	}
+	return out, err
+}
+
+// reopen sets a signed-off close of a kind open again on its first write
+// after an unlock, audited as reopened and published, before the write's
+// own change; unlocked names the ledgers whose periods are no longer
+// locked. Nothing is done for a close that is open (unlocked empty).
+func reopen(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, closeID uuid.UUID, unlocked []string) error {
 	if len(unlocked) == 0 {
 		return nil
 	}
-	if _, err := tx.Exec(ctx, `UPDATE closing.period_close SET status = 'open', version = version + 1, updated_by = $2 WHERE id = $1 AND status = 'signed_off'`,
+	if _, err := tx.Exec(ctx, k.q(`UPDATE {close} SET status = 'open', version = version + 1, updated_by = $2 WHERE id = $1 AND status = 'signed_off'`),
 		closeID, p.ID); err != nil {
-		return fmt.Errorf("closing: reopen close %s: %w", closeID, err)
+		return fmt.Errorf("closing: reopen %s %s: %w", k.noun, closeID, err)
 	}
-	c, err := readClose(ctx, tx, closeID)
+	c, err := readClose(ctx, tx, k, closeID)
 	if err != nil {
 		return err
 	}
-	return record(ctx, c, change{action: "reopen", name: "reopened", detail: map[string]any{"unlocked_ledgers": unlocked}})
+	return record(ctx, k, c, change{action: "reopen", name: "reopened", detail: map[string]any{"unlocked_ledgers": unlocked}})
 }

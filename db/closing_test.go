@@ -175,6 +175,155 @@ func TestPeriodCloseRules(t *testing.T) {
 	}
 }
 
+// Year closes (T64m4, migration 000233): one close per company and fiscal
+// year, starting open, its company, year and template version fixed; the
+// ledgers it covers written once; its tasks under the period close's
+// rules (the shared trigger functions name the year close's tables). Nothing
+// is deleted, every change moves the row's version, and another tenant
+// neither sees a year close nor adds tasks to it.
+func TestYearCloseRules(t *testing.T) {
+	need(t)
+	const (
+		closeRow = `INSERT INTO closing.year_close (tenant_id, id, legal_entity_id, fiscal_year, year_end, config_version, status, created_by, updated_by)
+			VALUES ($1, $2, $3, $4, '2026-12-31', 1, $5, $6, $6)`
+		taskRow = `INSERT INTO closing.year_close_task (tenant_id, close_id, code, seq, name, kind, check_kind, due_on, depends_on, status, completed_by,
+			completed_at, note, checked_at, created_by, updated_by) VALUES ($1, $2, $3, $4, 'A task', $5, $6, '2027-01-29', $7, $8, $9, $10, $11, $12, $13, $13)`
+		ledgerRow = `INSERT INTO closing.year_close_ledger (tenant_id, close_id, ledger_id) VALUES ($1, $2, $3)`
+	)
+	type scene struct{ tenant, actor, entity, close uuid.UUID }
+	open := func(s scene) stmt { return step(closeRow, s.tenant, s.close, s.entity, 2026, "open", s.actor) }
+	task := func(s scene, code string, seq int) stmt {
+		return step(taskRow, s.tenant, s.close, code, seq, "manual", nil, []string{}, "open", nil, nil, nil, nil, s.actor)
+	}
+	check := func(s scene) stmt {
+		return step(taskRow, s.tenant, s.close, "NP", 1, "check", "no_parked_entries", []string{}, "open", nil, nil, nil, nil, s.actor)
+	}
+	done := func(code string) stmt {
+		return step(`UPDATE closing.year_close_task SET status = 'done', completed_by = updated_by, completed_at = now(), note = 'Done', version = version + 1
+			WHERE code = $1`, code)
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a close with its ledger and task", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(ledgerRow, s.tenant, s.close, id()), task(s, "AUDIT", 1))
+		}, ""},
+		{"a second close of the year", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(closeRow, s.tenant, id(), s.entity, 2026, "open", s.actor))
+		}, "year_close_once"},
+		{"a close of another year", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(closeRow, s.tenant, id(), s.entity, 2027, "open", s.actor))
+		}, ""},
+		{"a close of year 1899", func(tx pgx.Tx, s scene) error {
+			return exec(tx, closeRow, s.tenant, s.close, s.entity, 1899, "open", s.actor)
+		}, "year_close_fiscal_year_check"},
+		{"a close signed off at once", func(tx pgx.Tx, s scene) error {
+			return exec(tx, closeRow, s.tenant, s.close, s.entity, 2026, "signed_off", s.actor)
+		}, "a year close starts open"},
+		{"a close in another status", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`UPDATE closing.year_close SET status = 'closed', version = version + 1`))
+		}, "year_close_status_check"},
+		{"a close signed off and reopened", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`UPDATE closing.year_close SET status = 'signed_off', version = version + 1`),
+				step(`UPDATE closing.year_close SET status = 'open', version = version + 1`))
+		}, ""},
+		{"a close's year end changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`UPDATE closing.year_close SET year_end = '2026-12-30', version = version + 1`))
+		}, "changes only its status"},
+		{"a close changed without its version", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`UPDATE closing.year_close SET status = 'signed_off'`))
+		}, "optimistic lock"},
+		{"a close deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(`DELETE FROM closing.year_close`))
+		}, "permission denied"},
+		{"a covered ledger changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(ledgerRow, s.tenant, s.close, id()), step(`UPDATE closing.year_close_ledger SET ledger_id = gen_random_uuid()`))
+		}, "permission denied"},
+		{"a ledger of no close", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(ledgerRow, s.tenant, s.close, id()))
+		}, "year_close_ledger_tenant_id_close_id_fkey"},
+		{"a task done and reopened", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), done("AUDIT"), step(`UPDATE closing.year_close_task SET status = 'open', completed_by = NULL,
+				completed_at = NULL, note = NULL, version = version + 1`))
+		}, ""},
+		{"a task assigned", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), step(`UPDATE closing.year_close_task SET assignee_id = $1, version = version + 1`, s.actor))
+		}, ""},
+		{"a task created done", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(taskRow, s.tenant, s.close, "AUDIT", 1, "manual", nil, []string{}, "done", s.actor, "2027-01-04T10:00:00Z", nil, nil,
+				s.actor))
+		}, "a year close task starts open"},
+		{"a task created checked", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(taskRow, s.tenant, s.close, "NP", 1, "check", "no_parked_entries", []string{}, "open", nil, nil, nil,
+				"2027-01-04T10:00:00Z", s.actor))
+		}, "a year close task starts unchecked"},
+		{"a task done without who did it", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), step(`UPDATE closing.year_close_task SET status = 'done', completed_at = now(), version = version + 1`))
+		}, "year_close_task_completed"},
+		{"an open task with a note", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), step(`UPDATE closing.year_close_task SET note = 'Early', version = version + 1`))
+		}, "keeps its completion while it is open"},
+		{"a completion rewritten", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), done("AUDIT"), step(`UPDATE closing.year_close_task SET completed_by = gen_random_uuid(),
+				version = version + 1`))
+		}, "keeps its completion while it is done"},
+		{"a task's due date changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), step(`UPDATE closing.year_close_task SET due_on = '2027-02-10', version = version + 1`))
+		}, "changes only its assignee, status and check result"},
+		{"a manual task with a check", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(taskRow, s.tenant, s.close, "AUDIT", 1, "manual", "no_parked_entries", []string{}, "open", nil, nil, nil, nil, s.actor))
+		}, "year_close_task_check_kind"},
+		{"a task depending on itself", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), step(taskRow, s.tenant, s.close, "AUDIT", 1, "manual", nil, []string{"AUDIT"}, "open", nil, nil, nil, nil, s.actor))
+		}, "year_close_task_depends_on"},
+		{"two tasks in one place", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), task(s, "TAX", 1))
+		}, "year_close_task_seq_once"},
+		{"a task of no close", func(tx pgx.Tx, s scene) error {
+			return all(tx, task(s, "AUDIT", 1))
+		}, "year_close_task_tenant_id_close_id_fkey"},
+		{"a task deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), task(s, "AUDIT", 1), step(`DELETE FROM closing.year_close_task`))
+		}, "permission denied"},
+		{"a check task done by hand", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), done("NP"))
+		}, "year_close_task_check_passed"},
+		{"a check result removed", func(tx pgx.Tx, s scene) error {
+			return all(tx, open(s), check(s), step(`UPDATE closing.year_close_task SET checked_at = now(), checked_by = updated_by, check_passed = false,
+				check_result = '{"summary": "x"}', version = version + 1`), step(`UPDATE closing.year_close_task SET checked_at = NULL, checked_by = NULL,
+				check_passed = NULL, check_result = NULL, version = version + 1`))
+		}, "keeps its check result"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), entity: id(), close: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	t.Run("another tenant's", func(t *testing.T) {
+		a, b := scene{tenant: id(), actor: id(), entity: id(), close: id()}, id()
+		mustApp(t, a.tenant, func(tx pgx.Tx) error { return all(tx, open(a)) })
+		err := asApp(t, b, func(tx pgx.Tx) error {
+			var n int
+			if err := tx.QueryRow(context.Background(), `SELECT count(*) FROM closing.year_close`).Scan(&n); err != nil || n != 0 {
+				t.Errorf("another tenant's year closes: got %d (%v), want none", n, err)
+			}
+			return exec(tx, `INSERT INTO closing.year_close_task (tenant_id, close_id, code, seq, name, kind, due_on, created_by, updated_by)
+				VALUES ($1, $2, 'AUDIT', 1, 'A task', 'manual', '2027-01-29', $3, $3)`, b, a.close, a.actor)
+		})
+		failsWith(t, err, "year_close_task_tenant_id_close_id_fkey")
+	})
+}
+
 // TestPeriodCloseIsTheTenants: another tenant neither sees a close nor
 // adds tasks to it.
 func TestPeriodCloseIsTheTenants(t *testing.T) {

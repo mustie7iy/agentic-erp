@@ -18,52 +18,59 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// act changes a task of a locked close; it returns what it did, or ok
-// false when it changed nothing.
-type act func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (ch change, ok bool, err error)
+// act changes a task of a locked close of a kind; it returns what it
+// did, or ok false when it changed nothing.
+type act func(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, t task) (ch change, ok bool, err error)
 
-// taskAction runs a change of a close's task (ADR-0058 §5, §6): the close
-// is locked first and its version checked against If-Match, so a change
-// made on a stale view of the checklist is refused; a signed-off close is
-// reopened first, or refused while its periods are all locked (§7); the
-// change moves the close's version, is audited and published, and the
-// answer is the task with the close's new ETag.
-func (e *Endpoints) taskAction(ctx context.Context, closeID uuid.UUID, code, ifMatch string, do act) (*gen.CloseTaskHeaders, error) {
+// taskAction runs a change of a task of a close of either kind (ADR-0058
+// §5, §6; ADR-0060 §8): the close is locked first and its version checked
+// against If-Match, so a change made on a stale view of the checklist is
+// refused; a signed-off close is reopened first, or refused while its
+// periods are all locked (§7); the change moves the close's version, is
+// audited and published. It returns the task as it is then, which the
+// answer shows with the close's new ETag, and the view naming it.
+func (e *Endpoints) taskAction(ctx context.Context, k *closeKind, closeID uuid.UUID, code, ifMatch string, do act) (task, view, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
-		return nil, err
+		return task{}, view{}, err
 	}
-	version, err := lockClose(ctx, tx, closeID)
+	version, err := lockClose(ctx, tx, k, closeID)
 	if err != nil {
-		return nil, err
+		return task{}, view{}, err
 	}
 	if err := etag.IfMatch(ifMatch)(version); err != nil {
-		return nil, err
+		return task{}, view{}, err
 	}
-	unlocked, err := e.writable(ctx, tx, closeID)
+	unlocked, err := e.writable(ctx, tx, k, closeID)
 	if err != nil {
-		return nil, err
+		return task{}, view{}, err
 	}
-	t, err := readTask(ctx, tx, closeID, code)
+	t, err := readTask(ctx, tx, k, closeID, code)
 	if err != nil {
-		return nil, err
+		return task{}, view{}, err
 	}
-	ch, ok, err := do(ctx, tx, p, t)
+	ch, ok, err := do(ctx, tx, k, p, t)
 	if err != nil {
-		return nil, err
+		return task{}, view{}, err
 	}
 	if ok {
-		if err := reopen(ctx, tx, p, closeID, unlocked); err != nil {
-			return nil, err
+		if err := reopen(ctx, tx, k, p, closeID, unlocked); err != nil {
+			return task{}, view{}, err
 		}
-		if err := e.changed(ctx, tx, p, closeID, ch); err != nil {
-			return nil, err
+		if err := e.changed(ctx, tx, k, p, closeID, ch); err != nil {
+			return task{}, view{}, err
 		}
-		if t, err = readTask(ctx, tx, closeID, code); err != nil {
-			return nil, err
+		if t, err = readTask(ctx, tx, k, closeID, code); err != nil {
+			return task{}, view{}, err
 		}
 	}
 	v, err := e.view(ctx, []uuid.UUID{t.LegalEntityID}, []task{t})
+	return t, v, err
+}
+
+// periodTask answers a period close's task action: the task with the
+// close's new ETag.
+func periodTask(t task, v view, err error) (*gen.CloseTaskHeaders, error) {
 	if err != nil {
 		return nil, err
 	}
@@ -72,22 +79,29 @@ func (e *Endpoints) taskAction(ctx context.Context, closeID uuid.UUID, code, ifM
 
 // changed moves the close's version with a change of its task, and audits
 // and publishes the change.
-func (e *Endpoints) changed(ctx context.Context, tx pgx.Tx, p reqctx.Principal, closeID uuid.UUID, ch change) error {
-	if err := touchClose(ctx, tx, closeID, p.ID); err != nil {
+func (e *Endpoints) changed(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, closeID uuid.UUID, ch change) error {
+	if err := touchClose(ctx, tx, k, closeID, p.ID); err != nil {
 		return err
 	}
-	c, err := readClose(ctx, tx, closeID)
+	c, err := readClose(ctx, tx, k, closeID)
 	if err != nil {
 		return err
 	}
-	return record(ctx, c, ch)
+	return record(ctx, k, c, ch)
 }
 
 // UpdateCloseTask implements PATCH /v1/period-closes/{id}/tasks/{code}:
 // the task's assignee, an active person of the tenant who may act in the
 // close's company, or none.
 func (e *Endpoints) UpdateCloseTask(ctx context.Context, req *gen.CloseTaskUpdate, params gen.UpdateCloseTaskParams) (gen.UpdateCloseTaskRes, error) {
-	return e.taskAction(ctx, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (change, bool, error) {
+	return periodTask(e.taskAction(ctx, periodCloses, params.ID, params.Code, params.IfMatch, e.assign(req)))
+}
+
+// assign sets a task's assignee as the merge patch asks: an active person
+// of the tenant who may act in the close's company, or none (null); a
+// patch without it changes nothing.
+func (e *Endpoints) assign(req *gen.CloseTaskUpdate) act {
+	return func(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, t task) (change, bool, error) {
 		if !req.AssigneeID.Set {
 			return change{}, false, nil
 		}
@@ -98,13 +112,13 @@ func (e *Endpoints) UpdateCloseTask(ctx context.Context, req *gen.CloseTaskUpdat
 				return change{}, false, err
 			}
 		}
-		_, err := tx.Exec(ctx, `UPDATE closing.close_task SET assignee_id = $3, version = version + 1, updated_by = $4 WHERE close_id = $1 AND code = $2`,
+		_, err := tx.Exec(ctx, k.q(`UPDATE {task} SET assignee_id = $3, version = version + 1, updated_by = $4 WHERE close_id = $1 AND code = $2`),
 			t.CloseID, t.Code, assignee, p.ID)
 		if err != nil {
-			return change{}, false, fmt.Errorf("closing: assign task %s of close %s: %w", t.Code, t.CloseID, err)
+			return change{}, false, fmt.Errorf("closing: assign task %s of %s %s: %w", t.Code, k.noun, t.CloseID, err)
 		}
 		return change{action: "assign_task", name: "task_assigned", task: &t.Code, detail: map[string]any{"assignee_id": assignee}}, true, nil
-	})
+	}
 }
 
 // person refuses an assignee that is not an active person of the tenant
@@ -141,7 +155,13 @@ func assigneeInvalid(want string) error {
 // /v1/period-closes/{id}/tasks/{code}:complete: an open manual task done,
 // once every task it depends on is; a check task is done by its check.
 func (e *Endpoints) CompleteCloseTask(ctx context.Context, req gen.OptCloseTaskComplete, params gen.CompleteCloseTaskParams) (gen.CompleteCloseTaskRes, error) {
-	return e.taskAction(ctx, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (change, bool, error) {
+	return periodTask(e.taskAction(ctx, periodCloses, params.ID, params.Code, params.IfMatch, complete(req)))
+}
+
+// complete marks an open manual task done with the note, once every task
+// it depends on is.
+func complete(req gen.OptCloseTaskComplete) act {
+	return func(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, t task) (change, bool, error) {
 		switch {
 		case t.Kind == config.CloseCheck:
 			return change{}, false, problem.Conflict("closing.task_is_check", "Task "+t.Code+" is a check, done by its check passing; run it with :check.")
@@ -154,28 +174,34 @@ func (e *Endpoints) CompleteCloseTask(ctx context.Context, req gen.OptCloseTaskC
 		note := apitypes.Ptr[string](req.Value.Note)
 		// The close's lock serialises its writes, so the guard on the
 		// status never meets another; it keeps the move the trigger allows.
-		_, err := tx.Exec(ctx, `UPDATE closing.close_task SET status = 'done', completed_by = $3, completed_at = now(), note = $4, version = version + 1,
-				updated_by = $3 WHERE close_id = $1 AND code = $2 AND status = 'open'`, t.CloseID, t.Code, p.ID, note)
+		_, err := tx.Exec(ctx, k.q(`UPDATE {task} SET status = 'done', completed_by = $3, completed_at = now(), note = $4, version = version + 1,
+				updated_by = $3 WHERE close_id = $1 AND code = $2 AND status = 'open'`), t.CloseID, t.Code, p.ID, note)
 		if err != nil {
-			return change{}, false, fmt.Errorf("closing: complete task %s of close %s: %w", t.Code, t.CloseID, err)
+			return change{}, false, fmt.Errorf("closing: complete task %s of %s %s: %w", t.Code, k.noun, t.CloseID, err)
 		}
 		return change{action: "complete_task", name: "task_completed", task: &t.Code, detail: map[string]any{"note": note}}, true, nil
-	})
+	}
 }
 
 // ReopenCloseTask implements POST
 // /v1/period-closes/{id}/tasks/{code}:reopen: a done task open again,
 // for a reason; nothing that depends on it is reopened.
 func (e *Endpoints) ReopenCloseTask(ctx context.Context, req *gen.ReasonInput, params gen.ReopenCloseTaskParams) (gen.ReopenCloseTaskRes, error) {
-	return e.taskAction(ctx, params.ID, params.Code, params.IfMatch, func(ctx context.Context, tx pgx.Tx, p reqctx.Principal, t task) (change, bool, error) {
+	return periodTask(e.taskAction(ctx, periodCloses, params.ID, params.Code, params.IfMatch, reopenTask(req)))
+}
+
+// reopenTask returns a done task to open for the reason, clearing its
+// completion.
+func reopenTask(req *gen.ReasonInput) act {
+	return func(ctx context.Context, tx pgx.Tx, k *closeKind, p reqctx.Principal, t task) (change, bool, error) {
 		if t.Status != TaskDone {
 			return change{}, false, problem.Conflict("closing.task_not_done", "Task "+t.Code+" is open; only a done task is reopened.")
 		}
-		_, err := tx.Exec(ctx, `UPDATE closing.close_task SET status = 'open', completed_by = NULL, completed_at = NULL, note = NULL, version = version + 1,
-				updated_by = $3 WHERE close_id = $1 AND code = $2 AND status = 'done'`, t.CloseID, t.Code, p.ID)
+		_, err := tx.Exec(ctx, k.q(`UPDATE {task} SET status = 'open', completed_by = NULL, completed_at = NULL, note = NULL, version = version + 1,
+				updated_by = $3 WHERE close_id = $1 AND code = $2 AND status = 'done'`), t.CloseID, t.Code, p.ID)
 		if err != nil {
-			return change{}, false, errs.Wrapf(err, "closing: reopen task %s of close %s", t.Code, t.CloseID)
+			return change{}, false, errs.Wrapf(err, "closing: reopen task %s of %s %s", t.Code, k.noun, t.CloseID)
 		}
 		return change{action: "reopen_task", name: "task_reopened", task: &t.Code, reason: &req.Reason}, true, nil
-	})
+	}
 }

@@ -94,7 +94,7 @@ func (v view) taskToAPI(t task) gen.CloseTask {
 
 // itemToAPI shows a close as a list does, its counts judged on its
 // company's date at the read.
-func (v view) itemToAPI(c periodClose) gen.PeriodCloseItem {
+func (v view) itemToAPI(c closeRow) gen.PeriodCloseItem {
 	co := v.companies[c.LegalEntityID]
 	out := gen.PeriodCloseItem{ID: c.ID, LegalEntityID: c.LegalEntityID, CompanyCode: co.Code, CompanyName: co.Name, FiscalYear: int32(c.FiscalYear),
 		FiscalPeriod: int32(c.FiscalPeriod), PeriodEnd: c.PeriodEnd, ConfigVersion: c.ConfigVersion, Status: c.Status, ReadDate: co.day.Date,
@@ -110,13 +110,13 @@ func (v view) itemToAPI(c periodClose) gen.PeriodCloseItem {
 }
 
 // signers are the people who signed off the closes, for their names.
-func signers(cs ...periodClose) []uuid.UUID {
-	return idref.Of(cs, func(c periodClose) *uuid.UUID { return c.SignedBy })
+func signers(cs ...closeRow) []uuid.UUID {
+	return idref.Of(cs, func(c closeRow) *uuid.UUID { return c.SignedBy })
 }
 
 // signOffToAPI shows a sign-off of a close with the close's company and
 // period.
-func (v view) signOffToAPI(c periodClose, s signOff) gen.PeriodCloseSignOff {
+func (v view) signOffToAPI(c closeRow, s signOff) gen.PeriodCloseSignOff {
 	co := v.companies[c.LegalEntityID]
 	out := gen.PeriodCloseSignOff{ID: s.ID, CloseID: s.CloseID, LegalEntityID: c.LegalEntityID, CompanyCode: co.Code, CompanyName: co.Name,
 		FiscalYear: int32(c.FiscalYear), FiscalPeriod: int32(c.FiscalPeriod), SignedBy: s.SignedBy, SignedByName: v.people[s.SignedBy].Name,
@@ -129,7 +129,7 @@ func (v view) signOffToAPI(c periodClose, s signOff) gen.PeriodCloseSignOff {
 }
 
 // closeToAPI shows a close with its ledgers, tasks and sign-offs.
-func (v view) closeToAPI(c periodClose, ledgers []gen.CloseLedger, tasks []task, offs []signOff) gen.PeriodClose {
+func (v view) closeToAPI(c closeRow, ledgers []gen.CloseLedger, tasks []task, offs []signOff) gen.PeriodClose {
 	i := v.itemToAPI(c)
 	out := gen.PeriodClose{ID: i.ID, LegalEntityID: i.LegalEntityID, CompanyCode: i.CompanyCode, CompanyName: i.CompanyName, FiscalYear: i.FiscalYear,
 		FiscalPeriod: i.FiscalPeriod, PeriodEnd: i.PeriodEnd, ConfigVersion: i.ConfigVersion, Status: i.Status, SignedOffAt: i.SignedOffAt,
@@ -142,6 +142,48 @@ func (v view) closeToAPI(c periodClose, ledgers []gen.CloseLedger, tasks []task,
 	}
 	for j, s := range offs {
 		out.SignOffs[j] = v.signOffToAPI(c, s)
+	}
+	return out
+}
+
+// yearTaskToAPI shows a task of a year close as taskToAPI shows a period
+// close's, without a period.
+func (v view) yearTaskToAPI(t task) gen.YearCloseTask {
+	o := v.taskToAPI(t)
+	return gen.YearCloseTask{CloseID: o.CloseID, CloseVersion: o.CloseVersion, LegalEntityID: o.LegalEntityID, CompanyCode: o.CompanyCode,
+		CompanyName: o.CompanyName, FiscalYear: o.FiscalYear, Code: o.Code, Seq: o.Seq, Name: o.Name, Kind: o.Kind, Check: o.Check, DueOn: o.DueOn,
+		DependsOn: o.DependsOn, BlockedBy: o.BlockedBy, AssigneeID: o.AssigneeID, AssigneeName: o.AssigneeName, Status: o.Status, Overdue: o.Overdue,
+		ReadDate: o.ReadDate, CompletedBy: o.CompletedBy, CompletedByName: o.CompletedByName, CompletedAt: o.CompletedAt, Note: o.Note}
+}
+
+// yearItemToAPI shows a year close as a list does, as itemToAPI shows a
+// period close, its last day the year's.
+func (v view) yearItemToAPI(c closeRow) gen.YearCloseItem {
+	i := v.itemToAPI(c)
+	return gen.YearCloseItem{ID: i.ID, LegalEntityID: i.LegalEntityID, CompanyCode: i.CompanyCode, CompanyName: i.CompanyName, FiscalYear: i.FiscalYear,
+		YearEnd: i.PeriodEnd, ConfigVersion: i.ConfigVersion, Status: i.Status, ReadDate: i.ReadDate, TimeZone: i.TimeZone, TasksTotal: i.TasksTotal,
+		TasksDone: i.TasksDone, TasksOpen: i.TasksOpen, TasksOverdue: i.TasksOverdue, Version: i.Version, CreatedAt: i.CreatedAt, CreatedBy: i.CreatedBy,
+		UpdatedAt: i.UpdatedAt, UpdatedBy: i.UpdatedBy}
+}
+
+// yearCloseToAPI shows a year close with its ledgers' periods of the year
+// and its tasks.
+func (v view) yearCloseToAPI(c closeRow, covered []LedgerYear, tasks []task) gen.YearClose {
+	i := v.yearItemToAPI(c)
+	out := gen.YearClose{ID: i.ID, LegalEntityID: i.LegalEntityID, CompanyCode: i.CompanyCode, CompanyName: i.CompanyName, FiscalYear: i.FiscalYear,
+		YearEnd: i.YearEnd, ConfigVersion: i.ConfigVersion, Status: i.Status, ReadDate: i.ReadDate, TimeZone: i.TimeZone, TasksTotal: i.TasksTotal,
+		TasksDone: i.TasksDone, TasksOpen: i.TasksOpen, TasksOverdue: i.TasksOverdue, Ledgers: make([]gen.YearCloseLedger, len(covered)),
+		Tasks: make([]gen.YearCloseTask, len(tasks)), Version: i.Version, CreatedAt: i.CreatedAt, CreatedBy: i.CreatedBy, UpdatedAt: i.UpdatedAt,
+		UpdatedBy: i.UpdatedBy}
+	for j, l := range covered {
+		out.Ledgers[j] = gen.YearCloseLedger{LedgerID: l.LedgerID, LedgerCode: l.Code, LedgerName: l.Name, IsLeading: l.Leading,
+			Periods: make([]gen.YearClosePeriod, len(l.Periods))}
+		for n, p := range l.Periods {
+			out.Ledgers[j].Periods[n] = gen.YearClosePeriod{FiscalPeriodID: p.ID, Period: int32(p.Number), IsSpecial: p.Special, Status: p.Status}
+		}
+	}
+	for j, t := range tasks {
+		out.Tasks[j] = v.yearTaskToAPI(t)
 	}
 	return out
 }

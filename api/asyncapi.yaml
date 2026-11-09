@@ -383,7 +383,7 @@ channels:
   closing:
     address: 'erp.{cell}.closing.{tenant}.{event}'
     title: Financial close events
-    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13).
+    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13); year closes and their checklists (ADR-0060 §12).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -392,6 +392,7 @@ channels:
       AccrualProposed: {$ref: '#/components/messages/AccrualProposed'}
       AccrualProposalRejected: {$ref: '#/components/messages/AccrualProposalRejected'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
+      YearCloseChanged: {$ref: '#/components/messages/YearCloseChanged'}
   consolidation:
     address: 'erp.{cell}.consolidation.{tenant}.{event}'
     title: Consolidation events
@@ -642,6 +643,7 @@ operations:
       - $ref: '#/channels/closing/messages/AccrualProposed'
       - $ref: '#/channels/closing/messages/AccrualProposalRejected'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
+      - $ref: '#/channels/closing/messages/YearCloseChanged'
   publishConsolidationEvents:
     action: send
     title: Consolidation publishes
@@ -3333,6 +3335,33 @@ components:
         - name: signed_off
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000802, source: /erp/eu-1/closing, type: com.example.erp.closing.period_close_signed_off.v1, subject: 0192a000-0000-7000-8000-000000000f01, time: '2026-11-05T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {period_close_id: 0192a000-0000-7000-8000-000000000f01, sign_off_id: 0192a000-0000-7000-8000-000000000f21, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2026, fiscal_period: 10, signed_by: 0192a000-0000-7000-8000-000000000101, note: null, periods: [{ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41, locked: true}], status: signed_off, version: 9}
+    YearCloseChanged:
+      name: YearCloseChanged
+      x-webhook: true
+      title: Year close changed
+      summary: A year close was opened, reopened after an unlock, or one of its tasks assigned, completed or reopened.
+      description: |
+        Emitted by `year-closes` (POST, `created`) and its tasks' PATCH
+        (`task_assigned`), `:complete` (`task_completed`) and `:reopen`
+        (`task_reopened`, with the reason) (ADR-0060 §8, §12, T64m4); and
+        `reopened` when the first write on a signed-off year close (T64m6)
+        whose covered ledgers' periods of the year are no longer all
+        locked sets it open again, before that write's own change. Shaped
+        as PeriodCloseChanged, with the fiscal year in place of the period.
+        It says what changed, not the close, which
+        `GET /v1/year-closes/{id}` returns at `version`. Subject is the
+        year close id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.year_close_changed.v1}
+      payload: {$ref: '#/components/schemas/YearCloseChangedV1'}
+      examples:
+        - name: task_completed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000811, source: /erp/eu-1/closing, type: com.example.erp.closing.year_close_changed.v1, subject: 0192a000-0000-7000-8000-000000000f61, time: '2026-01-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {year_close_id: 0192a000-0000-7000-8000-000000000f61, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2025, change: task_completed, task_code: AUDIT_ADJUSTMENTS, reason: null, check_passed: null, status: open, version: 3}
     AccrualProposed:
       name: AccrualProposed
       x-webhook: true
@@ -4096,6 +4125,19 @@ components:
         task_code: {type: [string, 'null'], description: The task changed; null when the close was created or reopened.}
         reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
         check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed (T64c); null for any change but task_checked. `GET /v1/period-closes/{id}` shows what it found."}
+        status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
+        version: {type: integer, description: "The close's version after the change."}
+    YearCloseChangedV1:
+      type: object
+      required: [year_close_id, legal_entity_id, fiscal_year, change, task_code, reason, status, version]
+      properties:
+        year_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.year_close.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened, reopened.'}
+        task_code: {type: [string, 'null'], description: The task changed; null when the close was created or reopened.}
+        reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
+        check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed; null for every change until year-close checks (T64m5) run."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
     AccrualProposedV1:

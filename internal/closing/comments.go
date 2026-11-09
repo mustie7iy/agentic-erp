@@ -179,10 +179,10 @@ func (e *Endpoints) writeComment(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err := problem.RequireText("text", in.Text); err != nil {
 		return comment{}, false, err
 	}
-	if _, err := lockClose(ctx, tx, in.CloseID); err != nil {
+	if _, err := lockClose(ctx, tx, periodCloses, in.CloseID); err != nil {
 		return comment{}, false, err
 	}
-	unlocked, err := e.writable(ctx, tx, in.CloseID)
+	unlocked, err := e.writable(ctx, tx, periodCloses, in.CloseID)
 	if err != nil {
 		return comment{}, false, err
 	}
@@ -210,7 +210,7 @@ func (e *Endpoints) writeComment(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	if err != nil {
 		return comment{}, false, err
 	}
-	if err := reopen(ctx, tx, p, in.CloseID, unlocked); err != nil {
+	if err := reopen(ctx, tx, periodCloses, p, in.CloseID, unlocked); err != nil {
 		return comment{}, false, err
 	}
 	c, err := insertComment(ctx, tx, p, in, r, row, cited)
@@ -361,7 +361,7 @@ func (e *Endpoints) decide(ctx context.Context, id uuid.UUID, ifMatch, action st
 	if err != nil {
 		return nil, err
 	}
-	if _, err := lockClose(ctx, tx, c.CloseID); err != nil {
+	if _, err := lockClose(ctx, tx, periodCloses, c.CloseID); err != nil {
 		return nil, err
 	}
 	if c, err = readComment(ctx, tx, id); err != nil {
@@ -370,14 +370,14 @@ func (e *Endpoints) decide(ctx context.Context, id uuid.UUID, ifMatch, action st
 	if err := etag.IfMatch(ifMatch)(c.Version); err != nil {
 		return nil, err
 	}
-	unlocked, err := e.writable(ctx, tx, c.CloseID)
+	unlocked, err := e.writable(ctx, tx, periodCloses, c.CloseID)
 	if err != nil {
 		return nil, err
 	}
 	if c.Status != CommentProposed {
 		return nil, problem.Conflict("closing.comment_not_proposed", "Variance comment "+c.ID.String()+" is "+c.Status+"; only a proposed one is accepted or rejected.")
 	}
-	if err := reopen(ctx, tx, p, c.CloseID, unlocked); err != nil {
+	if err := reopen(ctx, tx, periodCloses, p, c.CloseID, unlocked); err != nil {
 		return nil, err
 	}
 	change, err := do(ctx, tx, p, c)

@@ -4076,9 +4076,11 @@ einvoice_original() {
 # earnings account set through a change request, PREV's periods closed
 # and PREV carried forward into this year in every ledger. T64m3's: the
 # runs listed and their balances read, a late adjustment into period 13
-# making them stale, and the re-run superseding them.
+# making them stale, and the re-run superseding them. T64m4's: the year
+# tasks through a change request, PREV's year close opened and a manual
+# task of it assigned and completed.
 step_year_end() {
-  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run"
+  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run, the year close's checklist"
   year_end_setup
   year_end_business
   year_end_revaluation
@@ -4088,6 +4090,7 @@ step_year_end() {
   year_end_carry_forward_balances
   year_end_late_adjustment
   year_end_rerun
+  year_end_close
   passed
 }
 
@@ -4423,6 +4426,70 @@ year_end_rerun() {
   api 200 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status)"' listBalanceCarryForwards -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p status=current
   expect "$PREV's current runs" "$(field '[.items[].id] | sort | join(" ")')" "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-again.json")"
 }
+# year_end_close is T64m4's part (ADR-0060 §8): Ada adds the year tasks to
+# the close template, a tier 2 change the process owner approves; Carla
+# opens the year close of PREV, its checklist the year tasks, covering
+# every ledger with its periods of the year; she assigns the auditors'
+# adjustments task to herself and completes it; a second year close of
+# PREV is refused.
+year_end_close() {
+  as ada
+  say "Ada adds the year tasks to the close template (ADR-0060 §8): the checklist of a company's year close, each"
+  say "task due a number of business days after the fiscal year's last day, some waiting for others. Like the"
+  say "monthly tasks they decide what the year's sign-off requires, so the change is tier 2, approved by the process owner."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base cr request
+  base=$(field '.items[0].number')
+  jq "{title: \"Year-end checklist\", rationale: \"The year close's tasks (T64m4)\", base_version: $base,
+    proposed: (.items[0].document | .close.year_tasks = [
+      {\"code\": \"AUDIT_ADJUSTMENTS\", \"name\": \"Auditors' adjustments entered in special period 13\", \"kind\": \"manual\", \"due_day\": 20},
+      {\"code\": \"EQUITY_REVIEW\", \"name\": \"Retained earnings and the carry-forward reviewed\", \"kind\": \"manual\", \"due_day\": 25,
+        \"depends_on\": [\"AUDIT_ADJUSTMENTS\"]}])}" "$WORK/last.json" >"$WORK/year-tasks.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @year-tasks.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the year tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.year_tasks["))] | length')" 2
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The year-end checklist, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  local close tag carla
+  carla=$(awk -F'\t' '$2 == "Carla Controller" { print $1 }' "$WORK/names")
+  say "Carla opens the year close of $PREV: its checklist is the year tasks, copied with their due dates; it covers"
+  say "every ledger the company keeps, each with its periods of $PREV and their status now."
+  api 201 '"year close of \(.company_code) \(.fiscal_year), ending \(.year_end): \(.status), template of configuration version \(.config_version)",
+    (.ledgers[] | "  covers \(.ledger_code) \(.ledger_name): \([.periods[] | "\(.period)\(if .is_special then "*" else "" end) \(.status)"] | join(", "))"),
+    (.tasks[] | "  \(.code), due \(.due_on): \(.name)\(if .blocked_by == [] then "" else " (after " + (.blocked_by | join(", ")) + ")" end)")' \
+    createYearClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  close=$(field .id)
+  tag=$ETAG
+  printf '%s\tyear close of %s\n' "$close" "$PREV" >>"$WORK/names"
+  expect "the year close's tasks" "$(field '[.tasks[].code] | join(" ")')" "AUDIT_ADJUSTMENTS EQUITY_REVIEW"
+  expect "its ledgers, the leading one first" "$(field '[.ledgers[].ledger_code] | join(" ")')" "0L 2L"
+  expect "the year's end" "$(field .year_end)" "$PREV-12-31"
+  expect "each ledger's periods of $PREV" "$(field '[.ledgers[] | .periods | length] | join(" ")')" "16 16"
+  say "The equity review waits for the auditors' adjustments: completing it first is refused."
+  refused 409 closing.task_blocked completeYearCloseTask -p "id=$close" -p code=EQUITY_REVIEW -if-match "$tag" -body '{}'
+  say "Carla takes the auditors' adjustments task herself and completes it: both adjustments are in period 13."
+  api 200 '"  \(.code) assigned to \(.assignee_name); the close is now at version \(.close_version)"' \
+    updateYearCloseTask -p "id=$close" -p code=AUDIT_ADJUSTMENTS -if-match "$tag" -body "{\"assignee_id\": \"$carla\"}"
+  tag=$ETAG
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.note)"' completeYearCloseTask -p "id=$close" -p code=AUDIT_ADJUSTMENTS \
+    -if-match "$tag" -body '{"note": "The audit adjustment and the late audit fees posted into period 13"}'
+  expect "the auditors' adjustments task" "$(field '"\(.status) \(.assignee_name)"')" "done Carla Controller"
+  api 200 '"\(.company_code) \(.fiscal_year): \(.tasks_done) of \(.tasks_total) tasks done", (.tasks[] | "  \(.code) \(.status)\(if .blocked_by == [] then "" else " (after " + (.blocked_by | join(", ")) + ")" end)")' \
+    getYearClose -p "id=$close"
+  expect "the equity review, no longer blocked" "$(field '.tasks[] | select(.code == "EQUITY_REVIEW") | "\(.status) \(.blocked_by | length)"')" "open 0"
+  say "A second year close of $PREV is refused, and names the first:"
+  refused 409 closing.year_close_exists createYearClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  api 200 '.items[] | "  \(.company_code) \(.fiscal_year): \(.status), \(.tasks_done) of \(.tasks_total) done"' listYearCloses -p "legal_entity_id=$LE"
+  expect "$PREV's year closes" "$(field '[.items[] | select(.fiscal_year == '"$PREV"') | .id] | join(" ")')" "$close"
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change

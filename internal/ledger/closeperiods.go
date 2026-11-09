@@ -89,6 +89,61 @@ func (ClosePeriods) Of(ctx context.Context, legalEntity uuid.UUID, fiscalYear, p
 	return kept, nil
 }
 
+// KeptYear is a ledger a legal entity keeps and its posting periods of a
+// fiscal year, regular and special, by period (none: the year is not set
+// up in it), as a year close reads them (ADR-0060 §2, §8: the periods of a
+// company and year per ledger it keeps).
+type KeptYear struct {
+	LedgerID   uuid.UUID
+	LedgerCode string
+	LedgerName string
+	IsLeading  bool
+	Periods    []Period
+}
+
+// OfYear returns the ledgers the legal entity keeps, the leading one
+// first, then by code, each with its posting periods of the fiscal year:
+// none for a legal entity the caller may not act in.
+func (ClosePeriods) OfYear(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]KeptYear, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.id, l.code, l.name, c.is_leading, p.id, p.period, p.start_date, p.end_date, p.is_special, p.status, p.version
+		FROM ledger.company_ledger c JOIN ledger.ledger l ON l.tenant_id = c.tenant_id AND l.id = c.ledger_id
+		LEFT JOIN (`+periodSelect+`) p ON p.legal_entity_id = c.legal_entity_id AND p.ledger_id = c.ledger_id AND p.fiscal_year = $4
+		WHERE ($1 OR c.legal_entity_id = ANY($2)) AND c.legal_entity_id = $3
+		ORDER BY NOT c.is_leading, l.code, p.period`, access.All, access.IDs, legalEntity, fiscalYear)
+	var out []KeptYear
+	var k KeptYear
+	var id *uuid.UUID
+	var period *int16
+	var version *int32
+	var start, end *time.Time
+	var special *bool
+	var status *string
+	_, err = pgx.ForEachRow(rows, []any{&k.LedgerID, &k.LedgerCode, &k.LedgerName, &k.IsLeading, &id, &period, &start, &end, &special, &status, &version},
+		func() error {
+			if len(out) == 0 || out[len(out)-1].LedgerID != k.LedgerID {
+				out = append(out, KeptYear{LedgerID: k.LedgerID, LedgerCode: k.LedgerCode, LedgerName: k.LedgerName, IsLeading: k.IsLeading})
+			}
+			if id != nil {
+				last := &out[len(out)-1]
+				last.Periods = append(last.Periods, Period{ID: *id, LegalEntityID: legalEntity, LedgerID: k.LedgerID, FiscalYear: fiscalYear,
+					Period: *period, StartDate: *start, EndDate: *end, IsSpecial: *special, Status: *status, Version: *version})
+			}
+			return nil
+		})
+	if err != nil {
+		return nil, fmt.Errorf("ledger: periods of %s in fiscal year %d, by ledger: %w", legalEntity, fiscalYear, err)
+	}
+	return out, nil
+}
+
 // Lock locks a closed period as lockFiscalPeriod does, audited and
 // published as that is, for a close's sign-off (ADR-0058 §7): version is
 // the one the sign-off read the period at, so a period changed since (an
