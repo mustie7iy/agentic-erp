@@ -181,6 +181,10 @@ type CreateConnectorRes interface {
 	createConnectorRes()
 }
 
+type CreateConsolidationRunRes interface {
+	createConsolidationRunRes()
+}
+
 type CreateContractRes interface {
 	createContractRes()
 }
@@ -313,6 +317,10 @@ type DisableConnectorRes interface {
 	disableConnectorRes()
 }
 
+type DiscardConsolidationRunRes interface {
+	discardConsolidationRunRes()
+}
+
 type EnableConnectorRes interface {
 	enableConnectorRes()
 }
@@ -401,6 +409,10 @@ type GetAssetTransferRes interface {
 	getAssetTransferRes()
 }
 
+type GetBalanceCarryForwardRes interface {
+	getBalanceCarryForwardRes()
+}
+
 type GetBankAccountRes interface {
 	getBankAccountRes()
 }
@@ -475,6 +487,14 @@ type GetConfigVersionRes interface {
 
 type GetConnectorRes interface {
 	getConnectorRes()
+}
+
+type GetConsolidationGroupRes interface {
+	getConsolidationGroupRes()
+}
+
+type GetConsolidationRunRes interface {
+	getConsolidationRunRes()
 }
 
 type GetContractRes interface {
@@ -825,6 +845,18 @@ type ListConnectorsRes interface {
 	listConnectorsRes()
 }
 
+type ListConsolidationBalancesRes interface {
+	listConsolidationBalancesRes()
+}
+
+type ListConsolidationGroupsRes interface {
+	listConsolidationGroupsRes()
+}
+
+type ListConsolidationRunsRes interface {
+	listConsolidationRunsRes()
+}
+
 type ListContractsRes interface {
 	listContractsRes()
 }
@@ -887,6 +919,10 @@ type ListGrIrBalancesRes interface {
 
 type ListGrIrClearingsRes interface {
 	listGrIrClearingsRes()
+}
+
+type ListGroupAccountsRes interface {
+	listGroupAccountsRes()
 }
 
 type ListHierarchiesRes interface {
@@ -1351,6 +1387,10 @@ type RotateWebhookSubscriptionSecretRes interface {
 
 type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
+}
+
+type RunBalanceCarryForwardRes interface {
+	runBalanceCarryForwardRes()
 }
 
 type SignOffPeriodCloseRes interface {

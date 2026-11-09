@@ -1077,6 +1077,68 @@ reconciles only by job.
   migrated with codes prefixed per area if they collide (a quality-gate
   report, decided by the migration lead).
 
+As built in T56h1 (no migration; T56h is split into T56h1-T56h4 in the
+tracker: hierarchies and categories T56h2, OKB9 defaults T56h3, ACDOCA's
+centers and the reconciliation of center totals T56h4):
+- **Extract**: `internal/sap` carries CSKS, CSKT, CEPC, CEPCT, CEPC_BUKRS,
+  FAGL_SEGM and FAGL_SEGMT with the fields of the list above, plus those
+  the load needs that the list lacks (CSKT's and CEPCT's keys, CEPC's
+  KOKRS and person responsible VERAK, CEPC_BUKRS's, FAGL_SEGMT's), all
+  pending the SAP specialist (docs/migration.md). A scope keeps its
+  company codes' cost centers, the profit centers assigned to them with
+  all their assignments, the segments those name and their texts. The
+  OData mapping reads none of them yet (the read APIs' names are not
+  recorded). The mock's company 3000 has a segment, two profit centers
+  (one locked from 1 October) and four cost centers (one moving profit
+  center on 1 July, one locked for actual revenues).
+- **Through the services, the run their approval** (decided by default:
+  §10 says "approved by the migration run's approval, not one by one", and
+  migration runs have no approval of their own; partner.Migration
+  settled the same for suppliers: the run, started by a person with
+  `integration.migration.run` and reconciled, is the governed act):
+  `ledger.CenterMigration` creates each center active at once and records
+  its creation as a `center_change` inserted `applied`, without a workflow
+  request, its reason naming the run and SAP's key, its payload the periods
+  (and a profit center's companies) it created; a later run's assignment
+  of a loaded profit center to more companies is an applied `assign`
+  change the same way. The checks are those of an approved create: an
+  active category (read for share), a profit center active, assigned to
+  the company and valid over each period, a place at the standard
+  hierarchy's UNASSIGNED leaf (created with the hierarchy when missing).
+  The audit and the `CostCenterChanged`/`ProfitCenterChanged`/
+  `SegmentChanged` events are the API's.
+- **Periods from slices** (decided by default: §3 keeps centers'
+  attributes time-dependent as SAP's slices): each slice is a period
+  (valid_to the day after DATBI, 99991231 open-ended), slices saying the
+  same of what the platform keeps joined; the slices must adjoin. A
+  migrated cost center's locks are SAP's (BKZKP, BKZER, PKZKP), not its
+  category's defaults for a new one. A profit center has one segment (§3),
+  so slices naming different segments are refused (a reorganisation).
+- **Texts** (decided by default: the platform has no tenant language, so
+  "the tenant's language, English otherwise" is English): a center's name
+  and description are its English text of its latest slice, else another
+  language's with a warning; the person responsible is VERAK of the latest
+  slice, which the platform requires (a center without one is refused).
+- **Categories**: KOSAR is the platform category's code, which the
+  configuration must have (the gate names the category to add); no
+  mapping table, as none is decided.
+- **Controlling areas**: a profit center code in two areas is refused by
+  the gate; prefixing per area (above) is not built.
+- **Re-runs**: what an earlier run loaded is kept; a change SAP made since
+  is a difference in the reconciliation, which compares each company's
+  cost and profit centers (count and periods) where either side has any.
+  Assigning a loaded profit center is refused while an API change of it is
+  pending (`ledger.center_change_pending`), which would otherwise become
+  unapprovable. Creating a center locks its standard hierarchy and the API
+  locks a center before its hierarchy, so the load first locks every
+  loaded profit center it assigns or names, in id order (review:T56h1).
+- **Scope**: a cost center with a slice in a scope company comes with all
+  its slices, so one in two company codes is refused rather than loaded
+  truncated.
+- **Hierarchy**: until T56h2 loads SAP's sets, migrated centers sit at the
+  standard hierarchy's UNASSIGNED leaf, so the walkthrough's step 12 builds
+  its structure in that standard hierarchy instead of creating one.
+
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not
 the configuration document: they change monthly in a living business,
@@ -1257,7 +1319,7 @@ coverage 100%, reviewer). Lane F (ledger), after T52 for T56d.
 | T56e2 | **Capture agent proposals** (split from T56e: capture enters only order items today, which take their order item's center, so proposals need captured items without an order first) | The capture agent proposes a cost center per item without an order from the supplier's posted history and the document text, confirmed by a clerk or the default; ADR-0039 eval cases (documents and expected proposals) in `evals/capture` |
 | T56f | **Actual reports** (built, see §7 as built) | `ledger.assignment_balance` maintained by the projector (exactly once, run-twice test); `GET /v1/cost-center-balances`, `/v1/profit-center-balances` (by center, node, segment, account, period; exact at the read); schema test that assignment balances add up to `period_balance` on P&L accounts; drill-down via journal filters |
 | T56g | **Plan and plan/actual** (P5) | `controlling` context and schema; plan categories with a human-only lock; plan lines by upload and API, idempotent by batch; `GET /v1/cost-center-plan-actual`; actuals through `ledger.AssignmentBalances` |
-| T56h | **SAP migration** | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |
+| T56h | **SAP migration** (split: T56h1 centers and segments, built, see §10 as built; T56h2 hierarchies and categories; T56h3 OKB9 defaults; T56h4 ACDOCA's centers and center totals) | Extract and load of CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), CSKB categories, OKB9 defaults, sets 0101/0106 with ranges expanded; ACDOCA RCNTR/PRCTR/SEGMENT; quality-gate issues (center outside the standard hierarchy, range matching nothing, unknown profit center); mock generator extended; reconciliation of migrated center totals |
 | T56i | **Analytics** | Dataset contract change (journal columns, center and hierarchy snapshots); semantic dimensions and plan metrics; isolation tests unchanged and passing |
 | T56j | **Controlling agent** | Proposes assignments and repostings (parked), new centers as change requests, explains plan/actual variances; evaluation suite; never approves or locks |
 | T56k | **Cost object custom fields** | ADR-0046's `cost_object` reference type, checked on write; the compiler's refusal lifted; ADR-0046 amended |

@@ -9606,6 +9606,467 @@ func (s *Balance) SetUpdatedAt(val time.Time) {
 	s.UpdatedAt = val
 }
 
+// A balance carry-forward run of a company and ledger from one fiscal year into the next (ADR-0060
+// §5): its rows are the opening balances of the next year. Fixed once run, except that a later run of
+// the same year supersedes it.
+// Ref: #/components/schemas/BalanceCarryForward
+type BalanceCarryForward struct {
+	// Run id.
+	ID uuid.UUID `json:"id"`
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name.
+	LedgerName string `json:"ledger_name"`
+	// The fiscal year carried forward.
+	FromFiscalYear int32 `json:"from_fiscal_year"`
+	// The fiscal year whose opening balances the run holds.
+	ToFiscalYear int32 `json:"to_fiscal_year"`
+	// Chained: the previous year's current run plus the year's balances; all_years: every year's balances,
+	// there being no current run of the previous year.
+	Basis string `json:"basis"`
+	// The previous year's run it was chained from; absent for all_years.
+	ChainedFromID OptUUID `json:"chained_from_id"`
+	// The retained earnings account the year's result was carried to.
+	RetainedEarningsAccount CarryForwardAccount `json:"retained_earnings_account"`
+	// Current, or superseded by a later run of the same year (`superseded_by_id`).
+	Status string `json:"status"`
+	// The run that superseded it; absent while current.
+	SupersededByID OptUUID `json:"superseded_by_id"`
+	// When it was superseded; absent while current.
+	SupersededAt OptDateTime `json:"superseded_at"`
+	// Its rows: balance rows per account and currency, and a result row per currency.
+	RowCount int32 `json:"row_count"`
+	// The company's local currency, of every row's local amount.
+	LocalCurrency string `json:"local_currency"`
+	// The group currency, of every row's group amount.
+	GroupCurrency string `json:"group_currency"`
+	// The year's result over every transaction currency in local currency, debit positive: a profit is
+	// negative.
+	ResultLc Money `json:"result_lc"`
+	// The year's result over every transaction currency in group currency.
+	ResultGc Money `json:"result_gc"`
+	// Debit total of every row in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total of every row in local currency (positive); equal to the debits.
+	CreditLc Money `json:"credit_lc"`
+	// Debit total of every row in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total of every row in group currency (positive); equal to the debits.
+	CreditGc Money `json:"credit_gc"`
+	// Per transaction currency, by currency code: the year's result carried to retained earnings and the
+	// totals of the run's rows.
+	Totals []CarryForwardTotal `json:"totals"`
+	// When it was run.
+	CreatedAt time.Time `json:"created_at"`
+	// Who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Their name.
+	CreatedByName string `json:"created_by_name"`
+}
+
+// GetID returns the value of ID.
+func (s *BalanceCarryForward) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BalanceCarryForward) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *BalanceCarryForward) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *BalanceCarryForward) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *BalanceCarryForward) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *BalanceCarryForward) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *BalanceCarryForward) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetFromFiscalYear returns the value of FromFiscalYear.
+func (s *BalanceCarryForward) GetFromFiscalYear() int32 {
+	return s.FromFiscalYear
+}
+
+// GetToFiscalYear returns the value of ToFiscalYear.
+func (s *BalanceCarryForward) GetToFiscalYear() int32 {
+	return s.ToFiscalYear
+}
+
+// GetBasis returns the value of Basis.
+func (s *BalanceCarryForward) GetBasis() string {
+	return s.Basis
+}
+
+// GetChainedFromID returns the value of ChainedFromID.
+func (s *BalanceCarryForward) GetChainedFromID() OptUUID {
+	return s.ChainedFromID
+}
+
+// GetRetainedEarningsAccount returns the value of RetainedEarningsAccount.
+func (s *BalanceCarryForward) GetRetainedEarningsAccount() CarryForwardAccount {
+	return s.RetainedEarningsAccount
+}
+
+// GetStatus returns the value of Status.
+func (s *BalanceCarryForward) GetStatus() string {
+	return s.Status
+}
+
+// GetSupersededByID returns the value of SupersededByID.
+func (s *BalanceCarryForward) GetSupersededByID() OptUUID {
+	return s.SupersededByID
+}
+
+// GetSupersededAt returns the value of SupersededAt.
+func (s *BalanceCarryForward) GetSupersededAt() OptDateTime {
+	return s.SupersededAt
+}
+
+// GetRowCount returns the value of RowCount.
+func (s *BalanceCarryForward) GetRowCount() int32 {
+	return s.RowCount
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *BalanceCarryForward) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *BalanceCarryForward) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetResultLc returns the value of ResultLc.
+func (s *BalanceCarryForward) GetResultLc() Money {
+	return s.ResultLc
+}
+
+// GetResultGc returns the value of ResultGc.
+func (s *BalanceCarryForward) GetResultGc() Money {
+	return s.ResultGc
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *BalanceCarryForward) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *BalanceCarryForward) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *BalanceCarryForward) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *BalanceCarryForward) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// GetTotals returns the value of Totals.
+func (s *BalanceCarryForward) GetTotals() []CarryForwardTotal {
+	return s.Totals
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *BalanceCarryForward) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *BalanceCarryForward) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetCreatedByName returns the value of CreatedByName.
+func (s *BalanceCarryForward) GetCreatedByName() string {
+	return s.CreatedByName
+}
+
+// SetID sets the value of ID.
+func (s *BalanceCarryForward) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BalanceCarryForward) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *BalanceCarryForward) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *BalanceCarryForward) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *BalanceCarryForward) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *BalanceCarryForward) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *BalanceCarryForward) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetFromFiscalYear sets the value of FromFiscalYear.
+func (s *BalanceCarryForward) SetFromFiscalYear(val int32) {
+	s.FromFiscalYear = val
+}
+
+// SetToFiscalYear sets the value of ToFiscalYear.
+func (s *BalanceCarryForward) SetToFiscalYear(val int32) {
+	s.ToFiscalYear = val
+}
+
+// SetBasis sets the value of Basis.
+func (s *BalanceCarryForward) SetBasis(val string) {
+	s.Basis = val
+}
+
+// SetChainedFromID sets the value of ChainedFromID.
+func (s *BalanceCarryForward) SetChainedFromID(val OptUUID) {
+	s.ChainedFromID = val
+}
+
+// SetRetainedEarningsAccount sets the value of RetainedEarningsAccount.
+func (s *BalanceCarryForward) SetRetainedEarningsAccount(val CarryForwardAccount) {
+	s.RetainedEarningsAccount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *BalanceCarryForward) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetSupersededByID sets the value of SupersededByID.
+func (s *BalanceCarryForward) SetSupersededByID(val OptUUID) {
+	s.SupersededByID = val
+}
+
+// SetSupersededAt sets the value of SupersededAt.
+func (s *BalanceCarryForward) SetSupersededAt(val OptDateTime) {
+	s.SupersededAt = val
+}
+
+// SetRowCount sets the value of RowCount.
+func (s *BalanceCarryForward) SetRowCount(val int32) {
+	s.RowCount = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *BalanceCarryForward) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *BalanceCarryForward) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetResultLc sets the value of ResultLc.
+func (s *BalanceCarryForward) SetResultLc(val Money) {
+	s.ResultLc = val
+}
+
+// SetResultGc sets the value of ResultGc.
+func (s *BalanceCarryForward) SetResultGc(val Money) {
+	s.ResultGc = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *BalanceCarryForward) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *BalanceCarryForward) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *BalanceCarryForward) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *BalanceCarryForward) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *BalanceCarryForward) SetTotals(val []CarryForwardTotal) {
+	s.Totals = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *BalanceCarryForward) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *BalanceCarryForward) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetCreatedByName sets the value of CreatedByName.
+func (s *BalanceCarryForward) SetCreatedByName(val string) {
+	s.CreatedByName = val
+}
+
+// BalanceCarryForwardHeaders wraps BalanceCarryForward with response headers.
+type BalanceCarryForwardHeaders struct {
+	ETag     OptString
+	Response BalanceCarryForward
+}
+
+// GetETag returns the value of ETag.
+func (s *BalanceCarryForwardHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *BalanceCarryForwardHeaders) GetResponse() BalanceCarryForward {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *BalanceCarryForwardHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BalanceCarryForwardHeaders) SetResponse(val BalanceCarryForward) {
+	s.Response = val
+}
+
+func (*BalanceCarryForwardHeaders) getBalanceCarryForwardRes() {}
+
+// Parameters of a balance carry-forward.
+// Ref: #/components/schemas/BalanceCarryForwardRequest
+type BalanceCarryForwardRequest struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year carried forward, into the next one.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The ledgers to carry forward, each one the company keeps (422 `ledger.ledger_not_kept`); default
+	// every ledger it keeps.
+	LedgerIds []uuid.UUID `json:"ledger_ids"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *BalanceCarryForwardRequest) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *BalanceCarryForwardRequest) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetLedgerIds returns the value of LedgerIds.
+func (s *BalanceCarryForwardRequest) GetLedgerIds() []uuid.UUID {
+	return s.LedgerIds
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *BalanceCarryForwardRequest) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *BalanceCarryForwardRequest) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetLedgerIds sets the value of LedgerIds.
+func (s *BalanceCarryForwardRequest) SetLedgerIds(val []uuid.UUID) {
+	s.LedgerIds = val
+}
+
+// The runs of a balance carry-forward, one per ledger.
+// Ref: #/components/schemas/BalanceCarryForwardRuns
+type BalanceCarryForwardRuns struct {
+	// The runs, the leading ledger's first, then by ledger code.
+	Items []BalanceCarryForward `json:"items"`
+}
+
+// GetItems returns the value of Items.
+func (s *BalanceCarryForwardRuns) GetItems() []BalanceCarryForward {
+	return s.Items
+}
+
+// SetItems sets the value of Items.
+func (s *BalanceCarryForwardRuns) SetItems(val []BalanceCarryForward) {
+	s.Items = val
+}
+
+// BalanceCarryForwardRunsHeaders wraps BalanceCarryForwardRuns with response headers.
+type BalanceCarryForwardRunsHeaders struct {
+	IdempotentReplayed OptBool
+	Response           BalanceCarryForwardRuns
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *BalanceCarryForwardRunsHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *BalanceCarryForwardRunsHeaders) GetResponse() BalanceCarryForwardRuns {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *BalanceCarryForwardRunsHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *BalanceCarryForwardRunsHeaders) SetResponse(val BalanceCarryForwardRuns) {
+	s.Response = val
+}
+
+func (*BalanceCarryForwardRunsHeaders) runBalanceCarryForwardRes() {}
+
 // One page of balances.
 // Ref: #/components/schemas/BalancePage
 type BalancePage struct {
@@ -12217,6 +12678,13 @@ type BusinessPartner struct {
 	TaxIdentifiers []TaxIdentifier `json:"tax_identifiers"`
 	// Custom fields.
 	Extensions Extensions `json:"extensions"`
+	// The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059
+	// §4): the trading partner the ledger gives the lines that name the partner from then on. Absent:
+	// none.
+	GroupCompanyID OptUUID `json:"group_company_id"`
+	// `group_company_id` by its company code and its name as they are now, both only to a caller who may
+	// act in that company (the id alone otherwise); absent with it.
+	GroupCompany OptGroupCompany `json:"group_company"`
 }
 
 // GetID returns the value of ID.
@@ -12309,6 +12777,16 @@ func (s *BusinessPartner) GetExtensions() Extensions {
 	return s.Extensions
 }
 
+// GetGroupCompanyID returns the value of GroupCompanyID.
+func (s *BusinessPartner) GetGroupCompanyID() OptUUID {
+	return s.GroupCompanyID
+}
+
+// GetGroupCompany returns the value of GroupCompany.
+func (s *BusinessPartner) GetGroupCompany() OptGroupCompany {
+	return s.GroupCompany
+}
+
 // SetID sets the value of ID.
 func (s *BusinessPartner) SetID(val uuid.UUID) {
 	s.ID = val
@@ -12399,6 +12877,16 @@ func (s *BusinessPartner) SetExtensions(val Extensions) {
 	s.Extensions = val
 }
 
+// SetGroupCompanyID sets the value of GroupCompanyID.
+func (s *BusinessPartner) SetGroupCompanyID(val OptUUID) {
+	s.GroupCompanyID = val
+}
+
+// SetGroupCompany sets the value of GroupCompany.
+func (s *BusinessPartner) SetGroupCompany(val OptGroupCompany) {
+	s.GroupCompany = val
+}
+
 // Changes to business partner master data (merge-patch semantics), applied when the partner change is
 // approved. Bank details change through `POST /v1/business-partners/{id}/bank-accounts`.
 // Ref: #/components/schemas/BusinessPartnerChanges
@@ -12419,6 +12907,10 @@ type BusinessPartnerChanges struct {
 	TaxIdentifiers []TaxIdentifierInput `json:"tax_identifiers"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
+	// The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059
+	// §4; 422 `partner.group_company_unknown` for one that is not). Send null to unlink. Applies to
+	// postings from approval on; posted lines keep their trading partner.
+	GroupCompanyID OptNilUUID `json:"group_company_id"`
 }
 
 // GetName returns the value of Name.
@@ -12461,6 +12953,11 @@ func (s *BusinessPartnerChanges) GetExtensions() OptExtensions {
 	return s.Extensions
 }
 
+// GetGroupCompanyID returns the value of GroupCompanyID.
+func (s *BusinessPartnerChanges) GetGroupCompanyID() OptNilUUID {
+	return s.GroupCompanyID
+}
+
 // SetName sets the value of Name.
 func (s *BusinessPartnerChanges) SetName(val OptString) {
 	s.Name = val
@@ -12501,6 +12998,11 @@ func (s *BusinessPartnerChanges) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// SetGroupCompanyID sets the value of GroupCompanyID.
+func (s *BusinessPartnerChanges) SetGroupCompanyID(val OptNilUUID) {
+	s.GroupCompanyID = val
+}
+
 // Request a new business partner. Duplicate tax identifiers or bank accounts are reported as warnings
 // on the partner change.
 // Ref: #/components/schemas/BusinessPartnerCreate
@@ -12528,6 +13030,11 @@ type BusinessPartnerCreate struct {
 	BankAccounts []BankAccountInput `json:"bank_accounts"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
+	// The legal entity of the tenant this partner is, when it is one of the group's companies (ADR-0059
+	// §4); any legal entity of the tenant, whatever the caller's access to it (422
+	// `partner.group_company_unknown` otherwise). The ledger derives the trading partner of the lines
+	// naming the partner from it.
+	GroupCompanyID OptUUID `json:"group_company_id"`
 	// Why the partner is needed; recorded on the partner change.
 	Reason string `json:"reason"`
 }
@@ -12585,6 +13092,11 @@ func (s *BusinessPartnerCreate) GetBankAccounts() []BankAccountInput {
 // GetExtensions returns the value of Extensions.
 func (s *BusinessPartnerCreate) GetExtensions() OptExtensions {
 	return s.Extensions
+}
+
+// GetGroupCompanyID returns the value of GroupCompanyID.
+func (s *BusinessPartnerCreate) GetGroupCompanyID() OptUUID {
+	return s.GroupCompanyID
 }
 
 // GetReason returns the value of Reason.
@@ -12645,6 +13157,11 @@ func (s *BusinessPartnerCreate) SetBankAccounts(val []BankAccountInput) {
 // SetExtensions sets the value of Extensions.
 func (s *BusinessPartnerCreate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
+}
+
+// SetGroupCompanyID sets the value of GroupCompanyID.
+func (s *BusinessPartnerCreate) SetGroupCompanyID(val OptUUID) {
+	s.GroupCompanyID = val
 }
 
 // SetReason sets the value of Reason.
@@ -13211,6 +13728,174 @@ func (*CaptureSupplierInvoicePreconditionRequired) captureSupplierInvoiceRes() {
 type CaptureSupplierInvoiceUnprocessableEntity Problem
 
 func (*CaptureSupplierInvoiceUnprocessableEntity) captureSupplierInvoiceRes() {}
+
+// An account a carry-forward names.
+// Ref: #/components/schemas/CarryForwardAccount
+type CarryForwardAccount struct {
+	// Account.
+	ID uuid.UUID `json:"id"`
+	// Its number.
+	Number string `json:"number"`
+	// Its name.
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *CarryForwardAccount) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *CarryForwardAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *CarryForwardAccount) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *CarryForwardAccount) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *CarryForwardAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *CarryForwardAccount) SetName(val string) {
+	s.Name = val
+}
+
+// A carry-forward run's figures in one transaction currency: the year's result carried to retained
+// earnings (debit positive, so a profit is negative) and the debit and credit totals of its rows,
+// which are equal.
+// Ref: #/components/schemas/CarryForwardTotal
+type CarryForwardTotal struct {
+	// The transaction currency.
+	Currency string `json:"currency"`
+	// The year's result in transaction currency, debit positive: a profit is negative; zero when none.
+	Result Money `json:"result"`
+	// The result in local currency.
+	ResultLc Money `json:"result_lc"`
+	// The result in group currency.
+	ResultGc Money `json:"result_gc"`
+	// Debit total of the rows in transaction currency.
+	Debit Money `json:"debit"`
+	// Credit total of the rows in transaction currency (positive).
+	Credit Money `json:"credit"`
+	// Debit total in local currency.
+	DebitLc Money `json:"debit_lc"`
+	// Credit total in local currency (positive).
+	CreditLc Money `json:"credit_lc"`
+	// Debit total in group currency.
+	DebitGc Money `json:"debit_gc"`
+	// Credit total in group currency (positive).
+	CreditGc Money `json:"credit_gc"`
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CarryForwardTotal) GetCurrency() string {
+	return s.Currency
+}
+
+// GetResult returns the value of Result.
+func (s *CarryForwardTotal) GetResult() Money {
+	return s.Result
+}
+
+// GetResultLc returns the value of ResultLc.
+func (s *CarryForwardTotal) GetResultLc() Money {
+	return s.ResultLc
+}
+
+// GetResultGc returns the value of ResultGc.
+func (s *CarryForwardTotal) GetResultGc() Money {
+	return s.ResultGc
+}
+
+// GetDebit returns the value of Debit.
+func (s *CarryForwardTotal) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *CarryForwardTotal) GetCredit() Money {
+	return s.Credit
+}
+
+// GetDebitLc returns the value of DebitLc.
+func (s *CarryForwardTotal) GetDebitLc() Money {
+	return s.DebitLc
+}
+
+// GetCreditLc returns the value of CreditLc.
+func (s *CarryForwardTotal) GetCreditLc() Money {
+	return s.CreditLc
+}
+
+// GetDebitGc returns the value of DebitGc.
+func (s *CarryForwardTotal) GetDebitGc() Money {
+	return s.DebitGc
+}
+
+// GetCreditGc returns the value of CreditGc.
+func (s *CarryForwardTotal) GetCreditGc() Money {
+	return s.CreditGc
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CarryForwardTotal) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetResult sets the value of Result.
+func (s *CarryForwardTotal) SetResult(val Money) {
+	s.Result = val
+}
+
+// SetResultLc sets the value of ResultLc.
+func (s *CarryForwardTotal) SetResultLc(val Money) {
+	s.ResultLc = val
+}
+
+// SetResultGc sets the value of ResultGc.
+func (s *CarryForwardTotal) SetResultGc(val Money) {
+	s.ResultGc = val
+}
+
+// SetDebit sets the value of Debit.
+func (s *CarryForwardTotal) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *CarryForwardTotal) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetDebitLc sets the value of DebitLc.
+func (s *CarryForwardTotal) SetDebitLc(val Money) {
+	s.DebitLc = val
+}
+
+// SetCreditLc sets the value of CreditLc.
+func (s *CarryForwardTotal) SetCreditLc(val Money) {
+	s.CreditLc = val
+}
+
+// SetDebitGc sets the value of DebitGc.
+func (s *CarryForwardTotal) SetDebitGc(val Money) {
+	s.DebitGc = val
+}
+
+// SetCreditGc sets the value of CreditGc.
+func (s *CarryForwardTotal) SetCreditGc(val Money) {
+	s.CreditGc = val
+}
 
 // A bank statement line as the cash actuals classify it (ADR-0051 §4, §11): its value date, house
 // bank, amount and shares by liquidity item, what classified it, and, for a caller who may read them
@@ -15961,7 +16646,7 @@ type CenterChange struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
-	// Approval request (workflow context).
+	// Approval request (workflow context); absent for a change a migration run applied (ADR-0050 §10).
 	WorkflowRequestID OptUUID `json:"workflow_request_id"`
 	// Principal that requested the change.
 	RequestedBy uuid.UUID `json:"requested_by"`
@@ -18027,8 +18712,8 @@ type CloseCheckResult struct {
 	// What it found, in one sentence.
 	Summary string `json:"summary"`
 	// `no_parked_entries`: how many parked entries of the company dated in the period (posting date from
-	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`; absent for
-	// another check.
+	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out
+	// those parked for a special period (ADR-0060 §3); absent for another check.
 	ParkedEntriesCount OptInt32 `json:"parked_entries_count"`
 	// `no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many
 	// there are); absent for another check.
@@ -19742,6 +20427,7 @@ func (*ConflictHeaders) createChangeRequestRes()                   {}
 func (*ConflictHeaders) createClearingRes()                        {}
 func (*ConflictHeaders) createCompanyAccessRes()                   {}
 func (*ConflictHeaders) createConnectorRes()                       {}
+func (*ConflictHeaders) createConsolidationRunRes()                {}
 func (*ConflictHeaders) createContractRes()                        {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
@@ -19774,6 +20460,7 @@ func (*ConflictHeaders) createWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) decideRecommendationRes()                  {}
 func (*ConflictHeaders) deleteWebhookSubscriptionRes()             {}
 func (*ConflictHeaders) disableConnectorRes()                      {}
+func (*ConflictHeaders) discardConsolidationRunRes()               {}
 func (*ConflictHeaders) enableConnectorRes()                       {}
 func (*ConflictHeaders) endAgentSessionRes()                       {}
 func (*ConflictHeaders) endCompanyAccessRes()                      {}
@@ -19786,6 +20473,8 @@ func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
+func (*ConflictHeaders) getConsolidationGroupRes()                 {}
+func (*ConflictHeaders) getConsolidationRunRes()                   {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
 func (*ConflictHeaders) getLiquidityForecastVarianceRes()          {}
 func (*ConflictHeaders) getPeriodCloseRes()                        {}
@@ -19797,7 +20486,11 @@ func (*ConflictHeaders) holdSupplierInvoiceRes()                   {}
 func (*ConflictHeaders) importBankStatementsRes()                  {}
 func (*ConflictHeaders) listAccrualProposalsRes()                  {}
 func (*ConflictHeaders) listCloseTasksRes()                        {}
+func (*ConflictHeaders) listConsolidationBalancesRes()             {}
+func (*ConflictHeaders) listConsolidationGroupsRes()               {}
+func (*ConflictHeaders) listConsolidationRunsRes()                 {}
 func (*ConflictHeaders) listForecastVarianceDocumentsRes()         {}
+func (*ConflictHeaders) listGroupAccountsRes()                     {}
 func (*ConflictHeaders) listPeriodCloseVariancesRes()              {}
 func (*ConflictHeaders) listPeriodClosesRes()                      {}
 func (*ConflictHeaders) listTaxPeriodsRes()                        {}
@@ -19869,6 +20562,7 @@ func (*ConflictHeaders) reverseJournalEntryRes()                   {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
+func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) simulateChangeRequestRes()                 {}
 func (*ConflictHeaders) startAgentSessionRes()                     {}
@@ -20346,6 +21040,1034 @@ func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
 		*s = m
 	}
 	return m
+}
+
+// A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a
+// trading partner or none (`balance`), a company's results of earlier fiscal years (`prior_results`),
+// or its translation difference (`cta`). Amounts are debit positive.
+// Ref: #/components/schemas/ConsolidationBalance
+type ConsolidationBalance struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// The row's number within its company.
+	LineNo int32 `json:"line_no"`
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind         string          `json:"kind"`
+	GroupAccount GroupAccountRef `json:"group_account"`
+	// A `balance` row's company account.
+	AccountID      OptUUID            `json:"account_id"`
+	Account        OptAssetAccountRef `json:"account"`
+	TradingPartner OptTradingPartner  `json:"trading_partner"`
+	// The local amount, in the company's local currency; absent on a `cta` row.
+	AmountLc OptMoney `json:"amount_lc"`
+	// The group amount as booked, each line at its posting date's rate; absent on a `cta` row.
+	AmountGcBooked OptMoney `json:"amount_gc_booked"`
+	// The translated group amount: the local amount at the closing rate for asset and liability accounts,
+	// rounded once half away from zero; the booked group amount otherwise; the translation difference on a
+	// `cta` row.
+	AmountGc Money `json:"amount_gc"`
+	// The closing rate the row was translated at, where one applied (asset and liability accounts).
+	ClosingRate OptString `json:"closing_rate"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationBalance) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationBalance) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationBalance) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *ConsolidationBalance) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetKind returns the value of Kind.
+func (s *ConsolidationBalance) GetKind() string {
+	return s.Kind
+}
+
+// GetGroupAccount returns the value of GroupAccount.
+func (s *ConsolidationBalance) GetGroupAccount() GroupAccountRef {
+	return s.GroupAccount
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *ConsolidationBalance) GetAccountID() OptUUID {
+	return s.AccountID
+}
+
+// GetAccount returns the value of Account.
+func (s *ConsolidationBalance) GetAccount() OptAssetAccountRef {
+	return s.Account
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *ConsolidationBalance) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
+}
+
+// GetAmountLc returns the value of AmountLc.
+func (s *ConsolidationBalance) GetAmountLc() OptMoney {
+	return s.AmountLc
+}
+
+// GetAmountGcBooked returns the value of AmountGcBooked.
+func (s *ConsolidationBalance) GetAmountGcBooked() OptMoney {
+	return s.AmountGcBooked
+}
+
+// GetAmountGc returns the value of AmountGc.
+func (s *ConsolidationBalance) GetAmountGc() Money {
+	return s.AmountGc
+}
+
+// GetClosingRate returns the value of ClosingRate.
+func (s *ConsolidationBalance) GetClosingRate() OptString {
+	return s.ClosingRate
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationBalance) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationBalance) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationBalance) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *ConsolidationBalance) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetKind sets the value of Kind.
+func (s *ConsolidationBalance) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetGroupAccount sets the value of GroupAccount.
+func (s *ConsolidationBalance) SetGroupAccount(val GroupAccountRef) {
+	s.GroupAccount = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *ConsolidationBalance) SetAccountID(val OptUUID) {
+	s.AccountID = val
+}
+
+// SetAccount sets the value of Account.
+func (s *ConsolidationBalance) SetAccount(val OptAssetAccountRef) {
+	s.Account = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *ConsolidationBalance) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
+}
+
+// SetAmountLc sets the value of AmountLc.
+func (s *ConsolidationBalance) SetAmountLc(val OptMoney) {
+	s.AmountLc = val
+}
+
+// SetAmountGcBooked sets the value of AmountGcBooked.
+func (s *ConsolidationBalance) SetAmountGcBooked(val OptMoney) {
+	s.AmountGcBooked = val
+}
+
+// SetAmountGc sets the value of AmountGc.
+func (s *ConsolidationBalance) SetAmountGc(val Money) {
+	s.AmountGc = val
+}
+
+// SetClosingRate sets the value of ClosingRate.
+func (s *ConsolidationBalance) SetClosingRate(val OptString) {
+	s.ClosingRate = val
+}
+
+// One page of a consolidation run's translated balances, with the totals over the filter.
+// Ref: #/components/schemas/ConsolidationBalancePage
+type ConsolidationBalancePage struct {
+	// The rows on this page.
+	Items  []ConsolidationBalance     `json:"items"`
+	Totals ConsolidationBalanceTotals `json:"totals"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidationBalancePage) GetItems() []ConsolidationBalance {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *ConsolidationBalancePage) GetTotals() ConsolidationBalanceTotals {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidationBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidationBalancePage) SetItems(val []ConsolidationBalance) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ConsolidationBalancePage) SetTotals(val ConsolidationBalanceTotals) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidationBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidationBalancePage) listConsolidationBalancesRes() {}
+
+// The totals of every row the filter selects, over all pages: the local amounts per local currency (by
+// currency code), and the booked and translated group amounts in the group currency.
+// Ref: #/components/schemas/ConsolidationBalanceTotals
+type ConsolidationBalanceTotals struct {
+	// The local amounts' sum per local currency, by currency code; the translation differences have none.
+	Local []Money `json:"local"`
+	// The booked group amounts' sum; the translation differences have none.
+	GroupBooked Money `json:"group_booked"`
+	// The translated group amounts' sum; zero over every row of a company.
+	Group Money `json:"group"`
+}
+
+// GetLocal returns the value of Local.
+func (s *ConsolidationBalanceTotals) GetLocal() []Money {
+	return s.Local
+}
+
+// GetGroupBooked returns the value of GroupBooked.
+func (s *ConsolidationBalanceTotals) GetGroupBooked() Money {
+	return s.GroupBooked
+}
+
+// GetGroup returns the value of Group.
+func (s *ConsolidationBalanceTotals) GetGroup() Money {
+	return s.Group
+}
+
+// SetLocal sets the value of Local.
+func (s *ConsolidationBalanceTotals) SetLocal(val []Money) {
+	s.Local = val
+}
+
+// SetGroupBooked sets the value of GroupBooked.
+func (s *ConsolidationBalanceTotals) SetGroupBooked(val Money) {
+	s.GroupBooked = val
+}
+
+// SetGroup sets the value of Group.
+func (s *ConsolidationBalanceTotals) SetGroup(val Money) {
+	s.Group = val
+}
+
+// A company of a consolidation group: its legal entity, company code, name and local currency.
+// Ref: #/components/schemas/ConsolidationCompany
+type ConsolidationCompany struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The company's local currency (ISO 4217).
+	LocalCurrency string `json:"local_currency"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationCompany) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationCompany) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *ConsolidationCompany) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationCompany) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationCompany) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *ConsolidationCompany) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// A consolidation group (ADR-0059 §3): a parent company and the subsidiaries it holds directly. From
+// the active configuration.
+// Ref: #/components/schemas/ConsolidationGroup
+type ConsolidationGroup struct {
+	// The group's code: 1-30 upper-case letters, digits or underscores.
+	Code string `json:"code"`
+	// The group's name.
+	Name string `json:"name"`
+	// The currency the group is consolidated in: the tenant's group currency (ISO 4217), which the
+	// parent's local currency must be (ADR-0059 §3).
+	GroupCurrency string               `json:"group_currency"`
+	Parent        ConsolidationCompany `json:"parent"`
+	// The subsidiaries, by company code.
+	Members []ConsolidationMember `json:"members"`
+}
+
+// GetCode returns the value of Code.
+func (s *ConsolidationGroup) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *ConsolidationGroup) GetName() string {
+	return s.Name
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *ConsolidationGroup) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetParent returns the value of Parent.
+func (s *ConsolidationGroup) GetParent() ConsolidationCompany {
+	return s.Parent
+}
+
+// GetMembers returns the value of Members.
+func (s *ConsolidationGroup) GetMembers() []ConsolidationMember {
+	return s.Members
+}
+
+// SetCode sets the value of Code.
+func (s *ConsolidationGroup) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *ConsolidationGroup) SetName(val string) {
+	s.Name = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *ConsolidationGroup) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetParent sets the value of Parent.
+func (s *ConsolidationGroup) SetParent(val ConsolidationCompany) {
+	s.Parent = val
+}
+
+// SetMembers sets the value of Members.
+func (s *ConsolidationGroup) SetMembers(val []ConsolidationMember) {
+	s.Members = val
+}
+
+func (*ConsolidationGroup) getConsolidationGroupRes() {}
+
+// One page of consolidation groups.
+// Ref: #/components/schemas/ConsolidationGroupPage
+type ConsolidationGroupPage struct {
+	// The groups on this page.
+	Items []ConsolidationGroup `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidationGroupPage) GetItems() []ConsolidationGroup {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidationGroupPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidationGroupPage) SetItems(val []ConsolidationGroup) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidationGroupPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidationGroupPage) listConsolidationGroupsRes() {}
+
+// A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the
+// period it is first consolidated in and the parent's account holding the investment in it.
+// Ref: #/components/schemas/ConsolidationMember
+type ConsolidationMember struct {
+	// The subsidiary's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The subsidiary's company code.
+	CompanyCode string `json:"company_code"`
+	// The subsidiary's name.
+	CompanyName string `json:"company_name"`
+	// The subsidiary's local currency (ISO 4217).
+	LocalCurrency string `json:"local_currency"`
+	// The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals,
+	// as configured.
+	OwnershipPercent string `json:"ownership_percent"`
+	// The fiscal year of the period the subsidiary is first consolidated in.
+	FirstFiscalYear int32 `json:"first_fiscal_year"`
+	// The regular period (1-12) from whose first day the subsidiary is consolidated.
+	FirstFiscalPeriod int32           `json:"first_fiscal_period"`
+	InvestmentAccount AssetAccountRef `json:"investment_account"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationMember) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationMember) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationMember) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *ConsolidationMember) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetOwnershipPercent returns the value of OwnershipPercent.
+func (s *ConsolidationMember) GetOwnershipPercent() string {
+	return s.OwnershipPercent
+}
+
+// GetFirstFiscalYear returns the value of FirstFiscalYear.
+func (s *ConsolidationMember) GetFirstFiscalYear() int32 {
+	return s.FirstFiscalYear
+}
+
+// GetFirstFiscalPeriod returns the value of FirstFiscalPeriod.
+func (s *ConsolidationMember) GetFirstFiscalPeriod() int32 {
+	return s.FirstFiscalPeriod
+}
+
+// GetInvestmentAccount returns the value of InvestmentAccount.
+func (s *ConsolidationMember) GetInvestmentAccount() AssetAccountRef {
+	return s.InvestmentAccount
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationMember) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationMember) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationMember) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *ConsolidationMember) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetOwnershipPercent sets the value of OwnershipPercent.
+func (s *ConsolidationMember) SetOwnershipPercent(val string) {
+	s.OwnershipPercent = val
+}
+
+// SetFirstFiscalYear sets the value of FirstFiscalYear.
+func (s *ConsolidationMember) SetFirstFiscalYear(val int32) {
+	s.FirstFiscalYear = val
+}
+
+// SetFirstFiscalPeriod sets the value of FirstFiscalPeriod.
+func (s *ConsolidationMember) SetFirstFiscalPeriod(val int32) {
+	s.FirstFiscalPeriod = val
+}
+
+// SetInvestmentAccount sets the value of InvestmentAccount.
+func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
+	s.InvestmentAccount = val
+}
+
+// A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the
+// closing rate it was translated at and its period's status and version when the run read its figures.
+// The translated figures are `GET /v1/consolidation-runs/{id}/balances`.
+// Ref: #/components/schemas/ConsolidationRun
+type ConsolidationRun struct {
+	// The run.
+	ID uuid.UUID `json:"id"`
+	// The group's code.
+	GroupCode string `json:"group_code"`
+	// The group's name, in the configuration version the run read.
+	GroupName string `json:"group_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular period.
+	Period int32 `json:"period"`
+	// The period's first day, in the parent's leading ledger.
+	PeriodStart time.Time `json:"period_start"`
+	// The period's last day: the closing rate's date.
+	PeriodEnd time.Time `json:"period_end"`
+	// Queued until its workflow starts it, running while its companies are translated, then computed, or
+	// failed with its problem; a computed or failed run may be discarded. final and superseded follow
+	// finalization (ADR-0059 §10). Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status  string                     `json:"status"`
+	Problem OptConsolidationRunProblem `json:"problem"`
+	// The configuration version whose group, group chart and mapping the run read
+	// (`GET /v1/config-versions`).
+	ConfigVersion int32 `json:"config_version"`
+	// The group currency (ISO 4217), every translated amount's.
+	GroupCurrency string `json:"group_currency"`
+	// The rate type of the closing rates (`consolidation.rate_type`).
+	RateType string `json:"rate_type"`
+	// Its Operation (`GET /v1/operations/{id}`).
+	OperationID uuid.UUID `json:"operation_id"`
+	// Its companies, the parent first and then the members by company code, once the run started running
+	// (none while queued).
+	Members []ConsolidationRunMember `json:"members"`
+	// When it was computed; absent before.
+	ComputedAt OptDateTime `json:"computed_at"`
+	// The run's version (ETag).
+	Version int32 `json:"version"`
+	// When it was started.
+	CreatedAt time.Time `json:"created_at"`
+	// When it last changed.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *ConsolidationRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetGroupCode returns the value of GroupCode.
+func (s *ConsolidationRun) GetGroupCode() string {
+	return s.GroupCode
+}
+
+// GetGroupName returns the value of GroupName.
+func (s *ConsolidationRun) GetGroupName() string {
+	return s.GroupName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ConsolidationRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *ConsolidationRun) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetPeriodStart returns the value of PeriodStart.
+func (s *ConsolidationRun) GetPeriodStart() time.Time {
+	return s.PeriodStart
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *ConsolidationRun) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetStatus returns the value of Status.
+func (s *ConsolidationRun) GetStatus() string {
+	return s.Status
+}
+
+// GetProblem returns the value of Problem.
+func (s *ConsolidationRun) GetProblem() OptConsolidationRunProblem {
+	return s.Problem
+}
+
+// GetConfigVersion returns the value of ConfigVersion.
+func (s *ConsolidationRun) GetConfigVersion() int32 {
+	return s.ConfigVersion
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *ConsolidationRun) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetRateType returns the value of RateType.
+func (s *ConsolidationRun) GetRateType() string {
+	return s.RateType
+}
+
+// GetOperationID returns the value of OperationID.
+func (s *ConsolidationRun) GetOperationID() uuid.UUID {
+	return s.OperationID
+}
+
+// GetMembers returns the value of Members.
+func (s *ConsolidationRun) GetMembers() []ConsolidationRunMember {
+	return s.Members
+}
+
+// GetComputedAt returns the value of ComputedAt.
+func (s *ConsolidationRun) GetComputedAt() OptDateTime {
+	return s.ComputedAt
+}
+
+// GetVersion returns the value of Version.
+func (s *ConsolidationRun) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ConsolidationRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ConsolidationRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *ConsolidationRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetGroupCode sets the value of GroupCode.
+func (s *ConsolidationRun) SetGroupCode(val string) {
+	s.GroupCode = val
+}
+
+// SetGroupName sets the value of GroupName.
+func (s *ConsolidationRun) SetGroupName(val string) {
+	s.GroupName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ConsolidationRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *ConsolidationRun) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetPeriodStart sets the value of PeriodStart.
+func (s *ConsolidationRun) SetPeriodStart(val time.Time) {
+	s.PeriodStart = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *ConsolidationRun) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ConsolidationRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetProblem sets the value of Problem.
+func (s *ConsolidationRun) SetProblem(val OptConsolidationRunProblem) {
+	s.Problem = val
+}
+
+// SetConfigVersion sets the value of ConfigVersion.
+func (s *ConsolidationRun) SetConfigVersion(val int32) {
+	s.ConfigVersion = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *ConsolidationRun) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetRateType sets the value of RateType.
+func (s *ConsolidationRun) SetRateType(val string) {
+	s.RateType = val
+}
+
+// SetOperationID sets the value of OperationID.
+func (s *ConsolidationRun) SetOperationID(val uuid.UUID) {
+	s.OperationID = val
+}
+
+// SetMembers sets the value of Members.
+func (s *ConsolidationRun) SetMembers(val []ConsolidationRunMember) {
+	s.Members = val
+}
+
+// SetComputedAt sets the value of ComputedAt.
+func (s *ConsolidationRun) SetComputedAt(val OptDateTime) {
+	s.ComputedAt = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ConsolidationRun) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ConsolidationRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ConsolidationRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// ConsolidationRunHeaders wraps ConsolidationRun with response headers.
+type ConsolidationRunHeaders struct {
+	ETag     OptString
+	Response ConsolidationRun
+}
+
+// GetETag returns the value of ETag.
+func (s *ConsolidationRunHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *ConsolidationRunHeaders) GetResponse() ConsolidationRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ConsolidationRunHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ConsolidationRunHeaders) SetResponse(val ConsolidationRun) {
+	s.Response = val
+}
+
+func (*ConsolidationRunHeaders) getConsolidationRunRes() {}
+
+// A company of a consolidation run: the parent, or a member whose first period is on or before the
+// run's, with the closing rate its assets and liabilities were translated at and its leading ledger's
+// period as the run read it.
+// Ref: #/components/schemas/ConsolidationRunMember
+type ConsolidationRunMember struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// Its local currency (ISO 4217), its local amounts'.
+	LocalCurrency string `json:"local_currency"`
+	// Its role in the group. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Role string `json:"role"`
+	// A member's: the parent's ownership in percent, a plain decimal; absent for the parent.
+	OwnershipPercent OptString `json:"ownership_percent"`
+	// A member's: the fiscal year of its first consolidated period.
+	FirstFiscalYear OptInt32 `json:"first_fiscal_year"`
+	// A member's: its first consolidated period.
+	FirstFiscalPeriod OptInt32 `json:"first_fiscal_period"`
+	// The closing rate from its local currency into the group currency, a plain decimal of up to 12
+	// decimals; 1 for a company in the group currency.
+	ClosingRate string `json:"closing_rate"`
+	// The date the closing rate is valid from; absent for a company in the group currency.
+	RateValidFrom OptDate `json:"rate_valid_from"`
+	// Its leading ledger's period's status when the run read its figures; absent until translated. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	PeriodStatus OptString `json:"period_status"`
+	// That period's version when the run read its figures; absent until translated.
+	PeriodVersion OptInt32 `json:"period_version"`
+	// When its figures were read and translated; absent before.
+	TranslatedAt OptDateTime `json:"translated_at"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidationRunMember) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidationRunMember) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidationRunMember) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetLocalCurrency returns the value of LocalCurrency.
+func (s *ConsolidationRunMember) GetLocalCurrency() string {
+	return s.LocalCurrency
+}
+
+// GetRole returns the value of Role.
+func (s *ConsolidationRunMember) GetRole() string {
+	return s.Role
+}
+
+// GetOwnershipPercent returns the value of OwnershipPercent.
+func (s *ConsolidationRunMember) GetOwnershipPercent() OptString {
+	return s.OwnershipPercent
+}
+
+// GetFirstFiscalYear returns the value of FirstFiscalYear.
+func (s *ConsolidationRunMember) GetFirstFiscalYear() OptInt32 {
+	return s.FirstFiscalYear
+}
+
+// GetFirstFiscalPeriod returns the value of FirstFiscalPeriod.
+func (s *ConsolidationRunMember) GetFirstFiscalPeriod() OptInt32 {
+	return s.FirstFiscalPeriod
+}
+
+// GetClosingRate returns the value of ClosingRate.
+func (s *ConsolidationRunMember) GetClosingRate() string {
+	return s.ClosingRate
+}
+
+// GetRateValidFrom returns the value of RateValidFrom.
+func (s *ConsolidationRunMember) GetRateValidFrom() OptDate {
+	return s.RateValidFrom
+}
+
+// GetPeriodStatus returns the value of PeriodStatus.
+func (s *ConsolidationRunMember) GetPeriodStatus() OptString {
+	return s.PeriodStatus
+}
+
+// GetPeriodVersion returns the value of PeriodVersion.
+func (s *ConsolidationRunMember) GetPeriodVersion() OptInt32 {
+	return s.PeriodVersion
+}
+
+// GetTranslatedAt returns the value of TranslatedAt.
+func (s *ConsolidationRunMember) GetTranslatedAt() OptDateTime {
+	return s.TranslatedAt
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidationRunMember) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidationRunMember) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidationRunMember) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetLocalCurrency sets the value of LocalCurrency.
+func (s *ConsolidationRunMember) SetLocalCurrency(val string) {
+	s.LocalCurrency = val
+}
+
+// SetRole sets the value of Role.
+func (s *ConsolidationRunMember) SetRole(val string) {
+	s.Role = val
+}
+
+// SetOwnershipPercent sets the value of OwnershipPercent.
+func (s *ConsolidationRunMember) SetOwnershipPercent(val OptString) {
+	s.OwnershipPercent = val
+}
+
+// SetFirstFiscalYear sets the value of FirstFiscalYear.
+func (s *ConsolidationRunMember) SetFirstFiscalYear(val OptInt32) {
+	s.FirstFiscalYear = val
+}
+
+// SetFirstFiscalPeriod sets the value of FirstFiscalPeriod.
+func (s *ConsolidationRunMember) SetFirstFiscalPeriod(val OptInt32) {
+	s.FirstFiscalPeriod = val
+}
+
+// SetClosingRate sets the value of ClosingRate.
+func (s *ConsolidationRunMember) SetClosingRate(val string) {
+	s.ClosingRate = val
+}
+
+// SetRateValidFrom sets the value of RateValidFrom.
+func (s *ConsolidationRunMember) SetRateValidFrom(val OptDate) {
+	s.RateValidFrom = val
+}
+
+// SetPeriodStatus sets the value of PeriodStatus.
+func (s *ConsolidationRunMember) SetPeriodStatus(val OptString) {
+	s.PeriodStatus = val
+}
+
+// SetPeriodVersion sets the value of PeriodVersion.
+func (s *ConsolidationRunMember) SetPeriodVersion(val OptInt32) {
+	s.PeriodVersion = val
+}
+
+// SetTranslatedAt sets the value of TranslatedAt.
+func (s *ConsolidationRunMember) SetTranslatedAt(val OptDateTime) {
+	s.TranslatedAt = val
+}
+
+// One page of consolidation runs, newest first.
+// Ref: #/components/schemas/ConsolidationRunPage
+type ConsolidationRunPage struct {
+	// The runs on this page.
+	Items []ConsolidationRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidationRunPage) GetItems() []ConsolidationRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidationRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidationRunPage) SetItems(val []ConsolidationRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidationRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidationRunPage) listConsolidationRunsRes() {}
+
+// The problem that failed a run: its code and detail, as its Operation's error gives them;
+// `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an
+// error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned
+// since, and `platform.internal` when a step's error outlasted its retries.
+// Ref: #/components/schemas/ConsolidationRunProblem
+type ConsolidationRunProblem struct {
+	// The problem's code, such as `consolidation.rate_stale`.
+	Code string `json:"code"`
+	// The problem's detail.
+	Detail string `json:"detail"`
+}
+
+// GetCode returns the value of Code.
+func (s *ConsolidationRunProblem) GetCode() string {
+	return s.Code
+}
+
+// GetDetail returns the value of Detail.
+func (s *ConsolidationRunProblem) GetDetail() string {
+	return s.Detail
+}
+
+// SetCode sets the value of Code.
+func (s *ConsolidationRunProblem) SetCode(val string) {
+	s.Code = val
+}
+
+// SetDetail sets the value of Detail.
+func (s *ConsolidationRunProblem) SetDetail(val string) {
+	s.Detail = val
+}
+
+// The consolidation run to start: a group of the active configuration and a regular period of its
+// parent's fiscal calendar.
+// Ref: #/components/schemas/ConsolidationRunStart
+type ConsolidationRunStart struct {
+	// The group's code.
+	GroupCode string `json:"group_code"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period; a regular one (1-12).
+	Period int32 `json:"period"`
+}
+
+// GetGroupCode returns the value of GroupCode.
+func (s *ConsolidationRunStart) GetGroupCode() string {
+	return s.GroupCode
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ConsolidationRunStart) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *ConsolidationRunStart) GetPeriod() int32 {
+	return s.Period
+}
+
+// SetGroupCode sets the value of GroupCode.
+func (s *ConsolidationRunStart) SetGroupCode(val string) {
+	s.GroupCode = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ConsolidationRunStart) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *ConsolidationRunStart) SetPeriod(val int32) {
+	s.Period = val
 }
 
 // Merged schema.
@@ -22582,6 +24304,26 @@ func (*CreateConnectorPreconditionRequired) createConnectorRes() {}
 type CreateConnectorUnprocessableEntity Problem
 
 func (*CreateConnectorUnprocessableEntity) createConnectorRes() {}
+
+type CreateConsolidationRunBadRequest Problem
+
+func (*CreateConsolidationRunBadRequest) createConsolidationRunRes() {}
+
+type CreateConsolidationRunForbidden Problem
+
+func (*CreateConsolidationRunForbidden) createConsolidationRunRes() {}
+
+type CreateConsolidationRunNotFound Problem
+
+func (*CreateConsolidationRunNotFound) createConsolidationRunRes() {}
+
+type CreateConsolidationRunPreconditionRequired Problem
+
+func (*CreateConsolidationRunPreconditionRequired) createConsolidationRunRes() {}
+
+type CreateConsolidationRunUnprocessableEntity Problem
+
+func (*CreateConsolidationRunUnprocessableEntity) createConsolidationRunRes() {}
 
 type CreateContractBadRequest Problem
 
@@ -24841,6 +26583,65 @@ type DisableConnectorUnprocessableEntity Problem
 
 func (*DisableConnectorUnprocessableEntity) disableConnectorRes() {}
 
+type DiscardConsolidationRunBadRequest Problem
+
+func (*DiscardConsolidationRunBadRequest) discardConsolidationRunRes() {}
+
+type DiscardConsolidationRunForbidden Problem
+
+func (*DiscardConsolidationRunForbidden) discardConsolidationRunRes() {}
+
+type DiscardConsolidationRunNotFound Problem
+
+func (*DiscardConsolidationRunNotFound) discardConsolidationRunRes() {}
+
+// DiscardConsolidationRunOKHeaders wraps ConsolidationRun with response headers.
+type DiscardConsolidationRunOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ConsolidationRun
+}
+
+// GetETag returns the value of ETag.
+func (s *DiscardConsolidationRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DiscardConsolidationRunOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *DiscardConsolidationRunOKHeaders) GetResponse() ConsolidationRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DiscardConsolidationRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DiscardConsolidationRunOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DiscardConsolidationRunOKHeaders) SetResponse(val ConsolidationRun) {
+	s.Response = val
+}
+
+func (*DiscardConsolidationRunOKHeaders) discardConsolidationRunRes() {}
+
+type DiscardConsolidationRunPreconditionFailed Problem
+
+func (*DiscardConsolidationRunPreconditionFailed) discardConsolidationRunRes() {}
+
+type DiscardConsolidationRunPreconditionRequired Problem
+
+func (*DiscardConsolidationRunPreconditionRequired) discardConsolidationRunRes() {}
+
 // A documentary requirement of input tax recovery the invoice may not meet (ADR-0049 §6), from one
 // tier of the company's documentary requirements.
 // Ref: #/components/schemas/DocumentaryWarning
@@ -25406,6 +27207,35 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 }
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
+
+// An elimination of the configuration (ADR-0059 §8), by code and name.
+// Ref: #/components/schemas/EliminationRef
+type EliminationRef struct {
+	// The elimination's code: 1-30 upper-case letters, digits or underscores.
+	Code string `json:"code"`
+	// The elimination's name.
+	Name string `json:"name"`
+}
+
+// GetCode returns the value of Code.
+func (s *EliminationRef) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *EliminationRef) GetName() string {
+	return s.Name
+}
+
+// SetCode sets the value of Code.
+func (s *EliminationRef) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *EliminationRef) SetName(val string) {
+	s.Name = val
+}
 
 type EnableConnectorBadRequest Problem
 
@@ -28681,6 +30511,18 @@ func (s *GetAssetTransferOKHeaders) SetResponse(val AssetTransfer) {
 
 func (*GetAssetTransferOKHeaders) getAssetTransferRes() {}
 
+type GetBalanceCarryForwardBadRequest Problem
+
+func (*GetBalanceCarryForwardBadRequest) getBalanceCarryForwardRes() {}
+
+type GetBalanceCarryForwardForbidden Problem
+
+func (*GetBalanceCarryForwardForbidden) getBalanceCarryForwardRes() {}
+
+type GetBalanceCarryForwardNotFound Problem
+
+func (*GetBalanceCarryForwardNotFound) getBalanceCarryForwardRes() {}
+
 type GetBankAccountBadRequest Problem
 
 func (*GetBankAccountBadRequest) getBankAccountRes() {}
@@ -29090,6 +30932,30 @@ func (s *GetConnectorOKHeaders) SetResponse(val Connector) {
 }
 
 func (*GetConnectorOKHeaders) getConnectorRes() {}
+
+type GetConsolidationGroupBadRequest Problem
+
+func (*GetConsolidationGroupBadRequest) getConsolidationGroupRes() {}
+
+type GetConsolidationGroupForbidden Problem
+
+func (*GetConsolidationGroupForbidden) getConsolidationGroupRes() {}
+
+type GetConsolidationGroupNotFound Problem
+
+func (*GetConsolidationGroupNotFound) getConsolidationGroupRes() {}
+
+type GetConsolidationRunBadRequest Problem
+
+func (*GetConsolidationRunBadRequest) getConsolidationRunRes() {}
+
+type GetConsolidationRunForbidden Problem
+
+func (*GetConsolidationRunForbidden) getConsolidationRunRes() {}
+
+type GetConsolidationRunNotFound Problem
+
+func (*GetConsolidationRunNotFound) getConsolidationRunRes() {}
 
 type GetContractBadRequest Problem
 
@@ -32055,6 +33921,190 @@ type GrantRolePermissionUnprocessableEntity Problem
 
 func (*GrantRolePermissionUnprocessableEntity) grantRolePermissionRes() {}
 
+// An account of the group chart (ADR-0059 §3; SAP's financial statement item). From the active
+// configuration.
+// Ref: #/components/schemas/GroupAccount
+type GroupAccount struct {
+	// The group account's number: 1-10 upper-case letters or digits.
+	Number string `json:"number"`
+	// The group account's name.
+	Name string `json:"name"`
+	// Account type. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Type string `json:"type"`
+	// The role a consolidation run gives the account, if any; no company account maps to one. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Role        OptString         `json:"role"`
+	Elimination OptEliminationRef `json:"elimination"`
+	// The number of company accounts mapped to it, in the companies the caller may act in.
+	MappedAccounts int32 `json:"mapped_accounts"`
+}
+
+// GetNumber returns the value of Number.
+func (s *GroupAccount) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *GroupAccount) GetName() string {
+	return s.Name
+}
+
+// GetType returns the value of Type.
+func (s *GroupAccount) GetType() string {
+	return s.Type
+}
+
+// GetRole returns the value of Role.
+func (s *GroupAccount) GetRole() OptString {
+	return s.Role
+}
+
+// GetElimination returns the value of Elimination.
+func (s *GroupAccount) GetElimination() OptEliminationRef {
+	return s.Elimination
+}
+
+// GetMappedAccounts returns the value of MappedAccounts.
+func (s *GroupAccount) GetMappedAccounts() int32 {
+	return s.MappedAccounts
+}
+
+// SetNumber sets the value of Number.
+func (s *GroupAccount) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *GroupAccount) SetName(val string) {
+	s.Name = val
+}
+
+// SetType sets the value of Type.
+func (s *GroupAccount) SetType(val string) {
+	s.Type = val
+}
+
+// SetRole sets the value of Role.
+func (s *GroupAccount) SetRole(val OptString) {
+	s.Role = val
+}
+
+// SetElimination sets the value of Elimination.
+func (s *GroupAccount) SetElimination(val OptEliminationRef) {
+	s.Elimination = val
+}
+
+// SetMappedAccounts sets the value of MappedAccounts.
+func (s *GroupAccount) SetMappedAccounts(val int32) {
+	s.MappedAccounts = val
+}
+
+// One page of the group chart of accounts.
+// Ref: #/components/schemas/GroupAccountPage
+type GroupAccountPage struct {
+	// The group accounts on this page.
+	Items []GroupAccount `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *GroupAccountPage) GetItems() []GroupAccount {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *GroupAccountPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *GroupAccountPage) SetItems(val []GroupAccount) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *GroupAccountPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*GroupAccountPage) listGroupAccountsRes() {}
+
+// An account of the group chart, by number and name, in the configuration version a run read.
+// Ref: #/components/schemas/GroupAccountRef
+type GroupAccountRef struct {
+	// The group account's number.
+	Number string `json:"number"`
+	// The group account's name.
+	Name string `json:"name"`
+}
+
+// GetNumber returns the value of Number.
+func (s *GroupAccountRef) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *GroupAccountRef) GetName() string {
+	return s.Name
+}
+
+// SetNumber sets the value of Number.
+func (s *GroupAccountRef) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *GroupAccountRef) SetName(val string) {
+	s.Name = val
+}
+
+// The company of the group a business partner is (ADR-0059 §4): a legal entity of the tenant, by id
+// and, to a caller who may act in that company (ADR-0010), its company code and its name as it is now.
+// To any other caller the id alone (product owner 2026-11-05).
+// Ref: #/components/schemas/GroupCompany
+type GroupCompany struct {
+	// The legal entity.
+	ID uuid.UUID `json:"id"`
+	// Its company code; absent when the caller may not act in the company.
+	Code OptString `json:"code"`
+	// Its name, as it is now: renaming the company changes no partner's ETag, and neither does who reads
+	// it. Absent when the caller may not act in the company.
+	Name OptString `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *GroupCompany) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *GroupCompany) GetCode() OptString {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *GroupCompany) GetName() OptString {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *GroupCompany) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *GroupCompany) SetCode(val OptString) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *GroupCompany) SetName(val OptString) {
+	s.Name = val
+}
+
 // The liquidity forecast across the companies the caller may act in (ADR-0051 §9, §10, §15; T53e5):
 // per currency, and summed in the tenant's group currency. Amounts are signed: a payment out is
 // negative.
@@ -33782,6 +35832,16 @@ type JournalEntryCreate struct {
 	// refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its
 	// status (decision P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptDate `json:"tax_date"`
+	// A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of
+	// the company's fiscal calendar: the entry posts into it instead of the regular period of its posting
+	// date. The posting date must be in the year's last regular period, whose dates the special periods
+	// share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting
+	// date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409
+	// `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`:
+	// refused until the tax specialist confirms how year-end adjustments enter the returns, product owner
+	// 2026-11-05, ADR-0060 question 2). Absent: the regular period of the posting date. A parked entry
+	// (`parkJournalEntry`) keeps it and is held to these rules again when it is posted.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
 	// External reference.
@@ -33825,6 +35885,11 @@ func (s *JournalEntryCreate) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *JournalEntryCreate) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *JournalEntryCreate) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
 }
 
 // GetCurrency returns the value of Currency.
@@ -33880,6 +35945,11 @@ func (s *JournalEntryCreate) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *JournalEntryCreate) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *JournalEntryCreate) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -34019,6 +36089,13 @@ func (*JournalEntryPage) listJournalEntriesRes() {}
 type JournalEntryReverse struct {
 	// Posting date of the reversal; defaults to the original posting date if that period is open.
 	PostingDate OptDate `json:"posting_date"`
+	// A special period for the reversal (ADR-0060 §3), by the rules of a manual entry's `fiscal_period`:
+	// its posting date, the original's unless `posting_date` is given, in the year's last regular period
+	// (422 `ledger.special_period_date`), a special period the calendar has (422
+	// `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409
+	// `ledger.period_not_open`), and an original without tax codes (422 `ledger.special_period_tax_code`).
+	// Absent: the regular period of the reversal's posting date.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Header text of the reversal entry.
 	HeaderText OptString `json:"header_text"`
 }
@@ -34026,6 +36103,11 @@ type JournalEntryReverse struct {
 // GetPostingDate returns the value of PostingDate.
 func (s *JournalEntryReverse) GetPostingDate() OptDate {
 	return s.PostingDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *JournalEntryReverse) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
 }
 
 // GetHeaderText returns the value of HeaderText.
@@ -34036,6 +36118,11 @@ func (s *JournalEntryReverse) GetHeaderText() OptString {
 // SetPostingDate sets the value of PostingDate.
 func (s *JournalEntryReverse) SetPostingDate(val OptDate) {
 	s.PostingDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *JournalEntryReverse) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetHeaderText sets the value of HeaderText.
@@ -34094,6 +36181,10 @@ type JournalLine struct {
 	SegmentID OptUUID `json:"segment_id"`
 	// Code of the segment, set with `segment_id`.
 	SegmentCode OptString `json:"segment_code"`
+	// The line's trading partner (ADR-0059 §4): the tenant's company on the other side of an intercompany
+	// transaction, as entered (JournalLineInput `trading_partner_id`) or copied from the line a reversal
+	// or clearing offsets; absent when it has none.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -34196,6 +36287,11 @@ func (s *JournalLine) GetSegmentID() OptUUID {
 // GetSegmentCode returns the value of SegmentCode.
 func (s *JournalLine) GetSegmentCode() OptString {
 	return s.SegmentCode
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *JournalLine) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetLineText returns the value of LineText.
@@ -34303,6 +36399,11 @@ func (s *JournalLine) SetSegmentCode(val OptString) {
 	s.SegmentCode = val
 }
 
+// SetTradingPartner sets the value of TradingPartner.
+func (s *JournalLine) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
+}
+
 // SetLineText sets the value of LineText.
 func (s *JournalLine) SetLineText(val OptString) {
 	s.LineText = val
@@ -34348,6 +36449,11 @@ type JournalLineInput struct {
 	// Segment of the line: derived from the profit center, so one given must be its profit center's (422
 	// `ledger.segment_mismatch`).
 	SegmentID OptUUID `json:"segment_id"`
+	// Trading partner of the line (ADR-0059 §4): the tenant's company on the other side of an
+	// intercompany transaction, a legal entity of the tenant other than the entry's own (422
+	// `ledger.trading_partner_invalid` on the line's field). Consolidation matches and eliminates
+	// intercompany balances by it.
+	TradingPartnerID OptUUID `json:"trading_partner_id"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -34400,6 +36506,11 @@ func (s *JournalLineInput) GetProfitCenterID() OptUUID {
 // GetSegmentID returns the value of SegmentID.
 func (s *JournalLineInput) GetSegmentID() OptUUID {
 	return s.SegmentID
+}
+
+// GetTradingPartnerID returns the value of TradingPartnerID.
+func (s *JournalLineInput) GetTradingPartnerID() OptUUID {
+	return s.TradingPartnerID
 }
 
 // GetLineText returns the value of LineText.
@@ -34455,6 +36566,11 @@ func (s *JournalLineInput) SetProfitCenterID(val OptUUID) {
 // SetSegmentID sets the value of SegmentID.
 func (s *JournalLineInput) SetSegmentID(val OptUUID) {
 	s.SegmentID = val
+}
+
+// SetTradingPartnerID sets the value of TradingPartnerID.
+func (s *JournalLineInput) SetTradingPartnerID(val OptUUID) {
+	s.TradingPartnerID = val
 }
 
 // SetLineText sets the value of LineText.
@@ -37599,6 +39715,34 @@ type ListConnectorsForbidden Problem
 
 func (*ListConnectorsForbidden) listConnectorsRes() {}
 
+type ListConsolidationBalancesBadRequest Problem
+
+func (*ListConsolidationBalancesBadRequest) listConsolidationBalancesRes() {}
+
+type ListConsolidationBalancesForbidden Problem
+
+func (*ListConsolidationBalancesForbidden) listConsolidationBalancesRes() {}
+
+type ListConsolidationBalancesNotFound Problem
+
+func (*ListConsolidationBalancesNotFound) listConsolidationBalancesRes() {}
+
+type ListConsolidationGroupsBadRequest Problem
+
+func (*ListConsolidationGroupsBadRequest) listConsolidationGroupsRes() {}
+
+type ListConsolidationGroupsForbidden Problem
+
+func (*ListConsolidationGroupsForbidden) listConsolidationGroupsRes() {}
+
+type ListConsolidationRunsBadRequest Problem
+
+func (*ListConsolidationRunsBadRequest) listConsolidationRunsRes() {}
+
+type ListConsolidationRunsForbidden Problem
+
+func (*ListConsolidationRunsForbidden) listConsolidationRunsRes() {}
+
 type ListContractsBadRequest Problem
 
 func (*ListContractsBadRequest) listContractsRes() {}
@@ -37746,6 +39890,14 @@ func (*ListGrIrClearingsForbidden) listGrIrClearingsRes() {}
 type ListGrIrClearingsNotFound Problem
 
 func (*ListGrIrClearingsNotFound) listGrIrClearingsRes() {}
+
+type ListGroupAccountsBadRequest Problem
+
+func (*ListGroupAccountsBadRequest) listGroupAccountsRes() {}
+
+type ListGroupAccountsForbidden Problem
+
+func (*ListGroupAccountsForbidden) listGroupAccountsRes() {}
 
 type ListHierarchiesBadRequest Problem
 
@@ -40071,13 +42223,17 @@ type MigrationDiff struct {
 	// `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no
 	// migrated vendor, by its id and name), `bank account of vendor <LIFNR>`,
 	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>`
-	// or `open items of partner <id> (<name>)` (the number of open payable items), or
+	// or `open items of partner <id> (<name>)` (the number of open payable items),
 	// `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items
-	// in a foreign document currency, in it).
+	// in a foreign document currency, in it), or `cost center <KOKRS>/<KOSTL>` or
+	// `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10).
 	Key string `json:"key"`
 	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
-	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), or a bank account as the load
-	// writes it.
+	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load
+	// writes it, or a center's periods
+	// (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`,
+	// a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's
+	// slices that do not read).
 	Sap string `json:"sap"`
 	// The platform's value, in the same form.
 	Platform string `json:"platform"`
@@ -40167,6 +42323,20 @@ type MigrationExtractCounts struct {
 	AgrTcodes int `json:"agr_tcodes"`
 	// Rows of SAP table AGR_USERS (role assignments).
 	AgrUsers int `json:"agr_users"`
+	// Rows of SAP table CSKS (cost center master data, a row per time slice; ADR-0050 §10, T56h).
+	Csks int `json:"csks"`
+	// Rows of SAP table CSKT (cost center texts; ADR-0050 §10, T56h).
+	Cskt int `json:"cskt"`
+	// Rows of SAP table CEPC (profit center master data, a row per time slice; ADR-0050 §10, T56h).
+	Cepc int `json:"cepc"`
+	// Rows of SAP table CEPCT (profit center texts; ADR-0050 §10, T56h).
+	Cepct int `json:"cepct"`
+	// Rows of SAP table CEPC_BUKRS (profit centers' company code assignments; ADR-0050 §10, T56h).
+	CepcBukrs int `json:"cepc_bukrs"`
+	// Rows of SAP table FAGL_SEGM (segments; ADR-0050 §10, T56h).
+	FaglSegm int `json:"fagl_segm"`
+	// Rows of SAP table FAGL_SEGMT (segment texts; ADR-0050 §10, T56h).
+	FaglSegmt int `json:"fagl_segmt"`
 }
 
 // GetT001 returns the value of T001.
@@ -40269,6 +42439,41 @@ func (s *MigrationExtractCounts) GetAgrUsers() int {
 	return s.AgrUsers
 }
 
+// GetCsks returns the value of Csks.
+func (s *MigrationExtractCounts) GetCsks() int {
+	return s.Csks
+}
+
+// GetCskt returns the value of Cskt.
+func (s *MigrationExtractCounts) GetCskt() int {
+	return s.Cskt
+}
+
+// GetCepc returns the value of Cepc.
+func (s *MigrationExtractCounts) GetCepc() int {
+	return s.Cepc
+}
+
+// GetCepct returns the value of Cepct.
+func (s *MigrationExtractCounts) GetCepct() int {
+	return s.Cepct
+}
+
+// GetCepcBukrs returns the value of CepcBukrs.
+func (s *MigrationExtractCounts) GetCepcBukrs() int {
+	return s.CepcBukrs
+}
+
+// GetFaglSegm returns the value of FaglSegm.
+func (s *MigrationExtractCounts) GetFaglSegm() int {
+	return s.FaglSegm
+}
+
+// GetFaglSegmt returns the value of FaglSegmt.
+func (s *MigrationExtractCounts) GetFaglSegmt() int {
+	return s.FaglSegmt
+}
+
 // SetT001 sets the value of T001.
 func (s *MigrationExtractCounts) SetT001(val int) {
 	s.T001 = val
@@ -40369,6 +42574,41 @@ func (s *MigrationExtractCounts) SetAgrUsers(val int) {
 	s.AgrUsers = val
 }
 
+// SetCsks sets the value of Csks.
+func (s *MigrationExtractCounts) SetCsks(val int) {
+	s.Csks = val
+}
+
+// SetCskt sets the value of Cskt.
+func (s *MigrationExtractCounts) SetCskt(val int) {
+	s.Cskt = val
+}
+
+// SetCepc sets the value of Cepc.
+func (s *MigrationExtractCounts) SetCepc(val int) {
+	s.Cepc = val
+}
+
+// SetCepct sets the value of Cepct.
+func (s *MigrationExtractCounts) SetCepct(val int) {
+	s.Cepct = val
+}
+
+// SetCepcBukrs sets the value of CepcBukrs.
+func (s *MigrationExtractCounts) SetCepcBukrs(val int) {
+	s.CepcBukrs = val
+}
+
+// SetFaglSegm sets the value of FaglSegm.
+func (s *MigrationExtractCounts) SetFaglSegm(val int) {
+	s.FaglSegm = val
+}
+
+// SetFaglSegmt sets the value of FaglSegmt.
+func (s *MigrationExtractCounts) SetFaglSegmt(val int) {
+	s.FaglSegmt = val
+}
+
 // A finding of the quality gate, the load or the reconciliation on a row of the extract.
 // Ref: #/components/schemas/MigrationIssue
 type MigrationIssue struct {
@@ -40462,6 +42702,16 @@ type MigrationLoadedCounts struct {
 	// Order items whose GR/IR position, taken over by an earlier run, this run topped up to SAP's balance
 	// and open quantity, in an entry per order.
 	GrIrTopUps OptInt `json:"gr_ir_top_ups"`
+	// Segments (FAGL_SEGM, FAGL_SEGMT) the scope's profit centers name (ADR-0050 §10, T56h).
+	Segments OptInt `json:"segments"`
+	// Profit centers assigned to the scope's company codes (CEPC, CEPCT, CEPC_BUKRS), active at once with
+	// their time slices as periods: the run is their approval (ADR-0050 §10).
+	ProfitCenters OptInt `json:"profit_centers"`
+	// Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).
+	ProfitCentersExtended OptInt `json:"profit_centers_extended"`
+	// Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as
+	// periods, at the standard hierarchy's UNASSIGNED leaf: the run is their approval (ADR-0050 §10).
+	CostCenters OptInt `json:"cost_centers"`
 }
 
 // GetSuppliers returns the value of Suppliers.
@@ -40524,6 +42774,26 @@ func (s *MigrationLoadedCounts) GetGrIrTopUps() OptInt {
 	return s.GrIrTopUps
 }
 
+// GetSegments returns the value of Segments.
+func (s *MigrationLoadedCounts) GetSegments() OptInt {
+	return s.Segments
+}
+
+// GetProfitCenters returns the value of ProfitCenters.
+func (s *MigrationLoadedCounts) GetProfitCenters() OptInt {
+	return s.ProfitCenters
+}
+
+// GetProfitCentersExtended returns the value of ProfitCentersExtended.
+func (s *MigrationLoadedCounts) GetProfitCentersExtended() OptInt {
+	return s.ProfitCentersExtended
+}
+
+// GetCostCenters returns the value of CostCenters.
+func (s *MigrationLoadedCounts) GetCostCenters() OptInt {
+	return s.CostCenters
+}
+
 // SetSuppliers sets the value of Suppliers.
 func (s *MigrationLoadedCounts) SetSuppliers(val OptInt) {
 	s.Suppliers = val
@@ -40582,6 +42852,26 @@ func (s *MigrationLoadedCounts) SetGrIrPositions(val OptInt) {
 // SetGrIrTopUps sets the value of GrIrTopUps.
 func (s *MigrationLoadedCounts) SetGrIrTopUps(val OptInt) {
 	s.GrIrTopUps = val
+}
+
+// SetSegments sets the value of Segments.
+func (s *MigrationLoadedCounts) SetSegments(val OptInt) {
+	s.Segments = val
+}
+
+// SetProfitCenters sets the value of ProfitCenters.
+func (s *MigrationLoadedCounts) SetProfitCenters(val OptInt) {
+	s.ProfitCenters = val
+}
+
+// SetProfitCentersExtended sets the value of ProfitCentersExtended.
+func (s *MigrationLoadedCounts) SetProfitCentersExtended(val OptInt) {
+	s.ProfitCentersExtended = val
+}
+
+// SetCostCenters sets the value of CostCenters.
+func (s *MigrationLoadedCounts) SetCostCenters(val OptInt) {
+	s.CostCenters = val
 }
 
 // Merged schema.
@@ -42176,6 +44466,7 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 }
 
 func (*OperationHeaders) captureSupplierInvoiceRes() {}
+func (*OperationHeaders) createConsolidationRunRes() {}
 func (*OperationHeaders) proposePaymentRunRes()      {}
 func (*OperationHeaders) reconcileMigrationRunRes()  {}
 func (*OperationHeaders) releasePaymentRunRes()      {}
@@ -42448,6 +44739,52 @@ func (o OptAnalyticsDerived) Get() (v AnalyticsDerived, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAnalyticsDerived) Or(d AnalyticsDerived) AnalyticsDerived {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssetAccountRef returns new OptAssetAccountRef with value set to v.
+func NewOptAssetAccountRef(v AssetAccountRef) OptAssetAccountRef {
+	return OptAssetAccountRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssetAccountRef is optional AssetAccountRef.
+type OptAssetAccountRef struct {
+	Value AssetAccountRef
+	Set   bool
+}
+
+// IsSet returns true if OptAssetAccountRef was set.
+func (o OptAssetAccountRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssetAccountRef) Reset() {
+	var v AssetAccountRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssetAccountRef) SetTo(v AssetAccountRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssetAccountRef) Get() (v AssetAccountRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssetAccountRef) Or(d AssetAccountRef) AssetAccountRef {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -43420,6 +45757,52 @@ func (o OptConnectorUpdateSettings) Or(d ConnectorUpdateSettings) ConnectorUpdat
 	return d
 }
 
+// NewOptConsolidationRunProblem returns new OptConsolidationRunProblem with value set to v.
+func NewOptConsolidationRunProblem(v ConsolidationRunProblem) OptConsolidationRunProblem {
+	return OptConsolidationRunProblem{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptConsolidationRunProblem is optional ConsolidationRunProblem.
+type OptConsolidationRunProblem struct {
+	Value ConsolidationRunProblem
+	Set   bool
+}
+
+// IsSet returns true if OptConsolidationRunProblem was set.
+func (o OptConsolidationRunProblem) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptConsolidationRunProblem) Reset() {
+	var v ConsolidationRunProblem
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptConsolidationRunProblem) SetTo(v ConsolidationRunProblem) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptConsolidationRunProblem) Get() (v ConsolidationRunProblem, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptConsolidationRunProblem) Or(d ConsolidationRunProblem) ConsolidationRunProblem {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptCountryPackSignOff returns new OptCountryPackSignOff with value set to v.
 func NewOptCountryPackSignOff(v CountryPackSignOff) OptCountryPackSignOff {
 	return OptCountryPackSignOff{
@@ -43690,6 +46073,52 @@ func (o OptDepreciationRunError) Get() (v DepreciationRunError, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptDepreciationRunError) Or(d DepreciationRunError) DepreciationRunError {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptEliminationRef returns new OptEliminationRef with value set to v.
+func NewOptEliminationRef(v EliminationRef) OptEliminationRef {
+	return OptEliminationRef{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptEliminationRef is optional EliminationRef.
+type OptEliminationRef struct {
+	Value EliminationRef
+	Set   bool
+}
+
+// IsSet returns true if OptEliminationRef was set.
+func (o OptEliminationRef) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptEliminationRef) Reset() {
+	var v EliminationRef
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptEliminationRef) SetTo(v EliminationRef) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptEliminationRef) Get() (v EliminationRef, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptEliminationRef) Or(d EliminationRef) EliminationRef {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -44058,6 +46487,52 @@ func (o OptGrIrClearingEntry) Get() (v GrIrClearingEntry, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptGrIrClearingEntry) Or(d GrIrClearingEntry) GrIrClearingEntry {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptGroupCompany returns new OptGroupCompany with value set to v.
+func NewOptGroupCompany(v GroupCompany) OptGroupCompany {
+	return OptGroupCompany{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptGroupCompany is optional GroupCompany.
+type OptGroupCompany struct {
+	Value GroupCompany
+	Set   bool
+}
+
+// IsSet returns true if OptGroupCompany was set.
+func (o OptGroupCompany) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptGroupCompany) Reset() {
+	var v GroupCompany
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptGroupCompany) SetTo(v GroupCompany) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptGroupCompany) Get() (v GroupCompany, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptGroupCompany) Or(d GroupCompany) GroupCompany {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -46012,6 +48487,52 @@ func (o OptTaxReturnFiling) Or(d TaxReturnFiling) TaxReturnFiling {
 	return d
 }
 
+// NewOptTradingPartner returns new OptTradingPartner with value set to v.
+func NewOptTradingPartner(v TradingPartner) OptTradingPartner {
+	return OptTradingPartner{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptTradingPartner is optional TradingPartner.
+type OptTradingPartner struct {
+	Value TradingPartner
+	Set   bool
+}
+
+// IsSet returns true if OptTradingPartner was set.
+func (o OptTradingPartner) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptTradingPartner) Reset() {
+	var v TradingPartner
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptTradingPartner) SetTo(v TradingPartner) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptTradingPartner) Get() (v TradingPartner, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptTradingPartner) Or(d TradingPartner) TradingPartner {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptUUID returns new OptUUID with value set to v.
 func NewOptUUID(v uuid.UUID) OptUUID {
 	return OptUUID{
@@ -46620,6 +49141,10 @@ type ParkedJournalEntry struct {
 	PostingDate time.Time `json:"posting_date"`
 	// Tax date the entry was parked with; absent: its posting date.
 	TaxDate OptDate `json:"tax_date"`
+	// The special period (ADR-0060 §3) it is to be posted into, held to a manual entry's rules for one
+	// when it is parked, changed and posted; absent: the regular period of its posting date. A period
+	// close's `no_parked_entries` check leaves an entry naming one out: it is the year's.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// External reference.
@@ -46727,6 +49252,11 @@ func (s *ParkedJournalEntry) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntry) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *ParkedJournalEntry) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
 }
 
 // GetCurrency returns the value of Currency.
@@ -46872,6 +49402,11 @@ func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *ParkedJournalEntry) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *ParkedJournalEntry) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -47047,6 +49582,9 @@ type ParkedJournalEntryUpdate struct {
 	// posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision
 	// P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptNilDate `json:"tax_date"`
+	// The special period to post into, by the rules of a manual entry's `fiscal_period` (ADR-0060 §3).
+	// Send null to remove it: the regular period of the posting date then.
+	FiscalPeriod OptNilInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it, so a change of currency comes with the lines.
 	Currency OptString `json:"currency"`
 	// External reference. Send null to clear.
@@ -47075,6 +49613,11 @@ func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntryUpdate) GetTaxDate() OptNilDate {
 	return s.TaxDate
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *ParkedJournalEntryUpdate) GetFiscalPeriod() OptNilInt32 {
+	return s.FiscalPeriod
 }
 
 // GetCurrency returns the value of Currency.
@@ -47115,6 +49658,11 @@ func (s *ParkedJournalEntryUpdate) SetPostingDate(val OptDate) {
 // SetTaxDate sets the value of TaxDate.
 func (s *ParkedJournalEntryUpdate) SetTaxDate(val OptNilDate) {
 	s.TaxDate = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *ParkedJournalEntryUpdate) SetFiscalPeriod(val OptNilInt32) {
+	s.FiscalPeriod = val
 }
 
 // SetCurrency sets the value of Currency.
@@ -47169,6 +49717,9 @@ type ParkedJournalLine struct {
 	SegmentID OptUUID `json:"segment_id"`
 	// Code of the segment, set with `segment_id`.
 	SegmentCode OptString `json:"segment_code"`
+	// The trading partner entered on the line (JournalLineInput `trading_partner_id`), absent when none
+	// was.
+	TradingPartner OptTradingPartner `json:"trading_partner"`
 	// Line text.
 	LineText OptString `json:"line_text"`
 }
@@ -47241,6 +49792,11 @@ func (s *ParkedJournalLine) GetSegmentID() OptUUID {
 // GetSegmentCode returns the value of SegmentCode.
 func (s *ParkedJournalLine) GetSegmentCode() OptString {
 	return s.SegmentCode
+}
+
+// GetTradingPartner returns the value of TradingPartner.
+func (s *ParkedJournalLine) GetTradingPartner() OptTradingPartner {
+	return s.TradingPartner
 }
 
 // GetLineText returns the value of LineText.
@@ -47316,6 +49872,11 @@ func (s *ParkedJournalLine) SetSegmentID(val OptUUID) {
 // SetSegmentCode sets the value of SegmentCode.
 func (s *ParkedJournalLine) SetSegmentCode(val OptString) {
 	s.SegmentCode = val
+}
+
+// SetTradingPartner sets the value of TradingPartner.
+func (s *ParkedJournalLine) SetTradingPartner(val OptTradingPartner) {
+	s.TradingPartner = val
 }
 
 // SetLineText sets the value of LineText.
@@ -58835,6 +61396,22 @@ type RunAnalyticsQueryUnprocessableEntity Problem
 
 func (*RunAnalyticsQueryUnprocessableEntity) runAnalyticsQueryRes() {}
 
+type RunBalanceCarryForwardBadRequest Problem
+
+func (*RunBalanceCarryForwardBadRequest) runBalanceCarryForwardRes() {}
+
+type RunBalanceCarryForwardForbidden Problem
+
+func (*RunBalanceCarryForwardForbidden) runBalanceCarryForwardRes() {}
+
+type RunBalanceCarryForwardPreconditionRequired Problem
+
+func (*RunBalanceCarryForwardPreconditionRequired) runBalanceCarryForwardRes() {}
+
+type RunBalanceCarryForwardUnprocessableEntity Problem
+
+func (*RunBalanceCarryForwardUnprocessableEntity) runBalanceCarryForwardRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/Segment
 type Segment struct {
@@ -59182,6 +61759,7 @@ func (*ServiceUnavailableHeaders) createChangeRequestRes()                   {}
 func (*ServiceUnavailableHeaders) createClearingRes()                        {}
 func (*ServiceUnavailableHeaders) createCompanyAccessRes()                   {}
 func (*ServiceUnavailableHeaders) createConnectorRes()                       {}
+func (*ServiceUnavailableHeaders) createConsolidationRunRes()                {}
 func (*ServiceUnavailableHeaders) createContractRes()                        {}
 func (*ServiceUnavailableHeaders) createCostCenterRes()                      {}
 func (*ServiceUnavailableHeaders) createDownPaymentRequestRes()              {}
@@ -59292,6 +61870,7 @@ func (*ServiceUnavailableHeaders) reverseJournalEntryRes()                   {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
+func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()                 {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                     {}
@@ -63548,6 +66127,7 @@ func (*TooManyRequestsHeaders) createChangeRequestRes()                   {}
 func (*TooManyRequestsHeaders) createClearingRes()                        {}
 func (*TooManyRequestsHeaders) createCompanyAccessRes()                   {}
 func (*TooManyRequestsHeaders) createConnectorRes()                       {}
+func (*TooManyRequestsHeaders) createConsolidationRunRes()                {}
 func (*TooManyRequestsHeaders) createContractRes()                        {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
@@ -63581,6 +66161,7 @@ func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) decideRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) deleteWebhookSubscriptionRes()             {}
 func (*TooManyRequestsHeaders) disableConnectorRes()                      {}
+func (*TooManyRequestsHeaders) discardConsolidationRunRes()               {}
 func (*TooManyRequestsHeaders) enableConnectorRes()                       {}
 func (*TooManyRequestsHeaders) endAgentSessionRes()                       {}
 func (*TooManyRequestsHeaders) endCompanyAccessRes()                      {}
@@ -63603,6 +66184,7 @@ func (*TooManyRequestsHeaders) getAssetRes()                              {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()                    {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                      {}
 func (*TooManyRequestsHeaders) getAssetTransferRes()                      {}
+func (*TooManyRequestsHeaders) getBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) getBankAccountRes()                        {}
 func (*TooManyRequestsHeaders) getBankFileContentRes()                    {}
 func (*TooManyRequestsHeaders) getBankFileRes()                           {}
@@ -63622,6 +66204,8 @@ func (*TooManyRequestsHeaders) getCloseCalendarRes()                      {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                      {}
 func (*TooManyRequestsHeaders) getConnectorRes()                          {}
+func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
+func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
@@ -63709,6 +66293,9 @@ func (*TooManyRequestsHeaders) listCloseTasksRes()                        {}
 func (*TooManyRequestsHeaders) listCompanyAccessRes()                     {}
 func (*TooManyRequestsHeaders) listConfigVersionsRes()                    {}
 func (*TooManyRequestsHeaders) listConnectorsRes()                        {}
+func (*TooManyRequestsHeaders) listConsolidationBalancesRes()             {}
+func (*TooManyRequestsHeaders) listConsolidationGroupsRes()               {}
+func (*TooManyRequestsHeaders) listConsolidationRunsRes()                 {}
 func (*TooManyRequestsHeaders) listContractsRes()                         {}
 func (*TooManyRequestsHeaders) listCostCenterBalancesRes()                {}
 func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
@@ -63725,6 +66312,7 @@ func (*TooManyRequestsHeaders) listForecastVarianceDocumentsRes()         {}
 func (*TooManyRequestsHeaders) listGoodsReceiptsRes()                     {}
 func (*TooManyRequestsHeaders) listGrIrBalancesRes()                      {}
 func (*TooManyRequestsHeaders) listGrIrClearingsRes()                     {}
+func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
@@ -63841,6 +66429,7 @@ func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
+func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                     {}
@@ -63883,6 +66472,51 @@ func (*TooManyRequestsHeaders) uploadMemoRecordsRes()                     {}
 func (*TooManyRequestsHeaders) verifyAuditChainRes()                      {}
 func (*TooManyRequestsHeaders) withdrawChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) withdrawTaxReturnRes()                     {}
+
+// A journal line's trading partner (ADR-0059 §4): a legal entity of the tenant, by id and, to a
+// caller who may act in that company (ADR-0010), its company code and its name as it is now. To any
+// other caller the id alone (product owner 2026-11-05): the line is the entry's company's record, the
+// other company's master data is not.
+// Ref: #/components/schemas/TradingPartner
+type TradingPartner struct {
+	// The legal entity.
+	ID uuid.UUID `json:"id"`
+	// Its company code; absent when the caller may not act in the company.
+	Code OptString `json:"code"`
+	// Its name, as it is now: renaming the company changes no entry's ETag, and neither does who reads it.
+	// Absent when the caller may not act in the company.
+	Name OptString `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *TradingPartner) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCode returns the value of Code.
+func (s *TradingPartner) GetCode() OptString {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *TradingPartner) GetName() OptString {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *TradingPartner) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCode sets the value of Code.
+func (s *TradingPartner) SetCode(val OptString) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *TradingPartner) SetName(val OptString) {
+	s.Name = val
+}
 
 type TransmitBankFileBadRequest Problem
 
@@ -63979,6 +66613,7 @@ func (*UnauthorizedHeaders) createChangeRequestRes()                   {}
 func (*UnauthorizedHeaders) createClearingRes()                        {}
 func (*UnauthorizedHeaders) createCompanyAccessRes()                   {}
 func (*UnauthorizedHeaders) createConnectorRes()                       {}
+func (*UnauthorizedHeaders) createConsolidationRunRes()                {}
 func (*UnauthorizedHeaders) createContractRes()                        {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
@@ -64012,6 +66647,7 @@ func (*UnauthorizedHeaders) createWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) decideRecommendationRes()                  {}
 func (*UnauthorizedHeaders) deleteWebhookSubscriptionRes()             {}
 func (*UnauthorizedHeaders) disableConnectorRes()                      {}
+func (*UnauthorizedHeaders) discardConsolidationRunRes()               {}
 func (*UnauthorizedHeaders) enableConnectorRes()                       {}
 func (*UnauthorizedHeaders) endAgentSessionRes()                       {}
 func (*UnauthorizedHeaders) endCompanyAccessRes()                      {}
@@ -64034,6 +66670,7 @@ func (*UnauthorizedHeaders) getAssetRes()                              {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()                    {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                      {}
 func (*UnauthorizedHeaders) getAssetTransferRes()                      {}
+func (*UnauthorizedHeaders) getBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) getBankAccountRes()                        {}
 func (*UnauthorizedHeaders) getBankFileContentRes()                    {}
 func (*UnauthorizedHeaders) getBankFileRes()                           {}
@@ -64053,6 +66690,8 @@ func (*UnauthorizedHeaders) getCloseCalendarRes()                      {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                      {}
 func (*UnauthorizedHeaders) getConnectorRes()                          {}
+func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
+func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
@@ -64140,6 +66779,9 @@ func (*UnauthorizedHeaders) listCloseTasksRes()                        {}
 func (*UnauthorizedHeaders) listCompanyAccessRes()                     {}
 func (*UnauthorizedHeaders) listConfigVersionsRes()                    {}
 func (*UnauthorizedHeaders) listConnectorsRes()                        {}
+func (*UnauthorizedHeaders) listConsolidationBalancesRes()             {}
+func (*UnauthorizedHeaders) listConsolidationGroupsRes()               {}
+func (*UnauthorizedHeaders) listConsolidationRunsRes()                 {}
 func (*UnauthorizedHeaders) listContractsRes()                         {}
 func (*UnauthorizedHeaders) listCostCenterBalancesRes()                {}
 func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
@@ -64156,6 +66798,7 @@ func (*UnauthorizedHeaders) listForecastVarianceDocumentsRes()         {}
 func (*UnauthorizedHeaders) listGoodsReceiptsRes()                     {}
 func (*UnauthorizedHeaders) listGrIrBalancesRes()                      {}
 func (*UnauthorizedHeaders) listGrIrClearingsRes()                     {}
+func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
@@ -64272,6 +66915,7 @@ func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
+func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                     {}

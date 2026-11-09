@@ -67,6 +67,7 @@ TODAY=$(company_day)
 YEAR=${TODAY:0:4}
 PREV=$((YEAR - 1))
 CC=3000 # the pilot's SAP company code, Maple Industries Canada in the mock extract
+AE=5000 # the UAE pilot company of step 41 (T62f), which SAP's extract does not hold
 
 if [ -t 1 ]; then
   B=$'\033[1m' DIM=$'\033[2m' RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m' R=$'\033[0m'
@@ -126,6 +127,20 @@ tax_first() {
   today=$(company_day)
   y=${today:0:4} m=$((10#${today:5:2}))
   m=$(((m - 1) / 3 * 3 + 1 - 6))
+  if [ "$m" -lt 1 ]; then
+    m=$((m + 12)) y=$((y - 1))
+  fi
+  printf '%s-%02d-01' "$y" "$m"
+}
+
+# uae_first is the UAE registration's first period (step 41, T61k): the
+# latest quarter ended on the UAE company's date in Dubai, its cutover, so
+# its return is the first the ERP files for it.
+uae_first() {
+  local today y m
+  today=$(ZONE=Asia/Dubai company_day)
+  y=${today:0:4} m=$((10#${today:5:2}))
+  m=$(((m - 1) / 3 * 3 + 1 - 3))
   if [ "$m" -lt 1 ]; then
     m=$((m + 12)) y=$((y - 1))
   fi
@@ -417,9 +432,9 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off), the FPZ-500 for a"
-  say "    Quebec registrant, the UAE's VAT 201 and the tax agent's adjustment entries and code corrections (T61k,"
-  say "    T61l2): step 11 prepares, approves and files the GST/HST returns in order with the pack's lines, the tax agent"
-  say "    explaining the draft before Carla prepares it"
+  say "    Quebec registrant and the UAE VAT 201's sign-off (T61k: step 41 files it, not signed off): step 11 prepares,"
+  say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
+  say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
   say "    daily cash position with a memo record and the forecast of the supplier open items, payment runs, parked"
   say "    invoices, down payment requests and blocked suppliers; step 21 its rows by liquidity item; step 23 its opening,"
@@ -429,8 +444,7 @@ start() {
   say "    actuals in analytics, step 38 the forecast, its variance and accuracy in analytics; step 39 its agent, through a"
   say "    model stand-in"
   say "  - cost center postings, reports and planning (T56d-T56j)"
-  say "  - accounts receivable, the decisions on the period close's accrual proposals and its close agent (T64f, T64g,"
-  say "    T64j), consolidation (T68)"
+  say "  - accounts receivable, the consolidated statements, eliminations and finalization (T68e-T68h)"
   say "  - natural-language questions run on a live model (erp ask); here the same question is asked as a governed query"
 
   # ERP_EVAL_CELL: the close agent's principal runs at level 1 before its
@@ -763,7 +777,8 @@ step_migrate() {
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
-    'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences'; do
+    'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
+    'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -811,11 +826,54 @@ step_migrate() {
       postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
     expect "the migrated $kind's status" "$(field .status)" posted
   done
+  migrated_centers
   migrated_down_payment
   migrated_foreign_item
   migrated_grir
   migrated_foreign_grir
   passed
+}
+
+# migrated_centers shows SAP's controlling master data as the load brought
+# it over (ADR-0050 §10, T56h1): segment SEG-CAN, profit centers P3100 and
+# P3200 (locked from 1 October) and four cost centers, active at once with
+# SAP's time slices as their periods, each created by an applied center
+# change naming the run, with no approval request of its own (the run is
+# their approval), at the standard hierarchy's UNASSIGNED leaf until SAP's
+# hierarchies are migrated (T56h2). The reconciliation compared them per
+# center. Step 12 builds its structure in that standard hierarchy.
+migrated_centers() {
+  say "SAP's cost and profit centers and its segment came over first (CSKS, CEPC, FAGL_SEGM with their texts;"
+  say "ADR-0050 §10): each SAP time slice a period. Cost center 3120 moved to profit center P3200 on 1 July:"
+  jq -r --arg cc "$CC" '.CSKS[] | select(.BUKRS == $cc and .KOSTL == "3120") | "     CSKS \(.KOKRS)/\(.KOSTL) \(.DATAB)-\(.DATBI): \(.KOSAR), profit center \(.PRCTR)"' \
+    "$WORK/data/extract.json"
+  grep -E 'Cost centers|Profit centers' "$WORK/migrate.out" | sed 's/^/     /'
+  as carla
+  api 200 '.items[] | "segment \(.code) \(.name)"' listSegments -p code=SEG-CAN
+  expect "the migrated segment" "$(field '.items | length')" 1
+  api 200 '.items[] | "profit center \(.code) \(.name), responsible \(.responsible): \(.status), \([.periods[] | "\(.valid_from)..\(.valid_to // "") \(if .locked then "locked" else "open" end)"] | join(", "))"' \
+    listProfitCenters -p status=active
+  expect "the migrated profit centers" "$(field '[.items[] | select(.code | startswith("P3")) | .code] | sort | join(" ")')" "P3100 P3200"
+  expect "P3200's lock from 1 October" "$(field '.items[] | select(.code == "P3200") | [.periods[] | "\(.valid_from) \(.locked)"] | join(", ")')" \
+    "2020-01-01 false, $YEAR-10-01 true"
+  api 200 '.items[] | "cost center \(.code) \(.name), responsible \(.responsible): \(.status), \([.periods[] | "\(.valid_from)..\(.valid_to // "") \(.category)"] | join(", "))"' \
+    listCostCenters -p "legal_entity_id=$LE"
+  expect "the migrated cost centers" "$(field '[.items[] | .code] | sort | join(" ")')" "3100 3120 3200 3300"
+  expect "cost center 3100's name, its English text (CSKT)" "$(field '.items[] | select(.code == "3100") | .name')" Finance
+  local cc3120 pc3200
+  cc3120=$(field '.items[] | select(.code == "3120") | .id')
+  api 200 '"cost center \(.code): \([.periods[] | "\(.valid_from)..\(.valid_to // "") profit center \(.profit_center_id | .[0:8])..."] | join(", "))"' getCostCenter -p "id=$cc3120"
+  QUIET=1 api 200 '' listProfitCenters -p code=P3200
+  pc3200=$(field '.items[0].id')
+  QUIET=1 api 200 '' getCostCenter -p "id=$cc3120"
+  expect "3120's profit center from 1 July" "$(field '.periods[1] | "\(.valid_from) \(.profit_center_id)"')" "$YEAR-07-01 $pc3200"
+  say "Its creation is a center change applied by the run, with no approval request of its own:"
+  api 200 '.items[] | "center change \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
+    listCenterChanges -p "cost_center_id=$cc3120"
+  expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$cc3120"
+  expect "3120's place until SAP's hierarchies are migrated" "$(field '.items[0].nodes[-1].code')" UNASSIGNED
+  as ada
 }
 
 # migrated_foreign_item shows SAP's open invoice in USD of the CAD company
@@ -1921,7 +1979,7 @@ billing() {
 }
 
 step_tax() {
-  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them, explained first by the tax agent"
+  heading "Step 11 — Tax: the billing system's sales entries, their tax checked by the ledger, large ones parked for a person, and the return that files them, reviewed first by the tax agent"
   as carla
   api 200 '.items[] | select(.country == "CA") | "pack CA \(.version): \(.contents.tax_codes) tax codes; signed off: \(.sign_off // {} | if .tax_specialist then "\(.tax_specialist), \(.date)" else "no" end)"' listCountryPacks
   expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
@@ -2039,7 +2097,7 @@ tax_return() {
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
   expect "line 103, GST/HST collected, and its earlier period's part" "$(field '.boxes[] | select(.code == "103") | "\(.amount.amount) \(.prior_period_amount.amount)"')" "60.00 10.00"
   expect "the lines in the pack's order" "$(field '[.boxes[].code] | join(" ")')" "101 103 104 105 106 107 108 109 110 111 112 113a 205 405 113b 113c 114 115"
-  expect "lines 107 and 110, the adjustment and the instalment" "$(field '[.boxes[] | select(.code == "107" or .code == "110") | .amount.amount] | join(" ")')" "5.00 100.00"
+  expect "lines 107 and 110, the adjustment parked and the instalment without its code" "$(field '[.boxes[] | select(.code == "107" or .code == "110") | .amount.amount] | join(" ")')" "0.00 0.00"
   local draft
   draft=$(jq -cS . "$WORK/last.json")
   QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
@@ -2064,42 +2122,55 @@ tax_return() {
 # gst_adjustments END has Carla enter, dated END, what is
 # no document's tax (ADR-0049 §11, T61j): an adjustment decreasing the
 # net tax (code GA, line 107) and an instalment Maple paid (code GI, line
-# 110), each a manual entry of a code of tax alone.
+# 110), each a manual entry of a code of tax alone. She parks the
+# adjustment (GST_PARKED) and posts the instalment (GST_INSTALMENT, its
+# document number), both without their codes: the tax agent proposes
+# them (tax_agent, T61l2) and she posts what it proposed.
 gst_adjustments() {
   local end=$1 itc payable expense cash
   itc=$(account 1300)
   payable=$(account 2300)
   expense=$(account 6000)
   cash=$(account 100000)
-  say "The return also takes what is no document's tax: Carla enters, dated $end, an adjustment decreasing the net"
-  say "tax (line 107) and the instalment Maple paid towards it (line 110), each a manual entry of a code of tax"
-  say "alone, kind adjustment, whose tax is what the entry posts (ADR-0049 §11):"
-  api 201 "$entry" postJournalEntry -body "$(sale "GST/HST adjustment decreasing the net tax" "$(line "$itc" 5.00 GA), $(line "$expense" -5.00)" "$end")"
-  api 201 "$entry" postJournalEntry -body "$(sale "GST/HST instalment paid" "$(line "$payable" 100.00 GI), $(line "$cash" -100.00)" "$end")"
+  say "The return also takes what is no document's tax: an adjustment decreasing the net tax (line 107) and the"
+  say "instalment Maple paid towards it (line 110), each a manual entry of a code of tax alone, kind adjustment, whose"
+  say "tax is what the entry posts (ADR-0049 §11). Carla enters both, dated $end: she parks the adjustment, to post it"
+  say "once its figures are checked, and posts the instalment; she leaves out their codes, GA and GI, so no line of"
+  say "the return reports them yet:"
+  api 201 '"parked entry \(.status): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)"] | join(" / "))"' parkJournalEntry \
+    -body "$(sale "GST/HST adjustment decreasing the net tax" "$(line "$itc" 5.00), $(line "$expense" -5.00)" "$end")"
+  GST_PARKED=$(field .id)
+  api 201 "$entry" postJournalEntry -body "$(sale "GST/HST instalment paid" "$(line "$payable" 100.00), $(line "$cash" -100.00)" "$end")"
+  GST_INSTALMENT=$(field .document_number)
 }
 
-# tax_agent GST REGISTRATION START END is T61l1's part of step 11 (ADR-0049
-# §13): before Carla prepares the return of START to END, the tax agent,
-# erp agent tax-draft through the model stand-in answering from a script
-# of turns (its suite's replay, evals/tax), computes the draft, reads the
-# first period's filed return, line 103's items and the GST/HST account's
-# balances, and records an explanation of the draft for a person: line
-# 103 against the first period's, citing invoice 1039's entry, and why the
-# tax account shows that tax in another fiscal period. It prepares
-# nothing: the return's moves are a person's, and the API refuses the
-# agent's own call. Carla reads the explanation and accepts it.
+# tax_agent GST REGISTRATION START END is T61l1's and T61l2's part of step
+# 11 (ADR-0049 §13): before Carla prepares the return of START to END, the
+# tax agent, erp agent tax-draft through the model stand-in answering
+# from a script of turns (its suite's replay, evals/tax), computes the
+# draft, reads the first period's filed return, line 103's items, the
+# GST/HST account's balances and the parked entries, and proposes for a
+# person: an explanation of the draft (line 103 against the first
+# period's, citing invoice 1039's entry; lines 107 and 110 empty), GA on
+# Carla's parked adjustment (a code correction, a recommendation on the
+# entry), and the instalment's GI as an adjustment entry it parks. It
+# posts and prepares nothing: those are a person's, and the API refuses
+# the agent's own calls. Carla accepts the proposals, puts GA on her
+# entry and posts it and the agent's, and the draft's lines 107 and 110
+# show them.
 tax_agent() {
-  local gst=$1 registration=$2 start=$3 end=$4 role agent got session rec first now prev doc posted
+  local gst=$1 registration=$2 start=$3 end=$4 role agent got session first now prev doc posted adjustment
   as ada
   say "Ada sets up the tax agent (ADR-0049 §13): an agent principal of type tax at autonomy level 1 on erp-default, with"
   say "a monthly budget of USD 2.00; its role reads registrations, draft returns and returns, the ledger's entries,"
-  say "accounts and balances, and records its sessions and recommendations. It holds no permission that moves a return."
+  say "accounts and balances and the parked entries and invoices, parks entries, and records its sessions and"
+  say "recommendations. It holds no permission that posts an entry or moves a return."
   api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "tax_agent", "name": "Tax agent"}'
   role=$(field .id)
-  grant "$role" tax.registration.read tax.return.read ledger.entry.read ledger.account.read agents.session.read \
-    agents.session.record agents.model.invoke
+  grant "$role" tax.registration.read tax.return.read ledger.entry.read ledger.account.read ledger.entry.park payables.invoice.read \
+    agents.session.read agents.session.record agents.model.invoke
   api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency)"' \
-    createPrincipal -body '{"kind": "agent", "external_subject": "tax-agent", "display_name": "Tax agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "tax", "model": "erp-default", "description": "Explains draft tax returns for people to decide (ADR-0049)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+    createPrincipal -body '{"kind": "agent", "external_subject": "tax-agent", "display_name": "Tax agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "tax", "model": "erp-default", "description": "Reviews draft tax returns and proposes adjustments and code corrections for people to decide (ADR-0049)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
   agent=$(field .id)
   QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$agent\", \"role_id\": \"$role\"}"
   token tax-agent "Tax agent"
@@ -2116,11 +2187,15 @@ tax_agent() {
   [ -n "$doc" ] || fail "invoice 1039 is not among line 103's items"
   say "The agent runs: erp agent tax-draft computes the draft of $start to $end and starts a session. The model is the"
   say "stand-in, answering from a script of turns as the agent's evaluation suite replays them (evals/tax): it reads the"
-  say "draft, the first period's filed return, line 103's items and the GST/HST account's balances, and records one"
-  say "explanation for a person: line 103 is $now against $prev, the difference invoice 1039's entry $doc, posted on $posted"
-  say "with its tax date $end, so the tax account shows it in the period it was posted in."
+  say "draft, the first period's filed return, line 103's items, the GST/HST account's balances and the parked entries,"
+  say "and proposes three things for a person: an explanation (line 103 is $now against $prev, the difference invoice"
+  say "1039's entry $doc, posted on $posted with its tax date $end; lines 107 and 110 are empty); GA on Carla's parked"
+  say "adjustment, a correction it recommends on the entry, which it cannot change; and, for the instalment's entry"
+  say "$GST_INSTALMENT, an adjustment entry it parks: GI on 2300 and its reversal without a code, which leaves the"
+  say "account's balance as it is and reports the instalment on line 110."
   jq -n --arg reg "$registration" --arg start "$start" --arg end "$end" --arg first "$first" --arg le "$LE" --arg gst "$gst" \
-    --argjson year "${start%%-*}" --arg now "$now" --arg prev "$prev" --arg doc "$doc" --arg posted "$posted" '{
+    --argjson year "${start%%-*}" --arg now "$now" --arg prev "$prev" --arg doc "$doc" --arg posted "$posted" --arg today "$TODAY" \
+    --arg parked "$GST_PARKED" --arg inst "$GST_INSTALMENT" '{
     vars: {session: "session id is ([0-9a-f-]{36})"},
     turns: [
       {tool: "getTaxReturnDraft", input: {id: $reg, period_start: $start}},
@@ -2128,31 +2203,53 @@ tax_agent() {
       {tool: "getTaxReturn", input: {id: $first}},
       {tool: "listTaxReturnDraftItems", input: {id: $reg, period_start: $start, box: "103"}},
       {tool: "listBalances", input: {legal_entity_id: $le, fiscal_year: $year, account_id: $gst}},
+      {tool: "listParkedJournalEntries", input: {legal_entity_id: $le, status: "parked"}},
+      {tool: "getParkedJournalEntry", input: {id: $parked}},
       {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "tax_registration", object_id: $reg,
-        kind: "explain_draft_return", content: "GST34 of \($start) to \($end): line 103 \($now) against \($prev) in the first period'"'"'s filed return; the difference is invoice 1039 (entry \($doc)), posted on \($posted) with its tax date \($end), so 2300 GST/HST payable shows its tax in the fiscal period it was posted in, not in this tax period'"'"'s. Lines 107 and 110 are the adjustment and the instalment entered for the period. A person should confirm the late invoice before preparing the return."}}},
-      {final: "Explained the draft; a person prepares the return."}]}' >"$WORK/model-script.json"
+        kind: "explain_draft_return", content: "GST34 of \($start) to \($end): line 103 \($now) against \($prev) in the first period'"'"'s filed return; the difference is invoice 1039 (entry \($doc)), posted on \($posted) with its tax date \($end), so 2300 GST/HST payable shows its tax in the fiscal period it was posted in, not in this tax period'"'"'s. Lines 107 and 110 are 0.00: the instalment paid (entry \($inst)) carries no tax code, so an adjustment entry with GI is parked for a person to post, and the adjustment decreasing the net tax waits parked without its code, GA, which is proposed on it. A person should confirm the late invoice, and post both entries, before preparing the return."}}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "parked_journal_entry", object_id: $parked,
+        kind: "correct_tax_code", content: "The adjustment decreasing the net tax, dated \($end), debits 1300 GST/HST input tax credits 5.00 without a tax code, so no line of the return would report it once posted: GA on line 1 (1300, 5.00), the code of an adjustment decreasing the net tax (line 107)."}}},
+      {tool: "parkJournalEntry", input: {body: {legal_entity_id: $le, document_date: $end, posting_date: $today, tax_date: $end, currency: "CAD",
+        header_text: "Tax agent: the instalment of entry \($inst) on line 110 with GI",
+        lines: [{account_id: $gst, amount: {amount: "100.00", currency: "CAD"}, tax_code: "GI"}, {account_id: $gst, amount: {amount: "-100.00", currency: "CAD"}}]}}},
+      {final: "Explained the draft, proposed GA on the parked adjustment and parked the instalment'"'"'s GI; a person posts them and prepares the return."}]}' >"$WORK/model-script.json"
   show ERP_AGENT_TOKEN=… erp agent tax-draft -registration GSTHST -period "$start"
   got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/tax-agent") "$ERP" agent tax-draft -registration GSTHST -period "$start" 2>"$WORK/stderr") ||
     { rm -f "$WORK/model-script.json"; fail "erp agent tax-draft failed ($(cat "$WORK/stderr"))"; }
   rm -f "$WORK/model-script.json"
   printf '%s\n' "$got" | sed 's/^/     /'
   session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
-  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
-  rec=$(printf '%s\n' "$got" | sed -nE 's/^  recommendation ([0-9a-f-]{36})$/\1/p')
+  expect "what the agent proposed" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 2, entries parked 1, refused 0."
+  adjustment=$(printf '%s\n' "$got" | sed -nE 's/^  parked entry ([0-9a-f-]{36})$/\1/p')
   as tax-agent
-  say "Recommending is all it may do: preparing, approving, filing and withdrawing a return are a person's (x-agent:"
-  say "false), whatever its level, and erp agent builds it no tool for them; the API refuses its own call:"
+  say "Proposing is all it may do: posting an entry and preparing, approving, filing and withdrawing a return are a"
+  say "person's (x-agent: false), whatever its level, and erp agent builds it no tool for them; the API refuses its own"
+  say "calls:"
   refused 403 identity.agent_not_allowed prepareTaxReturn -p "id=$registration" -body "{\"period_start\": \"$start\"}"
+  refused 403 identity.agent_not_allowed postParkedJournalEntry -p "id=$adjustment" -if-match '"1"' -body '{}'
   say "Its session, which the command named, records each tool call:"
   api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
   expect "the session" "$(field .status)" completed
   api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
-  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "getTaxReturnDraft listTaxReturns getTaxReturn listTaxReturnDraftItems listBalances createRecommendation"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getTaxReturnDraft listTaxReturns getTaxReturn listTaxReturnDraftItems listBalances listParkedJournalEntries getParkedJournalEntry createRecommendation createRecommendation parkJournalEntry"
+  tax_agent_decided "$registration" "$start" "$session" "$doc" "$adjustment" "$got"
+}
+
+# tax_agent_decided REGISTRATION START SESSION DOC ADJUSTMENT OUTPUT is
+# Carla deciding what the tax agent proposed in SESSION (OUTPUT, what erp
+# agent tax-draft printed): she accepts its explanation of the draft,
+# citing DOC, and its code correction of her parked adjustment, puts GA
+# on the entry and posts it, and posts the adjustment entry it parked,
+# ADJUSTMENT, taking it on; the draft's lines 107 and 110 then report them.
+tax_agent_decided() {
+  local registration=$1 start=$2 session=$3 doc=$4 adjustment=$5 got=$6 rec fix
   as carla
   say "Carla reads the agent's explanation on the registration; nothing was prepared:"
   api 200 '(.items[] | "  \(.kind) by \(.agent_id[0:8])…, \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$registration"
   expect "the explanations of the registration's draft" "$(field '[.items[] | select(.kind == "explain_draft_return")] | length')" 1
-  expect "the explanation the agent printed" "$(field '.items[0].id')" "$rec"
+  rec=$(field '.items[0].id')
+  expect "the explanation, one the agent printed" "$(printf '%s\n' "$got" | grep -c "^  recommendation $rec\$")" 1
   expect "made in its session" "$(field '.items[0].session_id')" "$session"
   expect "citing invoice 1039's entry" "$(jq -r --arg d "$doc" '.items[0].content | contains("entry \($d)")' "$WORK/last.json")" true
   QUIET=1 api 200 '' listTaxReturns -p "id=$registration" -p "period_start=$start"
@@ -2162,17 +2259,43 @@ tax_agent() {
   api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
     -body '{"outcome": "accepted", "comment": "Invoice 1039 checked: it belongs to the period."}'
   expect "the explanation's outcome" "$(field .outcome)" accepted
+  say "The agent's correction is on her parked adjustment, which it did not change:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$GST_PARKED"
+  expect "the corrections of her parked adjustment" "$(field '[.items[] | select(.kind == "correct_tax_code")] | length')" 1
+  fix=$(field '.items[0].id')
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$GST_PARKED"
+  expect "her adjustment as she parked it" "$(field '"\(.version) \([.lines[] | .tax_code // "none"] | join(" "))"')" "1 none none"
+  say "She accepts it, puts GA on the entry's line on 1300 and posts it (within her approval limit):"
+  QUIET=1 api 200 '' getRecommendation -p "id=$fix"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$fix" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "GA added to the adjustment."}'
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$GST_PARKED"
+  api 200 '"parked entry \(.status): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)"] | join(" / "))"' \
+    updateParkedJournalEntry -p "id=$GST_PARKED" -if-match "$ETAG" -body "{\"lines\": [$(line "$(account 1300)" 5.00 GA), $(line "$(account 6000)" -5.00)]}"
+  api 200 '"parked entry \(.status) as journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$GST_PARKED" -if-match "$ETAG" -body '{}'
+  expect "her adjustment" "$(field .status)" posted
+  say "The adjustment entry the agent parked waits for a person; Carla checks it and posts it, taking it on:"
+  api 200 '.items[] | "  parked by \(.created_by_kind): \(.header_text), tax date \(.tax_date)"' listParkedJournalEntries -p "legal_entity_id=$LE" \
+    -p status=parked -p created_by_kind=agent
+  expect "the entries the agent parked" "$(field '[.items[].id] | join(" ")')" "$adjustment"
+  QUIET=1 api 200 '' getParkedJournalEntry -p "id=$adjustment"
+  api 200 '"parked entry \(.status) as journal entry \(.journal_entry_id)"' postParkedJournalEntry -p "id=$adjustment" -if-match "$ETAG" -body '{}'
+  expect "the agent's adjustment" "$(field .status)" posted
+  api 200 "$entry" getJournalEntry -p "id=$(field .journal_entry_id)"
+  QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "lines 107 and 110, the adjustment and the instalment" "$(field '[.boxes[] | select(.code == "107" or .code == "110") | .amount.amount] | join(" ")')" "5.00 100.00"
 }
 
-# close_tax_periods START END BODY REGISTRATION closes the leading
-# ledger's open fiscal periods of the tax period START to END, which
-# preparing the return BODY asks for needs (T61i), once preparing has
-# been refused for them; LEADING is the leading ledger.
+# close_tax_periods START END BODY REGISTRATION [LE] closes the leading
+# ledger's open fiscal periods of the tax period START to END of legal
+# entity LE ($LE when not given), which preparing the return BODY needs
+# (T61i), once preparing has been refused for them; LEADING is the
+# leading ledger.
 close_tax_periods() {
-  local start=$1 end=$2 body=$3 registration=$4 open p
+  local start=$1 end=$2 body=$3 registration=$4 le=${5:-$LE} open p
   QUIET=1 api 200 '' listLedgers
   LEADING=$(field '.items[] | select(.is_leading) | .id')
-  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$le" -p "fiscal_year=${start%%-*}" -p "ledger_id=$LEADING" -p page_size=100
   open=$(jq -r --arg s "$start" --arg e "$end" '[.items[] | select((.is_special | not) and .status == "open" and .start_date <= $e and .end_date >= $s)
     | "\(.id)/\(.version)"] | join(" ")' "$WORK/last.json")
   if [ -n "$open" ]; then
@@ -2283,9 +2406,11 @@ step_centers() {
   api 201 '"segment \(.code) \(.name)"' createSegment -body '{"code": "CA", "name": "Canada"}'
   local segment pch cch pc cc
   segment=$(field .id)
-  api 201 '"hierarchy \(.kind) \(.code), standard: \(.is_standard)"' createHierarchy \
-    -body '{"kind": "profit_center", "code": "PC-STD", "name": "Profit centers", "is_standard": true}'
-  pch=$(field .id)
+  say "The migration (step 3) placed SAP's centers in the standard hierarchies, at their UNASSIGNED leaf, until"
+  say "SAP's own hierarchies are migrated (T56h2); Sam builds the pilot's structure in them."
+  api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=profit_center -p is_standard=true
+  pch=$(field '.items[0].id')
+  QUIET=1 api 200 '' getHierarchy -p "id=$pch"
   add_node "$pch" "$(field .root_node_id)" EAST "Eastern Canada"
   api 201 '"profit center \(.code) \(.name): \(.status)"' createProfitCenter \
     -body "{\"code\": \"PC-MTL\", \"name\": \"Montreal office\", \"responsible\": \"Carla Controller\", \"segment_id\": \"$segment\", \"legal_entity_ids\": [\"$LE\"], \"valid_from\": \"$YEAR-01-01\", \"standard_node_id\": \"$NODE\", \"reason\": \"The pilot's office\"}"
@@ -2293,9 +2418,9 @@ step_centers() {
   center_approved sam
   api 200 '"profit center \(.code): \(.status) from \(.periods[0].valid_from)"' getProfitCenter -p "id=$pc"
   expect "profit center status" "$(field .status)" active
-  api 201 '"hierarchy \(.kind) \(.code), standard: \(.is_standard)"' createHierarchy \
-    -body '{"kind": "cost_center", "code": "CC-STD", "name": "Cost centers", "is_standard": true}'
-  cch=$(field .id)
+  api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=cost_center -p is_standard=true
+  cch=$(field '.items[0].id')
+  QUIET=1 api 200 '' getHierarchy -p "id=$cch"
   add_node "$cch" "$(field .root_node_id)" ADMIN Administration
   api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
     -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1100\", \"name\": \"Finance office\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"profit_center_id\": \"$pc\", \"valid_from\": \"$YEAR-01-01\", \"standard_node_id\": \"$NODE\", \"reason\": \"The pilot's finance office\"}"
@@ -3181,6 +3306,816 @@ step_asset_depreciation() {
   passed
 }
 
+# CONSOLIDATION_SETTINGS give the tenant group reporting (ADR-0059 §3,
+# T68a): the group chart, one account per type for what no elimination
+# holds, the intercompany accounts of the two eliminations, investments,
+# the four role accounts a run computes and the account differences go
+# to; company @CC@'s intercompany receivables and revenue and its
+# investment in Acme Corp US; Acme Corp US (1000, in USD, the legal entity
+# of step 36) in the configuration, its chart as SAP's company 1000 has it
+# with intercompany payables and expenses, in the leading ledger alone;
+# every account of both companies mapped to the group account of its type,
+# but the intercompany accounts and the investment, which have their own;
+# Acme Corp US's number ranges as Maple's this year, and its journal
+# entries' in the previous fiscal year too, whose periods it then has
+# (ADR-0059 §Steps); and the group MAPLE, Maple holding 80% of Acme Corp
+# US from period @FIRST@. @CC@, @YEAR@ and @FIRST@ are replaced.
+CONSOLIDATION_SETTINGS='(.consolidation = {
+  "accounts": [
+    {"number": "G1000", "name": "Other assets", "type": "asset"},
+    {"number": "G1250", "name": "Intercompany receivables", "type": "asset"},
+    {"number": "G1700", "name": "Investments in subsidiaries", "type": "asset"},
+    {"number": "G1900", "name": "Goodwill", "type": "asset", "role": "goodwill"},
+    {"number": "G2000", "name": "Liabilities", "type": "liability"},
+    {"number": "G2250", "name": "Intercompany payables", "type": "liability"},
+    {"number": "G3000", "name": "Equity", "type": "equity"},
+    {"number": "G3800", "name": "Retained earnings", "type": "equity", "role": "retained_earnings"},
+    {"number": "G3900", "name": "Currency translation reserve", "type": "equity", "role": "cta"},
+    {"number": "G3950", "name": "Non-controlling interests", "type": "equity", "role": "nci"},
+    {"number": "G4000", "name": "Revenue", "type": "revenue"},
+    {"number": "G4250", "name": "Intercompany revenue", "type": "revenue"},
+    {"number": "G5000", "name": "Expenses", "type": "expense"},
+    {"number": "G5250", "name": "Intercompany expenses", "type": "expense"},
+    {"number": "G6950", "name": "Intercompany differences", "type": "expense"}],
+  "eliminations": [
+    {"code": "IC_BALANCES", "name": "Intercompany receivables and payables", "accounts": ["G1250", "G2250"], "difference_account": "G6950", "tolerance": "10.00"},
+    {"code": "IC_RESULTS", "name": "Intercompany revenue and expenses", "accounts": ["G4250", "G5250"], "difference_account": "G6950", "tolerance": "1.00"}],
+  "groups": [{"code": "MAPLE", "name": "Maple group", "parent": "@CC@",
+    "members": [{"company": "1000", "ownership_percent": "80", "first_period": "@FIRST@", "investment_account": "1700"}]}]})
+| (.companies[] | select(.code == "@CC@") | .chart_of_accounts) += [
+    {"number": "1250", "name": "Intercompany receivables", "type": "asset"},
+    {"number": "1700", "name": "Investment in Acme Corp US", "type": "asset"},
+    {"number": "4250", "name": "Intercompany revenue", "type": "revenue"}]
+| .companies += [{"code": "1000", "name": "Acme Corp US", "currency": "USD", "country": "US", "fiscal_year_start_month": 1,
+    "time_zone": "America/New_York",
+    "chart_of_accounts": [
+      {"number": "100000", "name": "Bank - Operating", "type": "asset"},
+      {"number": "140000", "name": "Input Tax", "type": "asset"},
+      {"number": "211000", "name": "Accounts Payable - Domestic", "type": "liability", "vendor_reconciliation": true},
+      {"number": "225000", "name": "Intercompany payables", "type": "liability", "vendor_reconciliation": true},
+      {"number": "300000", "name": "Share Capital", "type": "equity"},
+      {"number": "400000", "name": "Sales Revenue", "type": "revenue"},
+      {"number": "480000", "name": "Purchase discounts received", "type": "revenue"},
+      {"number": "510000", "name": "Raw Materials Consumed", "type": "expense"},
+      {"number": "520000", "name": "Office Supplies", "type": "expense"},
+      {"number": "525000", "name": "Intercompany services", "type": "expense"},
+      {"number": "530000", "name": "IT Services", "type": "expense"}],
+    "account_determination": {"ap_reconciliation": "211000", "input_tax": "140000", "bank": "100000", "cash_discount": "480000"},
+    "tax_codes": [{"code": "V0", "description": "Input tax exempt", "rate_percent": "0", "account": "140000"}],
+    "invoice_tolerance": {"price_percent": 2, "price_absolute": "5.00"},
+    "auto_post_limit": "50000.00", "manual_entry_approval_limit": "10000.00", "gr_over_delivery_percent": 0,
+    "house_bank": {"name": "MAIN", "iban": "GB33BUKB20201555555555", "bic": "BUKBGB22"}}]
+| ({"1250": "G1250", "1700": "G1700", "4250": "G4250", "225000": "G2250", "525000": "G5250"}) as $own
+| ({"asset": "G1000", "liability": "G2000", "equity": "G3000", "revenue": "G4000", "expense": "G5000"}) as $type
+| (.companies[] | select(.code == "@CC@" or .code == "1000") | .chart_of_accounts[]) |= (.group_account = ($own[.number] // $type[.type]))
+| .number_ranges += ([.number_ranges[] | select(.company == "@CC@" and .fiscal_year == @YEAR@
+      and (.document_type | IN("asset", "journal_aa", "journal_af") | not)) | .company = "1000"]
+    + [.number_ranges[] | select(.company == "@CC@" and .fiscal_year == @YEAR@ and (.document_type | startswith("journal_"))
+      and (.document_type | IN("journal_aa", "journal_af") | not)) | .company = "1000" | .fiscal_year = @YEAR@ - 1])'
+
+# step_consolidation is group reporting's configuration (T68a, ADR-0059
+# §3, §12): Ada proposes the group chart, the mapping of both companies'
+# accounts, the eliminations and the group MAPLE, Maple holding 80% of
+# Acme Corp US from today's period, a tier 4 change with its evidence,
+# approved and activated; Carla reads the group with its companies named
+# and the group chart; Cory, who may act in Maple alone, sees no group.
+step_consolidation() {
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners and a consolidation run"
+  as ada
+  local base settings first cr request
+  first="$YEAR-${TODAY:5:2}"
+  say "Maple holds 80% of Acme Corp US, its US sister of step 36. Ada proposes group reporting (ADR-0059 §3): a group"
+  say "chart of accounts, each account of both companies mapped to it, the eliminations of intercompany receivables and"
+  say "payables and of intercompany revenue and expenses, each with its tolerance in CAD, and the group MAPLE, Maple"
+  say "holding Acme Corp US from period $first. Acme Corp US joins the configuration with its chart, in the leading"
+  say "ledger alone, and Maple's chart gains its investment in it. The chart, the mapping and the group decide what the"
+  say "consolidated statements say: a structural change, tier 4."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  settings=${CONSOLIDATION_SETTINGS//@YEAR@/$YEAR}
+  settings=${settings//@CC@/$CC}
+  settings=${settings//@FIRST@/$first}
+  jq "{title: \"Group reporting: the group MAPLE\", rationale: \"Consolidation of Maple and Acme Corp US (T68a)\", base_version: $base,
+    proposed: (.items[0].document | $settings)}" "$WORK/last.json" >"$WORK/consolidation.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @consolidation.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier) (structural): \(.items | length) changes, among them \([.items[] | select(.path | startswith("consolidation")) | "\(.path) (tier \(.tier))"] | join(", "))"' \
+    submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the group among the changes" "$(field '[.items[] | select(.path == "consolidation.groups[MAPLE]") | .tier] | join(" ")')" 4
+  expect "an elimination's tier" "$(field '[.items[] | select(.path == "consolidation.eliminations[IC_BALANCES]") | .tier] | join(" ")')" 3
+  say "The invoices of the last year are replayed under it, against a regression suite of the active version:"
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body '{"name": "Before group reporting", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Group chart and mapping checked"
+  approve carla "$request" "The group's structure is the shareholder register's"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "Carla reads the group as the consolidation context gives it: its companies by code, name and currency, the"
+  say "ownership, the period Acme Corp US is first consolidated in and Maple's investment account, by number and name:"
+  api 200 '"group \(.code) \(.name), in \(.group_currency): parent \(.parent.company_code) \(.parent.company_name) (\(.parent.local_currency))",
+    (.members[] | "  member \(.company_code) \(.company_name) (\(.local_currency)): \(.ownership_percent)% from \(.first_fiscal_year)-\(.first_fiscal_period), investment \(.investment_account.number) \(.investment_account.name)")' \
+    getConsolidationGroup -p code=MAPLE
+  expect "the parent" "$(field '"\(.parent.company_code) \(.parent.company_name) \(.parent.legal_entity_id)"')" "$CC Maple Industries Canada $LE"
+  expect "the member" "$(field '.members[] | "\(.company_code) \(.company_name) \(.local_currency) \(.ownership_percent) \(.first_fiscal_year)-\(.first_fiscal_period)"')" \
+    "1000 Acme Corp US USD 80 $YEAR-$((10#${TODAY:5:2}))"
+  expect "the investment account" "$(field '.members[0].investment_account | "\(.number) \(.name)"')" "1700 Investment in Acme Corp US"
+  api 200 '"groups: \([.items[].code] | join(", "))"' listConsolidationGroups
+  expect "the groups Carla sees" "$(field '[.items[].code] | join(" ")')" MAPLE
+  say "The group chart: each account's type, the role a consolidation run gives it, the elimination it belongs to and"
+  say "how many company accounts map to it:"
+  api 200 '.items[] | "  \(.number) \(.name) (\(.type)\(if .role then ", role \(.role)" else "" end))\(if .elimination then ", elimination \(.elimination.code)" else "" end): \(.mapped_accounts) accounts"' \
+    listGroupAccounts
+  expect "the role accounts" "$(field '[.items[] | select(.role) | "\(.number)=\(.role)"] | join(" ")')" "G1900=goodwill G3800=retained_earnings G3900=cta G3950=nci"
+  expect "a role account takes no company account" "$(field '[.items[] | select(.role) | .mapped_accounts] | add')" 0
+  api 200 '.items[] | "  \(.number) \(.name): \(.elimination.name), \(.mapped_accounts) account"' listGroupAccounts -p elimination=IC_BALANCES
+  expect "the intercompany balances' accounts" "$(field '[.items[] | "\(.number):\(.mapped_accounts)"] | join(" ")')" "G1250:1 G2250:1"
+  as ada
+  say "Cory in reporting (step 36) is given the consolidation read and the ledger's entry read; he may act in Maple"
+  say "alone. A group's figures are only meaningful whole, so a group with a member he may not act in is unknown to"
+  say "him, never shown in part (ADR-0059 §12):"
+  grant "$(role cash_reporting)" consolidation.read ledger.entry.read
+  as cory
+  api 200 '"groups: \(.items | length)"' listConsolidationGroups
+  expect "the groups Cory sees" "$(field '.items | length')" 0
+  refused 404 consolidation.group_unknown getConsolidationGroup -p code=MAPLE
+  consolidation_trading_partner
+  consolidation_run
+  as tom
+  passed
+}
+
+# consolidation_trading_partner is the trading partner on journal lines
+# (T68b, ADR-0059 §4), part of step_consolidation: Maple's USD invoice to
+# its sister Acme Corp US (company 1000), posted by hand on the month's
+# first day as an intercompany receivable (1250) against intercompany
+# revenue (4250), names company 1000 on both lines; the entry reads back
+# with the company's code and name, the journal lists it by trading
+# partner, Cory (Maple alone) reads it with the trading partner's id
+# alone (product owner 2026-11-05), and a line naming Maple itself is
+# refused. Then the trading partner derived from the business partner
+# (T68c): Maple's business partner record of Acme Corp US, a supplier of
+# Maple's, is linked to company 1000, and its USD invoice, posted through
+# payables without naming a trading partner, carries 1000 on every line.
+consolidation_trading_partner() {
+  local first="${TODAY:0:7}-01" receivable revenue us je body
+  say "The trading partner on journal lines (T68b, ADR-0059 §4): an intercompany line names the group company on its"
+  say "other side, so that a consolidation run can read each company's balances per trading partner."
+  as carla
+  accounts
+  receivable=$(account 1250)
+  revenue=$(account 4250)
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Carla posts Maple's invoice to Acme Corp US, USD 2,000.00 dated $first (booked at 1.35), as a manual entry:"
+  say "the intercompany receivable against intercompany revenue, each line naming company 1000 as its trading partner (ADR-0059 §4)."
+  body="{\"legal_entity_id\": \"$LE\", \"document_date\": \"$first\", \"posting_date\": \"$first\", \"currency\": \"USD\", \"header_text\": \"Engineering services to Acme Corp US\", \"lines\": [{\"account_id\": \"$receivable\", \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}, \"trading_partner_id\": \"$us\"}, {\"account_id\": \"$revenue\", \"amount\": {\"amount\": \"-2000.00\", \"currency\": \"USD\"}, \"trading_partner_id\": \"$us\"}]}"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.amount.amount) USD = \(.amount_lc.amount) CAD, trading partner \(.trading_partner.code) \(.trading_partner.name)"] | join(" / "))"' \
+    postJournalEntry -body "$body"
+  je=$(field .id)
+  say "She reads it back: each line names its trading partner by company code and name, beside its id."
+  api 200 '.lines[] | "  line \(.line_no): \(.amount.amount) \(.amount.currency), trading partner \(.trading_partner.code) \(.trading_partner.name) (\(.trading_partner.id[0:8])…)"' \
+    getJournalEntry -p "id=$je"
+  expect "the lines' trading partners" "$(field '[.lines[].trading_partner | "\(.code) \(.name)"] | unique | join(", ")')" "1000 Acme Corp US"
+  expect "the trading partner's id" "$(field '[.lines[].trading_partner.id] | unique | join(" ")')" "$us"
+  say "The journal lists Maple's entries with company 1000 as trading partner: this invoice alone so far."
+  api 200 '.items[] | "  entry \(.document_number) of \(.posting_date): \(.header_text)"' listJournalEntries -p "legal_entity_id=$LE" -p "trading_partner_id=$us"
+  expect "the entries naming Acme Corp US" "$(field '[.items[].id] | join(" ")')" "$je"
+  say "Cory, who may act in Maple alone, reads the same entry: its trading partner is a company he may not act in, so"
+  say "he is shown its id alone, without its code or name (product owner 2026-11-05, ADR-0010):"
+  as cory
+  api 200 '.lines[] | "  line \(.line_no): trading partner \(.trading_partner.id[0:8])…, code \(.trading_partner.code // "not shown"), name \(.trading_partner.name // "not shown")"' \
+    getJournalEntry -p "id=$je"
+  expect "the trading partner Cory sees" "$(field '[.lines[].trading_partner | "\(.id) \(.code) \(.name)"] | unique | join(", ")')" "$us null null"
+  as carla
+  say "A trading partner is another company of the group: a line naming Maple itself is refused on that line."
+  refused 422 ledger.trading_partner_invalid postJournalEntry -body "${body%\"$us\"\}\]\}}\"$LE\"}]}"
+  expect "the refused line" "$(field '[.errors[] | "\(.field) \(.code)"] | join(", ")')" "lines[1].trading_partner_id own_company"
+  trading_partner_derived "$us" "$first"
+}
+
+# trading_partner_derived US FIRST is T68c (ADR-0059 §4): Ben creates
+# Maple's business partner record of Acme Corp US (company US), a supplier
+# set up in Maple as Tyrell is, linked to the company; Carla approves it;
+# Alex posts its USD invoice of day FIRST through payables without naming
+# a trading partner, and every line of its entry carries company 1000.
+trading_partner_derived() {
+  local us=$1 first=$2 recon term partner invoice entry item
+  as ben
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  recon=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  term=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .payment_term_code")
+  say "Acme Corp US also invoices Maple, for engineering it does for its sister. Ben creates its business partner"
+  say "record as a supplier of Maple and links it to company 1000, the group company it is (ADR-0059 §4):"
+  api 201 '"business partner \(.number) \(.name): \(.status), group company \(.group_company.code) \(.group_company.name)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Acme Corp US\", \"country_code\": \"US\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"$term\"}], \"group_company_id\": \"$us\", \"reason\": \"Our US sister invoices engineering to Maple\"}"
+  partner=$(field .id)
+  expect "the partner's group company" "$(field '"\(.group_company_id) \(.group_company.code) \(.group_company.name)"')" "$us 1000 Acme Corp US"
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$partner" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Our own US company, checked against the group's companies"
+  as alex
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$partner"
+  expect "the partner's status" "$(field .status)" active
+  say "Alex posts its invoice, USD 1,500.00 of engineering on 6100 dated $first, naming no trading partner:"
+  item="{\"account_id\": \"$(account 6100)\", \"description\": \"Engineering services\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"1500.00\", \"currency\": \"USD\"}}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$partner\", \"supplier_reference\": \"ACME-US-7\", \"invoice_date\": \"$first\", \"gross_amount\": {\"amount\": \"1500.00\", \"currency\": \"USD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"USD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$first\"}"
+  entry=$(field .journal_entry_id)
+  say "The ledger took the trading partner from the business partner: the supplier line, and the expense line with it."
+  api 200 '.lines[] | "  line \(.line_no): \(.account_id | acct) \(.amount.amount) \(.amount.currency), trading partner \(.trading_partner.code) \(.trading_partner.name)"' \
+    getJournalEntry -p "id=$entry"
+  expect "the invoice's lines' trading partners" "$(field '[.lines[] | "\(.trading_partner.code) \(.trading_partner.name)"] | unique | join(", ")')" "1000 Acme Corp US"
+  expect "the invoice's lines" "$(field '.lines | length')" 2
+}
+
+# consolidation_run is the consolidation run and its currency translation
+# (T68d, ADR-0059 §6, §7), part of step_consolidation. Acme Corp US's
+# period of today opens; Ben records Maple Industries Canada as a supplier
+# of Acme Corp US, its intercompany payables account 225000 and linked to
+# company 3000; Alex posts Maple's USD 2,000.00 invoice for engineering at
+# Acme Corp US on the month's first day (at 1.35, step 9's rate). Carla
+# runs the group MAPLE for today's period: the run is computed; Acme Corp
+# US's payable at the closing rate 1.40 (step 9's rate from the month's
+# end, so any day of the month gives these figures), its expense at the
+# booked 1.35, the difference on the currency translation reserve; Maple,
+# in the group currency, at rate 1 with no difference.
+consolidation_run() {
+  local first="${TODAY:0:7}-01" period=$((10#${TODAY:5:2})) us p recon term partner item invoice run
+  as carla
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Acme Corp US's periods were set up closed (T68a). Carla opens today's period, $YEAR-$period, in its leading ledger"
+  say "for the sister's invoice:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$us" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  p=$(field ".items[] | select(.period == $period) | \"\(.id)/\(.version)\"")
+  api 200 '"period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  as ben
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$us" -p page_size=200
+  cp "$WORK/last.json" "$WORK/us-accounts.json"
+  recon=$(jq -r '.items[] | select(.number == "225000") | .id' "$WORK/us-accounts.json")
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  term=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .payment_term_code")
+  say "Maple invoices its sister for engineering too. Ben records Maple Industries Canada as a supplier of Acme Corp US,"
+  say "on its intercompany payables account 225000, linked to company $CC, the group company it is (ADR-0059 §4):"
+  api 201 '"business partner \(.number) \(.name): \(.status), group company \(.group_company.code) \(.group_company.name)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Maple Industries Canada\", \"country_code\": \"CA\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$us\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"$term\"}], \"group_company_id\": \"$LE\", \"reason\": \"Our Canadian sister invoices engineering to Acme Corp US\"}"
+  partner=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$partner" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Our own Canadian company, checked against the group's companies"
+  as alex
+  say "Alex posts Maple's invoice at Acme Corp US, USD 2,000.00 of intercompany services on 525000 dated $first:"
+  item="{\"account_id\": \"$(jq -r '.items[] | select(.number == "525000") | .id' "$WORK/us-accounts.json")\", \"description\": \"Engineering services\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}}"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$us\", \"supplier_id\": \"$partner\", \"supplier_reference\": \"MAPLE-CA-11\", \"invoice_date\": \"$first\", \"gross_amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"USD\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$first\"}"
+  as carla
+  say "Carla runs the group MAPLE for $YEAR-$period (ADR-0059 §6): a run of a group and period is a long-running operation"
+  say "that reads each company's leading-ledger balances through the period and translates them into the group currency,"
+  say "CAD (§7, a method to be confirmed by an accounting specialist): assets and liabilities at the closing rate, income,"
+  say "expenses and equity at their booked group amounts, earlier results on retained earnings, the rest on the reserve."
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  api 200 '"run of \(.group_code) \(.group_name) for \(.fiscal_year)-\(.period) (\(.period_start) to \(.period_end)): \(.status), in \(.group_currency) at \(.rate_type) rates, configuration version \(.config_version)",
+    (.members[] | "  \(.role) \(.company_code) \(.company_name) (\(.local_currency)): closing rate \(.closing_rate)\(if .rate_valid_from then " from \(.rate_valid_from)" else "" end), period \(.period_status) at version \(.period_version)")' \
+    getConsolidationRun -p "id=$run"
+  expect "the run" "$(field .status)" computed
+  expect "the closing rates" "$(field '[.members[] | "\(.company_code)=\(.closing_rate)"] | join(" ")')" "$CC=1 1000=1.4"
+  say "Acme Corp US's translated balances: its payable to Maple at the closing 1.40, its expense at the booked 1.35, and"
+  say "the difference on the currency translation reserve, so its translated figures sum to zero:"
+  api 200 '.items[] | "  \(.line_no) \(.kind) \(.group_account.number) \(.group_account.name)\(if .account then " / \(.account.number) \(.account.name)" else "" end)\(if .trading_partner then ", trading partner \(.trading_partner.code)" else "" end): \(if .amount_lc then "\(.amount_lc.amount) \(.amount_lc.currency), booked \(.amount_gc_booked.amount), " else "" end)translated \(.amount_gc.amount) \(.amount_gc.currency)\(if .closing_rate then " at \(.closing_rate)" else "" end)"' \
+    listConsolidationBalances -p "id=$run" -p "legal_entity_id=$us"
+  expect "Acme Corp US's rows" "$(field '[.items[] | "\(.kind) \(.account.number // "-") \(.amount_lc.amount // "-") \(.amount_gc.amount)"] | join(", ")')" \
+    "balance 225000 -2000.00 -2800.00, cta - - 100.00, balance 525000 2000.00 2700.00"
+  expect "Acme Corp US's translated total" "$(field .totals.group.amount)" 0.00
+  say "Maple keeps its books in the group currency: rate 1, and no translation difference:"
+  api 200 '"  Maple: \(.items | length) translation differences; its rows sum to \(.totals.group.amount) \(.totals.group.currency)"' \
+    listConsolidationBalances -p "id=$run" -p "legal_entity_id=$LE" -p kind=cta
+  expect "Maple's translation differences" "$(field '.items | length')" 0
+}
+
+# UAE_COMPANY is the UAE pilot company in the configuration before its
+# country pack (T62f): what a company of a document needs, its name,
+# currency, country, fiscal year and time zone, the accounts its account
+# determination names (the cash discount account too, as the document's
+# payment terms grant discounts), named and typed as the pack names them so
+# that applying the pack keeps them without a conflict, its tolerances and
+# limits, a house bank (the walkthrough's illustrative IBAN, as step 41
+# needs none to pay), and its VAT registration with the FTA (T61k): the
+# number illustrative, the VAT 201 its return, quarterly from @FIRST@, the
+# latest quarter ended (uae_first). @AE@ and @FIRST@ are replaced.
+UAE_COMPANY='{"code": "@AE@", "name": "Maple Gulf Trading", "currency": "AED", "country": "AE", "fiscal_year_start_month": 1,
+  "time_zone": "Asia/Dubai",
+  "chart_of_accounts": [
+    {"number": "1000", "name": "Bank - operating", "type": "asset"},
+    {"number": "1300", "name": "VAT recoverable (input tax)", "type": "asset"},
+    {"number": "2000", "name": "Accounts payable - trade", "type": "liability", "vendor_reconciliation": true},
+    {"number": "4800", "name": "Purchase discounts received", "type": "revenue"}],
+  "account_determination": {"ap_reconciliation": "2000", "input_tax": "1300", "bank": "1000", "cash_discount": "4800"},
+  "invoice_tolerance": {"price_percent": 2, "price_absolute": "20.00"},
+  "auto_post_limit": "50000.00", "manual_entry_approval_limit": "50000.00", "gr_over_delivery_percent": 0,
+  "house_bank": {"name": "MAIN", "iban": "GB33BUKB20201555555555", "bic": "BUKBGB22"},
+  "tax_registrations": [{"code": "FTA_VAT", "authority": "FTA", "number": "100123456789003", "return_type": "VAT201", "frequency": "quarterly",
+    "first_period_start": "@FIRST@"}]}'
+
+# governed CR WHAT submits a structural change request, evidences it (a
+# regression suite of the last year's invoices, replayed under the
+# proposal), has the solution architect and the controller approve it and
+# activates it, as Ada.
+governed() {
+  local cr=$1 request
+  api 200 '"\(.status), tier \(.tier): \(.items | length) changes"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "$2: the change's tier" "$(field .tier)" 4
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body "{\"name\": \"Before $2\", \"window_days\": 366}"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "$2: status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Structure checked"
+  approve carla "$request" "Postings checked"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "$2: status after activation" "$(field .status)" active
+}
+
+# step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
+# Ada creates the UAE pilot company, proposes it in the configuration and
+# applies the UAE pack to it, not signed off, so with a note; Alex posts a
+# UAE supplier's invoice above AED 10,000 and one below: the supplier has
+# no TRN on file, so the first carries the documentary warning of the
+# pack's tier, pending the tax specialist, and the second none; the
+# company's VAT 201 of the latest quarter ended is computed, prepared,
+# approved and filed (T61k, uae_return).
+step_uae() {
+  heading "Step 41 — The UAE country pack: the UAE pilot company applies it; an invoice above AED 10,000 without the supplier's TRN is flagged; its VAT 201 is filed"
+  as ada
+  local cal ae base cr p supplier expense recon item invoice company=${UAE_COMPANY//@AE@/$AE}
+  say "The second pilot is a UAE company (07 §7.6). The image holds the UAE pack (T62f): its VAT codes and tax"
+  say "settings as ADR-0049 records them for the UAE, a starter chart, number ranges and payment terms; no holidays"
+  say "(no source is recorded); 2026.2 adds the VAT 201's boxes (T61k). Every UAE tax item waits for the tax"
+  say "specialist (packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so the pack is not signed off and production"
+  say "refuses to apply it (409 config.pack_not_signed_off); outside production it is applied with a note, as here."
+  api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false"
+  say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
+  QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
+  cal=$(field .fiscal_calendar_id)
+  api 201 '"legal entity \(.code) \(.name): \(.country_code), \(.local_currency), \(.status)"' createLegalEntity \
+    -body "{\"code\": \"$AE\", \"name\": \"Maple Gulf Trading\", \"country_code\": \"AE\", \"local_currency\": \"AED\", \"fiscal_calendar_id\": \"$cal\"}"
+  ae=$(field .id)
+  api 200 '"legal entity \(.code): \(.status)"' activateLegalEntity -p "id=$ae" -if-match "$ETAG"
+  say "A pack is applied to a company of the configuration, so she first proposes the company: its currency,"
+  say "country and time zone (Asia/Dubai), its house bank and the accounts its account determination needs, as"
+  say "the pack names them, and its VAT registration with the FTA (T61g), whose return is the VAT 201 and whose first"
+  say "period, the cutover, is the latest quarter ended. A new company is a structural change, tier 4, with its"
+  say "evidence and two approvers."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"The UAE company $AE\", rationale: \"The UAE pilot company (T62f)\", base_version: $base,
+    proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
+  governed "$(field .id)" "the UAE company"
+  say "Ada applies the latest UAE pack, 2026.2, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "the pack's, and adds the rest; its notes for the reviewers say the pack is not signed off:"
+  api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
+    -body "{\"country\": \"AE\", \"version\": \"2026.2\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+  cr=$(field .id)
+  excerpt '.notes[] | "note \(.path): \(.message)"'
+  expect "the note that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 1
+  expect "conflicts with the company's own settings" "$(field '[.notes[] | select((.path | startswith("companies['"$AE"']")) and (.message | startswith("conflict")))] | length')" 0
+  say "The company takes the pack's VAT codes, each with its UN/CEFACT category, and its tax settings:"
+  excerpt '.proposed.companies[] | select(.code == "'"$AE"'") | (.tax_codes[] | "  \(.code) \(.direction) \(.kind) \(.category // "-"): \(.description)"),
+    (.tax_settings | "  rate type \(.rate_type), rounding per \(.rounding)", (.documentary_requirements[] | "  above AED \(.above): \(.requires | join(", ")), pending sign-off \(.pending_sign_off) (\(.source))"))'
+  expect "the documentary tier" "$(field '.proposed.companies[] | select(.code == "'"$AE"'") | .tax_settings.documentary_requirements | map("\(.above) \(.requires | join(" ")) \(.pending_sign_off)") | join(", ")')" \
+    "10000 supplier_tax_id true"
+  governed "$cr" "the UAE pack"
+  say "The pack's number ranges gave $AE the periods of $YEAR, closed; Ada opens the one of today."
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$ae" -p "fiscal_year=$YEAR" -p page_size=100
+  for p in $(jq -r --arg d "$TODAY" '.items[] | select((.is_special | not) and .start_date <= $d and .end_date >= $d and .status == "closed") | "\(.id)/\(.version)"' "$WORK/last.json"); do
+    api 200 '"period \(.fiscal_year)/\(.period) \(.start_date) to \(.end_date): \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  expect "today's period of $AE open" "$(field .status)" open
+  as tom
+  say "The tenant's currency is CAD, and the ledger converts $AE's postings into it too: Tom records an AED"
+  say "rate, an illustrative one for the walkthrough, not a published rate."
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"AED\", \"to_currency\": \"CAD\", \"valid_from\": \"$YEAR-01-01\", \"rate\": \"0.37\", \"source\": \"walkthrough\"}"
+  as alex
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  expense=$(field '.items[] | select(.number == "6000") | .id')
+  recon=$(field '.items[] | select(.number == "2000") | .id')
+  say "Alex sets up a UAE supplier for $AE, Gulf Office Interiors. Its TRN has not been received, so none is on"
+  say "file; Carla, who approves supplier master data, approves it."
+  api 201 '"supplier \(.name), \(.country_code), \(.status)"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Gulf Office Interiors\", \"country_code\": \"AE\", \"roles\": [\"supplier\"], \"supplier_companies\": [{\"legal_entity_id\": \"$ae\", \"reconciliation_account_id\": \"$recon\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Office fit-out supplier of the UAE company\"}"
+  supplier=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$supplier"
+  approve carla "$(field '.items[0].workflow_request_id')" "Supplier confirmed by call-back"
+  as alex
+  say "Its tax invoice for office furniture: AED 12,000.00 plus 600.00 VAT on V5, the pack's standard purchase code,"
+  say "AED 12,600.00 in all. Posting calculates the VAT at the code's 5% and checks the documentary requirement the"
+  say "pack brings (Executive Regulation Art. 59, as ADR-0049 records it): above AED 10,000 the supplier's TRN, a tax"
+  say "identifier of the UAE that the supplier does not have. A warning, pending the tax specialist; not a refusal:"
+  item="{\"account_id\": \"$expense\", \"description\": \"Office furniture\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"12000.00\", \"currency\": \"AED\"}, \"tax_code\": \"V5\"}"
+  api 201 '"\(.kind) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-1001\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"12600.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"600.00\", \"currency\": \"AED\"}, \"items\": [$item]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)", (.documentary_warnings[] | "warning \(.code): above \(.threshold.amount) \(.threshold.currency), pending sign-off \(.pending_sign_off), \(.source)")' \
+    postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice's status" "$(field .status)" posted
+  expect "the invoice's documentary warnings" \
+    "$(field '[.documentary_warnings[] | "\(.code) \(.threshold.amount) \(.threshold.currency) \(.threshold_inclusive) \(.pending_sign_off)"] | join(", ")')" \
+    "supplier_tax_id_missing 10000.00 AED false true"
+  say "Its next invoice, AED 4,000.00 plus 200.00 VAT, is below the threshold: no warning."
+  api 201 '"\(.kind) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"GOI-1002\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"4200.00\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"200.00\", \"currency\": \"AED\"}, \"items\": [${item//12000.00/4000.00}]}"
+  invoice=$(field .id)
+  api 200 '"\(.document_number): \(.status), \(.documentary_warnings | length) documentary warnings"' \
+    postSupplierInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the smaller invoice's status" "$(field .status)" posted
+  expect "the smaller invoice's documentary warnings" "$(field '.documentary_warnings | length')" 0
+  uae_return "$ae" "$supplier" "$expense"
+  passed
+}
+
+# uae_return AE SUPPLIER EXPENSE is step 41's VAT 201 (T61k) of legal
+# entity AE's latest quarter ended: Carla posts its sales in Dubai and Abu
+# Dhabi, a zero-rated export, an exempt supply and the import VAT of a
+# customs declaration, and Alex the supplier's invoices of the domestic
+# reverse charge and of blocked VAT, each dated the quarter's last day;
+# Carla computes the draft and drills box 1b down, prepares the return,
+# Fiona approves it and Carla records it filed.
+uae_return() {
+  local ae=$1 supplier=$2 expense=$3 registration start end bank sales vat input ret request
+  as carla
+  QUIET=1 api 200 '' listAccounts -p "legal_entity_id=$ae" -p page_size=200
+  bank=$(field '.items[] | select(.number == "1000") | .id')
+  sales=$(field '.items[] | select(.number == "4000") | .id')
+  vat=$(field '.items[] | select(.number == "2300") | .id')
+  input=$(field '.items[] | select(.number == "1300") | .id')
+  say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
+  say "that UAE pack 2026.2 defines; its first period is the latest quarter ended, the one it files now:"
+  api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
+    listTaxRegistrations -p "legal_entity_id=$ae"
+  expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
+  registration=$(field '.items[0].id')
+  QUIET=1 api 200 '' listTaxPeriods -p "id=$registration"
+  start=$(field '.items[0].start_date')
+  end=$(field '.items[0].end_date')
+  expect "the time zone of its periods" "$(field .time_zone)" Asia/Dubai
+  # uae_entry TEXT LINES is a journal entry of AE in AED posted today,
+  # its document and tax date the quarter's last day.
+  uae_entry() {
+    printf '{"legal_entity_id": "%s", "document_date": "%s", "posting_date": "%s", "tax_date": "%s", "currency": "AED", "header_text": "%s", "lines": [%s]}' \
+      "$ae" "$end" "$TODAY" "$end" "$1" "$2"
+  }
+  # uae_line ACCOUNT AMOUNT [CODE [EMIRATE [DECLARED BASE]]] is a line of it.
+  uae_line() {
+    local base=''
+    if [ -n "${5:-}" ]; then base=", \"tax_base\": {\"amount\": \"$5\", \"currency\": \"AED\"}"; fi
+    printf '{"account_id": "%s", "amount": {"amount": "%s", "currency": "AED"}%s%s%s}' "$1" "$2" "${3:+, \"tax_code\": \"$3\"}" \
+      "${4:+, \"tax_jurisdiction\": \"$4\"}" "$base"
+  }
+  local entry='"journal entry \(.document_number), tax date \(.tax_date): \([.lines[] | "\(.amount.amount)\(if .tax_code then " \(.tax_code)" else "" end)\(if .tax_jurisdiction then "@\(.tax_jurisdiction)" else "" end)"] | join(" / "))"'
+  say "Its sales for $start to $end, entered today with the quarter's last day as their tax date (P6): standard-rated"
+  say "sales name the emirate of the establishment that made them (S5 levies the line's emirate, ADR-0049 §7), so the"
+  say "VAT 201 reports them by emirate (boxes 1a-1g); a zero-rated export (Z0) and an exempt supply (E0):"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Dubai branch" "$(uae_line "$bank" 10500.00), $(uae_line "$sales" -10000.00 S5 AE-DU), $(uae_line "$vat" -500.00 S5 AE-DU)")"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Sales of the Abu Dhabi branch" "$(uae_line "$bank" 4200.00), $(uae_line "$sales" -4000.00 S5 AE-AZ), $(uae_line "$vat" -200.00 S5 AE-AZ)")"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Export, zero-rated" "$(uae_line "$bank" 3000.00), $(uae_line "$sales" -3000.00 Z0)")"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Exempt supply" "$(uae_line "$bank" 1500.00), $(uae_line "$sales" -1500.00 E0)")"
+  say "Goods imported through customs: the declaration's AED 10,000.00, its import VAT of 500.00 accounted for in the"
+  say "return, owed and recovered (IM5, ADR-0049 §9), an entry of tax lines that name the declared value:"
+  api 201 "$entry" postJournalEntry -body "$(uae_entry "Customs declaration: import VAT" "$(uae_line "$input" 500.00 IM5 "" 10000.00), $(uae_line "$vat" -500.00 IM5 "" 10000.00)")"
+  as alex
+  say "Alex posts the supplier's invoices of the quarter's last day: mobile phones bought for resale, AED 2,000.00 under"
+  say "the domestic reverse charge (DR5: Maple Gulf owes and recovers the 100.00), and staff entertainment, AED 1,000.00"
+  say "with 50.00 of VAT that is blocked (VB5, Executive Regulation Art. 53 as ADR-0049 records it):"
+  local ref amount gross tax code
+  for ref in "GOI-1003 2000.00 2000.00 0.00 DR5" "GOI-1004 1000.00 1050.00 50.00 VB5"; do
+    read -r ref amount gross tax code <<<"$ref"
+    api 201 '"\(.kind) \(.supplier_reference) of \(.invoice_date): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+      -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"$ref\", \"invoice_date\": \"$end\", \"gross_amount\": {\"amount\": \"$gross\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"$tax\", \"currency\": \"AED\"}, \"items\": [{\"account_id\": \"$expense\", \"description\": \"$code purchase\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"$amount\", \"currency\": \"AED\"}, \"tax_code\": \"$code\"}]}"
+    api 200 '"\(.document_number): \(.status)"' postSupplierInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  done
+  as carla
+  say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
+  say "ADR-0049's record of the FTA's guide through secondary summaries; their columns and totals it does not record"
+  say "say so in their labels, and all wait for the tax specialist (packs/ae/TAX-PENDING-T61k.md). Boxes not zero:"
+  api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
+    getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
+  expect "boxes 1a and 1b, by emirate" "$(field '[.boxes[] | select(.code | test("^1[ab]_(amount|vat)$")) | .amount.amount] | join(" ")')" "4000.00 200.00 10000.00 500.00"
+  expect "boxes 3, 4, 5 and 6" "$(field '[.boxes[] | select(.code | test("^[3-6]_")) | .amount.amount] | join(" ")')" "2000.00 100.00 3000.00 1500.00 10000.00 500.00"
+  expect "boxes 9 and 10" "$(field '[.boxes[] | select(.code | test("^(9|10)_")) | .amount.amount] | join(" ")')" "1000.00 0.00 0.00 600.00"
+  expect "boxes 12, 13 and 14: due, recoverable and payable" "$(field '[.boxes[] | select(.code | test("^1[234]$")) | .amount.amount] | join(" ")')" "1300.00 600.00 700.00"
+  say "Box 1b drills down to the Dubai branch's sales:"
+  api 200 '.items[] | "  \(.tax_date) \(.tax_code)/\(.component) \(.jurisdiction // ""): adds \(.box_amount.amount), entry \(.document_number): \(.header_text // "")"' \
+    listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=1b_vat
+  expect "box 1b's items" "$(field '[.items[] | "\(.header_text) \(.box_amount.amount)"] | join(", ")')" "Sales of the Dubai branch 500.00"
+  local body="{\"period_start\": \"$start\"}"
+  say "Carla prepares the return once the quarter's fiscal periods are closed, which claims its items:"
+  close_tax_periods "$start" "$end" "$body" "$registration" "$ae"
+  api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount)")' \
+    prepareTaxReturn -p "id=$registration" -body "$body"
+  expect "the return's box 14" "$(field '.boxes[] | select(.code == "14") | .amount.amount')" "700.00"
+  ret=$(field .id)
+  request=$(field .approval_request_id)
+  approve fiona "$request" "Boxes agree with the VAT accounts"
+  as carla
+  say "Carla files it on EmaraTax herself (P3) and records the portal's confirmation, illustrative here:"
+  QUIET=1 api 200 '' getTaxReturn -p "id=$ret"
+  api 200 '"return \(.status): confirmation \(.filing.confirmation_number) of \(.filing.filed_on)"' fileTaxReturn -p "id=$ret" -if-match "$ETAG" \
+    -body "{\"confirmation_number\": \"WALKTHROUGH-AE-0001\", \"filed_on\": \"$TODAY\"}"
+  expect "the VAT 201's status" "$(field .status)" filed
+  QUIET=1 api 200 '' getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
+  expect "the quarter's draft after filing" "$(field .item_count)" 0
+}
+
+# step_year_end is the year-end close of the fiscal year before today's,
+# PREV (ADR-0060): the walkthrough's configuration has no number range for
+# it until here, so no other step posts into it. Each slice of T64m adds
+# its part in order; T64m1's: PREV set up through a change request, the
+# business the later parts carry forward (an expense, a revenue, a USD
+# bank posting, the USD rates on PREV's last day and PREV's year-end
+# revaluation in every ledger), and an audit adjustment posted into
+# special period 13, dated the year's last day. T64m2's: the retained
+# earnings account set through a change request, PREV's periods closed
+# and PREV carried forward into this year in every ledger.
+step_year_end() {
+  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward"
+  year_end_setup
+  year_end_business
+  year_end_revaluation
+  year_end_adjustment
+  year_end_retained_earnings
+  year_end_carry_forward
+  passed
+}
+
+# year_end_setup has Ada set up PREV through a change request: a journal
+# number range of the company for it, which creates its periods, closed,
+# in every ledger the company keeps (ADR-0045); Carla opens period 12.
+year_end_setup() {
+  as ada
+  say "Maple's books of $PREV were kept in SAP and its balances migrated (step 3); the auditors' adjustments to $PREV"
+  say "are entered here. Ada sets $PREV up: a journal number range of $CC for it, a change request like any other."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base cr
+  base=$(field '.items[0].number')
+  jq "{title: \"Fiscal year $PREV\", rationale: \"The year-end close of $PREV (ADR-0060)\", base_version: $base,
+    proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$CC\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
+      | .fiscal_year = $PREV])}" "$WORK/last.json" >"$WORK/prev-year.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @prev-year.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change" "$(field '[.items[].path] | join(" ")')" "number_ranges[$CC/journal_sa/$PREV]"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as carla
+  say "$PREV's periods exist now in each ledger, closed. Carla opens period 12, December, in each, for the year's"
+  say "last business and its revaluation:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  expect "$PREV's periods in 0L and 2L, 12 regular and 4 special each" \
+    "$(field '"\([.items[] | select(.is_special | not)] | length) \([.items[] | select(.is_special)] | length) \([.items[].status] | unique | join(" "))"')" "24 8 closed"
+  local p
+  for p in $(field '.items[] | select(.period == 12) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+}
+
+# year_end_business posts PREV's last business in December, in every
+# ledger: a revenue, an expense, and USD 2,000.00 into the RBC USD account
+# at the month's rate.
+year_end_business() {
+  as tom
+  local bank usd_bank sales expense
+  bank=$(account 100000)
+  usd_bank=$(account 1030)
+  sales=$(account 4000)
+  expense=$(account 6000)
+  say "The Bank of Canada's USD rates of December $PREV: 1.36 from the 1st, 1.38 on the 31st."
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"CAD\", \"valid_from\": \"$PREV-12-01\", \"rate\": \"1.36\", \"source\": \"BOC\"}"
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"USD\", \"to_currency\": \"CAD\", \"valid_from\": \"$PREV-12-31\", \"rate\": \"1.38\", \"source\": \"BOC\"}"
+  say "December's business: a sale, the month's rent, and USD 2,000.00 into the RBC USD account at 1.36."
+  local filter='"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"'
+  api 201 "$filter" postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-05\", \"posting_date\": \"$PREV-12-05\", \"currency\": \"CAD\", \"header_text\": \"December sales\", \"lines\": [{\"account_id\": \"$bank\", \"amount\": {\"amount\": \"4000.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"-4000.00\", \"currency\": \"CAD\"}}]}"
+  api 201 "$filter" postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-10\", \"posting_date\": \"$PREV-12-10\", \"currency\": \"CAD\", \"header_text\": \"December rent\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"1500.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-1500.00\", \"currency\": \"CAD\"}}]}"
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text), \([.lines[] | "\(.amount.amount) USD = \(.amount_lc.amount) CAD"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-15\", \"posting_date\": \"$PREV-12-15\", \"currency\": \"USD\", \"header_text\": \"Fund the RBC USD account\", \"lines\": [{\"account_id\": \"$usd_bank\", \"amount\": {\"amount\": \"2000.00\", \"currency\": \"USD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-2000.00\", \"currency\": \"USD\"}}]}"
+  expect "the USD posting's local amount" "$(field '.lines[0].amount_lc.amount')" 2720.00
+}
+
+# year_end_revaluation is PREV's year-end revaluation in each ledger the
+# company keeps, keyed on PREV's last day: the RBC USD account's USD
+# 2,000.00 booked at 1.36 is worth 1.38, a gain of CAD 40.00. Its reset
+# entry is dated the next day, the first of this year, whose period must
+# be open in the run's ledger (ADR-0042): a return filed for this year's
+# first quarter in step 11 locked it in the leading ledger, from April to
+# September, so Carla has it unlocked through an approved request (T32),
+# opened, and closed and locked again after the run.
+year_end_revaluation() {
+  as carla
+  QUIET=1 api 200 '' listLedgers
+  local ledger code run first
+  say "Carla revalues the foreign-currency balances at $PREV-12-31 in each ledger: USD 2,000.00 booked at 1.36 is"
+  say "worth 1.38, a gain of CAD 40.00, and its reset is dated $YEAR-01-01."
+  for ledger in $(field '.items[] | "\(.code)=\(.id)"'); do
+    code=${ledger%%=*}
+    first=$(reset_period_open "${ledger#*=}")
+    as carla
+    api 201 '"  '"$code"': run \(.id[0:8])… at \(.key_date), \(.status), \(.item_count) items: \([.items[] | "account \(.account_id | acct) \(.direction) \(.difference_lc.amount)"] | join(", "))"' \
+      postRevaluationRun -body "{\"legal_entity_id\": \"$LE\", \"ledger_id\": \"${ledger#*=}\", \"key_date\": \"$PREV-12-31\"}"
+    run=$(field .id)
+    expect "$code's run" "$(field .status)" posted
+    expect "$code's revaluation of the RBC USD account" \
+      "$(jq -r --arg a "$(account 1030)" '.items[] | select(.account_id == $a) | "\(.direction) \(.difference_lc.amount)"' "$WORK/last.json")" "gain 40.00"
+    if [ -n "$first" ]; then relock_period "$first"; fi
+    printf '%s\t%s revaluation of %s\n' "$run" "$code" "$PREV" >>"$WORK/names"
+  done
+}
+
+# reset_period_open LEDGER makes sure the ledger's period 1 of this year is
+# open for a revaluation's reset entry, and prints its id/version when it
+# had to be unlocked and opened (to lock it again after), nothing when it
+# was open. A locked one is unlocked as T32 has it: Tom asks, Carla, the
+# controller, approves, and Tom opens it.
+reset_period_open() {
+  local ledger=$1 period status request
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$ledger" -p page_size=100
+  period=$(field '.items[] | select(.period == 1) | .id')
+  status=$(field '.items[] | select(.period == 1) | .status')
+  case "$status" in
+  open) return 0 ;;
+  locked) ;;
+  *) fail "period $YEAR/1 of ledger $ledger is $status, neither open nor locked" ;;
+  esac
+  {
+    as tom
+    say "Period $YEAR/1 is locked by the return filed for its quarter; Tom asks for it to be unlocked for the reset entry:"
+    QUIET=1 api 200 '' getFiscalPeriod -p "id=$period"
+    api 200 '"  period \(.fiscal_year)/\(.period): \(.status), unlock request \(.unlock_request_id[0:8])…"' unlockFiscalPeriod -p "id=$period" -if-match "$ETAG" \
+      -body "{\"reason\": \"The reset of $PREV's year-end revaluation is dated $YEAR-01-01\"}"
+    request=$(field .unlock_request_id)
+    approve carla "$request" "For the year-end revaluation's reset only"
+    as tom
+    QUIET=1 api 200 '' getFiscalPeriod -p "id=$period"
+    api 200 '"  period \(.fiscal_year)/\(.period): \(.status)"' openFiscalPeriod -p "id=$period" -if-match "$ETAG"
+  } >&2
+  printf '%s' "$period"
+}
+
+# relock_period PERIOD closes and locks again the period reset_period_open
+# unlocked and opened.
+relock_period() {
+  as tom
+  QUIET=1 api 200 '' getFiscalPeriod -p "id=$1"
+  api 200 '"  period \(.fiscal_year)/\(.period): \(.status)"' closeFiscalPeriod -p "id=$1" -if-match "$ETAG"
+  api 200 '"  period \(.fiscal_year)/\(.period): \(.status) again"' lockFiscalPeriod -p "id=$1" -if-match "$ETAG"
+}
+
+# year_end_adjustment is T64m1's capability (ADR-0060 §3): Carla opens
+# special period 13 of PREV in each ledger and posts the auditors'
+# adjustment into it, dated the year's last day; the trial balance shows
+# it under period 13. A posting dated in period 11 naming period 13 is
+# refused: a special period shares the year's last regular period's dates.
+year_end_adjustment() {
+  as carla
+  local p bank expense
+  bank=$(account 100000)
+  expense=$(account 6000)
+  say "The auditors find a December bank charge of CAD 750.00 never booked. Carla opens special period 13 of $PREV,"
+  say "the first of the four year-end periods that share December's dates, in each ledger:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) (special: \(.is_special)) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  say "and posts the adjustment into it, dated $PREV-12-31 (fiscal_period 13):"
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Audit adjustment: December bank charges\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"750.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-750.00\", \"currency\": \"CAD\"}}]}"
+  expect "the adjustment's period" "$(field '"\(.fiscal_year)/\(.fiscal_period)"')" "$PREV/13"
+  local adjustment
+  adjustment=$(field .document_number)
+  say "The trial balance of $PREV shows it under period 13, beside December's period 12:"
+  api 200 '.items[] | "  period \(.fiscal_period) account \(.account_id | acct): debit \(.debit.amount), credit \(.credit.amount) \(.currency)"' \
+    listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p "account_id=$expense" -p page_size=500
+  expect "the expense account's periods" "$(field '[.items[] | "\(.fiscal_period) \(.debit.amount)"] | sort | join(", ")')" "12 1500.00, 13 750.00"
+  say "Its copy in 2L is in period 13 too, with the same document number:"
+  QUIET=1 api 200 '' listLedgers
+  local l2
+  l2=$(field '.items[] | select(.code == "2L") | .id')
+  api 200 '.items[] | "  2L: entry \(.document_number), period \(.fiscal_year)/\(.fiscal_period)"' listJournalEntries \
+    -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p fiscal_period=13 -p "ledger_id=$l2"
+  expect "2L's copy" "$(field '[.items[] | "\(.document_number) \(.fiscal_period)"] | join(" ")')" "$adjustment 13"
+  say "A posting into period 13 dated in November is refused: the special periods share December's dates."
+  refused 422 ledger.special_period_date postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-11-30\", \"posting_date\": \"$PREV-11-30\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"November charges\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"50.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-50.00\", \"currency\": \"CAD\"}}]}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" posting_date
+}
+
+# year_end_retained_earnings has Ada give the company its retained
+# earnings account (ADR-0060 §4): a new equity account in the chart, a
+# tier 4 change with its evidence, and the account the year's result is
+# carried to, one for every ledger.
+year_end_retained_earnings() {
+  as ada
+  say "A carry-forward carries each year's profit or loss to the company's retained earnings account, which $CC"
+  say "does not have yet. Ada adds account 330000 to the chart and names it in year_end; a new account changes the"
+  say "chart, so the change is tier 4 and the last year's invoices are replayed under it. $CC is in group MAPLE (step"
+  say "40), so the account maps to the group's equity account G3000 (ADR-0059 §3)."
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base cr request
+  base=$(field '.items[0].number')
+  jq "{title: \"Retained earnings of $CC\", rationale: \"The year's result is carried to it (ADR-0060 §4)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"330000\", \"name\": \"Retained earnings\", \"type\": \"equity\"}
+      + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G3000\"} else {} end]
+      | .year_end.retained_earnings_account = \"330000\"))}" "$WORK/last.json" >"$WORK/retained.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @retained.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 4
+  expect "the retained earnings account among the changes" "$(field '[.items[] | select(.path == "companies['"$CC"'].year_end.retained_earnings_account")] | length')" 1
+  api 201 '"regression suite \(.number): \(.case_count) cases"' createRegressionSuite -body '{"name": "Before retained earnings", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve sam "$request" "Retained earnings account checked"
+  approve carla "$request" "The account is new and unposted"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+}
+
+# year_end_carry_forward is T64m2's capability (ADR-0060 §5): Carla closes
+# PREV's open periods and carries PREV forward into this year in every
+# ledger, stored as balances, not journal entries. Each run's rows sum to
+# zero per currency (debits equal credits in every amount), and the
+# leading ledger's result per currency is PREV's profit and loss in the
+# trial balance.
+year_end_carry_forward() {
+  as carla
+  accounts
+  say "Carla closes $PREV's periods still open, December and special period 13, in each ledger: nothing may be"
+  say "posted into what is carried."
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  local p run
+  for p in $(field '.items[] | select(.status == "open") | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  say "She carries $PREV forward into $YEAR in every ledger the company keeps: the opening balances of $YEAR, per"
+  say "account and currency, with $PREV's profit or loss carried to retained earnings. No journal entry is posted."
+  api 201 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.from_fiscal_year) into \(.to_fiscal_year), \(.basis), \(.row_count) rows, result to \(.retained_earnings_account.number) \(.retained_earnings_account.name)"' \
+    runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  expect "the runs" "$(field '[.items[] | "\(.ledger_code) \(.basis) \(.status)"] | join(", ")')" "0L all_years current, 2L all_years current"
+  cp "$WORK/last.json" "$WORK/carry-forward.json"
+  say "Each run's opening balances sum to zero in every currency: its debits equal its credits in transaction,"
+  say "local and group currency."
+  for run in $(jq -r '.items[] | "\(.ledger_code)=\(.id)"' "$WORK/carry-forward.json"); do
+    api 200 '"  \(.ledger_code), run by \(.created_by_name): result \(.result_lc.amount) \(.result_lc.currency), debits \(.debit_lc.amount) = credits \(.credit_lc.amount) in local currency, \(.debit_gc.amount) = \(.credit_gc.amount) in group currency", (.totals[] | "    \(.currency): result \(.result.amount) (\(.result_lc.amount) \(.result_lc.currency)), debit \(.debit.amount) = credit \(.credit.amount), local \(.debit_lc.amount) = \(.credit_lc.amount), group \(.debit_gc.amount) = \(.credit_gc.amount)")' \
+      getBalanceCarryForward -p "id=${run#*=}"
+    expect "${run%%=*}'s rows summing to zero in local and group currency" "$(field '"\(.debit_lc.amount == .credit_lc.amount) \(.debit_gc.amount == .credit_gc.amount)"')" "true true"
+    expect "${run%%=*}'s rows summing to zero" "$(field '[.totals[] | select(.debit.amount != .credit.amount or .debit_lc.amount != .credit_lc.amount or .debit_gc.amount != .credit_gc.amount)] | length')" 0
+    printf '%s\t%s carry-forward of %s\n' "${run#*=}" "${run%%=*}" "$PREV" >>"$WORK/names"
+  done
+  local result
+  result=$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount)"] | join(", ")' "$WORK/carry-forward.json")
+  local local_result
+  local_result=$(jq -r '.items[0] | "\(.result_lc.amount) \(.result_lc.currency)"' "$WORK/carry-forward.json")
+  say "0L's result per currency, $result, $local_result in all, is $PREV's profit and loss in the trial balance"
+  say "(revenue and expense accounts, debit positive):"
+  api 200 '"  \(.items | length) balances of \(.items | map(.account_id) | unique | length) accounts"' listBalances -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=500
+  expect "the trial balance's profit and loss in local currency" "$(jq -r --slurpfile acc "$WORK/accounts.json" '($acc[0].items | map({(.id): .account_type}) | add) as $t
+    | [.items[] | select($t[.account_id] == "revenue" or $t[.account_id] == "expense") | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)]
+    | add * 100 | round' "$WORK/last.json")" "$(jq -r '.items[0].result_lc.amount | tonumber * 100 | round' "$WORK/carry-forward.json")"
+  expect "the trial balance's profit and loss" "$(jq -r --slurpfile acc "$WORK/accounts.json" '($acc[0].items | map({(.id): .account_type}) | add) as $t
+    | [.items[] | select($t[.account_id] == "revenue" or $t[.account_id] == "expense")] | group_by(.currency)
+    | map({c: .[0].currency, v: (map((.debit.amount | tonumber) - (.credit.amount | tonumber)) | add)}) | map(select(.v != 0))
+    | map("\(.c) \(.v * 100 | round)") | join(", ")' "$WORK/last.json")" \
+    "$(jq -r '[.items[0].totals[] | select(.result.amount != "0.00") | "\(.currency) \(.result.amount | tonumber * 100 | round)"] | join(", ")' "$WORK/carry-forward.json")"
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -3512,13 +4447,14 @@ close_accruals() {
   period=$((10#${TODAY:5:2}))
   as ada
   say "Ada names the account $CC's accruals are credited to (ADR-0058 §3): a new liability, 2195 Accrued"
-  say "liabilities, posted by hand. The accrual account decides what the accrual proposals' entries post (tier 3), and"
-  say "a new account changes the chart, so the change is tier 4: the invoices of the last year are replayed under it."
+  say "liabilities, posted by hand (group account G2000, as $CC is in group MAPLE). The accrual account decides what"
+  say "the accrual proposals' entries post (tier 3), and a new account changes the chart, so the change is tier 4: the"
+  say "invoices of the last year are replayed under it."
   QUIET=1 api 200 '' listConfigVersions -p is_active=true
   base=$(field '.items[0].number')
   jq "{title: \"Accrual account 2195\", rationale: \"The close agent's accrual proposals (T64e)\", base_version: $base,
     proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then .chart_of_accounts += [{number: \"2195\", name: \"Accrued liabilities\",
-      type: \"liability\"}] | .close.accrual_account = \"2195\" else . end))}" "$WORK/last.json" >"$WORK/accrual.json"
+      type: \"liability\"} + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G2000\"} else {} end] | .close.accrual_account = \"2195\" else . end))}" "$WORK/last.json" >"$WORK/accrual.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @accrual.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[] | "\(.path) (tier \(.tier))"] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
@@ -5011,7 +5947,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_close'
 
 main() {
   stop_unseen

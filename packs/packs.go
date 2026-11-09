@@ -2,12 +2,13 @@
 // directory per country and version, packs/<cc>/<version>/, and the hash
 // list released.sha256 that keeps released versions immutable.
 // internal/countrypack loads, validates and applies them. Each country's
-// directory is in the embed pattern: Canada (T62e).
+// directory is in the embed pattern: Canada (T62e) and the United Arab
+// Emirates (T62f).
 package packs
 
 import "embed"
 
 // FS holds the packs and their hash list.
 //
-//go:embed released.sha256 ca
+//go:embed released.sha256 ca ae
 var FS embed.FS

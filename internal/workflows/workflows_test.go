@@ -10,11 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/stretchr/testify/mock"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
@@ -622,12 +624,17 @@ func (e env) releaseAsked(t *testing.T, run string) workflows.ReleaseInput {
 	return workflows.ReleaseInput{TenantID: e.Tenant.ID, RunID: uuid.MustParse(run), OperationID: uuid.MustParse(id(op))}
 }
 
-func executeRelease(t *testing.T, a *workflows.Payments, in workflows.ReleaseInput) error {
+// executeRelease runs the release workflow in the SDK's test environment
+// with the real activities against the package database, set first.
+func executeRelease(t *testing.T, a *workflows.Payments, in workflows.ReleaseInput, set ...func(env *testsuite.TestWorkflowEnvironment)) error {
 	t.Helper()
 	var s testsuite.WorkflowTestSuite
 	env := workflowEnv(&s)
 	env.RegisterWorkflow(workflows.ReleasePaymentRun)
 	env.RegisterActivity(a)
+	for _, f := range set {
+		f(env)
+	}
 	env.ExecuteWorkflow(workflows.ReleasePaymentRun, in)
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("workflow did not complete")
@@ -771,7 +778,9 @@ func (s *releaseScenario) releaseAndWriteTheFile(t *testing.T) {
 }
 
 // refuseTheBankFile: the vendor's bank account has no holder, so the file
-// is refused after the posting, and the run is left releasing.
+// is refused after the posting, and the run is left releasing. The
+// release's failure, failing on the machinery seven times first, is tried
+// until it is recorded (review:T68d).
 func (s *releaseScenario) refuseTheBankFile(t *testing.T) {
 	e, a := s.e.in(t), s.a
 	e.setHolder(t, " ")
@@ -781,8 +790,21 @@ func (s *releaseScenario) refuseTheBankFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	in2 := e.releaseAsked(t, run2)
-	if err := executeRelease(t, a, in2); err != nil {
+	var failTries atomic.Int32
+	flakyFailure := func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnActivity(a.FailRelease, mock.Anything, mock.Anything, mock.Anything).Return(
+			func(ctx context.Context, in workflows.ReleaseInput, why problem.Problem) error {
+				if failTries.Add(1) <= 7 {
+					return errors.New("audit unreachable")
+				}
+				return a.FailRelease(ctx, in, why)
+			})
+	}
+	if err := executeRelease(t, a, in2, flakyFailure); err != nil {
 		t.Fatal(err)
+	}
+	if n := failTries.Load(); n != 8 {
+		t.Errorf("the failure's tries: got %d, want 8", n)
 	}
 	failed := e.get("/v1/operations/" + in2.OperationID.String())
 	after := e.get("/v1/payment-runs/" + run2)

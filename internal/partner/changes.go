@@ -112,21 +112,21 @@ type sealedBank struct {
 }
 
 // nullable is a merge-patch value: set, possibly to null.
-type nullable struct {
+type nullable[T any] struct {
 	Set   bool
-	Value *string
+	Value *T
 }
 
-func (n *nullable) UnmarshalJSON(b []byte) error {
+func (n *nullable[T]) UnmarshalJSON(b []byte) error {
 	n.Set = true
 	if err := json.Unmarshal(b, &n.Value); err != nil {
-		return fmt.Errorf("partner: decode a nullable string: %w", err)
+		return fmt.Errorf("partner: decode a nullable %T: %w", n.Value, err)
 	}
 	return nil
 }
 
-func (n nullable) MarshalJSON() ([]byte, error) {
-	b, _ := json.Marshal(n.Value) // a *string always encodes
+func (n nullable[T]) MarshalJSON() ([]byte, error) {
+	b, _ := json.Marshal(n.Value) // a *string or *uuid.UUID always encodes
 	return b, nil
 }
 
@@ -142,12 +142,16 @@ type createPayload struct {
 	TaxIdentifiers    []sealedTax            `json:"tax_identifiers"`
 	BankAccounts      []sealedBank           `json:"bank_accounts"`
 	Extensions        map[string]any         `json:"extensions"`
+	GroupCompanyID    *uuid.UUID             `json:"group_company_id,omitempty"` // T68c
 }
 
 type updatePayload struct {
-	Name              *string                `json:"name,omitempty"`
-	LegalName         nullable               `json:"legal_name,omitzero"`
-	Language          nullable               `json:"language,omitzero"`
+	Name      *string          `json:"name,omitempty"`
+	LegalName nullable[string] `json:"legal_name,omitzero"`
+	Language  nullable[string] `json:"language,omitzero"`
+	// GroupCompanyID links the partner to a company of the group, or
+	// unlinks it (null); absent: unchanged (T68c).
+	GroupCompanyID    nullable[uuid.UUID]    `json:"group_company_id,omitzero"`
 	Roles             []string               `json:"roles,omitempty"`
 	SupplierCompanies []SupplierCompanyInput `json:"supplier_companies,omitempty"`
 	Addresses         []AddressInput         `json:"addresses,omitempty"`
@@ -256,6 +260,28 @@ func checkCompanyCodes(ctx context.Context, ports Ports, f string, s SupplierCom
 	}
 	if !ok {
 		return invalid("partner.unknown_planning_group", f+".planning_group", "a planning group of the configuration (cash.planning_groups)")
+	}
+	return nil
+}
+
+// checkGroupCompany refuses a group company that is no legal entity of
+// the tenant (422 partner.group_company_unknown on field; ADR-0059 §4).
+// Any company of the tenant may be named, whatever its status and the
+// caller's access to it: the link is a fact of the partner, which belongs
+// to no company, as a journal line's trading partner is a fact of the line
+// (ADR-0059 As built, T68b). Legal entities are never deleted, so the link
+// stays valid.
+func checkGroupCompany(ctx context.Context, les LegalEntities, field string, id *uuid.UUID) error {
+	if id == nil {
+		return nil
+	}
+	_, found, err := les.Entity(ctx, *id)
+	if err != nil {
+		return fmt.Errorf("partner: group company %s: %w", *id, err)
+	}
+	if !found {
+		return problem.Unprocessable("partner.group_company_unknown", "The group company is no legal entity of the tenant.",
+			problem.FieldError{Field: field, Code: "unknown", Message: "a legal entity of the tenant"})
 	}
 	return nil
 }
@@ -620,6 +646,9 @@ type NewPartner struct {
 	BankAccounts      []BankInput
 	Extensions        map[string]any
 	Reason            string
+	// GroupCompanyID is the legal entity of the tenant the partner is, when
+	// it is one of the group's companies (ADR-0059 §4, T68c); nil: none.
+	GroupCompanyID *uuid.UUID
 }
 
 // CreatePartner inserts a pending partner with its roles, company data,
@@ -672,7 +701,7 @@ func createPartner(ctx context.Context, ports Ports, in NewPartner, back backdat
 	}
 	c, err := insertChange(ctx, tx, p, KindCreate, id, createPayload{Kind: in.Kind, Name: in.Name, LegalName: in.LegalName,
 		CountryCode: in.CountryCode, Language: in.Language, Roles: in.Roles, SupplierCompanies: in.SupplierCompanies, Addresses: in.Addresses,
-		TaxIdentifiers: taxes, BankAccounts: banks, Extensions: in.Extensions}, in.Reason, warns, false)
+		TaxIdentifiers: taxes, BankAccounts: banks, Extensions: in.Extensions, GroupCompanyID: in.GroupCompanyID}, in.Reason, warns, false)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -696,6 +725,9 @@ func checkNewPartnerData(ctx context.Context, tx pgx.Tx, ports Ports, day time.T
 	if err := checkAddresses(day, in.Addresses, false); err != nil {
 		return err
 	}
+	if err := checkGroupCompany(ctx, ports.LegalEntities, "group_company_id", in.GroupCompanyID); err != nil {
+		return err
+	}
 	return ports.checkRules(ctx, "partner.business_partner.create", "", uuid.Nil, Partner{Kind: in.Kind, Name: in.Name, LegalName: in.LegalName,
 		CountryCode: in.CountryCode, Language: in.Language, Roles: in.Roles, Extensions: in.Extensions})
 }
@@ -705,11 +737,14 @@ func checkNewPartnerData(ctx context.Context, tx pgx.Tx, ports Ports, day time.T
 func recordCreated(ctx context.Context, w extensions.Writes, bp Partner, c Change, warnings int) error {
 	payload := map[string]any{"partner_id": bp.ID, "number": bp.Number, "kind": bp.Kind, "name": bp.Name, "country_code": bp.CountryCode,
 		"roles": bp.Roles, "status": Pending, "partner_change_id": c.ID}
+	detail := map[string]any{"number": bp.Number, "partner_change_id": c.ID, "warnings": warnings}
+	if bp.GroupCompanyID != nil {
+		payload["group_company_id"], detail["group_company_id"] = *bp.GroupCompanyID, *bp.GroupCompanyID
+	}
 	if err := w.Event(ctx, payload, bp.Extensions, bp.ExtensionsSchema); err != nil {
 		return err
 	}
-	return audit.Record(ctx, "partner.business_partner.create", "partner.business_partner", bp.ID,
-		map[string]any{"number": bp.Number, "partner_change_id": c.ID, "warnings": warnings},
+	return audit.Record(ctx, "partner.business_partner.create", "partner.business_partner", bp.ID, detail,
 		event("business_partner_created", bp.ID, "partner.business_partner", payload))
 }
 
@@ -751,9 +786,9 @@ func newPartnerCountries(in NewPartner) (fields, codes []string) {
 // its extensions were checked against.
 func insertPartner(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID, number string, in NewPartner, schema *int, taxes []sealedTax) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO partner.business_partner (tenant_id, id, number, kind, name, legal_name, country_code, language,
-			status, extensions, extensions_schema, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $11, $11)`,
-		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, schema, p.ID); err != nil {
+			status, extensions, extensions_schema, created_by, updated_by, group_company_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10, $11, $11, $12)`,
+		p.TenantID, id, number, in.Kind, in.Name, in.LegalName, in.CountryCode, in.Language, in.Extensions, schema, p.ID, in.GroupCompanyID); err != nil {
 		return fmt.Errorf("partner: insert business partner %s: %w", number, err)
 	}
 	if err := addRoles(ctx, tx, p, id, in.Roles); err != nil {
@@ -830,13 +865,14 @@ type Changes struct {
 	Addresses         []AddressInput
 	TaxIdentifiers    []TaxInput
 	Extensions        map[string]any
+	GroupCompanyID    **uuid.UUID // nil: unchanged; pointer to nil: unlink (T68c)
 }
 
-func toNullable(v **string) nullable {
+func toNullable[T any](v **T) nullable[T] {
 	if v == nil {
-		return nullable{}
+		return nullable[T]{}
 	}
-	return nullable{Set: true, Value: *v}
+	return nullable[T]{Set: true, Value: *v}
 }
 
 // RequestUpdate opens an update change of a partner's master data,
@@ -864,21 +900,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	if err != nil {
 		return Change{}, err
 	}
-	day, err := database.Today(ctx, tx)
-	if err != nil {
-		return Change{}, err
-	}
-	var fields, codes []string
-	for i, a := range ch.Addresses {
-		fields, codes = append(fields, fmt.Sprintf("payload.addresses[%d].country_code", i)), append(codes, a.CountryCode)
-	}
-	if err := checkCountries(ctx, tx, fields, codes); err != nil {
-		return Change{}, err
-	}
-	if err := checkCompanies(ctx, tx, ports, slices.Contains(all, "supplier"), ch.SupplierCompanies); err != nil {
-		return Change{}, err
-	}
-	if err := checkAddresses(day, ch.Addresses, true); err != nil {
+	if err := checkUpdateData(ctx, tx, ports, ch, all); err != nil {
 		return Change{}, err
 	}
 	if err := ports.checkRules(ctx, "partner.change.request", "partner.business_partner", partnerID, requested(bp, ch, all)); err != nil {
@@ -894,11 +916,38 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 	}
 	c, err := insertChange(ctx, tx, p, KindUpdate, partnerID, updatePayload{Name: ch.Name, LegalName: toNullable(ch.LegalName),
 		Language: toNullable(ch.Language), Roles: ch.Roles, SupplierCompanies: ch.SupplierCompanies, Addresses: ch.Addresses,
-		TaxIdentifiers: taxes, Extensions: ch.Extensions, ExtensionsSchema: schema}, reason, warns, false)
+		TaxIdentifiers: taxes, Extensions: ch.Extensions, ExtensionsSchema: schema, GroupCompanyID: toNullable(ch.GroupCompanyID)}, reason, warns, false)
 	if err != nil {
 		return Change{}, err
 	}
 	return c, audit.Record(ctx, "partner.change.request", "partner.partner_change", c.ID, map[string]any{"kind": c.Kind, "partner_id": partnerID})
+}
+
+// checkUpdateData checks an update's addresses' countries and validity,
+// its company data under the roles all it leaves the partner, and its
+// group company.
+func checkUpdateData(ctx context.Context, tx pgx.Tx, ports Ports, ch Changes, all []string) error {
+	day, err := database.Today(ctx, tx)
+	if err != nil {
+		return err
+	}
+	var fields, codes []string
+	for i, a := range ch.Addresses {
+		fields, codes = append(fields, fmt.Sprintf("payload.addresses[%d].country_code", i)), append(codes, a.CountryCode)
+	}
+	if err := checkCountries(ctx, tx, fields, codes); err != nil {
+		return err
+	}
+	if err := checkCompanies(ctx, tx, ports, slices.Contains(all, "supplier"), ch.SupplierCompanies); err != nil {
+		return err
+	}
+	if err := checkAddresses(day, ch.Addresses, true); err != nil {
+		return err
+	}
+	if ch.GroupCompanyID == nil {
+		return nil
+	}
+	return checkGroupCompany(ctx, ports.LegalEntities, "payload.group_company_id", *ch.GroupCompanyID)
 }
 
 // checkChanges refuses an update change that requests nothing, or a
@@ -906,7 +955,7 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 // approval otherwise.
 func checkChanges(ch Changes) error {
 	if ch.Name == nil && ch.LegalName == nil && ch.Language == nil && ch.Roles == nil && len(ch.SupplierCompanies) == 0 &&
-		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 {
+		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 && ch.GroupCompanyID == nil {
 		return problem.Unprocessable("partner.no_changes", "The change requests no changes.")
 	}
 	if ch.Name != nil {
@@ -1152,29 +1201,13 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 	var pl updatePayload
 	decode(c.Payload, &pl)
 	payload := map[string]any{"partner_id": bp.ID, "partner_change_id": c.ID}
-	var fields []string
-	name, legal, lang, ext := bp.Name, bp.LegalName, bp.Language, bp.Extensions
-	if pl.Name != nil {
-		name, payload["name"] = *pl.Name, *pl.Name
-		fields = append(fields, "name")
-	}
-	if pl.LegalName.Set {
-		legal, payload["legal_name"] = pl.LegalName.Value, pl.LegalName.Value
-		fields = append(fields, "legal_name")
-	}
-	if pl.Language.Set {
-		lang, payload["language"] = pl.Language.Value, pl.Language.Value
-		fields = append(fields, "language")
-	}
-	if pl.Extensions != nil {
-		ext = mergepatch.Apply(ext, pl.Extensions)
-		fields = append(fields, "extensions")
-	}
+	h, fields := updatedHeader(bp, pl, payload)
+	name, legal, lang, ext, group := h.Name, h.LegalName, h.Language, h.Extensions, h.GroupCompanyID
 	// coalesce: a change requested before T58c carries no schema version and
 	// keeps the partner's; schemas are never removed, so no other change has none.
 	if _, err := tx.Exec(ctx, `UPDATE partner.business_partner SET name = $2, legal_name = $3, language = $4, extensions = $5,
-		extensions_schema = coalesce($7, extensions_schema), version = version + 1, updated_by = $6 WHERE id = $1`,
-		bp.ID, name, legal, lang, ext, p.ID, pl.ExtensionsSchema); err != nil {
+		extensions_schema = coalesce($7, extensions_schema), group_company_id = $8, version = version + 1, updated_by = $6 WHERE id = $1`,
+		bp.ID, name, legal, lang, ext, p.ID, pl.ExtensionsSchema, group); err != nil {
 		return nil, fmt.Errorf("partner: update business partner %s: %w", bp.ID, err)
 	}
 	if pl.Roles != nil {
@@ -1205,6 +1238,33 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 	}
 	payload["changed_fields"] = fields
 	return updated(ctx, w, bp, pl.ExtensionsSchema, ext, payload)
+}
+
+// updatedHeader is the partner's header as the update leaves it, with the
+// fields it changes, whose new values it adds to payload.
+func updatedHeader(bp Partner, pl updatePayload, payload map[string]any) (Partner, []string) {
+	var fields []string
+	if pl.Name != nil {
+		bp.Name, payload["name"] = *pl.Name, *pl.Name
+		fields = append(fields, "name")
+	}
+	if pl.LegalName.Set {
+		bp.LegalName, payload["legal_name"] = pl.LegalName.Value, pl.LegalName.Value
+		fields = append(fields, "legal_name")
+	}
+	if pl.Language.Set {
+		bp.Language, payload["language"] = pl.Language.Value, pl.Language.Value
+		fields = append(fields, "language")
+	}
+	if pl.Extensions != nil {
+		bp.Extensions = mergepatch.Apply(bp.Extensions, pl.Extensions)
+		fields = append(fields, "extensions")
+	}
+	if pl.GroupCompanyID.Set {
+		bp.GroupCompanyID, payload["group_company_id"] = pl.GroupCompanyID.Value, pl.GroupCompanyID.Value
+		fields = append(fields, "group_company_id")
+	}
+	return bp, fields
 }
 
 // updated is BusinessPartnerUpdated: the changed facts, and the partner's

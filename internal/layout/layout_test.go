@@ -93,6 +93,7 @@ var allowed = map[string][]string{
 	"closing":                 {"config"}, // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
+	"consolidation":           {"config"},            // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
 	"controlling":             {"ledger", "tenancy"}, // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2)
 	"countrypack":             {"config"},
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
@@ -131,7 +132,7 @@ var allowed = map[string][]string{
 // composition root and commands wire them like any context, and a context
 // may ask one a question through a port it declares itself, as partner
 // asks cash about planning groups.
-var leaves = map[string]bool{"assets": true, "cash": true, "closing": true}
+var leaves = map[string]bool{"assets": true, "cash": true, "closing": true, "consolidation": true}
 
 // unit is the context a package under internal/ belongs to: its first path
 // segment, the platform package itself, a delivery agent (each agent under

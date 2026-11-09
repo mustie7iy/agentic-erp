@@ -87,6 +87,30 @@ func TestOptNilString(t *testing.T) {
 	}
 }
 
+func TestOptNilUUID(t *testing.T) {
+	id := uuid.New()
+	for name, c := range map[string]struct {
+		in   gen.OptNilUUID
+		want string
+	}{
+		"absent": {gen.OptNilUUID{}, "unchanged"},
+		"null":   {gen.OptNilUUID{Set: true, Null: true}, "cleared"},
+		"value":  {gen.NewOptNilUUID(id), id.String()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := "unchanged"
+			if v := apitypes.OptNilUUID(c.in); v != nil && *v == nil {
+				got = "cleared"
+			} else if v != nil {
+				got = (*v).String()
+			}
+			if got != c.want {
+				t.Errorf("got %s, want %s", got, c.want)
+			}
+		})
+	}
+}
+
 func TestOptDates(t *testing.T) {
 	day := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	if got := apitypes.OptDate(nil); got.Set {

@@ -121,7 +121,9 @@ func (s depreciationSteps) run() error {
 // whole and the failing step still runs. A failure of the machinery is
 // tried five times with backoff, as the other workflows' (ADR-0012);
 // one that outlasts them fails the run as an internal error and fails the
-// workflow with it. A business problem is not retried.
+// workflow with it. The run's failure is tried until it is recorded
+// (recording), so the run always ends and frees its company and ledger. A
+// business problem is not retried.
 //
 // The steps return Future.Get's error unwrapped: it is the workflow result,
 // and the engine records Get's ActivityError, which carries the activity
@@ -147,7 +149,7 @@ func DepreciationRun(ctx workflow.Context, in DepreciationInput) error {
 			return workflow.ExecuteActivity(ctx, a.FinishDepreciationRun, in).Get(ctx, nil)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(ctx, a.FailDepreciationRun, in, why).Get(ctx, nil)
+			return workflow.ExecuteActivity(recording(ctx), a.FailDepreciationRun, in, why).Get(ctx, nil)
 		},
 		final: true,
 	}.run()
@@ -236,46 +238,49 @@ type Depreciator struct {
 	Log           *slog.Logger
 }
 
-// pending lists the runs to carry out: the tenants as the worker role,
-// their unfinished runs in each tenant's scope.
-func (w *Depreciator) pending(ctx context.Context) ([]DepreciationInput, error) {
-	d := w.Depreciations
-	tx, err := d.begin(ctx, database.Scope{Role: d.WorkerRole, ReadOnly: true})
+// unfinishedRun is a run of a tenant still queued or running, with its
+// Operation: the in-process runners' work.
+type unfinishedRun struct{ tenant, run, operation uuid.UUID }
+
+// unfinishedRuns lists the runs to carry out of every tenant with
+// Operations of the kind: the tenants as the worker role, each tenant's
+// unfinished runs (list) in its scope, in no particular order across
+// tenants. A tenant whose runs cannot be read is reported and the others
+// listed.
+func unfinishedRuns(ctx context.Context, begin func(context.Context, database.Scope) (pgx.Tx, error), appRole, workerRole, kind string,
+	list func(context.Context, pgx.Tx) (map[uuid.UUID]uuid.UUID, error)) ([]unfinishedRun, error) {
+	tx, err := begin(ctx, database.Scope{Role: workerRole, ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	tenants, err := operations.TenantsOf(ctx, tx, DepreciateKind)
+	tenants, err := operations.TenantsOf(ctx, tx, kind)
 	if err != nil {
 		return nil, fmt.Errorf("workflows: %w", err)
 	}
-	var runs []DepreciationInput
+	var runs []unfinishedRun
 	var failures []error
 	for _, tenant := range tenants {
-		unfinished, err := w.unfinished(ctx, tenant)
+		unfinished, err := tenantRuns(ctx, begin, appRole, tenant, list)
 		if err != nil {
-			failures = append(failures, err)
+			failures = append(failures, fmt.Errorf("workflows: %s runs of tenant %s: %w", kind, tenant, err))
 		}
 		for run, op := range unfinished {
-			runs = append(runs, DepreciationInput{TenantID: tenant, RunID: run, OperationID: op})
+			runs = append(runs, unfinishedRun{tenant: tenant, run: run, operation: op})
 		}
 	}
 	return runs, errors.Join(failures...)
 }
 
-// unfinished reads a tenant's unfinished runs in its scope.
-func (w *Depreciator) unfinished(ctx context.Context, tenant uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
-	d := w.Depreciations
-	tx, err := d.begin(ctx, database.Scope{Role: d.AppRole, TenantID: tenant, ReadOnly: true})
+// tenantRuns reads a tenant's unfinished runs in its scope.
+func tenantRuns(ctx context.Context, begin func(context.Context, database.Scope) (pgx.Tx, error), appRole string, tenant uuid.UUID,
+	list func(context.Context, pgx.Tx) (map[uuid.UUID]uuid.UUID, error)) (map[uuid.UUID]uuid.UUID, error) {
+	tx, err := begin(ctx, database.Scope{Role: appRole, TenantID: tenant, ReadOnly: true})
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
-	runs, err := d.Runs.UnfinishedDepreciationRuns(ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("workflows: depreciation runs of tenant %s: %w", tenant, err)
-	}
-	return runs, nil
+	return list(ctx, tx)
 }
 
 // Depreciate carries out one run: the steps of the workflow, in order,
@@ -292,12 +297,13 @@ func (w *Depreciator) Depreciate(ctx context.Context, in DepreciationInput) erro
 
 // RunOnce carries out every unfinished run and returns how many it ended.
 func (w *Depreciator) RunOnce(ctx context.Context) (int, error) {
-	runs, err := w.pending(ctx)
+	d := w.Depreciations
+	runs, err := unfinishedRuns(ctx, d.begin, d.AppRole, d.WorkerRole, DepreciateKind, d.Runs.UnfinishedDepreciationRuns)
 	failures := []error{err}
 	n := 0
-	for _, in := range runs {
-		if err := w.Depreciate(ctx, in); err != nil {
-			failures = append(failures, fmt.Errorf("depreciation runs: run %s: %w", in.RunID, err))
+	for _, r := range runs {
+		if err := w.Depreciate(ctx, DepreciationInput{TenantID: r.tenant, RunID: r.run, OperationID: r.operation}); err != nil {
+			failures = append(failures, fmt.Errorf("depreciation runs: run %s: %w", r.run, err))
 			continue
 		}
 		n++

@@ -568,6 +568,20 @@ func encodeCreateConnectorRequest(
 	return nil
 }
 
+func encodeCreateConsolidationRunRequest(
+	req *ConsolidationRunStart,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateContractRequest(
 	req *ContractCreate,
 	r *http.Request,
@@ -1943,6 +1957,20 @@ func encodeReverseSupplierInvoiceRequest(
 
 func encodeRunAnalyticsQueryRequest(
 	req *AnalyticsQuery,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeRunBalanceCarryForwardRequest(
+	req *BalanceCarryForwardRequest,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

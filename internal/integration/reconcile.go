@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency)
+	Key         string `json:"key"` // "cost center <KOKRS>/<KOSTL>" or "profit center <KOKRS>/<PRCTR>" (their periods, ADR-0050 §10), account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency)
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -89,6 +89,7 @@ type reconciler struct {
 	rec      Reconciliation
 	vendorOf map[uuid.UUID]string // partner id -> SAP vendor number
 	recon    map[string]bool      // company/account -> vendor reconciliation account
+	states   *centerStates        // the centers runs loaded, read once (readCenters)
 }
 
 // companyScope is one company code under reconciliation.
@@ -150,6 +151,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 		return err
 	}
 	if err := rc.vendors(ctx, s); err != nil {
+		return err
+	}
+	if err := rc.centers(ctx, s); err != nil {
 		return err
 	}
 	if err := rc.bankAccounts(ctx, s); err != nil {

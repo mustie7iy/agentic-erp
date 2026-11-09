@@ -23,6 +23,12 @@ must match before anything is written; a table that already holds rows of
 the tenant refuses the import; after the rows are in, the audit chain head
 must equal the one the export recorded. Any mismatch rolls the import back.
 
+**Values the database keeps are restored as exported.** The import sets
+`app.importing` to the tenant for its transaction (as the erasure sets
+`app.erasing`); a trigger that computes a column on insert keeps the value an
+imported row carries while it names the row's tenant: a period's opened
+count (ADR-0060 §6, migration 000229).
+
 **Outboxes are not imported.** Their events were delivered where they
 happened; re-publishing them would replay history to consumers.
 

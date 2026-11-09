@@ -41,7 +41,10 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 	if got, want := e.taxRates(t, "HNS", "HON", "QST"), "HNS hst 15 2013-04-01 2025-04-01, HNS hst 14 2025-04-01 open, HON hst 13 2013-04-01 open, QST qst 9.975 2026-01-01 open"; got != want {
 		t.Errorf("rates: got %s, want %s", got, want)
 	}
-	res := e.canadaTax(t, "2026-06-01", "HON", "QST", "PBC")
+	res := e.packTax(t, "2026-06-01", "CAD", "HON", "QST", "PBC")
+	if len(res.Items) != 3 {
+		t.Fatalf("items: got %d, want one per code", len(res.Items))
+	}
 	want := map[string]tax.Amounts{
 		"HON hst":    {Base: 100000, Tax: 13000, Recoverable: 13000},
 		"QST qst":    {Base: 100000, Tax: 9975, Recoverable: 9975},
@@ -53,21 +56,26 @@ func TestCanadaPackTaxCodes(t *testing.T) {
 		}
 	}
 	for day, want := range map[string]money.Minor{"2025-03-31": 15000, "2025-04-01": 14000} {
-		if got := e.canadaTax(t, day, "HNS").Items[0].Tax; got != want {
+		items := e.packTax(t, day, "CAD", "HNS").Items
+		if len(items) != 1 {
+			t.Fatalf("HNS on %s: got %d items, want 1", day, len(items))
+		}
+		if got := items[0].Tax; got != want {
 			t.Errorf("HNS on %s: got %d, want %d", day, got, want)
 		}
 	}
 }
 
-// canadaTax is the tax of a purchase of 1,000.00 per code on the day, with
-// the codes as company 2000's ledger answers them then.
-func (e env) canadaTax(t *testing.T, day string, codes ...string) tax.Result {
+// packTax is the tax of a line of 1,000.00 in the currency per code on the
+// day, with the codes as company 2000's ledger answers them then: a
+// purchase for an input code, a sale for an output code.
+func (e env) packTax(t *testing.T, day, currency string, codes ...string) tax.Result {
 	t.Helper()
 	d, err := time.Parse(time.DateOnly, day)
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc := tax.Document{TaxDate: d, Currency: "CAD", Codes: map[string]tax.Code{}}
+	doc := tax.Document{TaxDate: d, Currency: currency, Codes: map[string]tax.Code{}}
 	if err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		for _, code := range codes {
 			tc, ok, err := ledger.Accounts{}.TaxCode(ctx, e.de, code, d)
@@ -84,9 +92,6 @@ func (e env) canadaTax(t *testing.T, day string, codes ...string) tax.Result {
 	res, err := tax.Calculate(doc)
 	if err != nil {
 		t.Fatalf("calculate on %s: %v", day, err)
-	}
-	if len(res.Items) != len(codes) {
-		t.Fatalf("items on %s: got %d, want one per code", day, len(res.Items))
 	}
 	return res
 }

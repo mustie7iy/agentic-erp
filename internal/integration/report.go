@@ -40,6 +40,10 @@ type LoadedCounts struct {
 	Clearings              int `json:"clearings,omitempty"`
 	GRIRPositions          int `json:"gr_ir_positions,omitempty"`
 	GRIRTopUps             int `json:"gr_ir_top_ups,omitempty"`
+	Segments               int `json:"segments,omitempty"`
+	ProfitCenters          int `json:"profit_centers,omitempty"`
+	ProfitCentersExtended  int `json:"profit_centers_extended,omitempty"`
+	CostCenters            int `json:"cost_centers,omitempty"`
 }
 
 // reportToAPI is the report as the contract declares it. The lists of a
@@ -78,7 +82,8 @@ func extractToAPI(c map[string]int) gen.MigrationExtractCounts {
 	return gen.MigrationExtractCounts{T001: c["T001"], Skb1: c["SKB1"], Lfa1: c["LFA1"], Lfb1: c["LFB1"], Lfbk: c["LFBK"], Ekko: c["EKKO"],
 		Ekpo: c["EKPO"], Mseg: c["MSEG"], Rbkp: c["RBKP"], Rseg: c["RSEG"], Acdoca: c["ACDOCA"], T052: c["T052"], T007a: c["T007A"],
 		T030: c["T030"], T169g: c["T169G"], T012k: c["T012K"], T074: c["T074"], AgrDefine: c["AGR_DEFINE"], AgrTcodes: c["AGR_TCODES"],
-		AgrUsers: c["AGR_USERS"]}
+		AgrUsers: c["AGR_USERS"], Csks: c["CSKS"], Cskt: c["CSKT"], Cepc: c["CEPC"], Cepct: c["CEPCT"], CepcBukrs: c["CEPC_BUKRS"],
+		FaglSegm: c["FAGL_SEGM"], FaglSegmt: c["FAGL_SEGMT"]}
 }
 
 func loadedToAPI(l LoadedCounts) gen.MigrationLoadedCounts {
@@ -86,7 +91,8 @@ func loadedToAPI(l LoadedCounts) gen.MigrationLoadedCounts {
 		SuppliersBlocked: count(l.SuppliersBlocked), PurchaseOrders: count(l.PurchaseOrders), GoodsReceipts: count(l.GoodsReceipts),
 		SupplierInvoices: count(l.SupplierInvoices), PostedInvoicesInvoiced: count(l.PostedInvoicesInvoiced),
 		JournalEntries: count(l.JournalEntries), DownPayments: count(l.DownPayments), Clearings: count(l.Clearings),
-		GrIrPositions: count(l.GRIRPositions), GrIrTopUps: count(l.GRIRTopUps)}
+		GrIrPositions: count(l.GRIRPositions), GrIrTopUps: count(l.GRIRTopUps), Segments: count(l.Segments), ProfitCenters: count(l.ProfitCenters),
+		ProfitCentersExtended: count(l.ProfitCentersExtended), CostCenters: count(l.CostCenters)}
 }
 
 // count is a loaded count as the contract has it: absent when nothing of

@@ -1,9 +1,11 @@
 # The tax suite's tenants' configuration (ADR-0039, ADR-0049 §13): one
 # Canadian company, 3000 (CAD), that adopted Canada pack 2026.6, whose
 # returns.yaml defines the GST/HST return (the GST34's lines, T61j, not
-# signed off), with a quarterly GST/HST registration from 2026-01-01 and
-# one output code for its sales, GO5 at 5% to 2300, as the walkthrough's
-# pilot settings configure it (scripts/walkthrough.sh, PILOT_SETTINGS).
+# signed off), with a quarterly GST/HST registration from 2026-01-01, one
+# output code for its sales, GO5 at 5% to 2300, and one code of tax alone
+# for an instalment paid, GI (kind adjustment, rate 0, keyed instalment:
+# line 110, ADR-0049 §11 As built), as the walkthrough's pilot settings
+# configure them (scripts/walkthrough.sh, PILOT_SETTINGS).
 # The registration number is illustrative. The cases are dated in 2026,
 # whose periods have all ended whenever a suite runs.
 version: 1
@@ -53,6 +55,16 @@ companies:
             account_key: output
             account: "2300"
             rates: [{rate_percent: "5", valid_from: "2025-01-01"}]
+      - code: GI
+        description: GST/HST instalment paid (line 110)
+        direction: input
+        kind: adjustment
+        components:
+          - key: instalment
+            jurisdiction: CA
+            account_key: input
+            account: "2300"
+            rates: [{rate_percent: "0", valid_from: "2025-01-01"}]
     tax_registrations:
       - code: GSTHST
         authority: CRA

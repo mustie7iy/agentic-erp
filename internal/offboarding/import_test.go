@@ -26,6 +26,18 @@ func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uu
 	t.Helper()
 	ctx := context.Background()
 	e := fixture.New(t, "payables.invoice.read")
+	// One period closed and opened again: its opened count of 2 (ADR-0060 §6) is a value the database keeps,
+	// which the import restores as exported.
+	// The row is read once by its unique order: each company has a period 1 on the same ledger.
+	var period uuid.UUID
+	pgtest.Scan(t, `SELECT id FROM ledger.period_status WHERE tenant_id = $1 AND period = 1 ORDER BY fiscal_year, ledger_id, legal_entity_id
+		LIMIT 1`, []any{e.Tenant.ID}, &period)
+	for _, status := range []string{"closed", "open"} {
+		pgtest.Exec(t, `UPDATE ledger.period_status SET status = $2, version = version + 1 WHERE id = $1`, period, status)
+	}
+	if got := count(t, `SELECT count(*) FROM ledger.period_status WHERE tenant_id = $1 AND opened_count = 2`, e.Tenant.ID); got != 1 {
+		t.Fatalf("periods opened twice before the export: got %d, want 1", got)
+	}
 	pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'offboarded', version = version + 1 WHERE id = $1`, e.Tenant.ID)
 	clock := time.Now().UTC()
 	w := worker(t, pool, store, &clock)
@@ -112,6 +124,9 @@ func TestReonboarding(t *testing.T) {
 		if got := count(t, `SELECT count(*) FROM `+name+` WHERE tenant_id = $1`, tenant); got != n {
 			t.Errorf("%s in the cell: got %d rows, want the %d exported", name, got, n)
 		}
+	}
+	if got := count(t, `SELECT count(*) FROM ledger.period_status WHERE tenant_id = $1 AND opened_count = 2`, tenant); got != 1 {
+		t.Errorf("periods opened twice after the import: got %d, want the 1 exported", got)
 	}
 	var status string
 	var erased *time.Time

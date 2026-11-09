@@ -19,6 +19,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
@@ -46,7 +47,8 @@ func TestDatabaseFailures(t *testing.T) {
 	update, _ := e.Must(201, "POST", "/v1/partner-changes", e.update(id(a), fmt.Sprintf(`{"name": "A2", "roles": ["supplier", "customer"],
 		"supplier_companies": [{"legal_entity_id": %q, "reconciliation_account_id": %q, "payment_term_code": "NT60"}],
 		"addresses": [{"purpose": "legal", "line1": "L", "city": "C", "country_code": "DE", "valid_from": %q}],
-		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"segment": "x"}}`, e.le, e.recon, e.date(0))), "")
+		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"segment": "x"}, "group_company_id": %q}`, e.le, e.recon, e.date(0), e.le)), "")
+	pgtest.Exec(t, `UPDATE partner.business_partner SET group_company_id = $2, version = version + 1 WHERE id = $1`, id(a), e.le) // named on reads
 	_, aTag := e.Must(200, "GET", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String(), "", "")
 	bankEnd, _ := e.Must(200, "POST", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String()+":end",
 		fmt.Sprintf(`{"valid_to": %q, "reason": "r"}`, e.date(10)), aTag)
@@ -74,10 +76,14 @@ func TestDatabaseFailures(t *testing.T) {
 		TaxIdentifiers: []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE123456789"}},
 		BankAccounts: []gen.BankAccountInput{{AccountNumber: iban, AccountScheme: "iban", BankCountryCode: "DE", HolderName: "N", ValidFrom: e.day,
 			Bic: gen.NewOptString("COBADEFFXXX")}},
-		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)})}
+		Extensions: gen.NewOptExtensions(gen.Extensions{"segment": []byte(`"x"`)}), GroupCompanyID: gen.NewOptUUID(e.le)}
 	calls := map[string]func(ctx context.Context) error{
 		"payment accounts": func(ctx context.Context) error {
 			_, err := partner.Suppliers{}.PaymentAccounts(ctx, []uuid.UUID{u(a)})
+			return err
+		},
+		"group company": func(ctx context.Context) error {
+			_, err := partner.Postings{}.GroupCompany(ctx, u(a))
 			return err
 		},
 		"sample for rules": func(ctx context.Context) error {
@@ -109,7 +115,7 @@ func TestDatabaseFailures(t *testing.T) {
 				Name: gen.NewOptString("C2"), LegalName: gen.NewOptNilString("C2 GmbH"), Roles: []string{"supplier"},
 				SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT60"}},
 				Addresses:         []gen.Address{{Purpose: "legal", Line1: "L", City: "C", CountryCode: "DE", ValidFrom: e.day}},
-				TaxIdentifiers:    []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE2"}}}}, gen.CreatePartnerChangeParams{})
+				TaxIdentifiers:    []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE2"}}, GroupCompanyID: gen.NewOptNilUUID(e.le)}}, gen.CreatePartnerChangeParams{})
 			return err
 		},
 		"get change": func(ctx context.Context) error {

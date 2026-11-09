@@ -109,7 +109,7 @@ func (p Postings) Postable(ctx context.Context, legalEntity uuid.UUID, date time
 	if err != nil {
 		return err
 	}
-	_, _, _, err = postingPeriod(ctx, tx, le, nil, date)
+	_, _, _, err = postingPeriod(ctx, tx, le, nil, date, 0)
 	return err
 }
 
@@ -150,6 +150,7 @@ func (e *Endpoints) bankLines(ctx context.Context, tx pgx.Tx, in BankPosting, le
 			tc.Plain(bank.expTC), in.Amount.Plain(bank.expTC)))
 	}
 	fx, err := exchangeDifferenceLines(ctx, le.ID, lc, gc, bank, in.HeaderText)
+	withTradingPartner(fx, sharedTradingPartner(items)) // a difference line takes the items' trading partner (ADR-0059 §4); fx is nil on err
 	return bankEntry{lines: append(append(lines, bankLine), fx...), items: items, bank: bank}, err
 }
 

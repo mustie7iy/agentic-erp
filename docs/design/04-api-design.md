@@ -58,7 +58,11 @@ entry *is* posting it (`POST /v1/journal-entries`; there are no draft journal
 entries). Corrections are custom methods that create new documents:
 `journal-entries/{id}:reverse`, `supplier-invoices/{id}:reverse` (posts a
 reversal entry). `supplier-invoices/{id}:cancel` applies only to invoices not
-yet posted.
+yet posted. A posting's fiscal period follows from its posting date (the
+regular period it falls in); a request names a period only for a year-end
+adjustment, a special period 13-16 on a manual entry, a parked one or the
+API's reversal, dated in the year's last regular period (`fiscal_period`,
+ADR-0060 §3).
 
 **Effective-dated assignments** (role assignments, role permissions, company
 access, SoD rules) are created and then ended with `POST {id}:end`
@@ -217,6 +221,35 @@ of its kind only), `ledger.profit_center_posted_after` and
 lines carrying it, T56d4) and `ledger.segment_in_use` (a posted profit
 center's segment), at the request and again at the approval.
 
+Manual, parked and template entry lines take a `trading_partner_id`
+(T68b, ADR-0059 §4): the tenant's company on the other side of an
+intercompany line, another legal entity of the tenant than the entry's
+(422 `ledger.trading_partner_invalid` on `lines[i].trading_partner_id`,
+the field error's `code` `own_company` or `unknown`). Journal and parked
+lines show it as `trading_partner` (id, and company code and the
+company's name as it is now only to a caller who may act in that company,
+the id alone otherwise, product owner 2026-11-05; the names are added
+after a journal entry's ETag is taken, so neither renaming a company nor
+who reads changes an entry's ETag); a consolidation run's translated
+balances name their trading partners the same way; `GET
+/v1/journal-entries` filters by `trading_partner_id`, and
+JournalEntryPosted's lines carry it. Every operation that posts can answer
+the refusal, as the database's check of a line's own company maps to it.
+
+A business partner takes a `group_company_id` (T68c, ADR-0059 §4) on
+`createBusinessPartner` and in an `update` partner change (null unlinks
+it; applied on approval): any legal entity of the tenant, else 422
+`partner.group_company_unknown`. The partner shows it with `group_company`
+(id, and company code and name as they are now only to a caller who may
+act in that company, as a trading partner; the ETag is the partner's
+version), and BusinessPartnerCreated and BusinessPartnerUpdated carry it.
+The ledger derives each posted line's trading partner from it: a line
+naming the partner takes the company, the entry's other lines take the one
+all its partner lines share, and a line naming another than its partner's
+is refused with 422 `ledger.trading_partner_conflict` on
+`lines[i].trading_partner_id` (field error code `conflict`), which every
+operation that posts can answer.
+
 Requisition and purchase order items take `account_assignment` (`none` or
 `cost_center`; left out: `cost_center` when a `cost_center_id` is given)
 and `cost_center_id` (T56e): 422 `procurement.invalid_account_assignment`
@@ -247,6 +280,18 @@ read, as the trial balance's: projected balances plus the lines not yet
 projected. A row's lines are the entries `GET /v1/journal-entries` lists
 for its center (`cost_center_id`, `profit_center_id`) with the company,
 ledger and year; the reports add no journal filter.
+
+The balance carry-forward (ADR-0060 §5, §7, T64m2) is a run per ledger:
+`POST /v1/balance-carry-forwards` (`ledger.carry_forward.run` with
+`ledger.entry.read` as `x-also-permissions`, `x-agent: false`,
+`Idempotency-Key`) takes a company, a fiscal year and optional
+`ledger_ids` (default every kept ledger) and answers 201 with one run per
+ledger in one body (`items`, the leading ledger first), all in one
+transaction, so no single `Location` names them; each is read with `GET
+/v1/balance-carry-forwards/{id}` (`ledger.entry.read`, ETag), which names
+the company, ledger, retained earnings account and who ran it, with the
+year's result and the rows' debit and credit totals per transaction
+currency and, over every currency, in local and group currency. A run is never a journal entry; the trial balance is unchanged.
 
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
@@ -689,6 +734,7 @@ with the month's total against the tenant's cap.
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
+| consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; a run only to a caller who may act in every company of its group) | `:discard` (T68d) |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |

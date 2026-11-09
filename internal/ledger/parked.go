@@ -54,6 +54,7 @@ type ParkedEntry struct {
 	ApprovalRequestID *uuid.UUID
 	JournalFiscalYear *int16
 	JournalEntryID    *uuid.UUID
+	FiscalPeriod      *int16 // the special period it is to be posted into (ADR-0060 §3); nil: its posting date's
 	Lines             []Line
 	Debits            money.Minor // the debit total of Lines
 	Limit             *ParkLimit  // why the ERP parked it instead of posting it; nil: a principal parked it
@@ -93,7 +94,8 @@ func (t lineTable) read(alias string) string {
 	return `coalesce((SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount, 'lc', 0, 'gc', 0,
 			'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text, 'unit', l.uom_code, 'text', l.line_text,
 			'tax_base_tc', l.tax_base, 'tax_jurisdiction', l.tax_jurisdiction, 'cost_center_id', l.cost_center_id, 'profit_center_id', l.profit_center_id,
-			'segment_id', l.segment_id, 'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code)
+			'segment_id', l.segment_id, 'cost_center_code', cc.code, 'profit_center_code', pc.code, 'segment_code', sg.code,
+			'trading_partner_id', l.trading_partner_id)
 			ORDER BY l.line_no)
 		 FROM ` + t.name() + ` l` + centerJoins + where + `), '[]'),
 		(SELECT coalesce(sum(l.amount) FILTER (WHERE l.amount > 0), 0)::bigint FROM ` + t.name() + ` l` + where + `)`
@@ -106,7 +108,7 @@ var parkedSelect = `SELECT p.id, p.legal_entity_id, p.ledger_id, p.document_type
 		` + parkedLines.read("p") + `,
 		p.limit_kind, p.limit_debits, p.limit_debits_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_debits_currency),
 		p.limit_amount, p.limit_currency, (SELECT x.exponent FROM ref.currency x WHERE x.code = p.limit_currency), p.template_id, p.occurrence_date,
-		(SELECT t.name FROM ledger.entry_template t WHERE t.tenant_id = p.tenant_id AND t.id = p.template_id)
+		(SELECT t.name FROM ledger.entry_template t WHERE t.tenant_id = p.tenant_id AND t.id = p.template_id), p.fiscal_period
 	FROM ledger.parked_entry p JOIN ref.currency c ON c.code = p.currency`
 
 func scanParked(row pgx.Row) (ParkedEntry, error) {
@@ -117,7 +119,7 @@ func scanParked(row pgx.Row) (ParkedEntry, error) {
 	err := row.Scan(&pe.ID, &pe.LegalEntityID, &pe.LedgerID, &pe.DocumentType, &pe.DocumentDate, &pe.PostingDate, &pe.TaxDate, &pe.Currency, &pe.Exp,
 		&pe.Reference, &pe.HeaderText, &pe.Status, &pe.CreatedByKind, &pe.OwnerID, &pe.ApprovalRequestID, &pe.JournalFiscalYear, &pe.JournalEntryID,
 		&pe.Version, &pe.CreatedAt, &pe.CreatedBy, &pe.UpdatedAt, &pe.UpdatedBy, &pe.LedgerSpecific, &pe.LedgerGroup, &pe.Lines, &pe.Debits,
-		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp, &pe.TemplateID, &pe.OccurrenceDate, &pe.TemplateName)
+		&kind, &debits, &debitsCurrency, &debitsExp, &limit, &limitCurrency, &limitExp, &pe.TemplateID, &pe.OccurrenceDate, &pe.TemplateName, &pe.FiscalPeriod)
 	// The database holds the five together (parked_entry_limit_figures),
 	// and a currency it keeps has its exponent.
 	if err == nil && kind != nil {
@@ -160,6 +162,9 @@ func (e *Endpoints) parkEntry(ctx context.Context, in NewEntry) (ParkedEntry, er
 	}
 	v, err := e.prepare(ctx, tx, in)
 	if err != nil {
+		return ParkedEntry{}, err
+	}
+	if err := checkSpecial(ctx, tx, v, in); err != nil {
 		return ParkedEntry{}, err
 	}
 	return parkPrepared(ctx, tx, p, v, in, parking{})
@@ -207,11 +212,11 @@ func parkPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.parked_entry (tenant_id, id, legal_entity_id, ledger_id, document_type, document_date, posting_date,
 			currency, reference, header_text, created_by_kind, owner_id, created_by, updated_by, ledger_specific, ledger_group_id, tax_date,
-			limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency, template_id, occurrence_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+			limit_kind, limit_debits, limit_debits_currency, limit_amount, limit_currency, template_id, occurrence_date, fiscal_period)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
 		p.TenantID, id, v.le.ID, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText,
 		p.Kind, how.ownerOf(p), p.ID, v.choice.specific, v.choice.group, in.TaxDate, kind, debits, debitsCurrency, amount, limitCurrency,
-		how.template, how.occurrence); err != nil {
+		how.template, how.occurrence, in.special); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: park entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -271,14 +276,15 @@ func refuseAutomatic(ctx context.Context, le uuid.UUID, lines []Line) error {
 // the functions that run them (api TestProblemCodes).
 const (
 	lineValues = `line_no, account_id, amount, partner_id,
-			tax_code, quantity, uom_code, line_text, tax_base, tax_jurisdiction, cost_center_id, profit_center_id, segment_id)
-		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t, b, j, cc, pc, sg
+			tax_code, quantity, uom_code, line_text, tax_base, tax_jurisdiction, cost_center_id, profit_center_id, segment_id, trading_partner_id)
+		SELECT $1, $2, n, a, m, pa, tx, q::numeric, u, t, b, j, cc, pc, sg, tp
 		FROM unnest($3::int[], $4::uuid[], $5::bigint[], $6::uuid[], $7::text[], $8::text[], $9::text[], $10::text[], $11::bigint[], $12::text[],
-			$13::uuid[], $14::uuid[], $15::uuid[]) AS x(n, a, m, pa, tx, q, u, t, b, j, cc, pc, sg)`
+			$13::uuid[], $14::uuid[], $15::uuid[], $16::uuid[]) AS x(n, a, m, pa, tx, q, u, t, b, j, cc, pc, sg, tp)`
 	lineUpdate = ` DO UPDATE SET account_id = EXCLUDED.account_id, amount = EXCLUDED.amount,
 			partner_id = EXCLUDED.partner_id, tax_code = EXCLUDED.tax_code, quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code,
 			line_text = EXCLUDED.line_text, tax_base = EXCLUDED.tax_base, tax_jurisdiction = EXCLUDED.tax_jurisdiction,
-			cost_center_id = EXCLUDED.cost_center_id, profit_center_id = EXCLUDED.profit_center_id, segment_id = EXCLUDED.segment_id, is_removed = false`
+			cost_center_id = EXCLUDED.cost_center_id, profit_center_id = EXCLUDED.profit_center_id, segment_id = EXCLUDED.segment_id,
+			trading_partner_id = EXCLUDED.trading_partner_id, is_removed = false`
 	writeParkedLines = `INSERT INTO ledger.parked_entry_line (tenant_id, parked_entry_id, ` + lineValues +
 		` ON CONFLICT (tenant_id, parked_entry_id, line_no)` + lineUpdate
 	removeParkedLines  = `UPDATE ledger.parked_entry_line SET is_removed = true WHERE parked_entry_id = $1 AND line_no > $2 AND NOT is_removed`
@@ -306,14 +312,14 @@ func putLines(ctx context.Context, tx pgx.Tx, sql [2]string, what string, tenant
 	nos, accounts, partners, amounts := make([]int32, n), make([]uuid.UUID, n), make([]*uuid.UUID, n), make([]money.Minor, n)
 	taxes, quantities, units, texts := make([]*string, n), make([]*string, n), make([]*string, n), make([]*string, n)
 	bases, jurisdictions := make([]*money.Minor, n), make([]*string, n)
-	ccs, pcs, segs := make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
+	ccs, pcs, segs, tps := make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
 	for i, l := range lines {
 		nos[i], accounts[i], partners[i], amounts[i] = int32(i+1), l.AccountID, l.PartnerID, l.TC
 		taxes[i], quantities[i], units[i], texts[i], bases[i], jurisdictions[i] = l.TaxCode, l.Quantity, l.Unit, l.Text, l.TaxBase, l.TaxJurisdiction
-		ccs[i], pcs[i], segs[i] = l.CostCenterID, l.ProfitCenterID, l.SegmentID
+		ccs[i], pcs[i], segs[i], tps[i] = l.CostCenterID, l.ProfitCenterID, l.SegmentID, l.TradingPartnerID
 	}
 	if _, err := tx.Exec(ctx, sql[0], tenant, id, nos, accounts, amounts, partners, taxes, quantities, units, texts, bases, jurisdictions,
-		ccs, pcs, segs); err != nil {
+		ccs, pcs, segs, tps); err != nil {
 		return fmt.Errorf("ledger: write lines of %s %s: %w", what, id, err)
 	}
 	if _, err := tx.Exec(ctx, sql[1], id, n); err != nil {
@@ -359,6 +365,7 @@ type EntryChange struct {
 	DocumentType              *string
 	DocumentDate, PostingDate *time.Time
 	TaxDate                   **time.Time // a nil *time.Time clears it: the posting date
+	FiscalPeriod              **int16     // a nil *int16 removes the special period: the posting date's
 	Currency                  *string
 	Reference, HeaderText     **string
 	Lines                     []NewLine
@@ -422,7 +429,8 @@ func takenOn(owner *uuid.UUID, createdBy uuid.UUID, p reqctx.Principal) (after *
 // changed is the parked entry as a manual entry with the change applied.
 func changed(pe ParkedEntry, ch EntryChange) NewEntry {
 	in := NewEntry{LegalEntityID: pe.LegalEntityID, LedgerGroup: pe.LedgerGroup, DocumentType: pe.DocumentType, DocumentDate: pe.DocumentDate,
-		PostingDate: pe.PostingDate, TaxDate: pe.TaxDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines}
+		PostingDate: pe.PostingDate, TaxDate: pe.TaxDate, Currency: pe.Currency, Reference: pe.Reference, HeaderText: pe.HeaderText, Lines: ch.Lines,
+		special: deref(ch.FiscalPeriod, pe.FiscalPeriod)}
 	if pe.LedgerSpecific {
 		in.LedgerID = &pe.LedgerID
 	}
@@ -444,7 +452,7 @@ func asNewLines(lines []Line, currency string, exp int) []NewLine {
 	for i, l := range lines {
 		out[i] = NewLine{AccountID: l.AccountID, Amount: l.TC.Plain(exp), Currency: currency, PartnerID: l.PartnerID, TaxCode: l.TaxCode,
 			Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, TaxBaseCurrency: currency, TaxJurisdiction: l.TaxJurisdiction,
-			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID}
+			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: l.TradingPartnerID}
 		if l.TaxBase != nil {
 			b := l.TaxBase.Plain(exp)
 			out[i].TaxBase = &b
@@ -480,9 +488,12 @@ func (e *Endpoints) changeEntry(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err := parkable(ctx, tx, v, in.PostingDate); err != nil {
 		return ParkedEntry{}, err
 	}
+	if err := checkSpecial(ctx, tx, v, in); err != nil {
+		return ParkedEntry{}, err
+	}
 	if _, err := tx.Exec(ctx, `UPDATE ledger.parked_entry SET ledger_id = $2, document_type = $3, document_date = $4, posting_date = $5, currency = $6,
-			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10, tax_date = $11 WHERE id = $1`,
-		id, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID, in.TaxDate); err != nil {
+			reference = $7, header_text = $8, owner_id = $9, version = version + 1, updated_by = $10, tax_date = $11, fiscal_period = $12 WHERE id = $1`,
+		id, v.choice.ledger, in.DocumentType, in.DocumentDate, in.PostingDate, in.Currency, in.Reference, in.HeaderText, owner, p.ID, in.TaxDate, in.special); err != nil {
 		return ParkedEntry{}, fmt.Errorf("ledger: change parked entry %s: %w", id, err)
 	}
 	if err := putParkedLines(ctx, tx, p.TenantID, id, v.lines); err != nil {
@@ -504,7 +515,7 @@ func (ch EntryChange) fields() []string {
 		name string
 		set  bool
 	}{{"document_type", ch.DocumentType != nil}, {"document_date", ch.DocumentDate != nil}, {"posting_date", ch.PostingDate != nil},
-		{"tax_date", ch.TaxDate != nil},
+		{"tax_date", ch.TaxDate != nil}, {"fiscal_period", ch.FiscalPeriod != nil},
 		{"currency", ch.Currency != nil}, {"reference", ch.Reference != nil}, {"header_text", ch.HeaderText != nil}, {"lines", ch.Lines != nil}} {
 		if f.set {
 			out = append(out, f.name)

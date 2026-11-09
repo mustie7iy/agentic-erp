@@ -65,6 +65,10 @@ type Config struct {
 	// Close is the tenant's close template (ADR-0058 §3): the tasks each
 	// company's period close is given.
 	Close Close `yaml:"close,omitempty" json:"close,omitzero"`
+	// Consolidation is the tenant's group reporting (ADR-0059 §3): the
+	// group chart, its eliminations and the consolidation groups; each
+	// company's accounts map to the group chart (Account.GroupAccount).
+	Consolidation Consolidation `yaml:"consolidation,omitempty" json:"consolidation,omitzero"`
 }
 
 // Calendar is a company's weekend and holidays, each date once.
@@ -278,6 +282,17 @@ type Company struct {
 	// Close is how the company's period close works (ADR-0058 §3): its
 	// variance report's bases and thresholds (T64h).
 	Close CompanyClose `yaml:"close,omitempty" json:"close,omitzero"`
+	// YearEnd is how the company's fiscal year is closed (ADR-0060 §4):
+	// the retained earnings account a carry-forward carries the year's
+	// profit or loss to, one for every ledger the company keeps.
+	YearEnd YearEnd `yaml:"year_end,omitempty" json:"year_end,omitzero"`
+}
+
+// YearEnd is a company's year-end settings (ADR-0060 §4). Without a
+// retained earnings account the company's carry-forward is refused
+// (ledger.retained_earnings_missing); it is not required at activation.
+type YearEnd struct {
+	RetainedEarningsAccount string `yaml:"retained_earnings_account,omitempty" json:"retained_earnings_account,omitempty"`
 }
 
 // FXValuation is the company's foreign-currency valuation (ADR-0042): the
@@ -403,6 +418,10 @@ type Account struct {
 	// (ADR-0050 §4); empty takes the default of the account's type
 	// (CostElementOrDefault).
 	CostElement CostElement `yaml:"cost_element,omitempty" json:"cost_element,omitempty"`
+	// GroupAccount is the account of the group chart this account's
+	// balances are consolidated on (ADR-0059 §3), required on every
+	// account of a company in a consolidation group.
+	GroupAccount string `yaml:"group_account,omitempty" json:"group_account,omitempty"`
 }
 
 // AccountDetermination says which accounts automatic postings use (SAP T030).

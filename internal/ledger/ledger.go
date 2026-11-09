@@ -54,11 +54,14 @@ type LegalEntities interface {
 }
 
 // Partners is what the ledger asks the partner context before posting a
-// line on a reconciliation account.
+// line naming a partner.
 type Partners interface {
 	// PostingBlock says why the partner may not be posted on a
 	// reconciliation account of the kind in the legal entity, or "".
 	PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UUID, kind string) (string, error)
+	// GroupCompany is the legal entity of the tenant the partner is, when
+	// it is one of the group's companies, or nil (ADR-0059 §4a, T68c).
+	GroupCompany(ctx context.Context, partnerID uuid.UUID) (*uuid.UUID, error)
 }
 
 // Numbers issues document numbers (configuration context).
@@ -95,6 +98,14 @@ type Endpoints struct {
 	// People tells whether a person is still active: the owner of an entry
 	// template, for whom the recurrer parks (ADR-0056).
 	People People
+	// PersonNames names the people who ran a carry-forward (ADR-0060 §7).
+	PersonNames PersonNames
+}
+
+// PersonNames is the identity context's names of principals by id; an id
+// of none is left out.
+type PersonNames interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 }
 
 // People is the identity context's directory of principals.

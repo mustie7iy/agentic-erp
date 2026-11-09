@@ -1907,10 +1907,10 @@ Decided by default, for the product owner to overrule:
   attempts, backoff from a second to a minute; a business problem is not
   retried). An error of the machinery that outlasts them fails the run and
   its Operation with `platform.internal` and fails the workflow with the
-  error, for the operators; a run whose fail itself fails five times stays
-  `running`, its workflow failed, as a release does. The in-process runner
-  tries a failing step again every round; cancelling the Operation ends
-  such a run at its next step.
+  error, for the operators. The fail itself is retried until it is
+  recorded (ADR-0012 As built, review:T68d), so a run always ends. The
+  in-process runner tries a failing step again every round; cancelling
+  the Operation ends such a run at its next step.
 - **Who a run acts as**: the person who started it (the Operation's
   requester, as a migration run, `workflows.requester`), so its entries,
   movements and audit records name that person.

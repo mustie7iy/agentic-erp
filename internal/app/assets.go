@@ -24,7 +24,7 @@ import (
 // none of them.
 func Assets(cfg Config) *assets.Endpoints {
 	return &assets.Endpoints{Settings: configuration.Settings{}, Companies: assetCompanies{}, Ledger: assetLedger{}, Centers: assetCenters{},
-		Numbers: configuration.Numbers{}, Runs: assetRuns{}, Invoices: assetInvoices{}, Pages: cfg.Pages, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Runs: runOperations{kind: assets.KindDepreciate}, Invoices: assetInvoices{}, Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // assetCompanies gives the assets context a legal entity by company code
@@ -227,31 +227,32 @@ func (assetCenters) Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]a
 	return out, err
 }
 
-// assetRuns keeps a depreciation run's Operation (ADR-0057 §7).
-type assetRuns struct{}
+// runOperations keeps the Operation of a run of the kind: a
+// depreciation run's (ADR-0057 §7), a consolidation run's (ADR-0059 §6).
+type runOperations struct{ kind string }
 
-func (assetRuns) Start(ctx context.Context, resource string, request any) (gen.Operation, error) {
-	o, err := operations.StartFor(ctx, assets.KindDepreciate, request, resource)
+func (r runOperations) Start(ctx context.Context, resource string, request any) (gen.Operation, error) {
+	o, err := operations.StartFor(ctx, r.kind, request, resource)
 	if err != nil {
 		return gen.Operation{}, err
 	}
 	return operations.ToAPI(o), nil
 }
 
-func (assetRuns) Report(ctx context.Context, id uuid.UUID, done, total int64) error {
+func (runOperations) Report(ctx context.Context, id uuid.UUID, done, total int64) error {
 	return operations.Report(ctx, id, done, total)
 }
 
-func (assetRuns) Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error) {
+func (runOperations) Cancelled(ctx context.Context, id uuid.UUID, lock bool) (bool, error) {
 	return operations.IsCancelled(ctx, id, lock)
 }
 
-func (assetRuns) Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error {
+func (runOperations) Succeed(ctx context.Context, id uuid.UUID, resource string, result any) error {
 	_, err := operations.Succeed(ctx, id, resource, result)
 	return err
 }
 
-func (assetRuns) Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error {
+func (runOperations) Fail(ctx context.Context, id uuid.UUID, p *problem.Problem) error {
 	_, err := operations.Fail(ctx, id, p)
 	return err
 }

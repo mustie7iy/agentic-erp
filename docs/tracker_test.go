@@ -72,8 +72,15 @@ const baselineItems = 949
 // from it, each inheriting the tag (94). 96 since T61j: the GST/HST
 // return's sign-off by the tax specialist and the FPZ-500 for a Quebec
 // registrant (P4), in the approved scope, split from it, each inheriting
-// the tag (96).
-const pilotItems = 96
+// the tag (96). 97 since T62f: the UAE pack's sign-off by the tax
+// specialist, in the approved scope, split from it, inheriting the tag.
+// 98 since T61k: the VAT 201's sign-off by the tax specialist, in the
+// approved scope, split from it, inheriting the tag. 99 since T61k's
+// review: the emirate guard the sign-off waits for, inheriting the tag.
+// 102 since T56h1: the SAP migration of controlling data split into
+// T56h1-T56h4 for size (hierarchies and categories, OKB9 defaults,
+// ACDOCA's centers and center totals), each inheriting the tag.
+const pilotItems = 102
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

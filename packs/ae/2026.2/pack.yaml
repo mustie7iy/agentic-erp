@@ -1,0 +1,39 @@
+# United Arab Emirates (ADR-0048). 2026.2 is 2026.1 (T62f) plus the VAT
+# 201 (returns.yaml, T61k): its boxes as ADR-0049 records them from the
+# FTA's VAT return guide through secondary summaries (the Zoho and
+# ClearTax sources below; the guide predates EmaraTax), the columns and
+# totals the ADR does not spell out marked in their labels. Every other
+# file is 2026.1's, unchanged. It carries no sign_off: every UAE item of
+# ADR-0049 waits for the tax specialist (ADR-0049, Sources, As built
+# T62h), the VAT 201's boxes, how the pack's codes map to them and the
+# open items of ../TAX-PENDING-T61k.md among them, so production refuses
+# to apply it (409 config.pack_not_signed_off) until a signed-off version
+# exists, which is a new version, since a released one never changes (as
+# Canada 2026.4 was signed off as 2026.5).
+#
+# The sources below are those ADR-0049 records with a link, cited from its
+# proposal of 2026-10-20 and not fetched again in T62f or T61k. The VAT Law
+# (Federal Decree-Law No. 8 of 2017) and its Executive Regulation (Cabinet
+# Decision No. 52 of 2017), on which the rate, the categories, blocked
+# input and the tax invoice rest, are named by ADR-0049 without a link and
+# are not listed here; the pending files say so for each fact.
+country: AE
+version: "2026.2"
+name: United Arab Emirates
+valid_from: 2026-01-01
+sources:
+  - title: "UAE Ministry of Finance (WAM): the VAT law amendments in force from 2026-01-01 (Federal Decree-Law No. 16 of 2025: no self-invoice for the reverse charge), as ADR-0049 cites it from its proposal of 2026-10-20; not fetched again in T62f"
+    url: https://www.wam.ae/en/article/bn10b09-ministry-finance-implement-vat-law-amendments
+    retrieved: 2026-10-20
+  - title: "Federal Tax Authority: Designated Zones VAT Guide (supplies of goods within or between designated zones outside the UAE for VAT), as ADR-0049 cites it; not fetched again in T62f"
+    url: https://u.ae/-/media/Documents-2023/Designated-Zones-VAT-Guide.ashx
+    retrieved: 2026-10-20
+  - title: "Federal Tax Authority, public clarification on the reverse charge for electronic devices (WAM), as ADR-0049 cites it; not fetched again in T62f"
+    url: https://wam.ae/en/details/1395303213742
+    retrieved: 2026-10-20
+  - title: "VAT 201 box descriptions (boxes 1a-14: the returns.yaml of 2026.2; reverse charge: boxes 3 and 10; goods imported: box 6), the FTA's VAT return user guide (v. 2021, before EmaraTax) as summarised by Zoho: secondary, as ADR-0049 cites it; not fetched again in T62f or T61k"
+    url: https://www.zoho.com/ae/books/vat/guides/vat-return.html
+    retrieved: 2026-10-20
+  - title: "VAT 201 box descriptions, as summarised by ClearTax: secondary, as ADR-0049 cites it; not fetched again in T62f or T61k"
+    url: https://cleartax.com/ae/vat-return-uae
+    retrieved: 2026-10-20

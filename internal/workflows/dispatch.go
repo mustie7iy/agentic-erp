@@ -103,6 +103,9 @@ func start(w operations.Waiting, queue string) workflow.Start {
 	case DepreciateKind:
 		return workflow.Start{ID: DepreciationWorkflowID(w.TenantID, w.Resource), Queue: queue, Name: DepreciationWorkflow,
 			Args: []any{DepreciationInput{TenantID: w.TenantID, RunID: w.Resource, OperationID: w.ID}}}
+	case ConsolidateKind:
+		return workflow.Start{ID: ConsolidationWorkflowID(w.TenantID, w.Resource), Queue: queue, Name: ConsolidationWorkflow,
+			Args: []any{ConsolidationInput{TenantID: w.TenantID, RunID: w.Resource, OperationID: w.ID}}}
 	case configuration.SimulateKind:
 		return workflow.Start{ID: SimulateWorkflowID(w.TenantID, w.Number, w.Attempt), Queue: queue, Name: SimulateWorkflow,
 			Args: []any{SimulateInput{TenantID: w.TenantID, OperationID: w.ID}}}
@@ -168,17 +171,20 @@ func (d *Dispatcher) RunOnce(ctx context.Context) (int, error) {
 
 // queued reads the operations waiting for a workflow: payment proposals
 // and releases, configuration simulations, migrations and reconciliations,
-// each listed by the context that owns its resource, and depreciation
-// runs, whose leaf context's tables the dispatcher may not read, from
-// their operations alone (ADR-0057 §7), in the order they were queued (operation ids are UUIDv7, and PostgreSQL orders uuids by
+// each listed by the context that owns its resource, and depreciation and
+// consolidation runs, whose leaf contexts' tables the dispatcher may not
+// read, from their operations alone (ADR-0057 §7, ADR-0059 §6), in the order they were queued (operation ids are UUIDv7, and PostgreSQL orders uuids by
 // their bytes, as bytes.Compare does).
 func queued(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 	var jobs []operations.Waiting
 	depreciations := func(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 		return operations.QueuedOf(ctx, tx, DepreciateKind)
 	}
+	consolidations := func(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
+		return operations.QueuedOf(ctx, tx, ConsolidateKind)
+	}
 	for _, list := range []func(context.Context, pgx.Tx) ([]operations.Waiting, error){payments.Queued, configuration.QueuedSimulations, integration.QueuedRuns,
-		depreciations} {
+		depreciations, consolidations} {
 		more, err := list(ctx, tx)
 		if err != nil {
 			return nil, fmt.Errorf("dispatcher: reading queued operations: %w", err)
@@ -332,7 +338,8 @@ func (d *Dispatcher) Run(ctx context.Context) {
 }
 
 // Register registers the workflows and activities a cell's worker hosts.
-func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements, rc *Recurrences, sn *Snapshots, d *Depreciations) {
+func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a *Approvals, st *Statements, rc *Recurrences, sn *Snapshots, d *Depreciations,
+	c *Consolidations) {
 	r.RegisterWorkflowWithOptions(ProposePaymentRun, sdkworkflow.RegisterOptions{Name: ProposeWorkflow})
 	r.RegisterWorkflowWithOptions(ReleasePaymentRun, sdkworkflow.RegisterOptions{Name: ReleaseWorkflow})
 	r.RegisterWorkflowWithOptions(SimulateChange, sdkworkflow.RegisterOptions{Name: SimulateWorkflow})
@@ -353,4 +360,6 @@ func Register(r workflow.Registry, p *Payments, s *Simulations, m *Migrations, a
 	r.RegisterActivityWithOptions(sn.PruneSnapshots, activity.RegisterOptions{Name: "PruneSnapshots"})
 	r.RegisterWorkflowWithOptions(DepreciationRun, sdkworkflow.RegisterOptions{Name: DepreciationWorkflow})
 	r.RegisterActivity(d)
+	r.RegisterWorkflowWithOptions(ConsolidationRun, sdkworkflow.RegisterOptions{Name: ConsolidationWorkflow})
+	r.RegisterActivity(c)
 }
