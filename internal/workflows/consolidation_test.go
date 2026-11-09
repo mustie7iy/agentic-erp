@@ -56,7 +56,8 @@ func conSetup(t *testing.T) *conScenario {
 	pgtest.Exec(t, `UPDATE ledger.period_status u SET calendar_id = d.fiscal_calendar_id, version = u.version + 1
 		FROM tenancy.legal_entity d WHERE u.legal_entity_id = $1 AND d.id = $2`, e.US, e.DE)
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
-		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-10-01', 0.9, 'ECB', $2),
+		       ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
 	for _, c := range []struct {
 		le             uuid.UUID
 		code, currency string

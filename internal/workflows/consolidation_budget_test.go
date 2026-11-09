@@ -148,7 +148,7 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		doc.Companies = append(doc.Companies, co)
 		parent.ChartOfAccounts = append(parent.ChartOfAccounts, config.Account{Number: fmt.Sprintf("15%04d", i), Name: "Investment", Type: config.Asset,
 			GroupAccount: "G1500"})
-		group.Members = append(group.Members, config.GroupMember{Company: co.Code, OwnershipPercent: "100", FirstPeriod: "2026-11",
+		group.Members = append(group.Members, config.GroupMember{Company: co.Code, OwnershipPercent: "100", Origin: config.OriginIncorporated, FirstPeriod: "2026-11",
 			InvestmentAccount: fmt.Sprintf("15%04d", i)})
 	}
 	for i := range doc.Companies {
@@ -163,7 +163,7 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		e.Tenant.ID, raw, sum[:], e.Tenant.Human.ID)
 	exec(`UPDATE config.active_version SET number = 2, version = version + 1 WHERE tenant_id = $1`, e.Tenant.ID)
 	// The members on the parent's calendar, in USD; their charts and the
-	// leading ledger's November.
+	// leading ledger's October (where their acquisitions are measured, ADR-0059 §9) and November.
 	exec(`UPDATE tenancy.legal_entity u SET fiscal_calendar_id = d.fiscal_calendar_id, version = u.version + 1
 		FROM tenancy.legal_entity d WHERE u.id = $1 AND d.id = $2`, e.US, e.DE)
 	exec(`INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
@@ -183,11 +183,12 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 	exec(`UPDATE ledger.period_status u SET calendar_id = d.fiscal_calendar_id, version = u.version + 1
 		FROM tenancy.legal_entity d WHERE u.legal_entity_id = $1 AND d.id = $2`, e.US, e.DE)
 	exec(`INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
-		SELECT $1, gen_random_uuid(), le.id, l.id, le.fiscal_calendar_id, 2026, 11, 'open', $2
-		FROM tenancy.legal_entity le, ledger.ledger l WHERE le.tenant_id = $1 AND le.code LIKE 'C%' AND l.tenant_id = $1 AND l.is_leading`,
+		SELECT $1, gen_random_uuid(), le.id, l.id, le.fiscal_calendar_id, 2026, p, CASE p WHEN 11 THEN 'open' ELSE 'closed' END, $2
+		FROM tenancy.legal_entity le, ledger.ledger l, (VALUES (10), (11)) AS x(p) WHERE le.tenant_id = $1 AND le.code LIKE 'C%' AND l.tenant_id = $1 AND l.is_leading`,
 		e.Tenant.ID, e.Tenant.Human.ID)
 	exec(`INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
-		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-10-01', 0.9, 'ECB', $2),
+		       ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
 	// Each account's balance, alternately a debit and a credit of 100.00
 	// to 1,099.00, so each company's sum is zero, its group amount at
 	// 0.90; half of it with the trading partner.

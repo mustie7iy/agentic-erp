@@ -14098,7 +14098,7 @@ paths:
       tags:
         - consolidation
       summary: Start a consolidation run
-      description: "Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's consolidation monitor): the run is written `queued` with the active configuration's version and its Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in process in a cell without a workflow engine. It includes the parent and every member whose first period is on or before the run's, reads each one's leading-ledger balances through the period (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per account and trading partner) and translates them into the group currency (§7): assets and liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from the company's local currency into the group currency valid on the period's last day; income, expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member in the fiscal year of its first period those of the periods before it, as one row on the group chart's `retained_earnings` account; and the translation difference, which makes each company's translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft shows the figures as they stand. Refused when the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may not act in), for a special period (422 `consolidation.special_period`), a period the parent's leading ledger does not have (422 `consolidation.period_unknown`), a member included on another fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business problem while the run is carried out (a rate recorded since, a company account with a balance and no group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked since) fails the run and its Operation with the problem. Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each change of the run's status is published as ConsolidationRunChanged and audited. Human-only."
+      description: "Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's consolidation monitor): the run is written `queued` with the active configuration's version and its Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in process in a cell without a workflow engine. It includes the parent and every member whose first period is on or before the run's, reads each one's leading-ledger balances through the period (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per account and trading partner) and translates them into the group currency (§7): assets and liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from the company's local currency into the group currency valid on the period's last day; income, expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member in the fiscal year of its first period those of the periods before it, as one row on the group chart's `retained_earnings` account; and the translation difference, which makes each company's translated rows sum to zero, as one row on its `cta` account. Each member's investment is then eliminated against its equity at acquisition (§9): its translated figures at the period before its first, at that period's closing rate, or those the group's first final run including it froze (the member's `acquisition`, its `investment` entry). A run consolidates only a member the parent incorporated and holds whole, with no goodwill and no non-controlling interest (ADR-0059 As built T68h; the accounting specialist's B5, po:2026-11-09). A run may be made for any period, open or not: a draft shows the figures as they stand. Refused when the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may not act in), for a special period (422 `consolidation.special_period`), a period the parent's leading ledger does not have (422 `consolidation.period_unknown`), a member included on another fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and likewise for the period before the first of a member whose acquisition is not frozen yet, or a member without that period (422 `consolidation.period_unknown`); a member held at less than 100% or acquired rather than incorporated, which needs goodwill or a non-controlling interest, not built (422 `consolidation.structure_unsupported`, naming it); and while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business problem while the run is carried out (a rate recorded since, a company account with a balance and no group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked since; a member whose investment differs from its net assets at acquisition, which would be goodwill, `consolidation.investment_mismatch`; a member whose ownership, origin, first period or investment account differs from its frozen acquisition's, `consolidation.acquisition_changed`, or whose parent's investment balance does, `consolidation.investment_changed`) fails the run and its Operation with the problem. Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each change of the run's status is published as ConsolidationRunChanged and audited. Human-only."
       x-permission: consolidation.run.manage
       x-agent: false
       x-problem-codes:
@@ -14112,6 +14112,7 @@ paths:
         - consolidation.rate_stale
         - consolidation.run_in_progress
         - consolidation.special_period
+        - consolidation.structure_unsupported
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -14315,13 +14316,14 @@ paths:
       tags:
         - consolidation
       summary: Finalize a consolidation run
-      description: "Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10, T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it), so the history of what was finalized, by whom and on which figures stays readable (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`, or have the companies correct their postings and run the group again); when a company's leading-ledger period was not locked when the run read its figures or is not locked now (409 `consolidation.period_not_locked`, naming the companies: lock them, through each company's close sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409 `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version moved since the run read its figures, so run the group again). Finalizations of one group and period wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
+      description: "Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10, T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it), so the history of what was finalized, by whom and on which figures stays readable (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`, or have the companies correct their postings and run the group again); when a company's leading-ledger period was not locked when the run read its figures or is not locked now (409 `consolidation.period_not_locked`, naming the companies: lock them, through each company's close sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409 `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version moved since the run read its figures, so run the group again). The first final run including a member freezes its acquisition figures (its `acquisition`), which every later run of the group reads instead of measuring them; finalizing a run whose figures for a member differ from those another final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the group again). Finalizations of one group and period wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
       x-permission: consolidation.run.finalize
       x-also-permissions:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
         - config.unknown_version
+        - consolidation.acquisition_changed
         - consolidation.differences_open
         - consolidation.final_exists
         - consolidation.period_not_locked
@@ -41370,7 +41372,8 @@ components:
               company_code: "1000"
               company_name: Acme Corp US
               local_currency: USD
-              ownership_percent: "80"
+              ownership_percent: "100"
+              origin: incorporated
               first_fiscal_year: 2026
               first_fiscal_period: 11
               investment_account: {number: "1700", name: Investment in Acme Corp US}
@@ -41403,13 +41406,14 @@ components:
           readOnly: true
     ConsolidationMember:
       type: object
-      description: "A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the period it is first consolidated in and the parent's account holding the investment in it."
+      description: "A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, how the parent came to hold it, the period it is first consolidated in and the parent's account holding the investment in it."
       required:
         - legal_entity_id
         - company_code
         - company_name
         - local_currency
         - ownership_percent
+        - origin
         - first_fiscal_year
         - first_fiscal_period
         - investment_account
@@ -41435,6 +41439,11 @@ components:
         ownership_percent:
           type: string
           description: "The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals, as configured."
+          readOnly: true
+        origin:
+          type: string
+          x-extensible-enum: [incorporated, acquired]
+          description: "How the parent came to hold the subsidiary, as configured: `incorporated` (it founded it, so the investment is eliminated against the subsidiary's equity and there is no goodwill) or `acquired` (a business combination). A run consolidates only a subsidiary the parent incorporated and holds whole (ADR-0059 As built T68h; others are refused with `consolidation.structure_unsupported`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         first_fiscal_year:
           type: integer
@@ -41566,7 +41575,7 @@ components:
           operation_id: 0192a000-0000-7000-8000-000000000c02
           members:
             - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, company_code: "3000", company_name: Maple Industries Canada, local_currency: CAD, role: parent, closing_rate: "1", period_status: open, period_version: 3, translated_at: "2026-11-20T10:00:01Z"}
-            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "80", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z"}
+            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "100", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z", acquisition: {fiscal_year: 2026, period: 10, closing_rate: "1.35", rate_valid_from: "2026-10-31", net_assets: {amount: "5000.00", currency: USD}, net_assets_group: {amount: "6750.00", currency: CAD}, investment: {amount: "6750.00", currency: CAD}, goodwill: {amount: "0.00", currency: CAD}, non_controlling_interest: {amount: "0.00", currency: CAD}, frozen: false}}
           computed_at: "2026-11-20T10:00:02Z"
           difference_counts:
             - {status: matched, count: 1}
@@ -41577,7 +41586,7 @@ components:
           updated_at: "2026-11-20T10:00:02Z"
     ConsolidationRunProblem:
       type: object
-      description: "The problem that failed a run: its code and detail, as its Operation's error gives them; `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned since, and `platform.internal` when a step's error outlasted its retries."
+      description: "The problem that failed a run: its code and detail, as its Operation's error gives them; `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned since, `consolidation.investment_mismatch`, `consolidation.acquisition_changed` or `consolidation.investment_changed` when a member's investment could not be eliminated (`createConsolidationRun`), and `platform.internal` when a step's error outlasted its retries."
       required: [code, detail]
       properties:
         code: {type: string, description: "The problem's code, such as `consolidation.rate_stale`.", readOnly: true}
@@ -41608,6 +41617,22 @@ components:
           readOnly: true
         period_version: {type: integer, format: int32, description: "That period's version when the run read its figures; absent until translated.", readOnly: true}
         translated_at: {type: string, format: date-time, description: "When its figures were read and translated; absent before.", readOnly: true}
+        acquisition: {$ref: "#/components/schemas/ConsolidationAcquisition"}
+    ConsolidationAcquisition:
+      type: object
+      description: "A member's acquisition figures as the run eliminated its investment with them (ADR-0059 §9): measured at the period before its first, or read from those the group's first final run including it froze (`frozen`). Absent for the parent, and for a member until the run's companies are eliminated. Goodwill and the non-controlling interest are zero: a run consolidates only a member the parent incorporated and holds whole, whose investment equals its net assets at acquisition (ADR-0059 As built T68h)."
+      required: [fiscal_year, period, closing_rate, net_assets, net_assets_group, investment, goodwill, non_controlling_interest, frozen]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the period its acquisition is measured at, the one before its first.", readOnly: true}
+        period: {type: integer, format: int32, minimum: 1, maximum: 12, description: "That period.", readOnly: true}
+        closing_rate: {type: string, description: "That period's closing rate from its local currency into the group currency, a plain decimal of up to 12 decimals; 1 in the group currency.", readOnly: true}
+        rate_valid_from: {type: string, format: date, description: "The date that rate is valid from; absent in the group currency.", readOnly: true}
+        net_assets: {$ref: "#/components/schemas/Money", description: "Its assets and liabilities through that period, in its local currency, debit positive."}
+        net_assets_group: {$ref: "#/components/schemas/Money", description: "Those translated at that period's closing rate, each balance rounded once, in the group currency: its equity at acquisition, which the investment entry reverses."}
+        investment: {$ref: "#/components/schemas/Money", description: "The parent's balance on its investment account through the run's period, in the group currency."}
+        goodwill: {$ref: "#/components/schemas/Money", description: "The investment less the net assets plus the interest: zero."}
+        non_controlling_interest: {$ref: "#/components/schemas/Money", description: "The non-controlling interest at acquisition: zero."}
+        frozen: {type: boolean, description: "Whether the run read these figures from the acquisition an earlier final run froze rather than measuring them; a final run including a member for the first time freezes them (`:finalize`).", readOnly: true}
     ConsolidationBalancePage:
       type: object
       description: "One page of a consolidation run's translated balances, with the totals over the filter."
@@ -41795,6 +41820,11 @@ components:
         account_id: {type: string, format: uuid, description: "The company account of the row it reverses.", readOnly: true}
         account: {$ref: "#/components/schemas/AssetAccountRef"}
         trading_partner: {$ref: "#/components/schemas/TradingPartner"}
+        component:
+          type: string
+          x-extensible-enum: [acquisition_equity, investment]
+          description: "An investment entry's line (ADR-0059 §9): `acquisition_equity`, the member's equity at acquisition on a group account reversed, of the member and no company account; `investment`, the parent's investment reversed, of its investment account. Absent on an intercompany entry's line. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
         amount: {$ref: "#/components/schemas/Money", description: "The amount in the group currency, debit positive."}
       examples:
         - line_no: 1
@@ -41906,7 +41936,7 @@ components:
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
     ConsolidatedStatementTotals:
       type: object
-      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses` and `profit`."
+      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`, `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`."
       required: [profit]
       properties:
         assets: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's asset accounts summed; absent on the profit and loss."}
@@ -41915,6 +41945,8 @@ components:
         revenue: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's revenue accounts summed; absent on the balance sheet."}
         expenses: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's expense accounts summed; absent on the balance sheet."}
         profit: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The fiscal year's profit through the period: the revenue and expense accounts summed, debit positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement: assets, liabilities, equity and profit sum to zero."}
+        non_controlling_interests: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to non-controlling interests (IAS 1.81B), read from the run's non-controlling interest entries, so zero reported; zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance sheet."}
+        owners_of_the_parent: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to the owners of the parent, the profit less `non_controlling_interests` in each column. Absent on the balance sheet."}
     GroupAccountRef:
       type: object
       description: "An account of the group chart, by number and name, in the configuration version a run read."

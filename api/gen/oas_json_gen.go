@@ -51260,15 +51260,29 @@ func (s *ConsolidatedStatementTotals) encodeFields(e *jx.Encoder) {
 		e.FieldStart("profit")
 		s.Profit.Encode(e)
 	}
+	{
+		if s.NonControllingInterests.Set {
+			e.FieldStart("non_controlling_interests")
+			s.NonControllingInterests.Encode(e)
+		}
+	}
+	{
+		if s.OwnersOfTheParent.Set {
+			e.FieldStart("owners_of_the_parent")
+			s.OwnersOfTheParent.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsolidatedStatementTotals = [6]string{
+var jsonFieldsNameOfConsolidatedStatementTotals = [8]string{
 	0: "assets",
 	1: "liabilities",
 	2: "equity",
 	3: "revenue",
 	4: "expenses",
 	5: "profit",
+	6: "non_controlling_interests",
+	7: "owners_of_the_parent",
 }
 
 // Decode decodes ConsolidatedStatementTotals from json.
@@ -51340,6 +51354,26 @@ func (s *ConsolidatedStatementTotals) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"profit\"")
 			}
+		case "non_controlling_interests":
+			if err := func() error {
+				s.NonControllingInterests.Reset()
+				if err := s.NonControllingInterests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"non_controlling_interests\"")
+			}
+		case "owners_of_the_parent":
+			if err := func() error {
+				s.OwnersOfTheParent.Reset()
+				if err := s.OwnersOfTheParent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"owners_of_the_parent\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -51392,6 +51426,246 @@ func (s *ConsolidatedStatementTotals) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ConsolidatedStatementTotals) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidationAcquisition) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidationAcquisition) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("period")
+		e.Int32(s.Period)
+	}
+	{
+		e.FieldStart("closing_rate")
+		e.Str(s.ClosingRate)
+	}
+	{
+		if s.RateValidFrom.Set {
+			e.FieldStart("rate_valid_from")
+			s.RateValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		e.FieldStart("net_assets")
+		s.NetAssets.Encode(e)
+	}
+	{
+		e.FieldStart("net_assets_group")
+		s.NetAssetsGroup.Encode(e)
+	}
+	{
+		e.FieldStart("investment")
+		s.Investment.Encode(e)
+	}
+	{
+		e.FieldStart("goodwill")
+		s.Goodwill.Encode(e)
+	}
+	{
+		e.FieldStart("non_controlling_interest")
+		s.NonControllingInterest.Encode(e)
+	}
+	{
+		e.FieldStart("frozen")
+		e.Bool(s.Frozen)
+	}
+}
+
+var jsonFieldsNameOfConsolidationAcquisition = [10]string{
+	0: "fiscal_year",
+	1: "period",
+	2: "closing_rate",
+	3: "rate_valid_from",
+	4: "net_assets",
+	5: "net_assets_group",
+	6: "investment",
+	7: "goodwill",
+	8: "non_controlling_interest",
+	9: "frozen",
+}
+
+// Decode decodes ConsolidationAcquisition from json.
+func (s *ConsolidationAcquisition) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidationAcquisition to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "period":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Period = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"period\"")
+			}
+		case "closing_rate":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.ClosingRate = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_rate\"")
+			}
+		case "rate_valid_from":
+			if err := func() error {
+				s.RateValidFrom.Reset()
+				if err := s.RateValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rate_valid_from\"")
+			}
+		case "net_assets":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.NetAssets.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_assets\"")
+			}
+		case "net_assets_group":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				if err := s.NetAssetsGroup.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_assets_group\"")
+			}
+		case "investment":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				if err := s.Investment.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"investment\"")
+			}
+		case "goodwill":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				if err := s.Goodwill.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"goodwill\"")
+			}
+		case "non_controlling_interest":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.NonControllingInterest.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"non_controlling_interest\"")
+			}
+		case "frozen":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Bool()
+				s.Frozen = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"frozen\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidationAcquisition")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11110111,
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidationAcquisition) {
+					name = jsonFieldsNameOfConsolidationAcquisition[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidationAcquisition) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidationAcquisition) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -52522,12 +52796,18 @@ func (s *ConsolidationEntryLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Component.Set {
+			e.FieldStart("component")
+			s.Component.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
 }
 
-var jsonFieldsNameOfConsolidationEntryLine = [9]string{
+var jsonFieldsNameOfConsolidationEntryLine = [10]string{
 	0: "line_no",
 	1: "group_account",
 	2: "legal_entity_id",
@@ -52536,7 +52816,8 @@ var jsonFieldsNameOfConsolidationEntryLine = [9]string{
 	5: "account_id",
 	6: "account",
 	7: "trading_partner",
-	8: "amount",
+	8: "component",
+	9: "amount",
 }
 
 // Decode decodes ConsolidationEntryLine from json.
@@ -52630,8 +52911,18 @@ func (s *ConsolidationEntryLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"trading_partner\"")
 			}
+		case "component":
+			if err := func() error {
+				s.Component.Reset()
+				if err := s.Component.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"component\"")
+			}
 		case "amount":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -52651,7 +52942,7 @@ func (s *ConsolidationEntryLine) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00000011,
-		0b00000001,
+		0b00000010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -53300,6 +53591,10 @@ func (s *ConsolidationMember) encodeFields(e *jx.Encoder) {
 		e.Str(s.OwnershipPercent)
 	}
 	{
+		e.FieldStart("origin")
+		e.Str(s.Origin)
+	}
+	{
 		e.FieldStart("first_fiscal_year")
 		e.Int32(s.FirstFiscalYear)
 	}
@@ -53313,15 +53608,16 @@ func (s *ConsolidationMember) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidationMember = [8]string{
+var jsonFieldsNameOfConsolidationMember = [9]string{
 	0: "legal_entity_id",
 	1: "company_code",
 	2: "company_name",
 	3: "local_currency",
 	4: "ownership_percent",
-	5: "first_fiscal_year",
-	6: "first_fiscal_period",
-	7: "investment_account",
+	5: "origin",
+	6: "first_fiscal_year",
+	7: "first_fiscal_period",
+	8: "investment_account",
 }
 
 // Decode decodes ConsolidationMember from json.
@@ -53329,7 +53625,7 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ConsolidationMember to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -53393,8 +53689,20 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"ownership_percent\"")
 			}
-		case "first_fiscal_year":
+		case "origin":
 			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.Origin = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"origin\"")
+			}
+		case "first_fiscal_year":
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.FirstFiscalYear = int32(v)
@@ -53406,7 +53714,7 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"first_fiscal_year\"")
 			}
 		case "first_fiscal_period":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.FirstFiscalPeriod = int32(v)
@@ -53418,7 +53726,7 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"first_fiscal_period\"")
 			}
 		case "investment_account":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.InvestmentAccount.Decode(d); err != nil {
 					return err
@@ -53436,8 +53744,9 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b11111111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -54085,9 +54394,15 @@ func (s *ConsolidationRunMember) encodeFields(e *jx.Encoder) {
 			s.TranslatedAt.Encode(e, json.EncodeDateTime)
 		}
 	}
+	{
+		if s.Acquisition.Set {
+			e.FieldStart("acquisition")
+			s.Acquisition.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsolidationRunMember = [13]string{
+var jsonFieldsNameOfConsolidationRunMember = [14]string{
 	0:  "legal_entity_id",
 	1:  "company_code",
 	2:  "company_name",
@@ -54101,6 +54416,7 @@ var jsonFieldsNameOfConsolidationRunMember = [13]string{
 	10: "period_status",
 	11: "period_version",
 	12: "translated_at",
+	13: "acquisition",
 }
 
 // Decode decodes ConsolidationRunMember from json.
@@ -54253,6 +54569,16 @@ func (s *ConsolidationRunMember) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"translated_at\"")
+			}
+		case "acquisition":
+			if err := func() error {
+				s.Acquisition.Reset()
+				if err := s.Acquisition.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"acquisition\"")
 			}
 		default:
 			return d.Skip()
@@ -126216,6 +126542,39 @@ func (s OptConsolidatedFigures) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptConsolidatedFigures) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ConsolidationAcquisition as json.
+func (o OptConsolidationAcquisition) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes ConsolidationAcquisition from json.
+func (o *OptConsolidationAcquisition) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptConsolidationAcquisition to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptConsolidationAcquisition) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptConsolidationAcquisition) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
