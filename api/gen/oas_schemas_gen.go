@@ -67857,9 +67857,11 @@ type TaxReturnDraftPriorPeriod struct {
 	Tax Money `json:"tax"`
 	// The country pack's threshold; absent when the pack sets none (always the next return).
 	Threshold OptMoney `json:"threshold"`
-	// Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold
-	// in magnitude: provisional and conservative, so that a person reviews; which measure the threshold
-	// applies to (net or gross, per period or pooled, per error) is open (ADR-0049 §11).
+	// Whether the items of any one earlier period, all together, make a net shortfall of payable tax above
+	// the threshold: their output tax less their recovered input tax; over-declared tax never raises it,
+	// and periods are not pooled (ADR-0049 §11). Under the UAE's tax procedures a voluntary disclosure of
+	// that period is then due within 20 business days of discovery (Cabinet Decision No. 74 of 2023, Art.
+	// 10).
 	AboveThreshold bool `json:"above_threshold"`
 }
 
@@ -68448,8 +68450,9 @@ type TaxReturnPriorPeriod struct {
 	Tax Money `json:"tax"`
 	// The country pack's threshold; absent when the pack sets none.
 	Threshold OptMoney `json:"threshold"`
-	// Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold
-	// in magnitude (provisional, ADR-0049 §11).
+	// Whether the items of any one earlier period, all together, made a net shortfall of payable tax above
+	// the threshold when it was prepared (ADR-0049 §11); in the UAE a voluntary disclosure is due within
+	// 20 business days of discovery.
 	AboveThreshold bool `json:"above_threshold"`
 }
 
