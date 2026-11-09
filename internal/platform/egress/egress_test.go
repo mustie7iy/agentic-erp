@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/egress"
 )
@@ -215,6 +216,48 @@ func TestWalkthroughReceiver(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if _, err := c.Post(context.Background(), srv.URL+"/hook", nil, []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "not a public unicast address") {
 				t.Errorf("got %v, want the loopback address refused", err)
+			}
+		})
+	}
+}
+
+// TestResponseLimit: a client made with its own limit reads an answer up
+// to it, a GET's as a POST's, and cuts it there (ADR-0061 §3); the webhook
+// client's stays MaxResponse.
+func TestResponseLimit(t *testing.T) {
+	const limit = 3 * egress.MaxResponse
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer t" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write(bytes.Repeat([]byte("x"), limit+10)) // the client stops reading at its limit
+	}))
+	t.Cleanup(srv.Close)
+	roots := x509.NewCertPool()
+	roots.AddCert(srv.Certificate())
+	c, err := egress.New(egress.LoopbackForTests(roots), egress.ResponseLimit(limit), egress.CallTimeout(time.Minute))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	resp, err := c.Get(context.Background(), srv.URL+"/messages/1", http.Header{"Authorization": {"Bearer t"}})
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if resp.Status != http.StatusOK || len(resp.Body) != limit || !resp.Truncated {
+		t.Errorf("got %d with %d bytes (truncated %v), want 200 with %d truncated", resp.Status, len(resp.Body), resp.Truncated, limit)
+	}
+	if _, err := c.Do(context.Background(), "NOT A METHOD", srv.URL, nil, nil); err == nil || !strings.Contains(err.Error(), "invalid method") {
+		t.Errorf("a malformed method: got %v, want it refused", err)
+	}
+	for name, opts := range map[string][]egress.Option{
+		"no limit":         {egress.ResponseLimit(0)},
+		"a negative limit": {egress.ResponseLimit(-1)},
+		"no time":          {egress.CallTimeout(time.Millisecond)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := egress.New(opts...); err == nil {
+				t.Error("got a client, want an error")
 			}
 		})
 	}

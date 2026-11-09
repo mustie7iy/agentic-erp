@@ -20468,6 +20468,7 @@ func (*ConflictHeaders) endRoleAssignmentRes()                     {}
 func (*ConflictHeaders) endRolePermissionRes()                     {}
 func (*ConflictHeaders) endSodRuleRes()                            {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
+func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
@@ -20638,7 +20639,13 @@ type Connector struct {
 	// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
 	// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
 	// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
+	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
+	// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
+	// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
+	// company's participant identifier at the provider, by company code: at least one, each identifier
+	// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
+	// refused in production: creating or enabling one there answers 422
+	// `integration.adapter_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -20777,7 +20784,12 @@ type ConnectorCreate struct {
 	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-	// its `secret_ref` names the private key.
+	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+	// answers 422 `integration.adapter_not_certified`.
 	Settings ConnectorCreateSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -20835,7 +20847,12 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 // server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-// its `secret_ref` names the private key.
+// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+// answers 422 `integration.adapter_not_certified`.
 type ConnectorCreateSettings map[string]jx.Raw
 
 func (s *ConnectorCreateSettings) init() ConnectorCreateSettings {
@@ -20953,7 +20970,13 @@ func (*ConnectorPage) listConnectorsRes() {}
 // (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
 // `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
 // `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-// liquidity forecast it is sent (at least one); its `secret_ref` names the private key.
+// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
+// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
+// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
+// company's participant identifier at the provider, by company code: at least one, each identifier
+// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
+// refused in production: creating or enabling one there answers 422
+// `integration.adapter_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -20982,7 +21005,12 @@ type ConnectorUpdate struct {
 	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-	// its `secret_ref` names the private key.
+	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+	// answers 422 `integration.adapter_not_certified`.
 	Settings OptConnectorUpdateSettings `json:"settings"`
 	// Vault path of the credentials. Send null to clear.
 	SecretRef OptNilString `json:"secret_ref"`
@@ -21030,7 +21058,12 @@ func (s *ConnectorUpdate) SetSecretRef(val OptNilString) {
 // server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
 // `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
-// its `secret_ref` names the private key.
+// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+// answers 422 `integration.adapter_not_certified`.
 type ConnectorUpdateSettings map[string]jx.Raw
 
 func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
@@ -27208,6 +27241,267 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
 
+// A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15):
+// recorded once per connector and the provider's message id, its bytes kept as received.
+// Ref: #/components/schemas/EInvoice
+type EInvoice struct {
+	ID uuid.UUID `json:"id"`
+	// The `einvoice_provider` connector it was received through.
+	ConnectorID uuid.UUID `json:"connector_id"`
+	// The connector's name.
+	ConnectorName string `json:"connector_name"`
+	// The provider's id of the document.
+	MessageID string `json:"message_id"`
+	// The participant identifier the provider listed it for; null when it named none.
+	Receiver NilString `json:"receiver"`
+	// The connector's company of that participant; null when the document is addressed to none of them.
+	LegalEntityID NilUUID `json:"legal_entity_id"`
+	// The company's code; null with `legal_entity_id`.
+	CompanyCode NilString `json:"company_code"`
+	// The company's name; null with `legal_entity_id`.
+	CompanyName NilString `json:"company_name"`
+	// Open enum: received (recorded, not yet processed). The processing slices add entered, held, refused
+	// and dismissed (ADR-0061 §7).
+	Status string `json:"status"`
+	// The SHA-256 of its bytes as received.
+	SHA256 string `json:"sha256"`
+	// The size of its bytes as received.
+	Size int64 `json:"size"`
+	// The fetch that recorded it: its Operation's id.
+	FetchOperationID uuid.UUID `json:"fetch_operation_id"`
+	// When it was recorded.
+	ReceivedAt time.Time `json:"received_at"`
+	// When the provider was told it is kept; null until then (the next fetch acknowledges it again).
+	AcknowledgedAt NilDateTime `json:"acknowledged_at"`
+	Version        int32       `json:"version"`
+}
+
+// GetID returns the value of ID.
+func (s *EInvoice) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *EInvoice) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// GetConnectorName returns the value of ConnectorName.
+func (s *EInvoice) GetConnectorName() string {
+	return s.ConnectorName
+}
+
+// GetMessageID returns the value of MessageID.
+func (s *EInvoice) GetMessageID() string {
+	return s.MessageID
+}
+
+// GetReceiver returns the value of Receiver.
+func (s *EInvoice) GetReceiver() NilString {
+	return s.Receiver
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *EInvoice) GetLegalEntityID() NilUUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *EInvoice) GetCompanyCode() NilString {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *EInvoice) GetCompanyName() NilString {
+	return s.CompanyName
+}
+
+// GetStatus returns the value of Status.
+func (s *EInvoice) GetStatus() string {
+	return s.Status
+}
+
+// GetSHA256 returns the value of SHA256.
+func (s *EInvoice) GetSHA256() string {
+	return s.SHA256
+}
+
+// GetSize returns the value of Size.
+func (s *EInvoice) GetSize() int64 {
+	return s.Size
+}
+
+// GetFetchOperationID returns the value of FetchOperationID.
+func (s *EInvoice) GetFetchOperationID() uuid.UUID {
+	return s.FetchOperationID
+}
+
+// GetReceivedAt returns the value of ReceivedAt.
+func (s *EInvoice) GetReceivedAt() time.Time {
+	return s.ReceivedAt
+}
+
+// GetAcknowledgedAt returns the value of AcknowledgedAt.
+func (s *EInvoice) GetAcknowledgedAt() NilDateTime {
+	return s.AcknowledgedAt
+}
+
+// GetVersion returns the value of Version.
+func (s *EInvoice) GetVersion() int32 {
+	return s.Version
+}
+
+// SetID sets the value of ID.
+func (s *EInvoice) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *EInvoice) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// SetConnectorName sets the value of ConnectorName.
+func (s *EInvoice) SetConnectorName(val string) {
+	s.ConnectorName = val
+}
+
+// SetMessageID sets the value of MessageID.
+func (s *EInvoice) SetMessageID(val string) {
+	s.MessageID = val
+}
+
+// SetReceiver sets the value of Receiver.
+func (s *EInvoice) SetReceiver(val NilString) {
+	s.Receiver = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *EInvoice) SetLegalEntityID(val NilUUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *EInvoice) SetCompanyCode(val NilString) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *EInvoice) SetCompanyName(val NilString) {
+	s.CompanyName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *EInvoice) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetSHA256 sets the value of SHA256.
+func (s *EInvoice) SetSHA256(val string) {
+	s.SHA256 = val
+}
+
+// SetSize sets the value of Size.
+func (s *EInvoice) SetSize(val int64) {
+	s.Size = val
+}
+
+// SetFetchOperationID sets the value of FetchOperationID.
+func (s *EInvoice) SetFetchOperationID(val uuid.UUID) {
+	s.FetchOperationID = val
+}
+
+// SetReceivedAt sets the value of ReceivedAt.
+func (s *EInvoice) SetReceivedAt(val time.Time) {
+	s.ReceivedAt = val
+}
+
+// SetAcknowledgedAt sets the value of AcknowledgedAt.
+func (s *EInvoice) SetAcknowledgedAt(val NilDateTime) {
+	s.AcknowledgedAt = val
+}
+
+// SetVersion sets the value of Version.
+func (s *EInvoice) SetVersion(val int32) {
+	s.Version = val
+}
+
+// A fetch of e-invoices from a provider (ADR-0061 §4).
+// Ref: #/components/schemas/EInvoiceFetch
+type EInvoiceFetch struct {
+	// The provider: an active `einvoice_provider` connector.
+	ConnectorID uuid.UUID `json:"connector_id"`
+}
+
+// GetConnectorID returns the value of ConnectorID.
+func (s *EInvoiceFetch) GetConnectorID() uuid.UUID {
+	return s.ConnectorID
+}
+
+// SetConnectorID sets the value of ConnectorID.
+func (s *EInvoiceFetch) SetConnectorID(val uuid.UUID) {
+	s.ConnectorID = val
+}
+
+// EInvoiceHeaders wraps EInvoice with response headers.
+type EInvoiceHeaders struct {
+	ETag     OptString
+	Response EInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *EInvoiceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *EInvoiceHeaders) GetResponse() EInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *EInvoiceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *EInvoiceHeaders) SetResponse(val EInvoice) {
+	s.Response = val
+}
+
+func (*EInvoiceHeaders) getEInvoiceRes() {}
+
+// One page of e-invoices, newest received first.
+// Ref: #/components/schemas/EInvoicePage
+type EInvoicePage struct {
+	// The e-invoices on this page.
+	Items []EInvoice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *EInvoicePage) GetItems() []EInvoice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *EInvoicePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *EInvoicePage) SetItems(val []EInvoice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *EInvoicePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*EInvoicePage) listEInvoicesRes() {}
+
 // An elimination of the configuration (ADR-0059 §8), by code and name.
 // Ref: #/components/schemas/EliminationRef
 type EliminationRef struct {
@@ -28847,6 +29141,26 @@ func (s *FailingCheck) SetCheck(val string) {
 func (s *FailingCheck) SetSummary(val string) {
 	s.Summary = val
 }
+
+type FetchEInvoicesBadRequest Problem
+
+func (*FetchEInvoicesBadRequest) fetchEInvoicesRes() {}
+
+type FetchEInvoicesForbidden Problem
+
+func (*FetchEInvoicesForbidden) fetchEInvoicesRes() {}
+
+type FetchEInvoicesNotFound Problem
+
+func (*FetchEInvoicesNotFound) fetchEInvoicesRes() {}
+
+type FetchEInvoicesPreconditionRequired Problem
+
+func (*FetchEInvoicesPreconditionRequired) fetchEInvoicesRes() {}
+
+type FetchEInvoicesUnprocessableEntity Problem
+
+func (*FetchEInvoicesUnprocessableEntity) fetchEInvoicesRes() {}
 
 // One field-level validation error.
 // Ref: #/components/schemas/FieldError
@@ -31096,6 +31410,18 @@ func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 }
 
 func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
+
+type GetEInvoiceBadRequest Problem
+
+func (*GetEInvoiceBadRequest) getEInvoiceRes() {}
+
+type GetEInvoiceForbidden Problem
+
+func (*GetEInvoiceForbidden) getEInvoiceRes() {}
+
+type GetEInvoiceNotFound Problem
+
+func (*GetEInvoiceNotFound) getEInvoiceRes() {}
 
 type GetEntryTemplateBadRequest Problem
 
@@ -39811,6 +40137,14 @@ type ListDownPaymentRequestsForbidden Problem
 
 func (*ListDownPaymentRequestsForbidden) listDownPaymentRequestsRes() {}
 
+type ListEInvoicesBadRequest Problem
+
+func (*ListEInvoicesBadRequest) listEInvoicesRes() {}
+
+type ListEInvoicesForbidden Problem
+
+func (*ListEInvoicesForbidden) listEInvoicesRes() {}
+
 type ListEntryTemplatesBadRequest Problem
 
 func (*ListEntryTemplatesBadRequest) listEntryTemplatesRes() {}
@@ -43475,6 +43809,51 @@ type MoveProfitCenterUnprocessableEntity Problem
 
 func (*MoveProfitCenterUnprocessableEntity) moveProfitCenterRes() {}
 
+// NewNilDateTime returns new NilDateTime with value set to v.
+func NewNilDateTime(v time.Time) NilDateTime {
+	return NilDateTime{
+		Value: v,
+	}
+}
+
+// NilDateTime is nullable time.Time.
+type NilDateTime struct {
+	Value time.Time
+	Null  bool
+}
+
+// SetTo sets value to v.
+func (o *NilDateTime) SetTo(v time.Time) {
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o NilDateTime) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *NilDateTime) SetToNull() {
+	o.Null = true
+	var v time.Time
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o NilDateTime) Get() (v time.Time, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o NilDateTime) Or(d time.Time) time.Time {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewNilInt64 returns new NilInt64 with value set to v.
 func NewNilInt64(v int64) NilInt64 {
 	return NilInt64{
@@ -44467,6 +44846,7 @@ func (s *OperationHeaders) SetResponse(val Operation) {
 
 func (*OperationHeaders) captureSupplierInvoiceRes() {}
 func (*OperationHeaders) createConsolidationRunRes() {}
+func (*OperationHeaders) fetchEInvoicesRes()         {}
 func (*OperationHeaders) proposePaymentRunRes()      {}
 func (*OperationHeaders) reconcileMigrationRunRes()  {}
 func (*OperationHeaders) releasePaymentRunRes()      {}
@@ -61800,6 +62180,7 @@ func (*ServiceUnavailableHeaders) endRoleAssignmentRes()                     {}
 func (*ServiceUnavailableHeaders) endRolePermissionRes()                     {}
 func (*ServiceUnavailableHeaders) endSodRuleRes()                            {}
 func (*ServiceUnavailableHeaders) excludeBankStatementLineRes()              {}
+func (*ServiceUnavailableHeaders) fetchEInvoicesRes()                        {}
 func (*ServiceUnavailableHeaders) fileTaxReturnRes()                         {}
 func (*ServiceUnavailableHeaders) getBankStatementFileRes()                  {}
 func (*ServiceUnavailableHeaders) getSupplierInvoiceDocumentRes()            {}
@@ -66170,6 +66551,7 @@ func (*TooManyRequestsHeaders) endRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) endRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
+func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
 func (*TooManyRequestsHeaders) getAccountRes()                            {}
 func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
@@ -66211,6 +66593,7 @@ func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
+func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
 func (*TooManyRequestsHeaders) getExchangeRateRes()                       {}
 func (*TooManyRequestsHeaders) getFiscalPeriodRes()                       {}
@@ -66304,6 +66687,7 @@ func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
+func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
 func (*TooManyRequestsHeaders) listFiscalPeriodsRes()                     {}
@@ -66656,6 +67040,7 @@ func (*UnauthorizedHeaders) endRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) endRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) endSodRuleRes()                            {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
+func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
 func (*UnauthorizedHeaders) getAccountRes()                            {}
 func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
@@ -66697,6 +67082,7 @@ func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
+func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
 func (*UnauthorizedHeaders) getExchangeRateRes()                       {}
 func (*UnauthorizedHeaders) getFiscalPeriodRes()                       {}
@@ -66790,6 +67176,7 @@ func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
+func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
 func (*UnauthorizedHeaders) listFiscalPeriodsRes()                     {}

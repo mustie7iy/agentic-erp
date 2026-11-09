@@ -48,7 +48,7 @@ const BankSFTP = "bank_sftp"
 // the cash context exports its companies' snapshots to (ADR-0051 §14).
 const TreasuryExport = "treasury_export"
 
-var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport}
+var kinds = []string{SAPOData, SAPFile, BankSFTP, BankEBICS, "edi_as2", "email", "tax_engine", "ticketing", TreasuryExport, EInvoiceProvider}
 
 // Connector is a row of integration.connector.
 type Connector struct {
@@ -115,6 +115,9 @@ func checkSettings(kind string, settings map[string]any) error {
 		return checkEBICSSettings(settings)
 	case TreasuryExport:
 		_, err := treasurySettings(settings)
+		return err
+	case EInvoiceProvider:
+		_, err := einvoiceSettings(settings)
 		return err
 	}
 	return nil
@@ -434,7 +437,7 @@ func (e *Endpoints) CreateConnector(ctx context.Context, req *gen.ConnectorCreat
 	if s, ok := req.SecretRef.Get(); ok {
 		in.SecretRef = &s
 	}
-	if err := e.refuseEBICS(in.Kind); err != nil {
+	if err := e.refuseUncertified(in.Kind, in.Settings); err != nil {
 		return nil, err
 	}
 	c, err := CreateConnector(ctx, in)
@@ -505,7 +508,7 @@ func (e *Endpoints) UpdateConnector(ctx context.Context, req *gen.ConnectorUpdat
 
 // EnableConnector implements POST /v1/connectors/{id}:enable.
 func (e *Endpoints) EnableConnector(ctx context.Context, params gen.EnableConnectorParams) (gen.EnableConnectorRes, error) {
-	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", map[string]any{"reason": ""}, func(c Connector) error { return e.refuseEBICS(c.Kind) })
+	c, err := setConnectorStatus(ctx, params.ID, etag.IfMatch(params.IfMatch), "active", map[string]any{"reason": ""}, func(c Connector) error { return e.refuseUncertified(c.Kind, c.Settings) })
 	if err != nil {
 		return nil, err
 	}

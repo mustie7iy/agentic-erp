@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -24,14 +25,18 @@ const (
 	MaxResponse    = 64 << 10         // bytes of a response body read, and of its headers
 )
 
-// Client posts to endpoints tenants register: https only, to public
-// unicast addresses only, directly, without following redirects (a
-// redirect would lead the request to an address never checked as a URL),
-// trusting the system roots (never ERP_TLS_CA, which names the cell's own
-// services) and presenting no certificate. A client made with an option
-// trusts the option's roots in their place, for every address.
+// Client calls endpoints tenants register: https only, to public unicast
+// addresses only, directly, without following redirects (a redirect would
+// lead the request to an address never checked as a URL), trusting the
+// system roots (never ERP_TLS_CA, which names the cell's own services)
+// and presenting no certificate. A client made with an option trusts the
+// option's roots in their place, for every address. Each client bounds
+// what it reads of an answer: the webhook client MaxResponse, a client
+// made with ResponseLimit its own (ADR-0061 §3: an e-invoicing provider's
+// documents, up to 10 MiB).
 type Client struct {
-	http *http.Client
+	http  *http.Client
+	limit int
 }
 
 // Option changes how New makes a Client.
@@ -41,6 +46,24 @@ type options struct {
 	loopback bool
 	receiver *netip.AddrPort // WalkthroughReceiver's address; nil: none
 	roots    *x509.CertPool
+	limit    *int           // ResponseLimit's; nil: MaxResponse
+	timeout  *time.Duration // CallTimeout's; nil: Timeout
+}
+
+// ResponseLimit bounds the bytes of an answer's body the client reads to
+// n instead of MaxResponse (headers stay bounded by MaxResponse): a
+// client that fetches documents rather than acknowledgements, an
+// e-invoicing provider's (ADR-0061 §3, MaxDocument). New refuses n below
+// 1.
+func ResponseLimit(n int) Option {
+	return func(o *options) { o.limit = &n }
+}
+
+// CallTimeout bounds the whole exchange, the answer's body included, to d
+// instead of Timeout: a client whose answers are documents of megabytes
+// (ADR-0061 §3: 60 s per call). New refuses d below a second.
+func CallTimeout(d time.Duration) Option {
+	return func(o *options) { o.timeout = &d }
 }
 
 // LoopbackForTests lets the client reach loopback addresses, and only
@@ -53,11 +76,12 @@ func LoopbackForTests(roots *x509.CertPool) Option {
 
 // WalkthroughReceiver lets the client reach one loopback address and
 // port besides public addresses, trusting roots (the receiver's own
-// certificate) instead of the system's: the webhook receiver the pilot
-// walkthrough starts on its machine (scripts/walkthrough.sh), the one
-// local delivery the product owner allowed (2026-11-04, ADR-0041 As
-// built). Only ERP_WALKTHROUGH_RECEIVER sets it, which config.Load refuses
-// outside development. New refuses an address that is not loopback, or
+// certificate) instead of the system's: a stand-in the pilot walkthrough
+// starts on its machine (scripts/walkthrough.sh), the webhook receiver,
+// the one local delivery the product owner allowed (2026-11-04, ADR-0041
+// As built), and the e-invoicing provider's stand-in (ADR-0061 As built).
+// Only ERP_WALKTHROUGH_RECEIVER and ERP_WALKTHROUGH_PROVIDER set it, which
+// config.Load refuses outside development. New refuses an address that is not loopback, or
 // no port: the option opens one port of the machine itself, never the
 // network around it. A host name is refused as the receiver's URL when it
 // is written (CheckURL); one that later resolves to the receiver's address
@@ -81,9 +105,13 @@ func New(opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	limit, timeout, err := o.bounds()
+	if err != nil {
+		return nil, err
+	}
 	dialer := &net.Dialer{Timeout: ConnectTimeout, Control: control}
-	return &Client{http: &http.Client{
-		Timeout: Timeout,
+	return &Client{limit: limit, http: &http.Client{
+		Timeout: timeout,
 		Transport: &http.Transport{
 			Proxy:                  nil, // ADR-0033: a proxy would dial addresses the control never sees
 			DialContext:            dialer.DialContext,
@@ -96,6 +124,25 @@ func New(opts ...Option) (*Client, error) {
 		},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}, nil
+}
+
+// bounds are the client's limit on an answer's body and its time per
+// call: the options' or the webhook client's.
+func (o options) bounds() (int, time.Duration, error) {
+	limit, timeout := MaxResponse, Timeout
+	if o.limit != nil {
+		limit = *o.limit
+	}
+	if o.timeout != nil {
+		timeout = *o.timeout
+	}
+	switch {
+	case limit < 1:
+		return 0, 0, fmt.Errorf("egress: a response limit of %d bytes reads nothing", limit)
+	case timeout < time.Second:
+		return 0, 0, fmt.Errorf("egress: a call timeout of %v is below a second", timeout)
+	}
+	return limit, timeout, nil
 }
 
 // control is the dialer's check of every address dialled: RefusePrivate,
@@ -147,7 +194,7 @@ func allowLoopback(network, address string, c syscall.RawConn) error {
 type Response struct {
 	Status    int
 	Header    http.Header
-	Body      []byte // at most MaxResponse bytes
+	Body      []byte // at most the client's limit (MaxResponse unless ResponseLimit)
 	Truncated bool   // the endpoint sent more than Body holds
 }
 
@@ -155,21 +202,31 @@ type Response struct {
 // status. An error means no answer was had: the URL was refused, the
 // address was not public, or the connection, TLS or time failed.
 func (c *Client) Post(ctx context.Context, rawURL string, header http.Header, body []byte) (Response, error) {
+	return c.Do(ctx, http.MethodPost, rawURL, header, body)
+}
+
+// Get reads rawURL with header, as Post does.
+func (c *Client) Get(ctx context.Context, rawURL string, header http.Header) (Response, error) {
+	return c.Do(ctx, http.MethodGet, rawURL, header, nil)
+}
+
+// Do sends a request of the method to rawURL with header and body (none
+// when nil) and reads the answer, whatever its status, as Post says.
+func (c *Client) Do(ctx context.Context, method, rawURL string, header http.Header, body []byte) (Response, error) {
 	u, err := parse(rawURL)
 	if err != nil {
 		return Response{}, err
 	}
-	req := (&http.Request{
-		Method:        http.MethodPost,
-		URL:           u,
-		Host:          u.Host,
-		Header:        header.Clone(),
-		Body:          io.NopCloser(bytes.NewReader(body)),
-		GetBody:       func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(body)), nil },
-		ContentLength: int64(len(body)),
-	}).WithContext(ctx)
-	if req.Header == nil {
-		req.Header = http.Header{}
+	var content io.Reader
+	if body != nil {
+		content = bytes.NewReader(body) // NewRequest sets GetBody, which a retry on another connection reads
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), content)
+	if err != nil {
+		return Response{}, fmt.Errorf("egress: %s to %s: %w", strings.ToLower(method), u.Host, err)
+	}
+	if header != nil {
+		req.Header = header.Clone()
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -179,16 +236,16 @@ func (c *Client) Post(ctx context.Context, rawURL string, header http.Header, bo
 		if errors.As(err, &ue) {
 			err = ue.Err
 		}
-		return Response{}, fmt.Errorf("egress: post to %s: %w", u.Host, err)
+		return Response{}, fmt.Errorf("egress: %s to %s: %w", strings.ToLower(method), u.Host, err)
 	}
 	defer func() { _ = resp.Body.Close() }() // the body is read as far as wanted; closing a response body loses nothing
-	read, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponse+1))
+	read, err := io.ReadAll(io.LimitReader(resp.Body, int64(c.limit)+1))
 	if err != nil {
 		return Response{}, fmt.Errorf("egress: read the answer of %s: %w", u.Host, err)
 	}
 	r := Response{Status: resp.StatusCode, Header: resp.Header, Body: read}
-	if len(read) > MaxResponse {
-		r.Body, r.Truncated = read[:MaxResponse], true
+	if len(read) > c.limit {
+		r.Body, r.Truncated = read[:c.limit], true
 	}
 	return r, nil
 }

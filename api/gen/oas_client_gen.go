@@ -1083,6 +1083,35 @@ type Invoker interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:exclude
 	ExcludeBankStatementLine(ctx context.Context, request *ReasonInput, params ExcludeBankStatementLineParams) (ExcludeBankStatementLineRes, error)
+	// FetchEInvoices invokes fetchEInvoices operation.
+	//
+	// Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of
+	// an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's
+	// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out
+	// as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system
+	// principal acting for the connector's companies. It lists the documents the provider has not had
+	// acknowledged, and records each once per connector and the provider's message id: its bytes kept
+	// write-once in object storage under their SHA-256, the document `received` with its company (the
+	// connector's company whose participant identifier the provider listed it for; none when it names none
+	// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
+	// after that commit the provider is told the document is kept (its acknowledgement), and
+	// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
+	// is sent again, so an acknowledgement lost is repaired by the next fetch. When the fetch is done its
+	// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`) and its
+	// `resource` the list of the documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a
+	// document the provider could not give after five tries fails the Operation with
+	// `einvoicing.fetch_incomplete`, naming it, and is fetched again by the next fetch, the others
+	// recorded. A connector that is not an active `einvoice_provider` connector with credentials that
+	// resolve is refused before anything is queued (404 `request.not_found`, 422
+	// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
+	// `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so
+	// is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only
+	// adapter until a provider is chosen. A server without object storage refuses every fetch (503
+	// `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/e-invoices:fetch
+	FetchEInvoices(ctx context.Context, request *EInvoiceFetch, params FetchEInvoicesParams) (FetchEInvoicesRes, error)
 	// FileTaxReturn invokes fileTaxReturn operation.
 	//
 	// Records that a person filed the approved return with the authority on its portal, with the
@@ -1524,6 +1553,14 @@ type Invoker interface {
 	//
 	// GET /v1/down-payment-requests/{id}
 	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
+	// GetEInvoice invokes getEInvoice operation.
+	//
+	// One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not
+	// act in, or addressed to none of the connector's companies to a caller who may not act in every
+	// company, is not found (404), as one that does not exist, so ids of other companies cannot be probed.
+	//
+	// GET /v1/e-invoices/{id}
+	GetEInvoice(ctx context.Context, params GetEInvoiceParams) (GetEInvoiceRes, error)
 	// GetEntryTemplate invokes getEntryTemplate operation.
 	//
 	// Returns one entry template with its lines, its schedule's next due date (`next_due_on`), the last
@@ -2482,6 +2519,20 @@ type Invoker interface {
 	//
 	// GET /v1/down-payment-requests
 	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
+	// ListEInvoices invokes listEInvoices operation.
+	//
+	// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
+	// received first: those of the companies the caller may act in, and, to a caller who may act in every
+	// company, those addressed to none of the connector's companies. Each carries its connector by id and
+	// name, its company by id, code and name, the provider's message id and the participant it was listed
+	// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
+	// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
+	// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
+	// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
+	// which add it here.
+	//
+	// GET /v1/e-invoices
+	ListEInvoices(ctx context.Context, params ListEInvoicesParams) (ListEInvoicesRes, error)
 	// ListEntryTemplates invokes listEntryTemplates operation.
 	//
 	// Entry templates (ADR-0056): saved manual entries, with their schedules, newest first. Sortable by:
@@ -17981,6 +18032,159 @@ func (c *Client) sendExcludeBankStatementLine(ctx context.Context, request *Reas
 	return result, nil
 }
 
+// FetchEInvoices invokes fetchEInvoices operation.
+//
+// Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of
+// an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's
+// inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out
+// as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system
+// principal acting for the connector's companies. It lists the documents the provider has not had
+// acknowledged, and records each once per connector and the provider's message id: its bytes kept
+// write-once in object storage under their SHA-256, the document `received` with its company (the
+// connector's company whose participant identifier the provider listed it for; none when it names none
+// of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged;
+// after that commit the provider is told the document is kept (its acknowledgement), and
+// `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement
+// is sent again, so an acknowledgement lost is repaired by the next fetch. When the fetch is done its
+// Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`) and its
+// `resource` the list of the documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a
+// document the provider could not give after five tries fails the Operation with
+// `einvoicing.fetch_incomplete`, naming it, and is fetched again by the next fetch, the others
+// recorded. A connector that is not an active `einvoice_provider` connector with credentials that
+// resolve is refused before anything is queued (404 `request.not_found`, 422
+// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
+// `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so
+// is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only
+// adapter until a provider is chosen. A server without object storage refuses every fetch (503
+// `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/e-invoices:fetch
+func (c *Client) FetchEInvoices(ctx context.Context, request *EInvoiceFetch, params FetchEInvoicesParams) (FetchEInvoicesRes, error) {
+	res, err := c.sendFetchEInvoices(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendFetchEInvoices(ctx context.Context, request *EInvoiceFetch, params FetchEInvoicesParams) (res FetchEInvoicesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("fetchEInvoices"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/e-invoices:fetch"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, FetchEInvoicesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/e-invoices:fetch"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeFetchEInvoicesRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, FetchEInvoicesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeFetchEInvoicesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // FileTaxReturn invokes fileTaxReturn operation.
 //
 // Records that a person filed the approved return with the authority on its portal, with the
@@ -23913,6 +24117,139 @@ func (c *Client) sendGetDownPaymentRequest(ctx context.Context, params GetDownPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetDownPaymentRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetEInvoice invokes getEInvoice operation.
+//
+// One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not
+// act in, or addressed to none of the connector's companies to a caller who may not act in every
+// company, is not found (404), as one that does not exist, so ids of other companies cannot be probed.
+//
+// GET /v1/e-invoices/{id}
+func (c *Client) GetEInvoice(ctx context.Context, params GetEInvoiceParams) (GetEInvoiceRes, error) {
+	res, err := c.sendGetEInvoice(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetEInvoice(ctx context.Context, params GetEInvoiceParams) (res GetEInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getEInvoice"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/e-invoices/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetEInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/e-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetEInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetEInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -41265,6 +41602,267 @@ func (c *Client) sendListDownPaymentRequests(ctx context.Context, params ListDow
 
 	stage = "DecodeResponse"
 	result, err := decodeListDownPaymentRequestsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListEInvoices invokes listEInvoices operation.
+//
+// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
+// received first: those of the companies the caller may act in, and, to a caller who may act in every
+// company, those addressed to none of the connector's companies. Each carries its connector by id and
+// name, its company by id, code and name, the provider's message id and the participant it was listed
+// for, the SHA-256 and size of its bytes as received, its status, the fetch that recorded it and when
+// it was received and acknowledged. Filters: company, connector, status, the fetch's Operation
+// (`fetch_operation_id`, as a fetch's Operation names it in its `resource`) and when received. What a
+// document says (number, issue date, supplier, amounts) is read by the processing slices (T65c, T65d),
+// which add it here.
+//
+// GET /v1/e-invoices
+func (c *Client) ListEInvoices(ctx context.Context, params ListEInvoicesParams) (ListEInvoicesRes, error) {
+	res, err := c.sendListEInvoices(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListEInvoices(ctx context.Context, params ListEInvoicesParams) (res ListEInvoicesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listEInvoices"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/e-invoices"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListEInvoicesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/e-invoices"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "connector_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "connector_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ConnectorID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fetch_operation_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fetch_operation_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FetchOperationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "received_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "received_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ReceivedFrom.Get(); ok {
+				return e.EncodeValue(conv.DateTimeToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "received_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "received_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ReceivedTo.Get(); ok {
+				return e.EncodeValue(conv.DateTimeToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListEInvoicesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListEInvoicesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

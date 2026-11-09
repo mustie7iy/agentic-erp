@@ -52,15 +52,6 @@ func ebicsRefused() error {
 		"EBICS channels are refused in production until EBICS has been certified with a bank; use a bank_sftp channel.")
 }
 
-// refuseEBICS refuses, where RefuseEBICS is set, a connector of that kind
-// becoming active when it is bank_ebics.
-func (e *Endpoints) refuseEBICS(kind string) error {
-	if e.RefuseEBICS && kind == BankEBICS {
-		return ebicsRefused()
-	}
-	return nil
-}
-
 // RefuseActiveEBICS refuses a tenant with an active bank_ebics connector:
 // a production import runs it before its commit (offboarding.Importer),
 // as the cell would otherwise refuse to start at its next deploy.
