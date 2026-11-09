@@ -2217,12 +2217,12 @@ type Invoker interface {
 	// (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss
 	// in that currency carried to the retained earnings account) and its amounts in transaction, local and
 	// group currency, debit positive. Ordered and paged by account number (as the database orders text,
-	// byte by byte), then currency, then kind; `account_id` keeps one account's rows. `totals` and the
-	// run's figures beside them are those of the whole run, every row whatever the filter, on every page
-	// alike: per transaction currency the year's result and the debit and credit totals, and over every
-	// currency the result, debits and credits in local and group currency (debits equal credits). A run's
-	// rows never change, so the pages and the totals agree. A run of a company the caller cannot act in is
-	// not found.
+	// byte by byte), then currency, then kind, then account id; `account_id` keeps one account's rows.
+	// `totals` and the run's figures beside them are those of the whole run, every row whatever the
+	// filter, on every page alike: per transaction currency the year's result and the debit and credit
+	// totals, and over every currency the result, debits and credits in local and group currency (debits
+	// equal credits). A run's rows never change, so the pages and the totals agree. A run of a company the
+	// caller cannot act in is not found.
 	//
 	// GET /v1/balance-carry-forwards/{id}/balances
 	ListBalanceCarryForwardBalances(ctx context.Context, params ListBalanceCarryForwardBalancesParams) (ListBalanceCarryForwardBalancesRes, error)
@@ -34538,12 +34538,12 @@ func (c *Client) sendListAuditEvents(ctx context.Context, params ListAuditEvents
 // (`balance`: a balance sheet account's balance at the year's end; `result`: the year's profit or loss
 // in that currency carried to the retained earnings account) and its amounts in transaction, local and
 // group currency, debit positive. Ordered and paged by account number (as the database orders text,
-// byte by byte), then currency, then kind; `account_id` keeps one account's rows. `totals` and the
-// run's figures beside them are those of the whole run, every row whatever the filter, on every page
-// alike: per transaction currency the year's result and the debit and credit totals, and over every
-// currency the result, debits and credits in local and group currency (debits equal credits). A run's
-// rows never change, so the pages and the totals agree. A run of a company the caller cannot act in is
-// not found.
+// byte by byte), then currency, then kind, then account id; `account_id` keeps one account's rows.
+// `totals` and the run's figures beside them are those of the whole run, every row whatever the
+// filter, on every page alike: per transaction currency the year's result and the debit and credit
+// totals, and over every currency the result, debits and credits in local and group currency (debits
+// equal credits). A run's rows never change, so the pages and the totals agree. A run of a company the
+// caller cannot act in is not found.
 //
 // GET /v1/balance-carry-forwards/{id}/balances
 func (c *Client) ListBalanceCarryForwardBalances(ctx context.Context, params ListBalanceCarryForwardBalancesParams) (ListBalanceCarryForwardBalancesRes, error) {
