@@ -17,3 +17,4 @@ BEGIN
   RETURN NEW;
 END $$;
 ALTER TABLE ledger.tax_component DROP COLUMN subdivisions;
+DROP FUNCTION ledger.subdivisions_of(text[], text);

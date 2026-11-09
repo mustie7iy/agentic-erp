@@ -255,6 +255,8 @@ func TestUAEPack2026_3(t *testing.T) {
 			boxed = append(boxed, b.Select.Jurisdictions...)
 		}
 	}
+	// Each emirate's boxes are adjacent (amount, VAT), so compacting them
+	// leaves the emirates in the boxes' order, a repeat apart showing.
 	if boxed = slices.Compact(boxed); !reflect.DeepEqual(boxed, emirates) {
 		t.Errorf("the emirates of boxes 1a-1g: got %v, want S5's %v", boxed, emirates)
 	}

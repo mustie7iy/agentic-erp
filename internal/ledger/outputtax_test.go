@@ -181,3 +181,37 @@ func TestOutputTaxFailures(t *testing.T) {
 		return err
 	})
 }
+
+// TestOutputTaxSubdivisionsReapplied: a configuration activated again
+// gives a component it already set up the subdivisions it now lists, and
+// takes them away when it lists none (ledger.Setup's upsert, the emirate
+// guard): S5 set up without a list takes AE-DX, with the seven emirates
+// refuses it, and without them again takes it.
+func TestOutputTaxSubdivisionsReapplied(t *testing.T) {
+	e := setup(t)
+	doc := document(t)
+	co := doc.Company("2000")
+	co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "240000", Name: "Output tax", Type: config.Liability})
+	s5 := config.TaxCode{Code: "S5", Description: "S5", Direction: config.TaxOutput, Kind: config.TaxStandard, Components: []config.TaxComponent{
+		{Key: "vat", AccountKey: config.KeyOutput, Account: "240000", Jurisdiction: "AE", JurisdictionOnLine: true,
+			Rates: []config.TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}}
+	for _, step := range []struct {
+		name         string
+		subdivisions []string
+		status       int
+	}{
+		{"no list", nil, 201},
+		{"the emirates listed", []string{"AE-AZ", "AE-DU", "AE-SH", "AE-AJ", "AE-UQ", "AE-RK", "AE-FU"}, 422},
+		{"the list taken away", nil, 201},
+	} {
+		s5.Components[0].Subdivisions = step.subdivisions
+		fixture.TaxCodes(t, e.ten, doc, s5)
+		sale := saleEntry(t, e, saleLine{"100000", "105.00", "", ""}, saleLine{"400000", "-100.00", "S5", "AE-DX"},
+			saleLine{"240000", "-5.00", "S5", "AE-DX"})
+		if step.status == 201 {
+			e.in(t).Must(201, "POST", "/v1/journal-entries", sale, "")
+			continue
+		}
+		e.in(t).Problem(422, "ledger.jurisdiction_not_levied", "POST", "/v1/journal-entries", sale, "")
+	}
+}

@@ -8,9 +8,15 @@
 -- subdivision of its country (jurisdiction is then two letters, 000150,
 -- so it is safe inside the pattern).
 ALTER TABLE ledger.tax_component ADD COLUMN subdivisions text[];
+-- Every element, one by one (a CHECK takes no subquery, a function may).
+CREATE FUNCTION ledger.subdivisions_of(subdivisions text[], country text) RETURNS boolean
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT array_ndims(subdivisions) = 1 AND cardinality(subdivisions) > 0
+    AND NOT EXISTS (SELECT FROM unnest(subdivisions) s WHERE s IS NULL OR s !~ ('^' || country || '-[A-Z0-9]{1,3}$'))
+$$;
+ALTER FUNCTION ledger.subdivisions_of(text[], text) OWNER TO erp_owner;
 ALTER TABLE ledger.tax_component ADD CONSTRAINT tax_component_subdivisions
-  CHECK (subdivisions IS NULL OR (jurisdiction_on_line AND cardinality(subdivisions) > 0
-    AND array_to_string(subdivisions, ',', '?') ~ ('^' || jurisdiction || '-[A-Z0-9]{1,3}(,' || jurisdiction || '-[A-Z0-9]{1,3})*$')));
+  CHECK (subdivisions IS NULL OR (jurisdiction_on_line AND ledger.subdivisions_of(subdivisions, jurisdiction)));
 GRANT UPDATE (subdivisions) ON ledger.tax_component TO erp_app;
 
 -- 000150's check, and then one of the subdivisions the component lists,

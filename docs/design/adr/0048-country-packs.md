@@ -279,8 +279,8 @@ settings cannot simply overwrite their document.
   2026.2's. It carries no `sign_off`, as 2026.2 does not: the sign-off of
   T62f's items and the VAT 201 is the next version. **Decided by
   default**, as for 2026.2: the guard is a new version rather than a change
-  to a released one. It is the newest UAE version; the walkthrough's step
-  41 applies it and shows a sale naming a mistyped emirate (AE-DB) refused.
+  to a released one. The walkthrough's step 41 shows a sale naming a
+  mistyped emirate (AE-DB) refused, on 2026.4, which carries the guard.
 - **As built (T62f and T61k sign-offs): UAE 2026.4** is 2026.3 signed off.
   The product owner reported on 2026-11-09 that the tax specialist,
   **Musto Ibrahim**, signed off the UAE pack and the VAT 201, as written;

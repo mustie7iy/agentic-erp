@@ -632,6 +632,8 @@ func TestLineJurisdictionRules(t *testing.T) {
 		"a malformed one in the list":                  {listed("S5", list("{AE-DU,AE-dubai}")), "tax_component_subdivisions"},
 		"an empty list":                                {listed("S5", list("{}")), "tax_component_subdivisions"},
 		"a null in the list":                           {listed("S5", list("{AE-DU,NULL}")), "tax_component_subdivisions"},
+		"two in one element":                           {listed("S5", list(`{"AE-DU,AE-AZ"}`)), "tax_component_subdivisions"},
+		"a list of lists":                              {listed("S5", list("{{AE-DU},{AE-AZ}}")), "tax_component_subdivisions"},
 		"a parked line's without a code":               {parkedLine("", "AE-DU"), "parked_entry_line_tax_jurisdiction"},
 		"a parked line's not a subdivision":            {parkedLine("S5", "AE"), "parked_entry_line_tax_jurisdiction"},
 		"a subdivision levying its lines'": {func(tx pgx.Tx) error {

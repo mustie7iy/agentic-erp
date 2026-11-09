@@ -1500,7 +1500,7 @@ companies (all in the tenant, under RLS). A registration change is financial
     threshold's measure (T61h above), which declaration the FTA takes an
     amendment in, and the due dates (§10, not built), questions the
     approval of what exists does not answer.
-  - **Walkthrough.** Step 41 applies 2026.2 to Maple Gulf Trading, whose
+  - **Walkthrough.** Step 41 applies 2026.2 (2026.4 since the sign-off) to Maple Gulf Trading, whose
     proposed company carries its FTA registration (quarterly, from the
     latest quarter ended in Dubai); Carla posts the quarter's sales by
     emirate, an export, an exempt supply and a customs declaration's
