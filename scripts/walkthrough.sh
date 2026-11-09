@@ -4455,9 +4455,11 @@ einvoice_original() {
 # tasks through a change request, PREV's year close opened and a manual
 # task of it assigned and completed. T64m5's: the year close's checks run,
 # the carry-forward check failing after one more late adjustment and
-# passing after the re-run.
+# passing after the re-run. T64m6's: the year signed off, refused while
+# its regular periods are not locked, then locking its special periods, so
+# that every period of PREV is locked.
 step_year_end() {
-  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run, the year close's checklist and its checks"
+  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run, the year close's checklist, its checks and its sign-off locking the year"
   year_end_setup
   year_end_business
   year_end_revaluation
@@ -4469,6 +4471,7 @@ step_year_end() {
   year_end_rerun
   year_end_close
   year_end_checks
+  year_end_sign_off
   passed
 }
 
@@ -4940,6 +4943,52 @@ year_end_checks() {
   expect "the carry-forward check after the re-run" "$(field '"\(.check_result.passed) \(.status)"')" "true done"
   expect "the runs it names, the new ones" "$(field '[.check_result.ledgers[].carry_forward_run_id] | sort | join(" ")')" \
     "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-third.json")"
+}
+
+# year_end_sign_off is T64m6's part (ADR-0060 §8): Carla completes the
+# equity review and signs the year close off. It is refused while PREV's
+# regular periods are only closed: a year is signed off once every period
+# close has locked its period. She locks them (lockFiscalPeriod) and signs
+# off: the checks run again and pass, and each special period, closed, is
+# locked through the period lock; every period of PREV then reads locked,
+# and a posting into period 13 is refused.
+year_end_sign_off() {
+  as carla
+  local close tag p
+  close=$(awk -F'\t' -v n="year close of $PREV" '$2 == n { print $1 }' "$WORK/names")
+  QUIET=1 api 200 '' getYearClose -p "id=$close"
+  tag=$ETAG
+  say "Carla reviews retained earnings and the carry-forward and completes the last manual task of the year close:"
+  api 200 '"  \(.code) \(.status) by \(.completed_by_name): \(.note)"' completeYearCloseTask -p "id=$close" -p code=EQUITY_REVIEW -if-match "$tag" \
+    -body '{"note": "Retained earnings agree with the result carried forward"}'
+  tag=$ETAG
+  say "She signs off the year close. It is refused: $PREV's regular periods are closed, not locked. A year is signed"
+  say "off after each period's close has locked its period; the year's sign-off locks only the special periods."
+  refused 409 closing.year_periods_not_locked signOffYearClose -p "id=$close" -if-match "$tag" -body '{}'
+  say "No period close of $PREV was opened in the ERP, so nothing has locked its regular periods: Carla locks each"
+  say "regular period of $PREV in each ledger herself (lockFiscalPeriod)."
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period <= 12 and .status == "closed") | "\(.id)/\(.version)"'); do
+    QUIET=1 api 200 '' lockFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  api 200 '"  regular periods of '"$PREV"' locked: \([.items[] | select(.period <= 12 and .status == "locked")] | length) of \([.items[] | select(.period <= 12)] | length)"' \
+    listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  expect "the regular periods locked" "$(field '[.items[] | select(.period <= 12) | .status] | unique | join(" ")')" locked
+  say "and signs off: every check runs again and passes, and each special period, closed, is locked through the"
+  say "period lock, by period, the leading ledger first."
+  api 200 '"signed off by \(.signed_by_name) at \(.signed_at): \(.note)", (.ledgers[] | "  \(.ledger_code) \(.ledger_name): \([.periods[] | "\(.period) \(if .locked then "locked by the sign-off" else "locked already" end)"] | join(", "))")' \
+    signOffYearClose -p "id=$close" -if-match "$tag" -body '{"note": "The year closed; the auditors'"'"' adjustments are in period 13 and the year is carried forward"}'
+  expect "the special periods locked by the sign-off" "$(field '[.ledgers[] | "\(.ledger_code) \([.periods[] | "\(.period)=\(.locked)"] | join(" "))"] | join(", ")')" \
+    "0L 13=true 14=true 15=true 16=true, 2L 13=true 14=true 15=true 16=true"
+  expect "the signer" "$(field .signed_by_name)" "Carla Controller"
+  api 200 '"\(.company_code) \(.fiscal_year): \(.status), by \(.signed_off_by_name)", (.ledgers[] | "  \(.ledger_code): \([.periods[].status] | unique | join(", "))")' \
+    getYearClose -p "id=$close"
+  expect "the year close" "$(field '"\(.status) \(.sign_offs | length)"')" "signed_off 1"
+  expect "every period of $PREV" "$(field '[.ledgers[] | "\(.ledger_code) \([.periods[].status] | unique | join(" "))"] | join(", ")')" "0L locked, 2L locked"
+  as tom
+  say "An adjustment into period 13 of $PREV is refused now: the year is locked."
+  refused 409 ledger.period_not_open postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Audit fees after the sign-off\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 100000)\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it

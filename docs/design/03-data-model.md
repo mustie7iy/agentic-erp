@@ -2531,7 +2531,12 @@ the rows' order, and a posting and a sign-off on a company whose ledgers
 were created out of code order deadlocked; `TestSignOffAndPostingLockInOneOrder`).
 A single posting (one `postingPeriod` call) therefore waits for the first
 period the sign-off holds while holding none the sign-off needs next, then
-reads the committed `locked` status and is refused. Every statement that
+reads the committed `locked` status and is refused. A year close's
+sign-off (T64m6, ADR-0060 §8) reads every period of the year of its covered
+ledgers `FOR UPDATE` in one statement (`ClosePeriods.LockYear`: by period,
+then the leading ledger first, then by code) under its close's row lock,
+before its checks, and then locks each closed special period through
+`LockPeriod` in that order (`TestYearSignOffAndPostingLockInOneOrder`). Every statement that
 locks the `period_status` rows of several ledgers or periods takes them in
 that one order, extended: by legal entity, fiscal year and period, then the
 leading ledger first, then by ledger code, sorted in the statement (an
@@ -3539,9 +3544,25 @@ through the same trigger functions (`closing.check_period_close`,
 `closing.check_close_task`, which name the table they guard), with the
 constraints `year_close_task_check_kind`, `year_close_task_completed`,
 `year_close_task_depends_on`, `year_close_task_checked` and
-`year_close_task_check_passed`; the ledgers are written once. Its sign-off
-(`year_sign_off`) is T64m6's. Schema tests: `db/closing_test.go`
-(`TestYearCloseRules`).
+`year_close_task_check_passed`; the ledgers are written once. Schema
+tests: `db/closing_test.go` (`TestYearCloseRules`).
+
+A year close's sign-offs (T64m6, migration 000243; ADR-0060 §8):
+
+```
+closing.year_sign_off (tenant_id, id, close_id, signed_by, signed_by_name, signed_at, note, locked jsonb)
+                      PK (tenant_id, id); FK (tenant_id, close_id) -> year_close
+```
+
+As `closing.sign_off`, with the signer's name as it was then
+(`signed_by_name`, not blank) and `locked` a list of 1-20 covered ledgers
+(`year_sign_off_locked`), each with its code and name as they were then and
+its special periods of the year (`ledger.period_status`, period 13-16),
+each with whether this sign-off locked it; the regular periods were all
+locked already. Insert-only (`platform.forbid_mutation`), read by close,
+oldest first (`year_sign_off_by_close`); the year close is `signed_off`
+after it, and its latest row is the close's signer. Schema tests:
+`db/closing_test.go` (`TestYearSignOffRules`).
 
 Accrual proposals (T64e, migration 000216), with the closing outbox
 (`AccrualProposed`):
@@ -3655,7 +3676,7 @@ first. The report and the check read a close's comments of a basis
 principals are other contexts', by id, without foreign keys. Schema
 tests: `db/closing_test.go` (`TestVarianceCommentRules`).
 
-The year close (ADR-0060 §8, T64m4-T64m6) is **planned, not built**: a
+The year close (ADR-0060 §8, T64m4-T64m6) is built as described above: a
 company's close of a fiscal year, stored apart from period closes in
 `year_close` (unique per company and year), `year_close_ledger`,
 `year_close_task` and `year_sign_off`, with the same columns and rules as

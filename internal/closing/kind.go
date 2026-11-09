@@ -18,7 +18,8 @@ type closeKind struct {
 	// sql names the kind's tables and columns in a statement both kinds
 	// run: {close}, {task} and {ledger} its tables, {period} its period
 	// (none for a year close: 0), {end} the last day its tasks' due dates
-	// count from, and {signed} the latest sign-off of a close c signed off.
+	// count from, {signoff} its sign-offs' table, and {signed} the latest
+	// sign-off of a close c signed off.
 	// api TestProblemCodes reads the table a statement writes from its
 	// text, so it does not see these: a problem registered on a
 	// constraint of the closes', tasks' or ledgers' tables (none is but
@@ -30,14 +31,14 @@ type closeKind struct {
 var (
 	periodCloses = &closeKind{noun: "period close", title: "Period close", entity: "closing.period_close", event: "period_close_changed",
 		idKey: "period_close_id", path: "/v1/period-closes/", sql: strings.NewReplacer("{close}", "closing.period_close", "{task}", "closing.close_task",
-			"{ledger}", "closing.close_ledger", "{period}", "c.fiscal_period", "{end}", "c.period_end",
+			"{ledger}", "closing.close_ledger", "{period}", "c.fiscal_period", "{end}", "c.period_end", "{signoff}", "closing.sign_off",
 			"{signed}", `(SELECT s.signed_at, s.signed_by FROM closing.sign_off s WHERE s.tenant_id = c.tenant_id AND s.close_id = c.id
 				AND c.status = 'signed_off' ORDER BY s.signed_at DESC, s.id DESC LIMIT 1)`)}
-	// The year close's sign-off is T64m6's: until then it has none.
 	yearCloses = &closeKind{year: true, noun: "year close", title: "Year close", entity: "closing.year_close", event: "year_close_changed",
 		idKey: "year_close_id", path: "/v1/year-closes/", sql: strings.NewReplacer("{close}", "closing.year_close", "{task}", "closing.year_close_task",
-			"{ledger}", "closing.year_close_ledger", "{period}", "0::smallint", "{end}", "c.year_end",
-			"{signed}", `(SELECT NULL::timestamptz AS signed_at, NULL::uuid AS signed_by)`)}
+			"{ledger}", "closing.year_close_ledger", "{period}", "0::smallint", "{end}", "c.year_end", "{signoff}", "closing.year_sign_off",
+			"{signed}", `(SELECT s.signed_at, s.signed_by FROM closing.year_sign_off s WHERE s.tenant_id = c.tenant_id AND s.close_id = c.id
+				AND c.status = 'signed_off' ORDER BY s.signed_at DESC, s.id DESC LIMIT 1)`)}
 )
 
 // q is a statement both kinds run, with the kind's tables and columns.

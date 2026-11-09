@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -109,14 +110,18 @@ func (e *Endpoints) yearCoveredOf(ctx context.Context, tx pgx.Tx, closeID, legal
 }
 
 // yearCloseOut is a year close as a single read shows it: with its
-// company, its ledgers' periods of the year with their live status, and
-// its tasks.
+// company, its ledgers' periods of the year with their live status, its
+// tasks and its sign-offs.
 func (e *Endpoints) yearCloseOut(ctx context.Context, tx pgx.Tx, c closeRow) (gen.YearClose, error) {
 	tasks, err := tasksOf(ctx, tx, yearCloses, c.ID)
 	if err != nil {
 		return gen.YearClose{}, err
 	}
-	v, err := e.view(ctx, []uuid.UUID{c.LegalEntityID}, tasks)
+	offs, err := signOffsOf(ctx, tx, yearCloses, c.ID)
+	if err != nil {
+		return gen.YearClose{}, err
+	}
+	v, err := e.view(ctx, []uuid.UUID{c.LegalEntityID}, tasks, idref.Of(offs, func(s signOff) *uuid.UUID { return &s.SignedBy })...)
 	if err != nil {
 		return gen.YearClose{}, err
 	}
@@ -124,7 +129,7 @@ func (e *Endpoints) yearCloseOut(ctx context.Context, tx pgx.Tx, c closeRow) (ge
 	if err != nil {
 		return gen.YearClose{}, err
 	}
-	return v.yearCloseToAPI(c, covered, tasks), nil
+	return v.yearCloseToAPI(c, covered, tasks, offs), nil
 }
 
 // GetYearClose implements GET /v1/year-closes/{id}.

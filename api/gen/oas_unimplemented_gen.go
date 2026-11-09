@@ -503,9 +503,9 @@ func (UnimplementedHandler) CheckCloseTask(ctx context.Context, params CheckClos
 // `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
 // `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
 // Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year
-// close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it
-// (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open
-// again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+// close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again
+// first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:check
 func (UnimplementedHandler) CheckYearCloseTask(ctx context.Context, params CheckYearCloseTaskParams) (r CheckYearCloseTaskRes, _ error) {
@@ -574,11 +574,10 @@ func (UnimplementedHandler) CompleteCloseTask(ctx context.Context, req OptCloseT
 // `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and
 // for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is
 // the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and
-// published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's)
-// whose covered ledgers' periods of the year are all locked refuses it (409
-// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
-// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
-// (ADR-0060 §8, ADR-0058 §7).
+// published as YearCloseChanged (`task_completed`). A signed-off year close (`signOffYearClose`) whose
+// covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`);
+// once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close
+// open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:complete
 func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteYearCloseTaskParams) (r CompleteYearCloseTaskRes, _ error) {
@@ -5222,10 +5221,10 @@ func (UnimplementedHandler) ReopenCloseTask(ctx context.Context, req *ReasonInpu
 // the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing
 // else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task,
 // with the close's new ETag. People only. Audited, and published as YearCloseChanged
-// (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods
-// of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was
-// unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first,
-// published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+// (`task_reopened`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of
+// the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked
+// (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:reopen
 func (UnimplementedHandler) ReopenYearCloseTask(ctx context.Context, req *ReasonInput, params ReopenYearCloseTaskParams) (r ReopenYearCloseTaskRes, _ error) {
@@ -5535,6 +5534,40 @@ func (UnimplementedHandler) RunBalanceCarryForward(ctx context.Context, req *Bal
 //
 // POST /v1/period-closes/{id}:signOff
 func (UnimplementedHandler) SignOffPeriodClose(ctx context.Context, req OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (r SignOffPeriodCloseRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SignOffYearClose implements signOffYearClose operation.
+//
+// Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as
+// `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first
+// every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE`
+// in one statement, by period, then the leading ledger first, then by ledger code (the order postings
+// lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close
+// already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then
+// refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's
+// check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
+// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept;
+// when all pass each result is recorded on its task. Every regular period of each covered ledger must
+// be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked:
+// the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed`
+// or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a
+// sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod`
+// locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is
+// left as it is. After it every period of the year is locked in the covered ledgers, and a posting
+// into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and
+// their name, when, the note and, per covered ledger, its special periods and whether this sign-off
+// locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved
+// `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No
+// separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060
+// §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People
+// only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
+// periods, and `ledger.entry.read`, since its refusal names what the checks found
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+// YearCloseSignedOff.
+//
+// POST /v1/year-closes/{id}:signOff
+func (UnimplementedHandler) SignOffYearClose(ctx context.Context, req OptPeriodCloseSignOffInput, params SignOffYearCloseParams) (r SignOffYearCloseRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -6047,7 +6080,7 @@ func (UnimplementedHandler) UpdateWebhookSubscription(ctx context.Context, req *
 // a person without access to the close's company). `If-Match` is the close's ETag, so a change made on
 // a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag.
 // People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close
-// (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409
+// (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
 // `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
 // request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
 // (ADR-0060 §8, ADR-0058 §7).

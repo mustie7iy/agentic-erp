@@ -1038,3 +1038,67 @@ choices taken by default (ADR-0053 d), for the product owner to overrule:
    period 13 and closes it, the carry-forward check fails naming `PREV/13`
    in 0L and 2L, and passes, naming the new runs, once she carries `PREV`
    forward again.
+
+**T64m6, year-close sign-off locks the year** (migration 000243). Built as
+§8 and §12 say; the choices taken by default (ADR-0053 d), for the product
+owner to overrule:
+1. *The operation.* `POST /v1/year-closes/{id}:signOff`
+   (`signOffYearClose`), camelCase as `signOffPeriodClose` (ADR-0058 As
+   built, T64d), with its request body (`PeriodCloseSignOffInput`, now
+   described as either close's), If-Match, `Idempotency-Key`, people only
+   (`x-agent: false`, as the period sign-off), `closing.close.sign_off` with
+   `ledger.period.lock` and `ledger.entry.read`; no new permission.
+2. *Locks first.* Under the close's `FOR UPDATE`, every period of the year
+   of the covered ledgers, regular and special, is read `FOR UPDATE` in one
+   statement before the tasks and checks are looked at (the new port
+   method `closing.Ledger.LockYear` over `ledger.ClosePeriods.LockYear`, by
+   period, then the leading ledger first, then by code): §8 asks that no
+   unlock slip in between the check and the commit, and holding the
+   periods through the checks also keeps a period from being opened, and
+   posted into, between `carry_forward_current` passing and the commit.
+   The leaf's "special periods read FOR UPDATE" is read as §8's every
+   period: the regular ones are taken too, in the same statement and order.
+3. *Refusals and their order* (the period sign-off's, then the year's): 409
+   `closing.close_signed_off` for a year close signed off whose periods are
+   all locked; 409 `closing.tasks_open`; 409 `closing.checks_failing` (the
+   checks run again by the shared `checksPass`, each passing result
+   recorded); 409 `closing.year_periods_not_locked` naming each ledger
+   with its regular periods not locked; 409 `closing.period_not_closed`
+   naming each special period open with its ledgers. Each closed special
+   period is then locked through `LockPeriod` (T32's guard, audit record
+   and PeriodLocked) in the order read, at the version read under the lock;
+   a locked one is left as it is. A refusal keeps nothing.
+4. *The record.* `closing.year_sign_off` stores the signer's id and name as
+   they were at the sign-off (§12: "its row records the signer (id and
+   name)"), the note and, per covered ledger (its code and name then), its
+   special periods with whether this sign-off locked each; the regular ones
+   were locked before and are not listed. The sign-off's
+   `signed_by_name` is the stored one; the close's and the list's
+   `signed_off_by_name` are read live, as a period close's.
+5. *Representations.* `YearCloseSignOff` (with `YearCloseSignOffLedger`,
+   `YearCloseSignOffPeriod`) answers the sign-off; `YearClose` gains
+   `sign_offs` (oldest first) and, with `YearCloseItem`, `signed_off_at`,
+   `signed_off_by` and `signed_off_by_name` while it is signed off, each
+   additive.
+6. *Shared code.* `checksPass`, `signedOff` and `signOffsOf` take the
+   close's kind (`closeKind`'s new `{signoff}` table, and `{signed}` now
+   reading the year's latest sign-off); the reopening after an unlock is
+   T64m4's, unchanged. `signedOff` now writes the close through
+   `closeKind.q`, so `api` `TestProblemCodes` drops `closing.close_exists`
+   from `signOffPeriodClose`, where it could never occur (T64m4 As built
+   6).
+7. *Event and audit.* `YearCloseSignedOff` (closing channel, webhook as
+   `PeriodCloseSignedOff`): the close, sign-off, company, fiscal year,
+   signer's id (no name, as the period event), note, every covered
+   ledger's special periods with whether this sign-off locked each, status
+   and version; audit `closing.year_close.sign_off`.
+8. *Segregation of duties.* None (product owner 2026-11-04, §12): who
+   signed is recorded; T64l's rule, when built, covers both closes.
+9. *Walkthrough* (`year_end_sign_off`, the end of `step_year_end`): Carla
+   completes the equity review; the sign-off is refused with
+   `closing.year_periods_not_locked` (no period close of `PREV` was opened
+   in the ERP, so its regular periods are closed, not locked); she locks
+   them (`lockFiscalPeriod`) and signs off: the checks pass again and every
+   special period of both ledgers is locked by the sign-off; every period
+   of `PREV` reads locked, and Tom's adjustment into period 13 is refused
+   with `ledger.period_not_open`.

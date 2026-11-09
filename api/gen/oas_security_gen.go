@@ -418,6 +418,7 @@ var operationRolesOidc = map[string][]string{
 	RunAnalyticsQueryOperation:                     []string{},
 	RunBalanceCarryForwardOperation:                []string{},
 	SignOffPeriodCloseOperation:                    []string{},
+	SignOffYearCloseOperation:                      []string{},
 	SimulateChangeRequestOperation:                 []string{},
 	StartAgentSessionOperation:                     []string{},
 	StartDepreciationRunOperation:                  []string{},
