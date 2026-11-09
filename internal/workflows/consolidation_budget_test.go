@@ -182,6 +182,15 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		WHERE le.tenant_id = $1`, e.Tenant.ID, e.Tenant.Human.ID)
 	exec(`UPDATE ledger.period_status u SET calendar_id = d.fiscal_calendar_id, version = u.version + 1
 		FROM tenancy.legal_entity d WHERE u.legal_entity_id = $1 AND d.id = $2`, e.US, e.DE)
+	// The parent's investment accounts of the members (ADR-0059 §9), each
+	// without a balance: every member's investment and net assets at
+	// acquisition are zero.
+	exec(`INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, status, created_by, updated_by)
+		SELECT $1, gen_random_uuid(), c.id, '15' || lpad(n::text, 4, '0'), 'Investment', 'asset', 'active', $2, $2
+		FROM ledger.chart_of_accounts c, generate_series(1, 98) n WHERE c.tenant_id = $1 AND c.code = '2000'`, e.Tenant.ID, e.Tenant.Human.ID)
+	exec(`INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by)
+		SELECT $1, $2, a.id, $3, $3 FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.id = a.chart_id
+		WHERE a.tenant_id = $1 AND c.code = '2000' AND a.number ~ '^15[0-9]{4}$' AND a.number <> '150000'`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
 		SELECT $1, gen_random_uuid(), le.id, l.id, le.fiscal_calendar_id, 2026, p, CASE p WHEN 11 THEN 'open' ELSE 'closed' END, $2
 		FROM tenancy.legal_entity le, ledger.ledger l, (VALUES (10), (11)) AS x(p) WHERE le.tenant_id = $1 AND le.code LIKE 'C%' AND l.tenant_id = $1 AND l.is_leading`,
