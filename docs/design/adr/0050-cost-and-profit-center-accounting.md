@@ -1403,6 +1403,14 @@ fixes of the leaves above, each named by its question):
   patterns of the hierarchy list's filter, `HierarchyCreate` and
   `HierarchyNodeAdd` widen with them, a request-side change that breaks no
   client), and the gate's group code check with them.
+- **Cost element of the cutover (A12(c), (d))**: CSKB carries DATAB; the
+  configuration draft takes the slice valid at the cutover date, an input
+  (`sapconfig.Options.Cutover`, `erp config generate -cutover`; decided by
+  default: the extract does not say when a scope cuts over), else the
+  latest with a note on the account; without a date, the latest with one
+  note on the chart. SKB1 carries SKA1's GLACCOUNT_TYPE (optional), which
+  cross-checks an account without a CSKB row: `N` or none given is `none`,
+  `P`, `S` or `X` leave the type's default with a note.
 - **A segment SAP did not derive from the profit center (A9(c) [M])**:
   refused, with an issue naming the case (the BAdI FAGL_DERIVE_SEGMENT or
   a manual entry), not loaded (decided by default: §3 gives a profit center

@@ -2952,9 +2952,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cost element category from the CSKB slice valid at cutover (SAP specialist, po:2026-11-09, A12(d) [M], to verify on the pilot system): the configuration draft takes CSKB-KATYP of the slice valid at the cutover date instead of the latest slice, the latest only when none covers that date, with a note for the reviewer on that account (an expired cost element means CO postings were stopped on purpose); SKA1-GLACCOUNT_TYPE (N non-operating, P primary costs or revenue, S secondary, X balance sheet) read as a cross-check of an account without a CSKB row [H]",
-        "r": "delivery/sapconfig costelements.go · internal/sap CSKB, SKA1 · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "delivery/sapconfig costelements.go cutoverSlices, noCostElement · Options.Cutover, erp config generate -cutover · internal/sap CSKB DATAB, SKB1 GLACCOUNT_TYPE · TestCostElementCategories, TestCostElementAccountTypes · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

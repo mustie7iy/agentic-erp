@@ -36,6 +36,7 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/mustie7iy/agentic-erp/internal/apitools"
 	"github.com/mustie7iy/agentic-erp/internal/config"
@@ -444,6 +445,18 @@ func externalAmounts(src sap.Source, form string) (bool, error) {
 	return false, fmt.Errorf(`invalid -amount-format %q: want "internal" or "external" for a file extract; OData's amounts are external`, form)
 }
 
+// sapDate is a -cutover date in SAP's form, YYYYMMDD ("" when none).
+func sapDate(d string) (string, error) {
+	if d == "" {
+		return "", nil
+	}
+	t, err := time.Parse(time.DateOnly, d)
+	if err != nil {
+		return "", fmt.Errorf("invalid -cutover %q: want YYYY-MM-DD", d)
+	}
+	return t.Format("20060102"), nil
+}
+
 // configGenerate drafts a configuration document from SAP customizing, for
 // a change request (erp agent config -draft, or erp call createChangeRequest).
 func configGenerate(ctx context.Context, args []string) error {
@@ -454,6 +467,7 @@ func configGenerate(ctx context.Context, args []string) error {
 	outPath := fs.String("out", "data/config-draft.yaml", "where to write the draft")
 	zones := fs.String("time-zone", "", "comma-separated CODE=ZONE, each company's IANA time zone (e.g. 3000=America/Toronto); SAP's extract has none")
 	form := fs.String("amount-format", "", `the form of a file extract's amounts: "internal" (the default, SAP's stored form, converted with the extract's TCURX) or "external"; OData's are external`)
+	cutover := fs.String("cutover", "", "the cutover date (YYYY-MM-DD), at which each account's cost element is read from SAP's CSKB slice valid then; without it, the latest slice")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
@@ -466,6 +480,9 @@ func configGenerate(ctx context.Context, args []string) error {
 		return err
 	}
 	if opts.TimeZones, err = parseZones(*zones); err != nil {
+		return err
+	}
+	if opts.Cutover, err = sapDate(*cutover); err != nil {
 		return err
 	}
 	e, err := src.Extract(ctx, sap.Scope{CompanyCodes: strings.Split(*companies, ","), FiscalYear: *year})

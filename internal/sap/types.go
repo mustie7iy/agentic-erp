@@ -22,6 +22,13 @@ type SKB1 struct {
 	XBILK string `json:"XBILK"`
 	// MITKZ reconciliation account type: "K" = vendors, "D" = customers.
 	MITKZ string `json:"MITKZ"`
+	// GLACCOUNT_TYPE is SKA1's G/L account type in S/4HANA: N
+	// non-operating (no cost element), P primary costs or revenue, S
+	// secondary costs, X balance sheet (the SAP specialist, po:2026-11-09,
+	// A12(c) [H]). The configuration draft reads it as a cross-check of a
+	// profit and loss account without a cost element (CSKB). Optional: an
+	// extract without it (an OData one) is not cross-checked.
+	GLACCOUNT_TYPE string `json:"GLACCOUNT_TYPE,omitempty"`
 }
 
 // LFA1 - vendor general data.
@@ -412,14 +419,17 @@ type SETLEAF struct {
 
 // CSKB - cost elements of controlling area KOKRS: the G/L account KSTAR's
 // cost element category (KATYP: 01 primary costs, 11 and 12 revenues and
-// sales deductions, others secondary or statistical; ADR-0050) in its
-// slice ending on DATBI. In S/4HANA it is maintained with the G/L account
-// (FS00, from memory). Read only by the configuration draft (delivery/sapconfig), which
-// sets the accounts' cost_element from it (T56h2); its fields are pending
-// the SAP specialist.
+// sales deductions, others secondary or statistical, such as 22, 41-43
+// and 90; ADR-0050) in its slice valid from DATAB to DATBI (the SAP
+// specialist, po:2026-11-09, A12(a), (b) [H]). In S/4HANA it is maintained
+// with the G/L account (FS00, from memory). Read only by the configuration
+// draft (delivery/sapconfig), which sets the accounts' cost_element from
+// the slice valid at the cutover date (A12(d) [M]). DATAB is optional: a
+// slice without it is taken to run from the start.
 type CSKB struct {
 	KOKRS string `json:"KOKRS"`
 	KSTAR string `json:"KSTAR"`
+	DATAB string `json:"DATAB,omitempty"`
 	DATBI string `json:"DATBI"`
 	KATYP string `json:"KATYP"`
 }

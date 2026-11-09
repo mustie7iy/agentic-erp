@@ -385,7 +385,8 @@ platform's hierarchy and node codes hold since migration 000244.
 
 The configuration draft (`erp config generate`) takes each profit and loss
 account's cost element from SAP's cost element category (CSKB-KATYP of its
-latest slice, in the company code's controlling area; T56h2): 01
+slice valid at the cutover date, `-cutover`, in the company code's
+controlling area; T56h2): 01
 `primary_cost` on an expense account, 11 or 12 `revenue` on a revenue
 account, and `none` for an account that is not a cost element in SAP (no
 CSKB row), so its lines take no cost object (ADR-0050 §4). A category the
@@ -400,8 +401,16 @@ released API for it) takes the areas of the company's cost centers and of
 the profit centers assigned to it, as before. A scope keeps the TKA02 row
 of each of its company codes and the cost elements of those areas, but
 not their groups, which place centers. To change after the SAP
-specialist's answers of 2026-11-09 (tracker leaf, po:2026-11-09): the
-slice valid at the cutover date is taken rather than the latest.
+specialist's answers of 2026-11-09 (A12(d) [M], to verify on the pilot
+system), the slice valid at the cutover date is taken, not the latest: the
+latest only when no slice covers that date, with a note on the account (an
+expired cost element means CO postings to it were stopped on purpose), and
+the latest with one note on the chart when no `-cutover` is given. An
+account without a CSKB row is cross-checked against S/4HANA's G/L account
+type (SKA1-GLACCOUNT_TYPE, flattened into SKB1; A12(c) [H]): `N`, or none
+given (an OData extract), is `none`; `P` or `S`, which say it is a cost
+element, and `X`, a balance sheet type, leave the account's type default
+with a note.
 
 A later run keeps what an earlier one loaded: it assigns a profit center
 it finds there to the run's company codes it is not yet assigned to
@@ -799,7 +808,7 @@ others record a confirmation.
   cross-check worth reading. The slice to use is the one valid at the
   cutover date, not the latest [M]: the latest only when none covers it,
   and the account flagged, since an expired cost element means CO postings
-  were stopped on purpose (tracker leaf).
+  were stopped on purpose (built, above; to verify on the pilot system).
 - The default account assignments (OKB9, T56h3; tables and fields from the
   SAP specialist, PO 2026-11-09, to be validated in SE11 and SE37 on the
   pilot's release): TKA3A keyed by MANDT, BUKRS and KSTAR with KOKRS,
