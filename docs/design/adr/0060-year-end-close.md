@@ -760,7 +760,12 @@ for the product owner to overrule:
    every change of the status to `open`, so the previous release's
    `OpenPeriod` and the tests that set `open` directly count too; an insert
    starts at 0 (1 when inserted `open`, as test fixtures do) and any other
-   change of the count is refused.
+   change of the count is refused. An import (ADR-0029) restores the count
+   as exported: the importer sets `app.importing` to the tenant for its
+   transaction, as the erasure sets `app.erasing`, and an insert in that
+   tenant keeps the count it carries (000229; a count reset on import would
+   let a run read before a later opening look current again); an export
+   written before 000227 carries none and gets 0, or 1 when open.
 3. *The rows.* Computed in one statement from the predecessor's rows (when
    chained) and the ledger's balances of the year (chained) or of every
    year up to it, read as the trial balance reads them: projected

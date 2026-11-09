@@ -5630,6 +5630,13 @@
          },
          {
           "s": "D",
+          "t": "An import restores each period's opened count as exported: 000227's trigger refused an inserted count (every import of a tenant with a period failed, batch58's ci-local); the importer sets app.importing to the tenant for its transaction, as the erasure sets app.erasing, and the trigger keeps an inserted count in that tenant alone (migration 000229)",
+          "r": "offboarding.Importer · ledger.count_period_openings · db/carry_forward_test.go TestPeriodOpenedCount · ADR-0029 · ADR-0060 §6",
+          "src": "ci:batch58",
+          "c": []
+         },
+         {
+          "s": "D",
           "t": "Cross-cell verification: each cell answers a tenant's fingerprint (rows per table, audit chain head); the global control plane compares the tenant's cell with a destination and names every difference before a move switches the entry",
           "r": "offboarding.TakeFingerprint · globalplane.Verify · ADR-0030",
           "src": "baseline",

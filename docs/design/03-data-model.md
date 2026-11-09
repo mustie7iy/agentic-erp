@@ -1408,7 +1408,8 @@ never as journal lines. `period_status.opened_count` counts a period's
 openings: the trigger `period_status_opened_count` starts it at 0 and adds
 one on every change of the status to `open`, whoever writes it, and
 refuses any other change (`period_status_opened_count_set`); locking and
-unlocking do not move it. The retained earnings account is the account
+unlocking do not move it. An import (ADR-0029) keeps the exported count
+while `app.importing` names the tenant (migration 000229). The retained earnings account is the account
 determination key `retained_earnings`, applied from
 `companies[].year_end.retained_earnings_account` (tier 3; changed but not
 removed once activated). A run (`carry_forward_run`) of a company, ledger

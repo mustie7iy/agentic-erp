@@ -140,6 +140,12 @@ func (im *Importer) importTenant(ctx context.Context, tx pgx.Tx, m manifest, ord
 	if err != nil {
 		return err
 	}
+	// Columns the database keeps for itself, such as a period's opened
+	// count (ADR-0060 §6), are restored as exported while app.importing
+	// names the tenant: for this transaction only (migration 000229).
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.importing', $1, true)`, m.TenantID.String()); err != nil {
+		return fmt.Errorf("offboarding: mark the import of %s: %w", m.TenantID, err)
+	}
 	if err := im.insertInPasses(ctx, tx, order, idents, cols, rows, out); err != nil {
 		return err
 	}

@@ -129,6 +129,45 @@ func TestPeriodOpenedCount(t *testing.T) {
 				updated_by, opened_count) VALUES ($1,gen_random_uuid(),$2,$3,$4,2026,13,'closed',$5,1)`, f.tenant, f.entity, f.ledger, f.calendar, f.actor)
 		}), "period_status_opened_count_set")
 	})
+	// An import restores the count as exported (ADR-0029, migration 000229), and only while app.importing
+	// names the row's own tenant; an export written before 000227 carries no count (NULL), filled as 000227 did.
+	importing := func(importer string, period int, opened *int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			if err := exec(tx, "SELECT set_config('app.importing', $1, true)", importer); err != nil {
+				return err
+			}
+			if err := exec(tx, "INSERT INTO ledger.fiscal_period VALUES ($1,$2,2026,$3,'2026-12-01','2026-12-31',true)", f.tenant, f.calendar, period); err != nil {
+				return err
+			}
+			return exec(tx, `INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status,
+				updated_by, opened_count) VALUES ($1,gen_random_uuid(),$2,$3,$4,2026,$5,'closed',$6,$7)`, f.tenant, f.entity, f.ledger, f.calendar,
+				period, f.actor, opened)
+		}
+	}
+	countOf := func(t *testing.T, period int) (n int) {
+		t.Helper()
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `SELECT opened_count FROM ledger.period_status WHERE legal_entity_id = $1 AND fiscal_year = 2026
+				AND period = $2`, f.entity, period).Scan(&n)
+		})
+		return n
+	}
+	three := 3
+	t.Run("imported for another tenant", func(t *testing.T) {
+		refused(t, asApp(t, f.tenant, importing(uuid.NewString(), 13, &three)), "period_status_opened_count_set")
+	})
+	t.Run("imported", func(t *testing.T) {
+		mustApp(t, f.tenant, importing(f.tenant.String(), 13, &three))
+		if got := countOf(t, 13); got != 3 {
+			t.Errorf("a period imported with a count of 3: got %d, want 3", got)
+		}
+	})
+	t.Run("imported without a count", func(t *testing.T) {
+		mustApp(t, f.tenant, importing(f.tenant.String(), 14, nil))
+		if got := countOf(t, 14); got != 0 {
+			t.Errorf("a closed period imported without a count: got %d, want 0", got)
+		}
+	})
 }
 
 // TestRetainedEarningsDetermination: the account determination takes the
