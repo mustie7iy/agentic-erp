@@ -48,7 +48,7 @@ func (w *Proposer) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT o.tenant_id FROM platform.operation o
 		JOIN payments.payment_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
-		WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing'`, ProposeKind)
+		WHERE o.kind = $1 AND o.status IN ('queued', 'cancelled') AND r.status = 'proposing' AND o.tenant_id IN `+database.ActiveTenants, ProposeKind)
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return tenants, fmt.Errorf("payments: list the tenants with proposal jobs: %w", err)

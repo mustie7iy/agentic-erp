@@ -347,6 +347,7 @@ func QueuedRuns(ctx context.Context, tx pgx.Tx) ([]operations.Waiting, error) {
 			FROM platform.operation o
 			JOIN integration.migration_run r ON r.tenant_id = o.tenant_id AND r.operation_id = o.id
 			WHERE o.kind IN ('integration.migrate', 'integration.reconcile') AND o.status = 'queued' AND r.status = 'running' AND o.workflow_id IS NULL
+				AND o.tenant_id IN `+database.ActiveTenants+`
 		ORDER BY o.id`)
 	waiting, err := pgx.CollectRows(rows, operations.ScanWaiting)
 	if err != nil {

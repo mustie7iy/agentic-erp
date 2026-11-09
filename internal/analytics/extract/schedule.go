@@ -218,7 +218,7 @@ func (s *Scheduler) claim(ctx context.Context, claimed []uuid.UUID) (claim, bool
 				SELECT tenant_id FROM analytics.extract_due
 				WHERE changed_at > coalesce(done_at, '-infinity') AND coalesce(started_at, '-infinity') <= now() - $1 * interval '1 millisecond'
 					AND tenant_id <> ALL($2::uuid[])
-					AND EXISTS (SELECT FROM tenancy.tenant t WHERE t.id = tenant_id AND t.status = 'active')
+					AND tenant_id IN `+database.ActiveTenants+`
 				ORDER BY changed_at LIMIT 1 FOR UPDATE SKIP LOCKED) due
 			WHERE d.tenant_id = due.tenant_id RETURNING d.tenant_id, d.started_at, d.claimed_lsn::text`, s.every().Milliseconds(), claimed).Scan(&c.tenant, &c.started, &c.lsn)
 		if errors.Is(err, pgx.ErrNoRows) {

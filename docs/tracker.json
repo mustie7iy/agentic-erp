@@ -5657,6 +5657,13 @@
           "c": []
          }
         ]
+       },
+       {
+        "s": "D",
+        "t": "Workers leave a suspended (or provisioning, offboarded) tenant's queued work where it is and pick it up once the tenant is active again: the dispatcher's queued operations (proposals, releases, simulations, migrations, depreciation and consolidation runs), approval deadlines, statement fetches, recurring entries and cash snapshots, the in-process proposer, releaser, depreciator, consolidator, recurrer, snapshotter and simulation worker, the bank file transmitter, cash exporter, webhook dispatcher and contract expirer; ADR-0015 said so but no worker checked (a suspended tenant's queued payment release still ran)",
+        "r": "database.ActiveTenants · ADR-0015 As built · *_inactive_test.go, inactive_test.go TestDispatcherLeavesInactiveTenants",
+        "src": "po:2026-11-09",
+        "c": []
        }
       ]
      },

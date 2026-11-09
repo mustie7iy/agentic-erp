@@ -32,6 +32,16 @@ type Scope struct {
 	Isolation pgx.TxIsoLevel
 }
 
+// ActiveTenants is the set of tenants a background worker works for, as a
+// subquery: a worker's query across tenants adds
+// `AND <tenant column> IN ` + ActiveTenants. A tenant that is not active
+// (provisioning, suspended or offboarded) is refused at the door
+// (ADR-0015), so its queued work stays where it is, untouched, and the
+// worker picks it up once the tenant is active again; offboarding's erasure
+// is not such work and does not use it. The worker role may read the
+// tenant's id and status (000023).
+const ActiveTenants = `(SELECT id FROM tenancy.tenant WHERE status = 'active')`
+
 // Settings bound how long a transaction may wait or run, and how many
 // connections the pool opens.
 type Settings struct {

@@ -113,7 +113,7 @@ func (w *Transmitter) tenants(ctx context.Context) ([]uuid.UUID, error) {
 	}
 	defer tx.Rollback(context.WithoutCancel(ctx))
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM payments.bank_file
-		WHERE status IN ('to_send', 'sending') AND next_attempt_at <= $1`, clock.Now(w.Now))
+		WHERE status IN ('to_send', 'sending') AND next_attempt_at <= $1 AND tenant_id IN `+database.ActiveTenants, clock.Now(w.Now))
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("payments: list the tenants with bank files to send: %w", err)

@@ -73,3 +73,39 @@ operations run in the tenant's scope and are recorded in its audit trail and
 outbox like a status change; they need the `erp:admin` role (ADR-0027),
 listing and reading them `erp:read`. Provisioning registers the tenant's
 first provider with its first administrator; in production it is required.
+
+## As built: workers leave an inactive tenant's work where it is (po:2026-11-09)
+
+The decision enforced suspension at the door only: the unit of work
+refused a request of a tenant that is not active, but the background
+workers read queued work across tenants as `erp_worker` with no status
+filter, so a suspended tenant's queued payment release was still posted
+and its bank file sent. A worker must not do what the tenant could not
+ask for, so every worker round that reads a tenant's work across tenants
+now takes only the active tenants' (`tenant_id IN database.ActiveTenants`,
+one subquery in `internal/platform/database`, which the worker role may
+read since 000023), and leaves the rest untouched, neither attempted nor
+marked as started, until the tenant is active again, when the next round
+(or the next period, for the work started once a period) takes it. The
+same holds for a tenant still provisioning or offboarded, whose work
+stays for the offboarding lifecycle; erasure is not such work.
+
+Filtered: the workflow dispatcher's queued operations (payment proposals
+and releases, simulations, migration runs, depreciation and consolidation
+runs), its approval deadlines, statement fetches, recurring entries and
+cash snapshots; the in-process proposer, releaser, depreciator,
+consolidator, recurrer, snapshotter and simulation worker; the bank file
+transmitter, the cash exporter, the webhook dispatcher and the contract
+expirer; the analytics scheduler's claim already filtered and now uses
+the same subquery.
+
+Not filtered, because they do no work on the tenant's behalf: the outbox
+relay and the bus consumers (they move facts already committed, the
+`tenant_status_changed` event of the suspension itself among them; a
+delivery they fan out waits in the webhook dispatcher), the balance
+projector (derived data of committed postings), session sweeps, the audit
+anchor and verifier, key rotation, the directory sync, the webhook
+delivery prune (retention), the replica record and the offboarding worker.
+A workflow already started before the suspension runs on: its activities'
+jobs (`uow.Job`) do not check the tenant's status. Whether a step should
+wait or fail for a tenant suspended mid-run is open for the product owner.

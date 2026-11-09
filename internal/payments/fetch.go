@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fieldcrypt"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -55,7 +56,8 @@ type ChannelBank struct {
 // worker role reads them across tenants: the dispatcher starts a fetch for
 // those whose channel names statement directories.
 func ChannelBanks(ctx context.Context, tx pgx.Tx) ([]ChannelBank, error) {
-	rows, _ := tx.Query(ctx, `SELECT tenant_id, id, connector_id FROM payments.house_bank WHERE status = 'active' AND connector_id IS NOT NULL ORDER BY tenant_id, id`)
+	rows, _ := tx.Query(ctx, `SELECT tenant_id, id, connector_id FROM payments.house_bank WHERE status = 'active' AND connector_id IS NOT NULL
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY tenant_id, id`)
 	banks, err := pgx.CollectRows(rows, pgx.RowToStructByPos[ChannelBank])
 	if err != nil {
 		return nil, fmt.Errorf("payments: list the house banks with a channel: %w", err)

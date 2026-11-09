@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -50,7 +51,7 @@ const (
 // in each tenant.
 func RecurringTenants(ctx context.Context, tx pgx.Tx, now time.Time) ([]uuid.UUID, error) {
 	rows, _ := tx.Query(ctx, `SELECT DISTINCT tenant_id FROM ledger.entry_template WHERE status = 'active' AND owner_id IS NOT NULL
-		AND next_due_on <= $1::date ORDER BY tenant_id`, clock.DayIn(now, time.UTC).AddDate(0, 0, 1))
+		AND next_due_on <= $1::date AND tenant_id IN `+database.ActiveTenants+` ORDER BY tenant_id`, clock.DayIn(now, time.UTC).AddDate(0, 0, 1))
 	tenants, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 	if err != nil {
 		return nil, fmt.Errorf("ledger: list tenants with entry templates due: %w", err)

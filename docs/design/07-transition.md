@@ -839,8 +839,11 @@ Decisions taken while building it:
   body; anything else is 422 `request.idempotency_key_reused`).
 - **Suspension is enforced where requests enter.** The unit of work already
   refused inactive tenants (403 `tenancy.tenant_inactive`); the control
-  plane only changes the status. Workers leave a suspended tenant's queued
-  work where it is.
+  plane only changes the status. Workers did not check it at first (a
+  suspended tenant's queued payment release still ran); since the
+  2026-11-09 fix every worker round that reads work across tenants takes
+  only active tenants' (`database.ActiveTenants`) and leaves the rest where
+  it is until the tenant is active again (ADR-0015, As built).
 
 Open points for the contract and design review:
 
