@@ -54,8 +54,8 @@ func TestCostElementCategories(t *testing.T) {
 		want    config.CostElement
 		note    string
 	}{
-		"01 on revenue":    {[]sap.CSKB{{KOKRS: "A1", KSTAR: "0000400000", DATBI: "99991231", KATYP: "01"}}, "400000", "", "category 01 (CSKB-KATYP) does not fit a revenue account"},
-		"11 on an expense": {[]sap.CSKB{{KOKRS: "A1", KSTAR: "0000510000", DATBI: "99991231", KATYP: "11"}}, "510000", "", "category 11 (CSKB-KATYP) does not fit a expense account"},
+		"01 on revenue":    {[]sap.CSKB{{KOKRS: "A1", KSTAR: "0000400000", DATBI: "99991231", KATYP: "01"}}, "400000", "", "category 01 (CSKB-KATYP) does not fit the account's type, revenue"},
+		"11 on an expense": {[]sap.CSKB{{KOKRS: "A1", KSTAR: "0000510000", DATBI: "99991231", KATYP: "11"}}, "510000", "", "category 11 (CSKB-KATYP) does not fit the account's type, expense"},
 		"12 on revenue":    {[]sap.CSKB{{KOKRS: "A1", KSTAR: "0000400000", DATBI: "99991231", KATYP: "12"}}, "400000", config.CostElementRevenue, ""},
 		"secondary": {[]sap.CSKB{{KOKRS: "A1", KSTAR: "0000510000", DATBI: "99991231", KATYP: "42"}}, "510000", "",
 			"category 42 (CSKB-KATYP) is a secondary or statistical cost element"},

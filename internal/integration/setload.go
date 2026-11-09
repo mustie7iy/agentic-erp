@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -72,13 +73,18 @@ func (l *loader) groupTree(ctx context.Context, t groupTree, added *[]string) er
 		}
 		*added = append(*added, setRef(t, n.name))
 	}
-	if len(nodes) == 0 {
-		return nil
+	if len(nodes) > 0 {
+		if err := l.e.Centers.AddNodes(ctx, h, nodes, l.groupReason(t)); err != nil {
+			return err
+		}
 	}
-	if err := l.e.Centers.AddNodes(ctx, h, nodes, l.groupReason(t)); err != nil {
-		return err
-	}
+	// Counted once nothing in the step can be refused any more, as the refs
+	// a refused step added are forgotten (groups).
 	l.counts.HierarchyNodes += len(nodes)
+	if slices.Contains(*added, "SETHEADER/"+t.key()) { // alternative created the hierarchy with its root
+		l.counts.Hierarchies++
+		l.counts.HierarchyNodes++
+	}
 	return nil
 }
 
@@ -109,8 +115,6 @@ func (l *loader) alternative(ctx context.Context, t groupTree, added *[]string) 
 		return h, root, err
 	}
 	*added = append(*added, "SETHEADER/"+t.key(), setRef(t, t.root))
-	l.counts.Hierarchies++
-	l.counts.HierarchyNodes++
 	return h, root, nil
 }
 

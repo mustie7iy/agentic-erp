@@ -385,7 +385,7 @@ type SETLEAF struct {
 // cost element category (KATYP: 01 primary costs, 11 and 12 revenues and
 // sales deductions, others secondary or statistical; ADR-0050) in its
 // slice ending on DATBI. In S/4HANA it is maintained with the G/L account
-// (FS00). Read only by the configuration draft (delivery/sapconfig), which
+// (FS00, from memory). Read only by the configuration draft (delivery/sapconfig), which
 // sets the accounts' cost_element from it (T56h2); its fields are pending
 // the SAP specialist.
 type CSKB struct {

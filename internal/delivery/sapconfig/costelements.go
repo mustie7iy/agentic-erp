@@ -47,9 +47,9 @@ func areasOf(e *sap.Extract) map[string][]string {
 // slice in the company's controlling areas; T56h2): 01 primary_cost on an
 // expense account, 11 or 12 revenue on a revenue account, and none on an
 // account that is not a cost element in SAP (no CSKB row), as S/4HANA
-// keeps non-operating accounts. A category the account's type cannot take
-// or the platform does not hold, or areas that disagree, leaves the type's
-// default with a note. A company whose areas the extract does not tell,
+// keeps non-operating accounts (from memory, pending the SAP specialist).
+// A category the account's type cannot take or the platform does not
+// hold, or areas that disagree, leaves the type's default with a note. A company whose areas the extract does not tell,
 // or whose areas have no cost elements, keeps the defaults.
 func (g *gen) costElements(p, company string, accounts []config.Account) {
 	areas := g.areas[company]
@@ -104,7 +104,7 @@ func (g *gen) costElement(path string, a config.Account, rows map[string]sap.CSK
 	case (katyp[0] == katypRevenue || katyp[0] == katypSalesDeductions) && a.Type == config.Revenue:
 		return config.CostElementRevenue
 	case katyp[0] == katypPrimaryCost || katyp[0] == katypRevenue || katyp[0] == katypSalesDeductions:
-		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) does not fit a "+string(a.Type)+" account; left at its type's default")
+		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) does not fit the account's type, "+string(a.Type)+"; left at its type's default")
 	default:
 		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) is a secondary or statistical cost element, which the platform does not hold; left at its type's default")
 	}
