@@ -131,20 +131,16 @@ func (n names) differenceAPI(s storedDifference) gen.IntercompanyDifference {
 func (n names) differenceTotals(ctx context.Context, tx pgx.Tx, r Run, filter []any) ([]gen.IntercompanyDifferenceTotal, error) {
 	rows, _ := tx.Query(ctx, `SELECT d.status, count(*)::int, sum(d.amount)::bigint, sum(d.partner_amount)::bigint, sum(d.difference)::bigint `+
 		differenceWhere+` GROUP BY d.status ORDER BY array_position($5::text[], d.status)`, append(filter, differenceStatuses)...)
-	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (gen.IntercompanyDifferenceTotal, error) {
-		var t gen.IntercompanyDifferenceTotal
-		var amount money.Minor
-		var partner, diff *money.Minor
-		if err := row.Scan(&t.Status, &t.Count, &amount, &partner, &diff); err != nil {
-			return t, fmt.Errorf("scan a total of intercompany differences: %w", err)
-		}
+	out := []gen.IntercompanyDifferenceTotal{}
+	var t gen.IntercompanyDifferenceTotal
+	var amount money.Minor
+	var partner, diff *money.Minor
+	_, err := pgx.ForEachRow(rows, []any{&t.Status, &t.Count, &amount, &partner, &diff}, func() error {
 		t.Amount, t.PartnerAmount, t.Difference = n.money(amount, n.group), n.optMoney(partner), n.optMoney(diff)
-		return t, nil
+		out = append(out, t)
+		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("consolidation: totals of the differences of run %s: %w", r.ID, err)
-	}
-	return append([]gen.IntercompanyDifferenceTotal{}, out...), nil
+	return out, errs.Wrapf(err, "consolidation: totals of the differences of run %s", r.ID)
 }
 
 // storedEntry is an entry as stored, with its company's code and lines.
@@ -281,17 +277,13 @@ func (n names) entryTotals(ctx context.Context, tx pgx.Tx, r Run, filter []any) 
 	rows, _ := tx.Query(ctx, `SELECT en.kind, count(*)::int, coalesce(sum((SELECT sum(l.amount_gc) FROM consolidation.run_entry_line l
 			WHERE l.tenant_id = en.tenant_id AND l.run_id = en.run_id AND l.entry_no = en.entry_no AND l.amount_gc > 0)), 0)::bigint `+entryWhere+`
 		GROUP BY en.kind ORDER BY array_position($5::text[], en.kind)`, append(filter, entryKinds)...)
-	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (gen.ConsolidationEntryTotal, error) {
-		var t gen.ConsolidationEntryTotal
-		var debits money.Minor
-		if err := row.Scan(&t.Kind, &t.Count, &debits); err != nil {
-			return t, fmt.Errorf("scan a total of elimination entries: %w", err)
-		}
+	out := []gen.ConsolidationEntryTotal{}
+	var t gen.ConsolidationEntryTotal
+	var debits money.Minor
+	_, err := pgx.ForEachRow(rows, []any{&t.Kind, &t.Count, &debits}, func() error {
 		t.Debits = n.money(debits, n.group)
-		return t, nil
+		out = append(out, t)
+		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("consolidation: totals of the elimination entries of run %s: %w", r.ID, err)
-	}
-	return append([]gen.ConsolidationEntryTotal{}, out...), nil
+	return out, errs.Wrapf(err, "consolidation: totals of the elimination entries of run %s", r.ID)
 }

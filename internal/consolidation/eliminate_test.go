@@ -361,7 +361,7 @@ func TestIntercompanyMatchingTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := step(func(ctx context.Context) error { return h.EliminateConsolidationRun(ctx, run) }); err == nil ||
-		!strings.Contains(err.Error(), "1 companies not translated") {
+		!strings.Contains(err.Error(), "1 of the companies of run") {
 		t.Errorf("eliminating before every company is translated: got %v, want it refused", err)
 	}
 	if err := step(func(ctx context.Context) error { return h.TranslateMember(ctx, run, companies[1]) }); err != nil {

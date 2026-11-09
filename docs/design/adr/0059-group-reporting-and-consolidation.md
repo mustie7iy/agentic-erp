@@ -1509,7 +1509,10 @@ product owner to overrule:
   `TestConsolidatedStatementBudget` now put the group accounts of the
   budget's asset and liability accounts in the elimination, so a run
   matches 99 pairs and eliminates 400 rows with a trading partner per
-  company: @RUNBUDGET@
+  company: the run 16.9 s at ERP_BUDGET_SCALE=1 and
+  16.9 s at 2 (T68d's 13-14 s), against 120 s; each statement page p95
+  0.12-0.34 s at 1 and 0.14-0.25 s at 2, against 1 s (load averages
+  9-75, 2026-11-09).
 - **Walkthrough.** `step_consolidation` gains `consolidation_eliminations`
   between `consolidation_run` and `consolidation_statements`: the run has
   one difference matched and one open; IC_RESULTS matches Maple's

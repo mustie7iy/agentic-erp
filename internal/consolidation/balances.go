@@ -164,7 +164,7 @@ func (e *Endpoints) namesOf(ctx context.Context, tx pgx.Tx, r Run, companies []u
 		read[c] = true
 		accounts, err := e.Ledger.Accounts(ctx, c)
 		if err != nil {
-			return names{}, fmt.Errorf("consolidation: accounts of %s: %w", c, err)
+			return names{}, fmt.Errorf("consolidation: accounts of company %s of run %s: %w", c, r.ID, err)
 		}
 		for _, a := range accounts {
 			n.accounts[a.ID] = a

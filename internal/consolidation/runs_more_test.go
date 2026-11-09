@@ -332,7 +332,7 @@ func TestConsolidationDatabaseFailures(t *testing.T) {
 	for _, c := range companies {
 		every("translate", func(ctx context.Context) error { return fresh().TranslateMember(ctx, run, c) })
 	}
-	every("eliminate", func(ctx context.Context) error { return h.EliminateConsolidationRun(ctx, run) })
+	every("eliminate", func(ctx context.Context) error { return fresh().EliminateConsolidationRun(ctx, run) })
 	every("complete", func(ctx context.Context) error { return h.CompleteConsolidationRun(ctx, run) })
 	reads := map[string]func(ctx context.Context) error{
 		"get": func(ctx context.Context) error {

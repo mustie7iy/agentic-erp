@@ -347,7 +347,7 @@ func TestConsolidationEliminationRules(t *testing.T) {
 		{"an entry line changed", func(s scene) []stmt {
 			return with(s, append(balanced(s), step(`UPDATE consolidation.run_entry_line SET amount_gc = 1`))...)
 		}, "permission denied"},
-		{"an entry removed", func(s scene) []stmt {
+		{"an entry's lines removed", func(s scene) []stmt {
 			return with(s, append(balanced(s), step(`DELETE FROM consolidation.run_entry_line`))...)
 		}, "permission denied"},
 		{"an unbalanced entry", func(s scene) []stmt {
@@ -375,6 +375,48 @@ func TestConsolidationEliminationRules(t *testing.T) {
 		{"an entry with a partner outside the run", func(s scene) []stmt {
 			return with(s, step(entryRow, s.tenant, s.run, 1, "intercompany", s.member, id(), "IC_BALANCES"))
 		}, "run_entry_tenant_id_run_id_partner_id_fkey"},
+		{"an entry line after the run computed", func(s scene) []stmt {
+			return with(s, entry(s), step(`UPDATE consolidation.run SET status = 'computed', computed_at = now(), version = version + 1`),
+				line(s, 1, nil, nil, nil, 1))
+		}, "its rows are written while it runs"},
+		{"a line of a company outside the run", func(s scene) []stmt {
+			return with(s, entry(s), line(s, 1, id(), nil, nil, 1))
+		}, "run_entry_line_tenant_id_run_id_legal_entity_id_fkey"},
+		{"an entry of a company outside the run", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 1, "investment", id(), nil, nil))
+		}, "run_entry_tenant_id_run_id_legal_entity_id_fkey"},
+		{"two differences on one line", func(s scene) []stmt {
+			return with(s, pair(s, "matched", 1, -1, 0, 0), step(diffRow, s.tenant, s.run, 1, s.member, nil, "no_trading_partner", 5, nil, nil, nil))
+		}, "run_difference_tenant_id_run_id_line_no_key"},
+		{"a difference on line 0", func(s scene) []stmt {
+			return with(s, step(diffRow, s.tenant, s.run, 0, s.member, nil, "no_trading_partner", 5, nil, nil, nil))
+		}, "run_difference_line_no_check"},
+		{"an unknown status", func(s scene) []stmt {
+			return with(s, step(diffRow, s.tenant, s.run, 1, s.member, id(), "accepted", 5, nil, nil, nil))
+		}, "run_difference_status_check"},
+		{"a difference of a malformed elimination code", func(s scene) []stmt {
+			return with(s, step(strings.Replace(diffRow, "'IC_BALANCES'", "'ic balances'", 1), s.tenant, s.run, 1, s.member, nil, "no_trading_partner", 5,
+				nil, nil, nil))
+		}, "run_difference_elimination_code_check"},
+		{"an entry of an unknown kind", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 1, "goodwill", s.member, nil, nil))
+		}, "run_entry_kind_check"},
+		{"an entry of a malformed elimination code", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 1, "intercompany", s.member, s.parent, "ic balances"))
+		}, "run_entry_elimination_code_check"},
+		{"entry 0", func(s scene) []stmt {
+			return with(s, step(entryRow, s.tenant, s.run, 0, "intercompany", s.member, s.parent, "IC_BALANCES"))
+		}, "run_entry_entry_no_check"},
+		{"a line 0", func(s scene) []stmt { return with(s, entry(s), line(s, 0, nil, nil, nil, 1)) }, "run_entry_line_line_no_check"},
+		{"a line on a malformed group account", func(s scene) []stmt {
+			return with(s, entry(s), step(strings.Replace(lineRow, "'G1250'", "'g-1250'", 1), s.tenant, s.run, 1, nil, nil, nil, 1))
+		}, "run_entry_line_group_account_check"},
+		{"an entry changed", func(s scene) []stmt {
+			return with(s, append(balanced(s), step(`UPDATE consolidation.run_entry SET kind = 'nci'`))...)
+		}, "permission denied"},
+		{"an entry itself removed", func(s scene) []stmt {
+			return with(s, append(balanced(s), step(`DELETE FROM consolidation.run_entry`))...)
+		}, "permission denied"},
 		{"a pair's entry twice", func(s scene) []stmt {
 			return with(s, entry(s), step(entryRow, s.tenant, s.run, 2, "intercompany", s.member, s.parent, "IC_BALANCES"))
 		}, "run_entry_one_per_pair"},

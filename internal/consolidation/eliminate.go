@@ -244,7 +244,7 @@ func (e *Endpoints) EliminateConsolidationRun(ctx context.Context, id uuid.UUID)
 	case done:
 		return nil
 	case pending > 0:
-		return fmt.Errorf("consolidation: run %s has %d companies not translated; it is eliminated after them", id, pending)
+		return fmt.Errorf("consolidation: %d of the companies of run %s are not translated yet; it is eliminated after them", pending, id)
 	}
 	m, accounts, err := e.matchingOf(ctx, tx, r)
 	if err != nil {
