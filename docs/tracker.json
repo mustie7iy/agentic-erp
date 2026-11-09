@@ -2936,9 +2936,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP center groups with values on inner nodes (SAP specialist, po:2026-11-09, A10(d) [M], to verify on the pilot system): a set may hold subsets and values on the same node, and CSKS-KHINR or CEPC-KHINR may name a group that has child groups; the quality gate's refusals of a group holding both subgroups and values and of a KHINR that is not a leaf are lifted, and such centers are placed on that group; the platform's hierarchy refuses centers on a node with children (ledger.hierarchy_change_invalid, has_centers), so the step amends ADR-0050 §3, decided by default or by a new ADR, to hold them",
-        "r": "internal/integration sets.go, settrees.go, setload.go · ledger hierarchies · ADR-0050 §3, §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/integration sets.go checkSet (both lifted), settrees.go leavesOf (every group's values; KHINR any group of the tree) · ledger hierarchies.go parent, planPlace, hierarchychange.go unassignedLeaf, addUnassigned (centers and child nodes on one node) · migration 000243_hierarchy_centers_on_inner_nodes · api/openapi.yaml descriptions · TestGroupPlanInnerGroups, TestHierarchyRefusals, TestCentersCreatedInTheStandardHierarchy, TestHierarchyNodesBelowCenters · ADR-0050 §3 amended, §10 As built (SAP specialist's answers) · 03-data-model · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

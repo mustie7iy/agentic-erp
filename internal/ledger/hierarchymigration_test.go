@@ -132,8 +132,8 @@ func TestHierarchyMigrationRefusals(t *testing.T) {
 	err := c.migrated(t, func(ctx context.Context, m ledger.CenterMigration) error {
 		return m.AddNodes(ctx, std, []ledger.MigratedNode{{ID: uuid.New(), Parent: h2, Code: "H3", Name: "N"}}, "r")
 	})
-	if f := problem.From(err); f.Code != "ledger.hierarchy_change_invalid" || f.Errors[0].Code != "has_centers" {
-		t.Errorf("below a node holding centers: got %v, want ledger.hierarchy_change_invalid has_centers", err)
+	if err != nil {
+		t.Errorf("below a node holding centers (A10(d)): got %v, want none", err)
 	}
 }
 

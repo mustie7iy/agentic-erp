@@ -266,7 +266,7 @@ revenues, PKZKP plan), a profit center's lock (LOCK_IND). A center's name
 and description are its text in English (CSKT and CEPCT KTEXT and LTEXT,
 FAGL_SEGMT NAME, language key E or EN) of its latest slice, else its text
 in another language with a warning; its person responsible is VERAK of its
-latest slice. Each center is created at its leaf of SAP's standard
+latest slice. Each center is created at its group of SAP's standard
 hierarchy (below), or at the standard hierarchy's UNASSIGNED leaf, as a
 center created without a node is, when the extract has none for its
 controlling area.
@@ -353,35 +353,33 @@ applied with no approval request of its own, as the centers are
 includes, E excludes; VALOPTION EQ one value, BT a range, both ends
 included), compared as SAP keeps codes (digits alone padded with leading
 zeros to ten) and expanded against the extract's centers of the area: a
-center sits at the leaves whose values take it and, in the standard
-hierarchy, at the leaf its KHINR names, which must be one; it sits in an
-alternative hierarchy at the leaf that takes it, if any (`hierarchy_places`
-counts both). A later run keeps what is loaded: a group it finds loaded is
+center sits at the groups whose values take it and, in the standard
+hierarchy, at the group its KHINR names, which must be one; it sits in an
+alternative hierarchy at the group that takes it, if any (`hierarchy_places`
+counts both). A group may hold values beside its subgroups and a KHINR may
+name a group with subgroups (the SAP specialist's answer A10(d) [M], to
+verify on the pilot system): the center then sits at that inner node, which
+the platform's hierarchies allow since migration 000243 (ADR-0050 §3 as
+amended). A later run keeps what is loaded: a group it finds loaded is
 not renamed or moved, a group SAP added is added below its parent, and a
 center an earlier run loaded keeps its places (a controller places it
-through the API). A group an earlier run loaded as a leaf holding centers
-that SAP has since given subgroups is refused by the load
-(`ledger.hierarchy_change_invalid`, `has_centers`), and every run of such
-an extract fails until a controller moves those centers to other leaves
-through the API (`POST /v1/hierarchies/{id}:place`). The quality gate refuses a group code that is not one
+through the API). A group an earlier run loaded holding centers that SAP
+has since given subgroups takes them below its centers. The quality gate refuses a group code that is not one
 (up to 15 of 0-9, A-Z, _ and -), a group without a name in any language
-(warning of one only in another language than English), a group holding
-both subgroups and values, a line naming a group the extract lacks or a
+(warning of one only in another language than English), a line naming a group the extract lacks or a
 subgroup of another class or area, a value whose sign or option is
 another (patterns, CP, are not expanded) or whose range ends before it
 starts, groups that include each other, a tree deeper than 12 levels (11
 below the standard root), a standard hierarchy (TKA01-KHINR) that is not
 a group, profit centers' places in more than one tree, a group name in the
 standard hierarchies of two controlling areas or topping alternative ones
-in two, a center in no leaf of its standard hierarchy, in two leaves of
-one hierarchy, or whose KHINR is not a leaf of it. It warns of a value
+in two, a center in no group of its standard hierarchy, in two groups of
+one hierarchy, or whose KHINR is not a group of it. It warns of a value
 taking no center of the extract (it places nothing) and of an area with
 groups but no standard hierarchy, whose centers go to the UNASSIGNED leaf.
 An alternative hierarchy whose code the tenant already has is refused by
 the load and fails the run. The SAP specialist's answers of 2026-11-09
-change two of these refusals (tracker leaves, po:2026-11-09): SAP lets a
-group hold values beside its subgroups, and a center's KHINR need not name
-a lowest-level group, so values on inner groups are to load; and set names
+change one more of these refusals (tracker leaf, po:2026-11-09): set names
 are up to 24 characters in SETHEADER, not 15 (below, "What to check").
 
 The configuration draft (`erp config generate`) takes each profit and loss
@@ -783,8 +781,8 @@ others record a confirmation.
   0101 and 0106; subsets are ordered by SETNODE-SEQNR where the release has
   it, else LINEID, and values by LINEID. CSKS-KHINR and CEPC-KHINR need
   **not** name a lowest-level node [M]: a set may hold subsets and values
-  on the same node, so the tree must allow values on inner nodes (tracker
-  leaf; the gate refuses such a group today). Set values hold numeric codes
+  on the same node, so the tree must allow values on inner nodes (built:
+  such centers load at the inner node; to verify on the pilot system). Set values hold numeric codes
   zero-padded to ten [H], alphanumeric codes left-justified and unpadded,
   the same ALPHA rule as CSKS-KOSTL, which is the load's. Groups kept in
   KSH2/KCH2 use only I with EQ or BT [M]; sets edited with GS02 may hold

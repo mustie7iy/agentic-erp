@@ -13,9 +13,9 @@ import (
 // and each center it places is a hierarchy change recorded as applied at
 // once, naming the run in its reason, with no approval request of its own,
 // as the centers the run creates (CenterMigration). They are planned as a
-// requested change is when it is approved (tree.plan: a parent that holds
-// no centers, at most 12 levels, a code once in the tree, a leaf for a
-// center), and audited and published as the API's.
+// requested change is when it is approved (tree.plan: at most 12 levels,
+// a code once in the tree, a node of it for a center), and audited and
+// published as the API's.
 
 // MigratedNode is a node a run adds below Parent, after its siblings; the
 // run chooses its id, as a request does (RequestHierarchyChange), so that
@@ -25,7 +25,7 @@ type MigratedNode struct {
 	Code, Name string
 }
 
-// MigratedPlace is a center placed at a leaf.
+// MigratedPlace is a center placed at a node.
 type MigratedPlace struct {
 	Center, Node uuid.UUID
 }

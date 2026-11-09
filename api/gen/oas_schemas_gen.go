@@ -17320,7 +17320,7 @@ func (s *CenterChangePayload) init() CenterChangePayload {
 	return m
 }
 
-// Where a center sits in one hierarchy: the nodes from the root to its leaf.
+// Where a center sits in one hierarchy: the nodes from the root to its node.
 // Ref: #/components/schemas/CenterPath
 type CenterPath struct {
 	// Hierarchy.
@@ -17329,7 +17329,7 @@ type CenterPath struct {
 	HierarchyCode string `json:"hierarchy_code"`
 	// Whether it is the standard hierarchy.
 	IsStandard bool `json:"is_standard"`
-	// The root first, the center's leaf last.
+	// The root first, the center's node last.
 	Nodes []CenterPathNode `json:"nodes"`
 }
 
@@ -24558,12 +24558,12 @@ type CostCenterCreate struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// End of validity (exclusive); absent: open-ended.
 	ValidTo OptDate `json:"valid_to"`
-	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
-	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
-	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the center is placed, when its
-	// creation is approved, in the standard hierarchy's `UNASSIGNED` leaf, for a controller to place
-	// later; the approval creates that leaf, and the standard hierarchy with it, when the tenant has none
-	// (product owner, 2026-10-21).
+	// Node of the tenant's standard hierarchy of this kind where the center is placed when its creation is
+	// approved (ADR-0050 §3: every active center sits in exactly one node of it, which may also have
+	// child nodes); a node of that hierarchy (422 `ledger.hierarchy_change_invalid`). Absent: the center
+	// is placed, when its creation is approved, in the standard hierarchy's `UNASSIGNED` leaf, for a
+	// controller to place later; the approval creates that leaf, and the standard hierarchy with it, when
+	// the tenant has none (product owner, 2026-10-21).
 	StandardNodeID OptUUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`
@@ -45090,8 +45090,8 @@ type MigrationLoadedCounts struct {
 	// Profit centers an earlier run created that this run assigned to more company codes (CEPC_BUKRS).
 	ProfitCentersExtended OptInt `json:"profit_centers_extended"`
 	// Cost centers of the scope's company codes (CSKS, CSKT), active at once with their time slices as
-	// periods, at their leaf of SAP's standard hierarchy, or its UNASSIGNED leaf when the extract has none
-	// for their controlling area: the run is their approval (ADR-0050 §10).
+	// periods, at their group of SAP's standard hierarchy, or its UNASSIGNED leaf when the extract has
+	// none for their controlling area: the run is their approval (ADR-0050 §10).
 	CostCenters OptInt `json:"cost_centers"`
 	// Alternative hierarchies created from SAP's cost and profit center groups (sets 0101, 0106) that no
 	// group includes, each coded as its top group (ADR-0050 §10, T56h2). SAP's standard hierarchies are
@@ -45101,8 +45101,8 @@ type MigrationLoadedCounts struct {
 	// run applied (the run is their approval, ADR-0050 §10, T56h2), and each alternative hierarchy's
 	// root, created with it.
 	HierarchyNodes OptInt `json:"hierarchy_nodes"`
-	// Centers this run created placed at a leaf of SAP's groups, in the standard or an alternative
-	// hierarchy, their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2).
+	// Centers this run created placed at a group of SAP's, in the standard or an alternative hierarchy,
+	// their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2).
 	HierarchyPlaces OptInt `json:"hierarchy_places"`
 }
 
@@ -57668,12 +57668,12 @@ type ProfitCenterCreate struct {
 	ValidFrom time.Time `json:"valid_from"`
 	// End of validity (exclusive); absent: open-ended.
 	ValidTo OptDate `json:"valid_to"`
-	// Leaf node of the tenant's standard hierarchy of this kind where the center is placed when its
-	// creation is approved (ADR-0050 §3: every active center sits in exactly one leaf of it); a node
-	// without child nodes (422 `ledger.hierarchy_change_invalid`). Absent: the center is placed, when its
-	// creation is approved, in the standard hierarchy's `UNASSIGNED` leaf, for a controller to place
-	// later; the approval creates that leaf, and the standard hierarchy with it, when the tenant has none
-	// (product owner, 2026-10-21).
+	// Node of the tenant's standard hierarchy of this kind where the center is placed when its creation is
+	// approved (ADR-0050 §3: every active center sits in exactly one node of it, which may also have
+	// child nodes); a node of that hierarchy (422 `ledger.hierarchy_change_invalid`). Absent: the center
+	// is placed, when its creation is approved, in the standard hierarchy's `UNASSIGNED` leaf, for a
+	// controller to place later; the approval creates that leaf, and the standard hierarchy with it, when
+	// the tenant has none (product owner, 2026-10-21).
 	StandardNodeID OptUUID `json:"standard_node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`

@@ -767,8 +767,8 @@ const openEnded = "99991231"
 // mock's own codes, those the walkthrough's configuration has (ADMIN,
 // SALES); the pilot's KOSAR keys are pending the SAP specialist
 // (docs/migration.md), and the configuration needs a category for each.
-// Each center names its leaf of the standard hierarchy (KHINR) among the
-// groups, and the company's accounts are cost elements (T56h2). Its
+// Each center names its group of the standard hierarchy (KHINR) among the
+// groups, 3100 the inner group H3000, and the company's accounts are cost elements (T56h2). Its
 // journal lines carry SAP's account assignment (lineCenters, T56h4). It
 // draws nothing from the generator, so the rest of the extract is the same
 // as without it.
@@ -786,7 +786,7 @@ func (g *mockGen) centers(cc string) {
 	}
 	moveOn := g.date(7, 1)
 	g.e.CSKS = append(g.e.CSKS,
-		CSKS{KOKRS: mockArea, KOSTL: "3100", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", KHINR: "H3100",
+		CSKS{KOKRS: mockArea, KOSTL: "3100", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", KHINR: "H3000",
 			WAERS: "CAD"},
 		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: "20200101", DATBI: dayBefore(moveOn), BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100",
 			KHINR: "H3100", WAERS: "CAD"},
@@ -887,8 +887,9 @@ type mockSet struct {
 
 // mockSets are the mock's center groups in controlling area 1000 (T56h2):
 // the standard hierarchy of cost centers H1000 (TKA01-KHINR), Canada
-// H3000 below it with administration H3100, the range 3100 to 3199 (3100
-// and 3120), and sales H3200, 3200 and 3300 one by one; an alternative
+// H3000 below it holding 3100 itself beside its subgroups (SAP lets a
+// group hold values and subgroups, A10(d)), administration H3100, the
+// range 3101 to 3199 (3120), and sales H3200, 3200 and 3300 one by one; an alternative
 // hierarchy of regions, Ontario with 3100 and 3300, Quebec the range 3100
 // to 3299 without 3100 and 3300 (3120 and 3200); and the profit centers'
 // hierarchy PH1000, P3100 in Ontario and P3200 in Quebec, the leaves the
@@ -896,8 +897,8 @@ type mockSet struct {
 // (CSKS-KHINR).
 var mockSets = []mockSet{
 	{SetClassCostCenters, "H1000", "Maple group", []string{"H3000"}, nil},
-	{SetClassCostCenters, "H3000", "Maple Industries Canada", []string{"H3100", "H3200"}, nil},
-	{SetClassCostCenters, "H3100", "Administration", nil, [][4]string{{"I", "BT", "3100", "3199"}}},
+	{SetClassCostCenters, "H3000", "Maple Industries Canada", []string{"H3100", "H3200"}, [][4]string{{"I", "EQ", "3100", ""}}},
+	{SetClassCostCenters, "H3100", "Administration", nil, [][4]string{{"I", "BT", "3101", "3199"}}},
 	{SetClassCostCenters, "H3200", "Sales", nil, [][4]string{{"I", "EQ", "3200", ""}, {"I", "EQ", "3300", ""}}},
 	{SetClassCostCenters, "REGIONS", "Regions", []string{"ON", "QC"}, nil},
 	{SetClassCostCenters, "ON", "Ontario", nil, [][4]string{{"I", "EQ", "3100", ""}, {"I", "EQ", "3300", ""}}},

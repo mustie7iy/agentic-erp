@@ -359,6 +359,21 @@ As built in T56a (migration 000128):
     refused (`request.invalid_page_token`). A tree lists only the cost centers of companies the caller may act in, as every cost center read; its nodes are tenant-wide. The ETag is the tree's version, so two callers with different access may get different bodies under one ETag: harmless for If-Match (changes are planned against the whole tree), but a shared cache must vary by principal. `/v1/center-changes` filters by `hierarchy_id`. Event
     `HierarchyChanged` says what changed, not the tree; audit
     `ledger.hierarchy.create|request|node_create|node_rename|node_move|node_remove|place`.
+  - **Amended: centers on inner nodes (SAP specialist, po:2026-11-09,
+    A10(d) [M]; migration 000243).** SAP's sets may hold values beside
+    their subsets, and a center's KHINR may name a group with subgroups,
+    so a node holds centers and child nodes alike: "exactly one leaf" above
+    reads "exactly one node". Decided by default (the leaf asked §3 to hold
+    them; a generated child leaf per inner group would invent nodes and
+    codes SAP does not have): 000243 drops the triggers' refusals of a node
+    below a node holding centers and of a center at a node with children,
+    and the plan no longer refuses adding or moving a node below centers,
+    placing a center at a node with children (the API's and a new center's
+    `standard_node_id` included), or the UNASSIGNED node and the standard
+    root when they have children or centers. Removing a node with children
+    or centers is still refused. The center reports already sum a node's
+    subtree, its own centers included, so they are unchanged; a path ends
+    at the center's node.
 - **Default profit center** per company (SAP's dummy profit center), a real
   profit center flagged `is_default`, collects P&L lines nothing else
   derives. Its balance is a close task (T64): it should be empty or
@@ -1148,7 +1163,8 @@ pending the SAP specialist, docs/migration.md):
   code without centers has no known area (TKA02 is not read; read since,
   below). The mock's
   area 1000 has the standard hierarchy H1000 (H3000 Canada, H3100
-  administration as the range 3100 to 3199, H3200 sales), an alternative
+  administration as the range 3100 to 3199, H3200 sales; since A10(d)
+  H3000 holds 3100 itself and H3100 the range 3101 to 3199), an alternative
   REGIONS (Quebec as 3100 to 3299 without 3100 and 3300), the profit
   centers' PH1000, and its company 3000's accounts as cost elements, the
   exchange rate accounts not.
@@ -1374,6 +1390,12 @@ fixes of the leaves above, each named by its question):
   names them first). A slice without a profit center accepts the line's
   (SAP's dummy profit center, which the ledger takes beside a cost center
   without one). The mock's lines carry their company code's TKA02 area.
+- **Values on inner groups (A10(d) [M])**: the gate no longer refuses a
+  group with both subgroups and values, or a KHINR naming a group that is
+  not a leaf; a center sits at the group whose values take it or that its
+  KHINR names, inner or not (exactly one per tree, as before), and the
+  ledger holds it there (§3 as amended, migration 000243). A group an
+  earlier run loaded with centers takes the subgroups SAP added since.
 - **A segment SAP did not derive from the profit center (A9(c) [M])**:
   refused, with an issue naming the case (the BAdI FAGL_DERIVE_SEGMENT or
   a manual entry), not loaded (decided by default: §3 gives a profit center
