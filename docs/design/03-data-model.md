@@ -1218,7 +1218,7 @@ what a run valued: an open item (a journal line, with its partner) or a
 flagged account's balance in one currency (`revaluation_item_kind`), each
 with its trading partner (an open item's is its line's; a balance is one
 per currency and trading partner, none being one of them; T68b2,
-migrations 000234–000236, ADR-0059 §4), each once per run
+migrations 000240–000242, ADR-0059 §4), each once per run
 (`revaluation_item_line`, `revaluation_item_balance_by_partner`), with its transaction and booked local and group amounts and,
 for local and for group currency each, the rate, its validity (none for
 the group's own currency) and the amount at that rate: group currency is
@@ -3515,7 +3515,7 @@ off again has a second row. Read by close, oldest first
 (`sign_off_by_close`). Schema tests: `db/closing_test.go`
 (`TestCloseSignOffRules`).
 
-The year close (T64m4, migration 000233; ADR-0060 §8), with the closing
+The year close (T64m4, migration 000237; ADR-0060 §8), with the closing
 outbox (`YearCloseChanged`), is stored apart from period closes:
 
 ```
@@ -3690,8 +3690,8 @@ configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
 table, and migration 000223 adds the permission `consolidation.read`.
 T68b-T68g are built (T68e, the consolidated
 statements, reads `run_balance` and, since T68f, `run_entry_line`, and
-keeps no table); migration 000233 adds `run_difference`, `run_entry` and
-`run_entry_line` (T68f, As built T68f); migration 000234 adds a
+keeps no table); migration 000238 adds `run_difference`, `run_entry` and
+`run_entry_line` (T68f, As built T68f); migration 000239 adds a
 difference's acceptance (`accepted`, `accepted_by`, `accepted_at`,
 `reason`, `version`; its one transition, open -> accepted while the run
 is computed, kept by the trigger `run_difference_transition`) and the

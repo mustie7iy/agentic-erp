@@ -1835,7 +1835,7 @@
        {
         "s": "D",
         "t": "The year close and its manual checklist: close.year_tasks in the configuration (year checks only); closing.year_close, year_close_ledger and year_close_task (RLS, rules, schema tests); POST/GET/list /v1/year-closes and the task operations (PATCH, :complete, :reopen) sharing the period close's code; YearCloseChanged; audit; walkthrough: year tasks added through a change request, the year close opened, a manual task assigned and completed, a second year close refused",
-        "r": "ADR-0060 §8, As built · T64m4 · db/migrations/000233 · internal/closing yearclose.go, kind.go · walkthrough year_end_close",
+        "r": "ADR-0060 §8, As built · T64m4 · db/migrations/000237 · internal/closing yearclose.go, kind.go · walkthrough year_end_close",
         "src": "adr:ADR-0060",
         "c": []
        },
@@ -1961,14 +1961,14 @@
        {
         "s": "D",
         "t": "Intercompany matching and eliminations: run_entry, run_entry_line (balanced per entry), run_difference; matching per elimination and pair of members in group currency with its tolerance (matched, within_tolerance, open, outside_group, no_trading_partner) and the intercompany entries; GET .../differences and GET .../entries with names and totals; walkthrough: the revenue and expense pair matches, the receivable and payable pair is open (1.35 against 1.40), the consolidated statements show no intercompany balance",
-        "r": "db/migrations/000233 · consolidation.run_difference · consolidation.run_entry · consolidation.run_entry_line · listIntercompanyDifferences · listConsolidationEntries · ADR-0059 As built · T68f",
+        "r": "db/migrations/000238 · consolidation.run_difference · consolidation.run_entry · consolidation.run_entry_line · listIntercompanyDifferences · listConsolidationEntries · ADR-0059 As built · T68f",
         "src": "adr:ADR-0059",
         "c": []
        },
        {
         "s": "D",
         "t": "Accepting differences and finalizing runs: :accept (consolidation.difference.accept, people only, IntercompanyDifferenceAccepted); :finalize (consolidation.run.finalize, people only) refused while a difference is open or a member's period is not locked, superseding the previous final under a lock of the period's runs, refused and stale once a member's period version moved since the figures were read; consolidation.People; walkthrough: the difference accepted and finalizing refused with consolidation.period_not_locked in step_consolidation, and at the end of step_close, after the sign-off, Acme Corp US's period locked, the group run again and finalized",
-        "r": "db/migrations/000234 · acceptIntercompanyDifference · finalizeConsolidationRun · consolidation.People · IntercompanyDifferenceAccepted · ADR-0059 As built · T68g",
+        "r": "db/migrations/000239 · acceptIntercompanyDifference · finalizeConsolidationRun · consolidation.People · IntercompanyDifferenceAccepted · ADR-0059 As built · T68g",
         "src": "adr:ADR-0059",
         "c": []
        },
@@ -1982,7 +1982,7 @@
        {
         "s": "D",
         "t": "Revaluation of intercompany items by trading partner: a foreign currency revaluation's lines of open items and balances that name a trading partner carry it (grouped by account, currency, direction and trading partner), so revalued intercompany balances match by trading partner instead of showing as no_trading_partner",
-        "r": "db/migrations/000234–000236 · ledger.revaluation_item.trading_partner_id · RevaluationItem and RevaluationTotal trading_partner · TestRevaluationByTradingPartner · walkthrough consolidation_revaluation · ADR-0059 As built · ADR-0042 As built · T68b2",
+        "r": "db/migrations/000240–000242 · ledger.revaluation_item.trading_partner_id · RevaluationItem and RevaluationTotal trading_partner · TestRevaluationByTradingPartner · walkthrough consolidation_revaluation · ADR-0059 As built · ADR-0042 As built · T68b2",
         "src": "review:T68b",
         "c": []
        },

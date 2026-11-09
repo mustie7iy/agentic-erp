@@ -9,7 +9,7 @@ import (
 )
 
 // An import restores rows in any lifecycle state (ADR-0029, migrations
-// 000230 and 000234, an accepted intercompany difference): a row past its first state, or one written while its parent
+// 000230 and 000239, an accepted intercompany difference): a row past its first state, or one written while its parent
 // was in a state it has left, is inserted only while app.importing names
 // the row's own tenant; every other insert is refused as before. A
 // carry-forward run, never deleted, goes with its tenant's erasure alone.
@@ -42,7 +42,7 @@ const (
 )
 
 // importCases are the rows migration 000230 lets an import restore, and
-// 000233 for the year close's tables.
+// 000237 for the year close's tables.
 func importCases() []importCase {
 	yearClose := uuid.MustParse("0192a000-0000-7000-8000-00000000c106")
 	closeID, runID, parked := uuid.MustParse("0192a000-0000-7000-8000-00000000c105"), uuid.MustParse("0192a000-0000-7000-8000-00000000c0a1"),

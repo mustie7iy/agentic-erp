@@ -10,7 +10,7 @@ import (
 )
 
 // TestConsolidationPermissions (T68a, T68d, T68g; migrations 000223,
-// 000224, 000234): the consolidation read, run, acceptance and
+// 000224, 000239): the consolidation read, run, acceptance and
 // finalization permissions are seeded and are no approval permissions.
 func TestConsolidationPermissions(t *testing.T) {
 	need(t)
@@ -244,7 +244,7 @@ func TestConsolidationRunIsTheTenants(t *testing.T) {
 	failsWith(t, err, "is <NULL>, not running")
 }
 
-// TestConsolidationEliminationRules (T68f, migration 000233; ADR-0059 §5,
+// TestConsolidationEliminationRules (T68f, migration 000238; ADR-0059 §5,
 // §8): a run's differences, entries and entry lines are written while it
 // runs and neither changed nor removed; a pair has both sides, their sum
 // and the tolerance, and its status is the difference's against the
@@ -436,7 +436,7 @@ func TestConsolidationEliminationRules(t *testing.T) {
 	}
 }
 
-// TestConsolidationDifferenceAcceptance (T68g, migration 000234; ADR-0059
+// TestConsolidationDifferenceAcceptance (T68g, migration 000239; ADR-0059
 // §5, §8): a difference moves only open -> accepted, while its run is
 // computed, its version one up and its figures kept, never written
 // accepted; who accepted it, when and why are set exactly when it is

@@ -6,6 +6,6 @@
 -- showing it as no_trading_partner. Tenancy is another context, so no
 -- foreign key (02 §2.1), as journal_line.trading_partner_id (000219);
 -- the items are copied from lines the ledger checked. Nullable: items
--- recorded before carry none, as their entries' lines did. 000235 and
--- 000236 key a run's balances by it.
+-- recorded before carry none, as their entries' lines did. 000241 and
+-- 000242 key a run's balances by it.
 ALTER TABLE ledger.revaluation_item ADD COLUMN trading_partner_id uuid;

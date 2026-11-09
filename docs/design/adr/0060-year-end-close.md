@@ -912,7 +912,7 @@ for the product owner to overrule:
    stale, 0L's result is CAD 100.00 more, the first runs read superseded
    by them, and the list of current runs is the new ones.
 
-**T64m4, the year close and its manual checklist** (migration 000233).
+**T64m4, the year close and its manual checklist** (migration 000237).
 Built as §8 says; the choices taken by default (ADR-0053 d), for the
 product owner to overrule:
 1. *The template.* `close.year_tasks` has `close.tasks`' shape and rules,
@@ -957,7 +957,7 @@ product owner to overrule:
    their messages and constraint names, which for the period close's
    tables are unchanged; an import (`app.importing`, ADR-0029) restores a
    signed-off year close and its done tasks as it does a period close's
-   (review round 1: 000233 first replaced them from their 000194/000196
+   (review round 1: 000237 first replaced them from their 000194/000196
    text, dropping 000230's exemption).
 6. *Problem codes.* Each create operation gives the shared `openClose` its
    own checklist and insert (`opening`), so `api` `TestProblemCodes`

@@ -153,7 +153,7 @@ posting.
   partner, and both lines of a total carry it, so a consolidation run
   matches a revalued intercompany balance by trading partner. Items
   naming none are valued and posted as before; `revaluation_item` records
-  each item's (`trading_partner_id`, migrations 000234–000236), and the
+  each item's (`trading_partner_id`, migrations 000240–000242), and the
   preview and runs return it as `trading_partner`.
 
 ## Out of scope

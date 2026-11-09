@@ -63,7 +63,7 @@ func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uu
 // pastFirstStates gives the tenant of e rows past the state the database
 // inserts them in, each reached through its transitions: a period close
 // signed off with its task done, a year close signed off with its task
-// done (000233), a posted parked entry with its lines, a
+// done (000237), a posted parked entry with its lines, a
 // final consolidation run with its members and a balance, and a
 // carry-forward run superseded by a second (ADR-0029, migration 000230).
 func pastFirstStates(t *testing.T, e fixture.Env) {

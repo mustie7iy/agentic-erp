@@ -175,7 +175,7 @@ func TestPeriodCloseRules(t *testing.T) {
 	}
 }
 
-// Year closes (T64m4, migration 000233): one close per company and fiscal
+// Year closes (T64m4, migration 000237): one close per company and fiscal
 // year, starting open, its company, year and template version fixed; the
 // ledgers it covers written once; its tasks under the period close's
 // rules (the shared trigger functions name the year close's tables). Nothing

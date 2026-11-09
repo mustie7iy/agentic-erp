@@ -1543,7 +1543,7 @@ owner to overrule:
 **T68f (intercompany matching and eliminations).** Built as §5 and §8
 say, in `internal/consolidation/eliminate.go` (the matching and the
 entries, `EliminateConsolidationRun`) and `differences.go` (the reads),
-migration 000233: `run_difference`, `run_entry` and `run_entry_line`,
+migration 000238: `run_difference`, `run_entry` and `run_entry_line`,
 written while the run runs and never changed or removed (no update
 grant, the insert-while-running trigger), each entry's lines summing to
 zero at commit with two lines or more (`run_entry_balanced`, a deferred
@@ -1629,8 +1629,8 @@ A foreign currency revaluation (ADR-0042) of a company's intercompany
 items posts their differences with their trading partners, so a
 consolidation run reads them on the trading partner of the item they
 adjust, not as `no_trading_partner`. Built in `internal/ledger`
-(`revaluation.go`, `revaluation_run.go`), migrations 000234
-(`revaluation_item.trading_partner_id`), 000235 and 000236 (a run's
+(`revaluation.go`, `revaluation_run.go`), migrations 000240
+(`revaluation_item.trading_partner_id`), 000241 and 000242 (a run's
 balances unique per account, currency and trading partner, nulls not
 distinct, replacing `revaluation_item_balance`). Decided by default, for
 the product owner to overrule:
@@ -1664,7 +1664,7 @@ the product owner to overrule:
   up first.
 
 **T68g (accepting differences and finalizing runs).** Built as §5, §8 and
-§10 say, in `internal/consolidation/finalize.go`, migration 000234: a
+§10 say, in `internal/consolidation/finalize.go`, migration 000239: a
 difference's `accepted` status with `accepted_by`, `accepted_at`,
 `reason` and `version` (the columns T68f left), its one transition open
 -> accepted kept by the trigger `run_difference_transition` with its

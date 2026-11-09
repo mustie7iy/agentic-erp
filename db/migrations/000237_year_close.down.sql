@@ -1,4 +1,4 @@
--- Reverses 000233: drops the year close's tables and restores the trigger
+-- Reverses 000237: drops the year close's tables and restores the trigger
 -- functions as 000230 left them.
 DROP TABLE closing.year_close_task, closing.year_close_ledger, closing.year_close;
 
