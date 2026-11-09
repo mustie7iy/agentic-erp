@@ -409,17 +409,19 @@ func (g *gen) ledgerCurrency(company, account string) string {
 // canadianAccount gives a Canadian house bank, which has no IBAN, its
 // account by institution, transit and account number (ADR-0038, T72d):
 // the routing from the bank key in the Canadian Payments Association's
-// electronic form, 0 + institution + transit (cabank.MemberID). A bank key
-// in another form is left out with a note, and validation then refuses
-// the bank until a reviewer enters the routing.
+// electronic form, 0 + institution + transit (cabank.MemberID), or in the
+// paper form transit-institution (cabank.SplitBankKey; po:2026-11-09, A6).
+// A bank key in another form is left out with a note, and validation then
+// refuses the bank until a reviewer enters the routing.
 func (g *gen) canadianAccount(path string, b sap.T012K, hb *config.HouseBank) {
 	if b.IBAN != "" || b.BANKS != "CA" {
 		return
 	}
 	hb.AccountNumber = b.BANKN
-	institution, transit, ok := cabank.SplitMemberID(b.BANKL)
+	institution, transit, ok := cabank.SplitBankKey(b.BANKL)
 	if !ok {
-		g.note(path, fmt.Sprintf("bank key %q is not a Canadian routing number as 0 + institution (3 digits) + transit (5 digits); enter institution_number and transit_number", b.BANKL))
+		g.note(path, fmt.Sprintf("bank key %q is not a Canadian routing number as 0 + institution (3 digits) + transit (5 digits), or transit-institution "+
+			"(12345-001); enter institution_number and transit_number", b.BANKL))
 		return
 	}
 	hb.InstitutionNumber, hb.TransitNumber = institution, transit

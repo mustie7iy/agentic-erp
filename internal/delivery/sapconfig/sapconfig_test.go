@@ -334,8 +334,9 @@ func TestDownPaymentFromT074(t *testing.T) {
 
 // TestCanadianHouseBank: company 3000's house bank has no IBAN; its
 // account is taken by the routing in its bank key and its account number
-// (T72d), and a bank key in another form is noted and left for a reviewer,
-// whom validation then stops.
+// (T72d), in the electronic form or the paper form transit-institution
+// (po:2026-11-09, A6); a bank key in another form is noted and left for a
+// reviewer, whom validation then stops.
 func TestCanadianHouseBank(t *testing.T) {
 	c, _ := Generate(sap.GenerateMock(42, "2026"), zoned())
 	want := config.HouseBank{Name: "MAIN", BIC: "ROYCCAT2", InstitutionNumber: "003", TransitNumber: "00001", AccountNumber: "5012345"}
@@ -345,7 +346,19 @@ func TestCanadianHouseBank(t *testing.T) {
 	if fs := config.Validate(reviewed(c), currency.Seeded()); config.HasErrors(fs) {
 		t.Fatalf("draft with a Canadian house bank does not validate: %v", fs)
 	}
-	for name, bankKey := range map[string]string{"transit first": "00001-003", "without its zero": "00300001", "empty": ""} {
+	t.Run("the paper form", func(t *testing.T) {
+		e := sap.GenerateMock(42, "2026")
+		for i := range e.T012K {
+			if e.T012K[i].BUKRS == "3000" && e.T012K[i].HBKID == "MAIN" {
+				e.T012K[i].BANKL = "00001-003"
+			}
+		}
+		c, _ := Generate(e, zoned())
+		if got := c.Company("3000").HouseBank; got != want {
+			t.Errorf("house bank of 3000: got %+v, want %+v", got, want)
+		}
+	})
+	for name, bankKey := range map[string]string{"institution first": "003-00001", "without its zero": "00300001", "empty": ""} {
 		t.Run(name, func(t *testing.T) {
 			e := sap.GenerateMock(42, "2026")
 			for i := range e.T012K {

@@ -463,7 +463,13 @@ under that amendment (ADR-0053 §d):
   (MICR) form `TTTTT-III` (`12345-001`) and sometimes eight digits without
   the leading zero; the hyphenated form converts without guessing
   (`12345-001` is `000112345`) and is to be accepted, ambiguous forms still
-  refused (a tracker leaf; docs/migration.md).
+  refused (docs/migration.md). **As built (sapvend):**
+  `cabank.SplitBankKey` reads either form, the paper one only as five
+  digits, a hyphen and three (spaces around it trimmed), so that eight
+  bare digits, the institution first or a space for the hyphen stay
+  refused; the vendor load (LFBK), the quality gate and the configuration
+  draft's house banks (T012-BANKL) all read through it, and the mock's
+  Prairie Freight holds the paper form.
 - **Quality gate.** A vendor's Canadian account (its first LFBK row, the
   one loaded) whose bank key is not that form, or whose account number is
   not 7 to 12 digits, is an error of the gate (table LFBK), so the run

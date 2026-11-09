@@ -105,9 +105,11 @@ type LFBK struct {
 	BANKN string `json:"BANKN"`
 	// BANKL is the bank key. A Canadian account (BANKS "CA") is loaded
 	// only with its bank key in the Canadian Payments Association's
-	// electronic routing form, 0 + institution + transit (ADR-0038, T72d);
-	// which form a given SAP system keeps it in is its customizing, still
-	// to be confirmed for the pilot's.
+	// electronic routing form, 0 + institution + transit (ADR-0038, T72d),
+	// the usual form, or in the paper form transit-institution (12345-001),
+	// which legacy data commonly holds (the SAP specialist, po:2026-11-09,
+	// A6 [M]); which forms the pilot's system holds is to be profiled
+	// before the load.
 	BANKL string `json:"BANKL,omitempty"`
 }
 

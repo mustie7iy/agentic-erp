@@ -895,9 +895,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Canadian bank keys in the paper form TTTTT-III accepted (SAP specialist, po:2026-11-09, A6 [M], to verify on the pilot system): legacy SAP data holds the MICR form, transit and institution with a hyphen (12345-001), beside the electronic routing form; the extract converts it without guessing (12345-001 becomes 000112345) for vendor accounts (LFBK) and house banks (T012-BANKL), and ambiguous forms such as eight digits without the leading zero stay refused by the quality gate; LFBK-BANKL and BNKA-BANKL of bank country CA profiled before the load",
-        "r": "internal/sap · cabank.SplitMemberID · integration quality gate (LFBK) · delivery/sapconfig (house banks) · ADR-0038 As built (T72d, answered) · docs/migration.md",
+        "r": "internal/platform/cabank SplitBankKey (the paper form only as five digits, a hyphen and three) · integration supplierBank, quality gate (LFBK) · delivery/sapconfig canadianAccount (house banks) · mock Prairie Freight in the paper form · TestSplitBankKey, TestCanadianHouseBank · ADR-0038 As built (T72d, built in sapvend) · docs/migration.md (profile LFBK-BANKL and BNKA-BANKL before the load)",
         "src": "po:2026-11-09",
         "c": []
        },

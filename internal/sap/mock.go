@@ -233,7 +233,8 @@ const transfer = "T"
 
 // canadianVendors adds company 3000's vendors: Canadian ones with a
 // Canadian bank account (BANKS CA; BANKL the routing as 0 + institution +
-// transit, cabank.MemberID; BANKN the account number), and canadianShared,
+// transit, cabank.MemberID, Prairie Freight's in the paper form
+// transit-institution; BANKN the account number), and canadianShared,
 // each paid by bank transfer (ZWELS). It draws nothing from the generator.
 func (g *mockGen) canadianVendors(terms []string) {
 	for i, name := range canadianVendorNames {
@@ -242,7 +243,11 @@ func (g *mockGen) canadianVendors(terms []string) {
 		g.addressed(&v)
 		g.e.LFA1 = append(g.e.LFA1, v)
 		institution, transit := []string{"001", "002", "003", "004", "006", "010"}[i], fmt.Sprintf("%05d", 10+i*111)
-		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: "0" + institution + transit, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
+		key := "0" + institution + transit
+		if i == 1 {
+			key = transit + "-" + institution // the paper form legacy data holds (po:2026-11-09, A6)
+		}
+		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: key, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
 		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: terms[i%len(terms)], ZWELS: transfer})
 	}
 	for _, id := range canadianShared {

@@ -618,8 +618,12 @@ others record a confirmation.
   the paper (MICR) form transit-institution with a hyphen (`12345-001`) and
   sometimes eight digits without the leading zero (`00112345`). The
   hyphenated form converts without guessing (`12345-001` is `000112345`)
-  and is to be accepted (tracker leaf); ambiguous forms stay refused.
-  Profile LFBK-BANKL and BNKA-BANKL for BANKS `CA` before the load. The
+  and is accepted (sapvend) for vendor accounts and house banks alike;
+  ambiguous forms stay refused by the quality gate (vendors) or noted for
+  the reviewers (house banks). Before the load, profile LFBK-BANKL and
+  BNKA-BANKL for BANKS `CA` on the pilot system to see which forms it holds,
+  for example by the pattern of each value (nine digits with a leading
+  zero, five digits-hyphen-three, other) and their counts. The
   fields are confirmed (A5, [H]): T012K-BANKN the account number (an IBAN,
   if used, in TIBAN), T012-BANKS the bank country, T012-BANKL the bank key.
 - Each house bank account (T012K) is generated in its currency, T012K-WAERS:
