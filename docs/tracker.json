@@ -5650,6 +5650,20 @@
           "c": []
          },
          {
+          "s": "T",
+          "t": "An export reads each table in primary-key order (offboarding.go reads with no ORDER BY), so a table whose rows reference rows of the same table, such as chained carry-forward runs, imports in an order its references allow instead of failing every pass by read order",
+          "r": "internal/offboarding/offboarding.go export · ADR-0029 (found reviewing impfix)",
+          "src": "review:batch60",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "Erasing a tenant that holds tax items: ledger.check_tax_item_fixed refuses every delete and ignores app.erasing, so platform.erase_tenant fails for any such tenant (read from the trigger source, not yet reproduced); a delete is allowed while app.erasing names the item's tenant, as platform.forbid_mutation allows, with a test erasing a tenant with tax items",
+          "r": "ledger.check_tax_item_fixed · platform.erase_tenant · ADR-0021 (found in impfix)",
+          "src": "review:batch60",
+          "c": []
+         },
+         {
           "s": "D",
           "t": "Cross-cell verification: each cell answers a tenant's fingerprint (rows per table, audit chain head); the global control plane compares the tenant's cell with a destination and names every difference before a move switches the entry",
           "r": "offboarding.TakeFingerprint · globalplane.Verify · ADR-0030",
