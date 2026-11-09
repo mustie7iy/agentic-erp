@@ -1202,6 +1202,52 @@ pending the SAP specialist, docs/migration.md):
   `$metadata`, which is not recorded, so it is split off as T56h5 rather
   than guessed.
 
+As built in T56h4 (no migration; ACDOCA's fields are §10's, pending the
+SAP specialist, docs/migration.md):
+- **Extract**: `internal/sap` ACDOCA carries RCNTR, PRCTR and SEGMENT. The
+  mock's company 3000 books payroll on cost center 3100, its purchases
+  (all before 3120 moves on 1 July) on 3120, each with its profit center
+  and segment, and sales revenue on profit center P3100 alone. The OData
+  mapping does not read them (their properties are not recorded; T56h5).
+- **Which center a line names** (decided by default: the extract reads no
+  controlling area on a line, and §10 maps SAP's area onto the tenant):
+  the cost center of the line's company code (CSKS-BUKRS) and the profit
+  center assigned to it (CEPC_BUKRS) of that code, a company code taken to
+  belong to one area as T56h1 already takes it; one in two areas of the
+  company code is refused by the gate rather than chosen.
+- **Through the posting** (§5): `journalPosting` gives each line it posts
+  the run's loaded centers (`integration.external_ref`), and the
+  ledger's derivation and validation check them as any posting's, so a
+  profit center other than the cost center's on the posting date, a
+  center not valid or locked then, or a cost center on an account taking
+  none refuses the document and fails the run. A center the load did not
+  load (refused) refuses the document by name rather than posting it
+  without. That is every document in documents mode; in balances mode
+  (decided by default: §10 needs no centers for the opening entry, which
+  carries balances, but the documents posted as entries of their own, an
+  open down payment's and an open foreign item's, are SAP's lines, which
+  keep their assignment) only those, whose lines the gate checks too.
+- **Quality gate** (the leaf's two issues): a line's cost center not among
+  its company code's in the extract, a profit center not assigned to it,
+  or a center in two of its areas (not migrated); a segment that is not
+  the profit center's, or a segment on a line without a profit center
+  (decided by default: §5 takes a line's segment from its profit center,
+  and SAP derives SEGMENT from PRCTR, so the gate does not derive the
+  profit center from the cost center to check it).
+- **Reconciliation** (documents mode, where either side has any; a
+  balances run's opening entry carries its profit and loss without
+  centers, so its totals could not agree): per
+  company, SAP's lines on profit and loss accounts summed by RCNTR, PRCTR
+  and SEGMENT in company code currency against the leading ledger's
+  actuals of the loaded centers over the fiscal year, read through
+  `ledger.AssignmentBalances` (`CostCenterActuals`, `ProfitCenterActuals`:
+  the center reports' reads, §7), a segment's the sum of its profit
+  centers' (the profit center report's segment rows). Totals per center
+  over all accounts, not per center and account, as the leaf asks: the
+  trial balance already compares each account. Three checks and their
+  differences (`cost center total`, `profit center total`, `segment
+  total`).
+
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not
 the configuration document: they change monthly in a living business,

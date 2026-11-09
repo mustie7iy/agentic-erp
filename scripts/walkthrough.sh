@@ -809,7 +809,8 @@ step_migrate() {
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
-    'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences'; do
+    'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
+    'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences'; do
     grep "$check" "$WORK/migrate.out" | grep -q 'PASS$' || fail "the reconciliation check '$check' did not pass"
   done
   delta_migration "$connector"
@@ -858,6 +859,7 @@ step_migrate() {
     expect "the migrated $kind's status" "$(field .status)" posted
   done
   migrated_centers
+  migrated_line_centers
   migrated_down_payment
   migrated_foreign_item
   migrated_grir
@@ -903,6 +905,39 @@ migrated_centers() {
     listCenterChanges -p "cost_center_id=$cc3120"
   expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
   migrated_groups "$cc3120" "$pc3200"
+  as ada
+}
+
+# migrated_line_centers shows SAP's account assignment on the migrated
+# journal lines (ADR-0050 §10, T56h4): the mock books payroll on cost
+# center 3100 and purchases on 3120, each with its profit center and
+# segment (ACDOCA RCNTR, PRCTR, SEGMENT), and the documents loaded with
+# them, checked by the posting. The reconciliation compared the totals
+# per cost center, profit center and segment with the center reports,
+# and the cost center report's total of 3100 is SAP's, to the cent.
+migrated_line_centers() {
+  say "SAP's journal lines carry their cost center, profit center and segment (ACDOCA RCNTR, PRCTR, SEGMENT; T56h4):"
+  jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and (.RCNTR // "") != "")] | group_by(.RCNTR, .RACCT)[]
+    | "     ACDOCA cost center \(.[0].RCNTR), profit center \(.[0].PRCTR), segment \(.[0].SEGMENT): account \(.[0].RACCT), \(length) lines"' \
+    "$WORK/data/extract.json"
+  say "The documents loaded with them, each checked by the posting as any entry is (ADR-0050 §5):"
+  as carla
+  local cc3100 cc3120 sap platform
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE"
+  cc3100=$(field '.items[] | select(.code == "3100") | .id')
+  cc3120=$(field '.items[] | select(.code == "3120") | .id')
+  api 200 '[.items[].lines[] | select(.cost_center_code == "3120")] | first
+    | "entry line \(.line_no): \(.amount.amount) \(.amount.currency), cost center \(.cost_center_code), profit center \(.profit_center_code), segment \(.segment_code)"' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$cc3120" -p page_size=10
+  expect "a migrated line's centers" "$(field '[.items[].lines[] | select(.cost_center_code == "3120")] | first | "\(.profit_center_code) \(.segment_code)"')" \
+    "P3100 SEG-CAN"
+  say "The reconciliation compared the totals per cost center, profit center and segment with the center reports:"
+  grep -E 'center totals|Segment totals' "$WORK/migrate.out" | sed 's/^/     /'
+  sap=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .RCNTR == "3100") | .HSL | tonumber * 100 | round] | add' "$WORK/data/extract.json")
+  api 200 '"cost center report, 3100: \([.items[] | (.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)] | add) \(.items[0].debit_lc.currency) over \(.items | length) rows"' \
+    listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$cc3100" -p page_size=100
+  platform=$(field '[.items[] | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add')
+  expect "cost center 3100's total in cents, SAP's against the report's" "$platform" "$sap"
   as ada
 }
 

@@ -2783,7 +2783,7 @@
        },
        {
         "s": "T",
-        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
+        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
         "r": "T56h5",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
@@ -2798,9 +2798,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP migration: assignments on migrated journal lines and the reconciliation of center totals (split from T56h): ACDOCA RCNTR/PRCTR/SEGMENT on the documents a run loads (documents mode), checked by the posting's derivation and validation; quality-gate issues (a center not migrated, a segment that is not the profit center's); reconciliation of migrated totals per cost center, profit center and segment against the center reports; mock generator extended",
-        "r": "T56h4",
+        "r": "internal/sap types.go, odata.go (not mapped), mock.go (lineCenters) · internal/integration linecenters.go, centertotals.go, load.go (journalPosting), reconcile.go · internal/app app.go (ledger.AssignmentBalances) · api/openapi.yaml (MigrationDiff key) · docs/migration.md · walkthrough step 3 (migrated_line_centers) · ADR-0050 §10 as built · T56h · T56h4",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

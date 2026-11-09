@@ -758,9 +758,10 @@ const openEnded = "99991231"
 // SALES); the pilot's KOSAR keys are pending the SAP specialist
 // (docs/migration.md), and the configuration needs a category for each.
 // Each center names its leaf of the standard hierarchy (KHINR) among the
-// groups, and the company's accounts are cost elements (T56h2). It draws
-// nothing from the generator, so the rest of the extract is the same as
-// without it.
+// groups, and the company's accounts are cost elements (T56h2). Its
+// journal lines carry SAP's account assignment (lineCenters, T56h4). It
+// draws nothing from the generator, so the rest of the extract is the same
+// as without it.
 func (g *mockGen) centers(cc string) {
 	g.e.FAGL_SEGM = append(g.e.FAGL_SEGM, FAGLSegm{SEGMENT: "SEG-CAN"})
 	g.e.FAGL_SEGMT = append(g.e.FAGL_SEGMT, FAGLSegmt{SEGMENT: "SEG-CAN", LANGU: "E", NAME: "Canada"})
@@ -793,6 +794,32 @@ func (g *mockGen) centers(cc string) {
 		CSKT{KOKRS: mockArea, KOSTL: "3300", DATBI: openEnded, SPRAS: "E", KTEXT: "Sales Ontario"})
 	g.groups()
 	g.costElements(cc)
+	g.lineCenters(cc)
+}
+
+// lineCenters gives the company's journal lines their cost center, profit
+// center and segment as SAP's Universal Journal carries them (ACDOCA
+// RCNTR, PRCTR, SEGMENT; T56h4): payroll on cost center 3100 (Finance),
+// the purchases on the other expense accounts on 3120 (Facilities), each
+// with the cost center's profit center and that one's segment, and sales
+// revenue on profit center P3100 without a cost center. The company buys
+// only before 1 July, when 3120 moves to P3200 (purchaseOrder, and the
+// documents after it are June's), so its purchases name P3100.
+func (g *mockGen) lineCenters(cc string) {
+	for i := range g.e.ACDOCA {
+		l := &g.e.ACDOCA[i]
+		if l.RBUKRS != cc {
+			continue
+		}
+		switch {
+		case l.RACCT == "0000610000":
+			l.RCNTR, l.PRCTR, l.SEGMENT = "3100", "P3100", "SEG-CAN"
+		case slices.Contains(expenseAccounts, l.RACCT):
+			l.RCNTR, l.PRCTR, l.SEGMENT = "3120", "P3100", "SEG-CAN"
+		case l.RACCT == "0000400000":
+			l.PRCTR, l.SEGMENT = "P3100", "SEG-CAN"
+		}
+	}
 }
 
 // mockSet is a center group of the mock (SETHEADER) with its text, its

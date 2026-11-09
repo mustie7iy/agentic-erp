@@ -255,3 +255,29 @@ func TestMockCenters(t *testing.T) {
 		t.Errorf("the day before 1 March 2026: got %s, want 20260228", dayBefore("20260301"))
 	}
 }
+
+// TestMockLineCenters: company 3000's payroll lines name cost center 3100,
+// its purchases 3120, both before 3120 moves on 1 July, each with its
+// profit center and segment, and its sales revenue profit center P3100
+// alone; the other companies' lines and 3000's balance sheet lines name
+// none (T56h4).
+func TestMockLineCenters(t *testing.T) {
+	e := GenerateMock(42, "2026")
+	got := map[string]map[string]bool{}
+	for _, l := range e.ACDOCA {
+		k := l.RBUKRS + " " + l.RACCT
+		if got[k] == nil {
+			got[k] = map[string]bool{}
+		}
+		got[k][l.RCNTR+"/"+l.PRCTR+"/"+l.SEGMENT] = true
+		if l.RCNTR == "3120" && l.BUDAT >= "20260701" {
+			t.Errorf("line %s/%s on 3120 dated %s: want every purchase before 1 July", l.BELNR, l.DOCLN, l.BUDAT)
+		}
+	}
+	for k, want := range map[string]string{"3000 0000610000": "3100/P3100/SEG-CAN", "3000 0000520000": "3120/P3100/SEG-CAN",
+		"3000 0000400000": "/P3100/SEG-CAN", "3000 0000100000": "//", "3000 0000211000": "//", "1000 0000610000": "//", "2000 0000520000": "//"} {
+		if fmt.Sprint(got[k]) != fmt.Sprintf("map[%s:true]", want) {
+			t.Errorf("centers of the lines on %s: got %v, want %s alone", k, got[k], want)
+		}
+	}
+}
