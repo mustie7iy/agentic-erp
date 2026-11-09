@@ -43093,6 +43093,234 @@ func (s *CheckCloseTaskUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes CheckYearCloseTaskBadRequest as json.
+func (s *CheckYearCloseTaskBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CheckYearCloseTaskBadRequest from json.
+func (s *CheckYearCloseTaskBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CheckYearCloseTaskBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CheckYearCloseTaskBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CheckYearCloseTaskBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CheckYearCloseTaskBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CheckYearCloseTaskForbidden as json.
+func (s *CheckYearCloseTaskForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CheckYearCloseTaskForbidden from json.
+func (s *CheckYearCloseTaskForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CheckYearCloseTaskForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CheckYearCloseTaskForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CheckYearCloseTaskForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CheckYearCloseTaskForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CheckYearCloseTaskNotFound as json.
+func (s *CheckYearCloseTaskNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CheckYearCloseTaskNotFound from json.
+func (s *CheckYearCloseTaskNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CheckYearCloseTaskNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CheckYearCloseTaskNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CheckYearCloseTaskNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CheckYearCloseTaskNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CheckYearCloseTaskPreconditionFailed as json.
+func (s *CheckYearCloseTaskPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CheckYearCloseTaskPreconditionFailed from json.
+func (s *CheckYearCloseTaskPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CheckYearCloseTaskPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CheckYearCloseTaskPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CheckYearCloseTaskPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CheckYearCloseTaskPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CheckYearCloseTaskPreconditionRequired as json.
+func (s *CheckYearCloseTaskPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CheckYearCloseTaskPreconditionRequired from json.
+func (s *CheckYearCloseTaskPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CheckYearCloseTaskPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CheckYearCloseTaskPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CheckYearCloseTaskPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CheckYearCloseTaskPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CheckYearCloseTaskUnprocessableEntity as json.
+func (s *CheckYearCloseTaskUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CheckYearCloseTaskUnprocessableEntity from json.
+func (s *CheckYearCloseTaskUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CheckYearCloseTaskUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CheckYearCloseTaskUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CheckYearCloseTaskUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CheckYearCloseTaskUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes ClearSupplierInvoiceDownPaymentsBadRequest as json.
 func (s *ClearSupplierInvoiceDownPaymentsBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -44903,9 +45131,37 @@ func (s *CloseCheckLedger) encodeFields(e *jx.Encoder) {
 			s.LaterDepreciationPeriod.Encode(e)
 		}
 	}
+	{
+		if s.FiscalPeriod.Set {
+			e.FieldStart("fiscal_period")
+			s.FiscalPeriod.Encode(e)
+		}
+	}
+	{
+		if s.CarryForwardRunID.Set {
+			e.FieldStart("carry_forward_run_id")
+			s.CarryForwardRunID.Encode(e)
+		}
+	}
+	{
+		if s.Stale.Set {
+			e.FieldStart("stale")
+			s.Stale.Encode(e)
+		}
+	}
+	{
+		if s.OpenedSince != nil {
+			e.FieldStart("opened_since")
+			e.ArrStart()
+			for _, elem := range s.OpenedSince {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfCloseCheckLedger = [11]string{
+var jsonFieldsNameOfCloseCheckLedger = [15]string{
 	0:  "ledger_id",
 	1:  "ledger_code",
 	2:  "ledger_name",
@@ -44917,6 +45173,10 @@ var jsonFieldsNameOfCloseCheckLedger = [11]string{
 	8:  "later_depreciation_run_id",
 	9:  "later_depreciation_fiscal_year",
 	10: "later_depreciation_period",
+	11: "fiscal_period",
+	12: "carry_forward_run_id",
+	13: "stale",
+	14: "opened_since",
 }
 
 // Decode decodes CloseCheckLedger from json.
@@ -45047,6 +45307,53 @@ func (s *CloseCheckLedger) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"later_depreciation_period\"")
+			}
+		case "fiscal_period":
+			if err := func() error {
+				s.FiscalPeriod.Reset()
+				if err := s.FiscalPeriod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_period\"")
+			}
+		case "carry_forward_run_id":
+			if err := func() error {
+				s.CarryForwardRunID.Reset()
+				if err := s.CarryForwardRunID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"carry_forward_run_id\"")
+			}
+		case "stale":
+			if err := func() error {
+				s.Stale.Reset()
+				if err := s.Stale.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stale\"")
+			}
+		case "opened_since":
+			if err := func() error {
+				s.OpenedSince = make([]CarryForwardOpenedPeriod, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CarryForwardOpenedPeriod
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.OpenedSince = append(s.OpenedSince, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opened_since\"")
 			}
 		default:
 			return d.Skip()
@@ -45398,6 +45705,12 @@ func (s *CloseCheckResult) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.LedgerPeriodsCount.Set {
+			e.FieldStart("ledger_periods_count")
+			s.LedgerPeriodsCount.Encode(e)
+		}
+	}
+	{
 		if s.UnexplainedRowsCount.Set {
 			e.FieldStart("unexplained_rows_count")
 			s.UnexplainedRowsCount.Encode(e)
@@ -45461,7 +45774,7 @@ func (s *CloseCheckResult) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCloseCheckResult = [18]string{
+var jsonFieldsNameOfCloseCheckResult = [19]string{
 	0:  "check",
 	1:  "passed",
 	2:  "checked_at",
@@ -45471,15 +45784,16 @@ var jsonFieldsNameOfCloseCheckResult = [18]string{
 	6:  "parked_entries_count",
 	7:  "parked_entries",
 	8:  "ledgers",
-	9:  "unexplained_rows_count",
-	10: "unexplained_rows",
-	11: "warnings_count",
-	12: "warnings",
-	13: "previous_fiscal_year",
-	14: "previous_fiscal_period",
-	15: "previous_close_id",
-	16: "accruals_count",
-	17: "accruals",
+	9:  "ledger_periods_count",
+	10: "unexplained_rows_count",
+	11: "unexplained_rows",
+	12: "warnings_count",
+	13: "warnings",
+	14: "previous_fiscal_year",
+	15: "previous_fiscal_period",
+	16: "previous_close_id",
+	17: "accruals_count",
+	18: "accruals",
 }
 
 // Decode decodes CloseCheckResult from json.
@@ -45607,6 +45921,16 @@ func (s *CloseCheckResult) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"ledgers\"")
 			}
+		case "ledger_periods_count":
+			if err := func() error {
+				s.LedgerPeriodsCount.Reset()
+				if err := s.LedgerPeriodsCount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_periods_count\"")
+			}
 		case "unexplained_rows_count":
 			if err := func() error {
 				s.UnexplainedRowsCount.Reset()
@@ -45635,7 +45959,7 @@ func (s *CloseCheckResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unexplained_rows\"")
 			}
 		case "warnings_count":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.WarningsCount = int32(v)
@@ -45647,7 +45971,7 @@ func (s *CloseCheckResult) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"warnings_count\"")
 			}
 		case "warnings":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				s.Warnings = make([]CloseCheckWarning, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -45732,7 +46056,7 @@ func (s *CloseCheckResult) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b00111111,
-		0b00011000,
+		0b00110000,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -184968,9 +185292,15 @@ func (s *YearCloseTask) encodeFields(e *jx.Encoder) {
 			s.Note.Encode(e)
 		}
 	}
+	{
+		if s.CheckResult.Set {
+			e.FieldStart("check_result")
+			s.CheckResult.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfYearCloseTask = [23]string{
+var jsonFieldsNameOfYearCloseTask = [24]string{
 	0:  "close_id",
 	1:  "close_version",
 	2:  "legal_entity_id",
@@ -184994,6 +185324,7 @@ var jsonFieldsNameOfYearCloseTask = [23]string{
 	20: "completed_by_name",
 	21: "completed_at",
 	22: "note",
+	23: "check_result",
 }
 
 // Decode decodes YearCloseTask from json.
@@ -185282,6 +185613,16 @@ func (s *YearCloseTask) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"note\"")
+			}
+		case "check_result":
+			if err := func() error {
+				s.CheckResult.Reset()
+				if err := s.CheckResult.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"check_result\"")
 			}
 		default:
 			return d.Skip()

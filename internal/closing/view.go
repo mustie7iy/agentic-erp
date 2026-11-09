@@ -153,7 +153,8 @@ func (v view) yearTaskToAPI(t task) gen.YearCloseTask {
 	return gen.YearCloseTask{CloseID: o.CloseID, CloseVersion: o.CloseVersion, LegalEntityID: o.LegalEntityID, CompanyCode: o.CompanyCode,
 		CompanyName: o.CompanyName, FiscalYear: o.FiscalYear, Code: o.Code, Seq: o.Seq, Name: o.Name, Kind: o.Kind, Check: o.Check, DueOn: o.DueOn,
 		DependsOn: o.DependsOn, BlockedBy: o.BlockedBy, AssigneeID: o.AssigneeID, AssigneeName: o.AssigneeName, Status: o.Status, Overdue: o.Overdue,
-		ReadDate: o.ReadDate, CompletedBy: o.CompletedBy, CompletedByName: o.CompletedByName, CompletedAt: o.CompletedAt, Note: o.Note}
+		ReadDate: o.ReadDate, CompletedBy: o.CompletedBy, CompletedByName: o.CompletedByName, CompletedAt: o.CompletedAt, Note: o.Note,
+		CheckResult: o.CheckResult}
 }
 
 // yearItemToAPI shows a year close as a list does, as itemToAPI shows a

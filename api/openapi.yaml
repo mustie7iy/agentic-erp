@@ -15760,6 +15760,60 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}/tasks/{code}:check":
+    post:
+      operationId: checkYearCloseTask
+      tags:
+        - closing
+      summary: Run a year close task's check
+      description: "Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8, T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who ran it and what it found; the task is set done when it passed and open when it did not. The checks read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes when no parked entry of the company dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day) is `parked` or `pending_approval`, those parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the year's last day (its last regular period's), and names each ledger with its run; `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year, `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning), and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`); `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its run, or without one, and with the periods opened since that make it stale. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      x-permission: closing.close.manage
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.close_signed_off
+        - closing.task_blocked
+        - closing.task_not_check
+        - config.not_bootstrapped
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/YearCloseTaskCode"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The task with its check's result, with the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/accrual-proposals:
     post:
       operationId: proposeAccrual
@@ -38913,7 +38967,7 @@ components:
           note: Last invoices entered on the 2nd.
     CloseCheckResult:
       type: object
-      description: "The latest result of a check task's check (ADR-0058 §6, T64c), recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its id and name. A check is a statement about the moment it ran; absent on a manual task and on a check task never checked. Reopening the task keeps it."
+      description: "The latest result of a check task's check (ADR-0058 §6, T64c; a year close's, ADR-0060 §8, T64m5), recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its id and name. A check is a statement about the moment it ran; absent on a manual task and on a check task never checked. Reopening the task keeps it."
       required:
         - check
         - passed
@@ -38927,7 +38981,7 @@ components:
         check:
           type: string
           description: "The check run. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
-          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed]
+          x-extensible-enum: [no_parked_entries, revaluation_posted, variances_explained, depreciation_posted, accruals_decided, accruals_reversed, depreciation_year_posted, carry_forward_current]
           readOnly: true
         passed:
           type: boolean
@@ -38955,7 +39009,7 @@ components:
           type: integer
           format: int32
           minimum: 0
-          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out those parked for a special period (ADR-0060 §3); absent for another check."
+          description: "`no_parked_entries`: how many parked entries of the company dated in the period (posting date from the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out those parked for a special period (ADR-0060 §3); on a year close, dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day), those parked for a special period included; absent for another check."
           readOnly: true
         parked_entries:
           type: array
@@ -38969,7 +39023,13 @@ components:
           maxItems: 20
           items:
             $ref: "#/components/schemas/CloseCheckLedger"
-          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select and the latest posted run of a later period, if there is one; absent for another check."
+          description: "`revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted revaluation run keyed on its period's last day (a year close's: the year's last day), if it has one; `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or how many assets a run would select and the latest posted run of a later period, if there is one; `depreciation_year_posted`: the first 20 regular periods of the covered ledgers that fail (`ledger_periods_count` says how many), by ledger in the same order, then by period, each with `fiscal_period` and how many assets a run of it would select; `carry_forward_current`: each covered ledger, in the same order, with its current carry-forward run from the fiscal year, if it has one, whether it is stale and the periods opened since; absent for another check."
+          readOnly: true
+        ledger_periods_count:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "`depreciation_year_posted`: how many regular periods of the covered ledgers have no posted depreciation run of their own nor of a later period while a run of them would select assets; absent for another check."
           readOnly: true
         unexplained_rows_count:
           type: integer
@@ -39132,7 +39192,7 @@ components:
           readOnly: true
     CloseCheckLedger:
       type: object
-      description: "A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it."
+      description: "A covered ledger as a `revaluation_posted`, a `depreciation_posted` or a `carry_forward_current` check found it, or a covered ledger's period as a `depreciation_year_posted` check found it (ADR-0060 §8)."
       required:
         - ledger_id
         - ledger_code
@@ -39156,11 +39216,11 @@ components:
         key_date:
           type: string
           format: date
-          description: "Its period's last day: the key date a revaluation run is keyed on, the posting date of a depreciation run."
+          description: "Its period's last day: the key date a revaluation run is keyed on, the posting date of a depreciation run; for `carry_forward_current` and a year close's `revaluation_posted`, the fiscal year's last day (its last regular period's)."
           readOnly: true
         posted:
           type: boolean
-          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, or a depreciation run of the period. A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to depreciate is a `depreciation_catch_up` warning (PO 2026-11-04)."
+          description: "Whether it has a posted run of the check's kind: a revaluation run at the key date, a depreciation run of the period, or a current carry-forward run from the fiscal year (which still fails `carry_forward_current` while it is `stale`). A ledger without a posted depreciation run still passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to depreciate is a `depreciation_catch_up` warning (PO 2026-11-04)."
           readOnly: true
         revaluation_run_id:
           type: string
@@ -39192,6 +39252,29 @@ components:
           type: integer
           format: int32
           description: "With `later_depreciation_run_id`: that run's period."
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 12
+          description: "`depreciation_year_posted`: the regular period of the fiscal year that fails in this ledger; absent for another check."
+          readOnly: true
+        carry_forward_run_id:
+          type: string
+          format: uuid
+          description: "`carry_forward_current`: the ledger's current balance carry-forward run from the fiscal year (`GET /v1/balance-carry-forwards/{id}`); absent without one (the check fails) and for another check."
+          readOnly: true
+        stale:
+          type: boolean
+          description: "`carry_forward_current` with `carry_forward_run_id`: whether the run is stale, a period of the year or an earlier year opened since it ran (ADR-0060 §6), which fails the check; absent otherwise."
+          readOnly: true
+        opened_since:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/CarryForwardOpenedPeriod"
+          description: "`carry_forward_current` with `carry_forward_run_id`: the periods that make the run stale, by fiscal year and period, as `GET /v1/balance-carry-forwards/{id}` names them; empty when it is not stale, absent otherwise."
           readOnly: true
     CloseCheckWarning:
       type: object
@@ -39763,7 +39846,7 @@ components:
           readOnly: true
         kind:
           type: string
-          description: "`manual`: a person completes it; `check`: its check completes it by passing (T64m5). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`manual`: a person completes it; `check`: its check completes it by passing (`:check`, T64m5). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [manual, check]
           readOnly: true
         check:
@@ -39830,6 +39913,8 @@ components:
           type: string
           description: "The note given when it was completed; absent without one."
           readOnly: true
+        check_result:
+          $ref: "#/components/schemas/CloseCheckResult"
       examples:
         - close_id: 0192a000-0000-7000-8000-000000000f61
           close_version: 3

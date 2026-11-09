@@ -3341,11 +3341,12 @@ components:
       name: YearCloseChanged
       x-webhook: true
       title: Year close changed
-      summary: A year close was opened, reopened after an unlock, or one of its tasks assigned, completed or reopened.
+      summary: A year close was opened, reopened after an unlock, or one of its tasks assigned, completed, reopened or checked.
       description: |
         Emitted by `year-closes` (POST, `created`) and its tasks' PATCH
-        (`task_assigned`), `:complete` (`task_completed`) and `:reopen`
-        (`task_reopened`, with the reason) (ADR-0060 §8, §12, T64m4); and
+        (`task_assigned`), `:complete` (`task_completed`), `:reopen`
+        (`task_reopened`, with the reason) (ADR-0060 §8, §12, T64m4) and
+        `:check` (`task_checked`, with `check_passed`, T64m5); and
         `reopened` when the first write on a signed-off year close (T64m6)
         whose covered ledgers' periods of the year are no longer all
         locked sets it open again, before that write's own change. Shaped
@@ -4181,10 +4182,10 @@ components:
         year_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.year_close.id`.'}
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         fiscal_year: {type: integer}
-        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened, reopened.'}
+        change: {type: string, description: 'Open enum: created, task_assigned, task_completed, task_reopened, task_checked, reopened.'}
         task_code: {type: [string, 'null'], description: The task changed; null when the close was created or reopened.}
         reason: {type: [string, 'null'], description: "Why a task was reopened; null for any other change."}
-        check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed; null for every change until year-close checks (T64m5) run."}
+        check_passed: {type: [boolean, 'null'], description: "Whether the task's check passed, for task_checked (T64m5); null for any other change."}
         status: {type: string, description: "The close's status after the change. Open enum: open, signed_off."}
         version: {type: integer, description: "The close's version after the change."}
     AccrualProposedV1:

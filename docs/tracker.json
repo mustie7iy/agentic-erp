@@ -1840,9 +1840,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Year-close checks: :check on a year close; no_parked_entries over the year (special periods included), revaluation_posted on the year's last day, depreciation_year_posted (T64k's check for every regular period and covered ledger) and carry_forward_current through closing.Ledger's new read, results naming the ledgers, periods and entries; walkthrough: the revaluation check passing, carry_forward_current failing after a late posting and passing after the re-run, depreciation_year_posted passing",
-        "r": "ADR-0060 §8, §11 · T64m5",
+        "r": "ADR-0060 §8, §11, As built · T64m5 · internal/closing yearcheck.go, check.go · internal/ledger closechecks.go · walkthrough year_end_checks",
         "src": "adr:ADR-0060",
         "c": []
        },

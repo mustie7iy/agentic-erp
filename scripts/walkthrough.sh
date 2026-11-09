@@ -4273,9 +4273,11 @@ einvoice_original() {
 # runs listed and their balances read, a late adjustment into period 13
 # making them stale, and the re-run superseding them. T64m4's: the year
 # tasks through a change request, PREV's year close opened and a manual
-# task of it assigned and completed.
+# task of it assigned and completed. T64m5's: the year close's checks run,
+# the carry-forward check failing after one more late adjustment and
+# passing after the re-run.
 step_year_end() {
-  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run, the year close's checklist"
+  heading "Step 42 — Year-end close of $PREV: the year set up, its business and year-end revaluation, an audit adjustment in special period 13, the year carried forward, a late adjustment and the re-run, the year close's checklist and its checks"
   year_end_setup
   year_end_business
   year_end_revaluation
@@ -4286,6 +4288,7 @@ step_year_end() {
   year_end_late_adjustment
   year_end_rerun
   year_end_close
+  year_end_checks
   passed
 }
 
@@ -4630,8 +4633,10 @@ year_end_rerun() {
 year_end_close() {
   as ada
   say "Ada adds the year tasks to the close template (ADR-0060 §8): the checklist of a company's year close, each"
-  say "task due a number of business days after the fiscal year's last day, some waiting for others. Like the"
-  say "monthly tasks they decide what the year's sign-off requires, so the change is tier 2, approved by the process owner."
+  say "task due a number of business days after the fiscal year's last day, some waiting for others: manual tasks,"
+  say "and checks the system runs (nothing of the year left parked, the year-end revaluation, every period's"
+  say "depreciation, the carry-forward current). Like the monthly tasks they decide what the year's sign-off"
+  say "requires, so the change is tier 2, approved by the process owner."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   local base cr request
   base=$(field '.items[0].number')
@@ -4639,12 +4644,17 @@ year_end_close() {
     proposed: (.items[0].document | .close.year_tasks = [
       {\"code\": \"AUDIT_ADJUSTMENTS\", \"name\": \"Auditors' adjustments entered in special period 13\", \"kind\": \"manual\", \"due_day\": 20},
       {\"code\": \"EQUITY_REVIEW\", \"name\": \"Retained earnings and the carry-forward reviewed\", \"kind\": \"manual\", \"due_day\": 25,
-        \"depends_on\": [\"AUDIT_ADJUSTMENTS\"]}])}" "$WORK/last.json" >"$WORK/year-tasks.json"
+        \"depends_on\": [\"AUDIT_ADJUSTMENTS\"]},
+      {\"code\": \"NO_PARKED\", \"name\": \"No entry of the year left parked\", \"kind\": \"check\", \"check\": \"no_parked_entries\", \"due_day\": 20},
+      {\"code\": \"REVALUED\", \"name\": \"Foreign currency revalued at the year's end\", \"kind\": \"check\", \"check\": \"revaluation_posted\", \"due_day\": 5},
+      {\"code\": \"DEPRECIATED\", \"name\": \"Depreciation of every period posted\", \"kind\": \"check\", \"check\": \"depreciation_year_posted\", \"due_day\": 5},
+      {\"code\": \"CARRIED_FORWARD\", \"name\": \"Balances carried forward and current\", \"kind\": \"check\", \"check\": \"carry_forward_current\",
+        \"due_day\": 25, \"depends_on\": [\"AUDIT_ADJUSTMENTS\"]}])}" "$WORK/last.json" >"$WORK/year-tasks.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @year-tasks.json
   cr=$(field .id)
   api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
   expect "the change's tier" "$(field .tier)" 2
-  expect "the year tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.year_tasks["))] | length')" 2
+  expect "the year tasks among the changes" "$(field '[.items[] | select(.path | startswith("close.year_tasks["))] | length')" 6
   request=$(field .workflow_request_id)
   approve priya "$request" "The year-end checklist, as agreed with the controller"
   as ada
@@ -4663,7 +4673,7 @@ year_end_close() {
   close=$(field .id)
   tag=$ETAG
   printf '%s\tyear close of %s\n' "$close" "$PREV" >>"$WORK/names"
-  expect "the year close's tasks" "$(field '[.tasks[].code] | join(" ")')" "AUDIT_ADJUSTMENTS EQUITY_REVIEW"
+  expect "the year close's tasks" "$(field '[.tasks[].code] | join(" ")')" "AUDIT_ADJUSTMENTS EQUITY_REVIEW NO_PARKED REVALUED DEPRECIATED CARRIED_FORWARD"
   expect "its ledgers, the leading one first" "$(field '[.ledgers[].ledger_code] | join(" ")')" "0L 2L"
   expect "the year's end" "$(field .year_end)" "$PREV-12-31"
   expect "each ledger's periods of $PREV" "$(field '[.ledgers[] | .periods | length] | join(" ")')" "16 16"
@@ -4683,6 +4693,74 @@ year_end_close() {
   refused 409 closing.year_close_exists createYearClose -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
   api 200 '.items[] | "  \(.company_code) \(.fiscal_year): \(.status), \(.tasks_done) of \(.tasks_total) done"' listYearCloses -p "legal_entity_id=$LE"
   expect "$PREV's year closes" "$(field '[.items[] | select(.fiscal_year == '"$PREV"') | .id] | join(" ")')" "$close"
+}
+
+# year_end_checks is T64m5's part (ADR-0060 §8, §11): Carla runs the year
+# close's checks on PREV. Nothing of PREV is left parked; each ledger's
+# revaluation at PREV's last day has posted (T64m1's runs); no asset had
+# anything to depreciate in PREV, so every period passes; the carry-forward
+# is current after T64m3's re-run. The auditors send one more adjustment:
+# Carla opens special period 13 again, posts it and closes the period; the
+# carry-forward check fails, naming PREV/13 in each ledger, until she
+# carries PREV forward again.
+year_end_checks() {
+  as carla
+  local close tag p bank expense
+  close=$(awk -F'\t' -v n="year close of $PREV" '$2 == n { print $1 }' "$WORK/names")
+  QUIET=1 api 200 '' getYearClose -p "id=$close"
+  tag=$ETAG
+  local result='"  \(.code) \(.status): \(.check_result.summary)",
+    (.check_result.ledgers[]? | "    \(.ledger_code)\(if .fiscal_period then " period \(.fiscal_period)" else "" end): \(if .posted then "run \(.revaluation_run_id // .carry_forward_run_id // .depreciation_run_id | .[0:8])…" else "no run" end)\(if .stale then ", stale: \([.opened_since[] | "\(.fiscal_year)/\(.period)"] | join(", ")) opened since" else "" end)")'
+  say "Carla runs the year close's checks on $PREV (ADR-0060 §8). Nothing of the year, special periods included, is"
+  say "left parked, and each ledger's revaluation at the year's last day has posted:"
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=NO_PARKED -if-match "$tag"
+  tag=$ETAG
+  expect "the parked-entries check" "$(field '"\(.check_result.passed) \(.check_result.parked_entries_count) \(.status)"')" "true 0 done"
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=REVALUED -if-match "$tag"
+  tag=$ETAG
+  expect "the revaluation check" "$(field '"\(.check_result.passed) \([.check_result.ledgers[] | "\(.ledger_code) \(.key_date) \(.posted)"] | join(", "))"')" \
+    "true 0L $PREV-12-31 true, 2L $PREV-12-31 true"
+  say "No asset had anything to depreciate in any period of $PREV, in either ledger:"
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=DEPRECIATED -if-match "$tag"
+  tag=$ETAG
+  expect "the depreciation check" "$(field '"\(.check_result.passed) \(.check_result.ledger_periods_count) \(.status)"')" "true 0 done"
+  say "The carry-forward is current: $PREV was carried forward again after the late adjustment."
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=CARRIED_FORWARD -if-match "$tag"
+  tag=$ETAG
+  expect "the carry-forward check" "$(field '"\(.check_result.passed) \([.check_result.ledgers[] | "\(.ledger_code) \(.stale)"] | join(", "))"')" \
+    "true 0L false, 2L false"
+  bank=$(account 100000)
+  expense=$(account 6000)
+  say "The auditors send one more adjustment, CAD 50.00 of legal fees. Carla opens special period 13 in each ledger,"
+  say "posts it and closes the period again:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period): \(.header_text)"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Late audit adjustment: legal fees\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"50.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-50.00\", \"currency\": \"CAD\"}}]}"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.status == "open") | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) of ledger \(.ledger_id[0:8])…: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  say "The carry-forward check now fails: each ledger's run is stale, period 13 having been opened since it ran."
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=CARRIED_FORWARD -if-match "$tag"
+  tag=$ETAG
+  expect "the carry-forward check after the late adjustment" \
+    "$(field '"\(.check_result.passed) \(.status) \([.check_result.ledgers[] | "\(.ledger_code) \(.stale) \([.opened_since[] | "\(.fiscal_year)/\(.period)"] | join(" "))"] | join(", "))"')" \
+    "false open 0L true $PREV/13, 2L true $PREV/13"
+  say "Carla carries $PREV forward again, and the check passes:"
+  api 201 '.items[] | "  \(.ledger_code): run \(.id[0:8])…, \(.status), stale: \(.stale), result \(.result_lc.amount) \(.result_lc.currency)"' \
+    runBalanceCarryForward -body "{\"legal_entity_id\": \"$LE\", \"fiscal_year\": $PREV}"
+  cp "$WORK/last.json" "$WORK/carry-forward-third.json"
+  local run
+  for run in $(jq -r '.items[] | "\(.ledger_code)=\(.id)"' "$WORK/carry-forward-third.json"); do
+    printf '%s\t%s carry-forward of %s, third\n' "${run#*=}" "${run%%=*}" "$PREV" >>"$WORK/names"
+  done
+  api 200 "$result" checkYearCloseTask -p "id=$close" -p code=CARRIED_FORWARD -if-match "$tag"
+  expect "the carry-forward check after the re-run" "$(field '"\(.check_result.passed) \(.status)"')" "true done"
+  expect "the runs it names, the new ones" "$(field '[.check_result.ledgers[].carry_forward_run_id] | sort | join(" ")')" \
+    "$(jq -r '[.items[].id] | sort | join(" ")' "$WORK/carry-forward-third.json")"
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it

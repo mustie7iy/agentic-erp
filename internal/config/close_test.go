@@ -46,6 +46,7 @@ func TestCloseTemplateValid(t *testing.T) {
 		{"an unknown kind", task(0, func(t *CloseTask) { t.Kind = "approval" }), "close.tasks[AP_CUTOFF].kind"},
 		{"a check on a manual task", task(0, func(t *CloseTask) { t.Check = "no_parked_entries" }), "close.tasks[AP_CUTOFF].check"},
 		{"a check this build does not run", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "bank_reconciled" }), "close.tasks[AP_CUTOFF].check"},
+		{"a year check", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "carry_forward_current" }), "close.tasks[AP_CUTOFF].check"},
 		{"a check task without its check", task(0, func(t *CloseTask) { t.Kind = CloseCheck }), "close.tasks[AP_CUTOFF].check"},
 		{"a due day after 31", task(0, func(t *CloseTask) { t.DueDay = 32 }), "close.tasks[AP_CUTOFF].due_day"},
 		{"a due day before -31", task(0, func(t *CloseTask) { t.DueDay = -32 }), "close.tasks[AP_CUTOFF].due_day"},
@@ -234,11 +235,20 @@ func withYearTasks(t *testing.T) *Config {
 }
 
 // TestYearTasksValid: year tasks validate as the period's tasks do, on
-// their own path and codes, and name no check until T64m5 builds the year
-// close's: a period check is refused there.
+// their own path and codes, and name a year close's checks (T64m5): a
+// period check other than theirs is refused there.
 func TestYearTasksValid(t *testing.T) {
 	if fs := Validate(withYearTasks(t), currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("year tasks configured: got %v, want no errors", fs)
+	}
+	for _, check := range YearCloseChecks {
+		t.Run(check, func(t *testing.T) {
+			c := withYearTasks(t)
+			c.Close.YearTasks[0].Kind, c.Close.YearTasks[0].Check = CloseCheck, check
+			if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+				t.Errorf("a year task checking %s: got %v, want no errors", check, fs)
+			}
+		})
 	}
 	task := func(i int, mutate func(*CloseTask)) func(c *Config) {
 		return func(c *Config) { mutate(&c.Close.YearTasks[i]) }
@@ -252,6 +262,8 @@ func TestYearTasksValid(t *testing.T) {
 		{"a task twice", func(c *Config) { c.Close.YearTasks = append(c.Close.YearTasks, c.Close.YearTasks[0]) }, "close.year_tasks[AP_CUTOFF]"},
 		{"no name", task(0, func(t *CloseTask) { t.Name = "" }), "close.year_tasks[AP_CUTOFF].name"},
 		{"a period check", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "accruals_decided" }), "close.year_tasks[AP_CUTOFF].check"},
+		{"the period's depreciation check", task(0, func(t *CloseTask) { t.Kind, t.Check = CloseCheck, "depreciation_posted" }),
+			"close.year_tasks[AP_CUTOFF].check"},
 		{"a due day after 31", task(0, func(t *CloseTask) { t.DueDay = 32 }), "close.year_tasks[AP_CUTOFF].due_day"},
 		{"a company not in the document", task(1, func(t *CloseTask) { t.Companies = []string{"9000"} }), "close.year_tasks[INVENTORY].companies"},
 		{"a dependency on a period task", task(1, func(t *CloseTask) { t.DependsOn = []string{"REVALUED"} }), "close.year_tasks[INVENTORY].depends_on"},

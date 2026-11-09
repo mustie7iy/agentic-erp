@@ -242,7 +242,8 @@ func TestApprovedIntoASpecialPeriod(t *testing.T) {
 
 // TestCloseChecksLeaveSpecialOut: a period close's parked-entry check
 // leaves out an entry parked for a special period, dated in the period it
-// checks: it is the year close's (ADR-0060 §3, decision 14).
+// checks: it is the year close's (ADR-0060 §3, decision 14), which counts
+// it (§8).
 func TestCloseChecksLeaveSpecialOut(t *testing.T) {
 	s := setupSpecial(t)
 	regular, _ := s.Must(201, "POST", "/v1/parked-journal-entries", entry(s.de, "2026-12-15", "EUR", line{s.bank, "1.00", ""}, line{s.revenue, "-1.00", ""}), "")
@@ -250,7 +251,7 @@ func TestCloseChecksLeaveSpecialOut(t *testing.T) {
 	var n int
 	var found []ledger.OpenParked
 	if err := apitest.Committed(t, s.ten, s.ten.Human, func(ctx context.Context) (err error) {
-		n, found, err = ledger.CloseChecks{}.Parked(ctx, s.de, date("2026-12-01"), date("2026-12-31"), []string{ledger.EntryParked}, 20)
+		n, found, err = ledger.CloseChecks{}.Parked(ctx, s.de, date("2026-12-01"), date("2026-12-31"), []string{ledger.EntryParked}, false, 20)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -260,6 +261,15 @@ func TestCloseChecksLeaveSpecialOut(t *testing.T) {
 	}
 	if got := found[0].ID.String(); got != regular["id"] {
 		t.Errorf("the entry named: got %s, want the regular one %v", got, regular["id"])
+	}
+	if err := apitest.Committed(t, s.ten, s.ten.Human, func(ctx context.Context) (err error) {
+		n, found, err = ledger.CloseChecks{}.Parked(ctx, s.de, date("2026-12-01"), date("2026-12-31"), []string{ledger.EntryParked}, true, 20)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if n != 2 || len(found) != 2 {
+		t.Errorf("the parked entries of period 12 with the special period's, as a year close counts them: got %d (%d named), want 2", n, len(found))
 	}
 }
 

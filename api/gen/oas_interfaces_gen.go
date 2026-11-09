@@ -129,6 +129,10 @@ type CheckCloseTaskRes interface {
 	checkCloseTaskRes()
 }
 
+type CheckYearCloseTaskRes interface {
+	checkYearCloseTaskRes()
+}
+
 type ClearSupplierInvoiceDownPaymentsRes interface {
 	clearSupplierInvoiceDownPaymentsRes()
 }

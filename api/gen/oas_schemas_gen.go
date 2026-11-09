@@ -18133,6 +18133,30 @@ type CheckCloseTaskUnprocessableEntity Problem
 
 func (*CheckCloseTaskUnprocessableEntity) checkCloseTaskRes() {}
 
+type CheckYearCloseTaskBadRequest Problem
+
+func (*CheckYearCloseTaskBadRequest) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskForbidden Problem
+
+func (*CheckYearCloseTaskForbidden) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskNotFound Problem
+
+func (*CheckYearCloseTaskNotFound) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskPreconditionFailed Problem
+
+func (*CheckYearCloseTaskPreconditionFailed) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskPreconditionRequired Problem
+
+func (*CheckYearCloseTaskPreconditionRequired) checkYearCloseTaskRes() {}
+
+type CheckYearCloseTaskUnprocessableEntity Problem
+
+func (*CheckYearCloseTaskUnprocessableEntity) checkYearCloseTaskRes() {}
+
 type ClearSupplierInvoiceDownPaymentsBadRequest Problem
 
 func (*ClearSupplierInvoiceDownPaymentsBadRequest) clearSupplierInvoiceDownPaymentsRes() {}
@@ -18849,7 +18873,9 @@ func (s *CloseCheckAccrual) SetJournalEntryNumber(val OptString) {
 	s.JournalEntryNumber = val
 }
 
-// A covered ledger as a `revaluation_posted` or a `depreciation_posted` check found it.
+// A covered ledger as a `revaluation_posted`, a `depreciation_posted` or a `carry_forward_current`
+// check found it, or a covered ledger's period as a `depreciation_year_posted` check found it
+// (ADR-0060 §8).
 // Ref: #/components/schemas/CloseCheckLedger
 type CloseCheckLedger struct {
 	// The ledger.
@@ -18859,13 +18885,15 @@ type CloseCheckLedger struct {
 	// Its name.
 	LedgerName string `json:"ledger_name"`
 	// Its period's last day: the key date a revaluation run is keyed on, the posting date of a
-	// depreciation run.
+	// depreciation run; for `carry_forward_current` and a year close's `revaluation_posted`, the fiscal
+	// year's last day (its last regular period's).
 	KeyDate time.Time `json:"key_date"`
-	// Whether it has a posted run of the check's kind: a revaluation run at the key date, or a
-	// depreciation run of the period. A ledger without a posted depreciation run still passes
-	// `depreciation_posted` when `assets_to_depreciate` is 0, or when it has `later_depreciation_run_id`:
-	// a run of the period is then refused as out of order, and each asset to depreciate is a
-	// `depreciation_catch_up` warning (PO 2026-11-04).
+	// Whether it has a posted run of the check's kind: a revaluation run at the key date, a depreciation
+	// run of the period, or a current carry-forward run from the fiscal year (which still fails
+	// `carry_forward_current` while it is `stale`). A ledger without a posted depreciation run still
+	// passes `depreciation_posted` when `assets_to_depreciate` is 0, or when it has
+	// `later_depreciation_run_id`: a run of the period is then refused as out of order, and each asset to
+	// depreciate is a `depreciation_catch_up` warning (PO 2026-11-04).
 	Posted bool `json:"posted"`
 	// `revaluation_posted`: the posted run (`GET /v1/revaluation-runs/{id}`); absent without one and for
 	// another check.
@@ -18886,6 +18914,19 @@ type CloseCheckLedger struct {
 	LaterDepreciationFiscalYear OptInt32 `json:"later_depreciation_fiscal_year"`
 	// With `later_depreciation_run_id`: that run's period.
 	LaterDepreciationPeriod OptInt32 `json:"later_depreciation_period"`
+	// `depreciation_year_posted`: the regular period of the fiscal year that fails in this ledger; absent
+	// for another check.
+	FiscalPeriod OptInt32 `json:"fiscal_period"`
+	// `carry_forward_current`: the ledger's current balance carry-forward run from the fiscal year
+	// (`GET /v1/balance-carry-forwards/{id}`); absent without one (the check fails) and for another check.
+	CarryForwardRunID OptUUID `json:"carry_forward_run_id"`
+	// `carry_forward_current` with `carry_forward_run_id`: whether the run is stale, a period of the year
+	// or an earlier year opened since it ran (ADR-0060 §6), which fails the check; absent otherwise.
+	Stale OptBool `json:"stale"`
+	// `carry_forward_current` with `carry_forward_run_id`: the periods that make the run stale, by fiscal
+	// year and period, as `GET /v1/balance-carry-forwards/{id}` names them; empty when it is not stale,
+	// absent otherwise.
+	OpenedSince []CarryForwardOpenedPeriod `json:"opened_since"`
 }
 
 // GetLedgerID returns the value of LedgerID.
@@ -18943,6 +18984,26 @@ func (s *CloseCheckLedger) GetLaterDepreciationPeriod() OptInt32 {
 	return s.LaterDepreciationPeriod
 }
 
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *CloseCheckLedger) GetFiscalPeriod() OptInt32 {
+	return s.FiscalPeriod
+}
+
+// GetCarryForwardRunID returns the value of CarryForwardRunID.
+func (s *CloseCheckLedger) GetCarryForwardRunID() OptUUID {
+	return s.CarryForwardRunID
+}
+
+// GetStale returns the value of Stale.
+func (s *CloseCheckLedger) GetStale() OptBool {
+	return s.Stale
+}
+
+// GetOpenedSince returns the value of OpenedSince.
+func (s *CloseCheckLedger) GetOpenedSince() []CarryForwardOpenedPeriod {
+	return s.OpenedSince
+}
+
 // SetLedgerID sets the value of LedgerID.
 func (s *CloseCheckLedger) SetLedgerID(val uuid.UUID) {
 	s.LedgerID = val
@@ -18996,6 +19057,26 @@ func (s *CloseCheckLedger) SetLaterDepreciationFiscalYear(val OptInt32) {
 // SetLaterDepreciationPeriod sets the value of LaterDepreciationPeriod.
 func (s *CloseCheckLedger) SetLaterDepreciationPeriod(val OptInt32) {
 	s.LaterDepreciationPeriod = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *CloseCheckLedger) SetFiscalPeriod(val OptInt32) {
+	s.FiscalPeriod = val
+}
+
+// SetCarryForwardRunID sets the value of CarryForwardRunID.
+func (s *CloseCheckLedger) SetCarryForwardRunID(val OptUUID) {
+	s.CarryForwardRunID = val
+}
+
+// SetStale sets the value of Stale.
+func (s *CloseCheckLedger) SetStale(val OptBool) {
+	s.Stale = val
+}
+
+// SetOpenedSince sets the value of OpenedSince.
+func (s *CloseCheckLedger) SetOpenedSince(val []CarryForwardOpenedPeriod) {
+	s.OpenedSince = val
 }
 
 // A parked entry a `no_parked_entries` check found (`GET /v1/parked-journal-entries/{id}`), as it was
@@ -19114,10 +19195,10 @@ func (s *CloseCheckParkedEntry) SetCreatedByName(val string) {
 	s.CreatedByName = val
 }
 
-// The latest result of a check task's check (ADR-0058 §6, T64c), recorded when `:check` ran it:
-// whether it passed, when and by whom, and what it found, each with its id and name. A check is a
-// statement about the moment it ran; absent on a manual task and on a check task never checked.
-// Reopening the task keeps it.
+// The latest result of a check task's check (ADR-0058 §6, T64c; a year close's, ADR-0060 §8, T64m5),
+// recorded when `:check` ran it: whether it passed, when and by whom, and what it found, each with its
+// id and name. A check is a statement about the moment it ran; absent on a manual task and on a check
+// task never checked. Reopening the task keeps it.
 // Ref: #/components/schemas/CloseCheckResult
 type CloseCheckResult struct {
 	// The check run. Open enumeration: clients must accept and preserve values not listed here; values may
@@ -19135,17 +19216,28 @@ type CloseCheckResult struct {
 	Summary string `json:"summary"`
 	// `no_parked_entries`: how many parked entries of the company dated in the period (posting date from
 	// the leading ledger's period's first to its last day) are `parked` or `pending_approval`, leaving out
-	// those parked for a special period (ADR-0060 §3); absent for another check.
+	// those parked for a special period (ADR-0060 §3); on a year close, dated in the fiscal year (the
+	// leading ledger's first regular period's first day to its last regular period's last day), those
+	// parked for a special period included; absent for another check.
 	ParkedEntriesCount OptInt32 `json:"parked_entries_count"`
 	// `no_parked_entries`: the first 20 of them by posting date (`parked_entries_count` says how many
 	// there are); absent for another check.
 	ParkedEntries []CloseCheckParkedEntry `json:"parked_entries"`
 	// `revaluation_posted`: each covered ledger, the leading one first, then by code, with its posted
-	// revaluation run keyed on its period's last day, if it has one; `depreciation_posted`: each covered
-	// ledger, in the same order, with its latest posted depreciation run of the period, if it has one, or
-	// how many assets a run would select and the latest posted run of a later period, if there is one;
-	// absent for another check.
+	// revaluation run keyed on its period's last day (a year close's: the year's last day), if it has one;
+	// `depreciation_posted`: each covered ledger, in the same order, with its latest posted depreciation
+	// run of the period, if it has one, or how many assets a run would select and the latest posted run of
+	// a later period, if there is one; `depreciation_year_posted`: the first 20 regular periods of the
+	// covered ledgers that fail (`ledger_periods_count` says how many), by ledger in the same order, then
+	// by period, each with `fiscal_period` and how many assets a run of it would select;
+	// `carry_forward_current`: each covered ledger, in the same order, with its current carry-forward run
+	// from the fiscal year, if it has one, whether it is stale and the periods opened since; absent for
+	// another check.
 	Ledgers []CloseCheckLedger `json:"ledgers"`
+	// `depreciation_year_posted`: how many regular periods of the covered ledgers have no posted
+	// depreciation run of their own nor of a later period while a run of them would select assets; absent
+	// for another check.
+	LedgerPeriodsCount OptInt32 `json:"ledger_periods_count"`
 	// `variances_explained`: how many rows of the company's configured bases require a comment and have no
 	// accepted one that is current (T64i); absent for another check, and when the company configures no
 	// basis (the summary says so).
@@ -19221,6 +19313,11 @@ func (s *CloseCheckResult) GetParkedEntries() []CloseCheckParkedEntry {
 // GetLedgers returns the value of Ledgers.
 func (s *CloseCheckResult) GetLedgers() []CloseCheckLedger {
 	return s.Ledgers
+}
+
+// GetLedgerPeriodsCount returns the value of LedgerPeriodsCount.
+func (s *CloseCheckResult) GetLedgerPeriodsCount() OptInt32 {
+	return s.LedgerPeriodsCount
 }
 
 // GetUnexplainedRowsCount returns the value of UnexplainedRowsCount.
@@ -19311,6 +19408,11 @@ func (s *CloseCheckResult) SetParkedEntries(val []CloseCheckParkedEntry) {
 // SetLedgers sets the value of Ledgers.
 func (s *CloseCheckResult) SetLedgers(val []CloseCheckLedger) {
 	s.Ledgers = val
+}
+
+// SetLedgerPeriodsCount sets the value of LedgerPeriodsCount.
+func (s *CloseCheckResult) SetLedgerPeriodsCount(val OptInt32) {
+	s.LedgerPeriodsCount = val
 }
 
 // SetUnexplainedRowsCount sets the value of UnexplainedRowsCount.
@@ -20860,6 +20962,7 @@ func (*ConflictHeaders) cancelRevaluationRunRes()                  {}
 func (*ConflictHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ConflictHeaders) captureSupplierInvoiceRes()                {}
 func (*ConflictHeaders) checkCloseTaskRes()                        {}
+func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
@@ -64191,6 +64294,7 @@ func (*ServiceUnavailableHeaders) cancelRevaluationRunRes()                  {}
 func (*ServiceUnavailableHeaders) cancelSupplierInvoiceRes()                 {}
 func (*ServiceUnavailableHeaders) captureSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) checkCloseTaskRes()                        {}
+func (*ServiceUnavailableHeaders) checkYearCloseTaskRes()                    {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                     {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
@@ -68565,6 +68669,7 @@ func (*TooManyRequestsHeaders) cancelRevaluationRunRes()                  {}
 func (*TooManyRequestsHeaders) cancelSupplierInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) captureSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
+func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
@@ -69068,6 +69173,7 @@ func (*UnauthorizedHeaders) cancelRevaluationRunRes()                  {}
 func (*UnauthorizedHeaders) cancelSupplierInvoiceRes()                 {}
 func (*UnauthorizedHeaders) captureSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
+func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
@@ -73535,7 +73641,7 @@ type YearCloseTask struct {
 	Seq int32 `json:"seq"`
 	// What is to be done.
 	Name string `json:"name"`
-	// `manual`: a person completes it; `check`: its check completes it by passing (T64m5). Open
+	// `manual`: a person completes it; `check`: its check completes it by passing (`:check`, T64m5). Open
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Kind string `json:"kind"`
@@ -73565,7 +73671,8 @@ type YearCloseTask struct {
 	// When it was completed; absent while it is open.
 	CompletedAt OptDateTime `json:"completed_at"`
 	// The note given when it was completed; absent without one.
-	Note OptString `json:"note"`
+	Note        OptString           `json:"note"`
+	CheckResult OptCloseCheckResult `json:"check_result"`
 }
 
 // GetCloseID returns the value of CloseID.
@@ -73683,6 +73790,11 @@ func (s *YearCloseTask) GetNote() OptString {
 	return s.Note
 }
 
+// GetCheckResult returns the value of CheckResult.
+func (s *YearCloseTask) GetCheckResult() OptCloseCheckResult {
+	return s.CheckResult
+}
+
 // SetCloseID sets the value of CloseID.
 func (s *YearCloseTask) SetCloseID(val uuid.UUID) {
 	s.CloseID = val
@@ -73798,6 +73910,11 @@ func (s *YearCloseTask) SetNote(val OptString) {
 	s.Note = val
 }
 
+// SetCheckResult sets the value of CheckResult.
+func (s *YearCloseTask) SetCheckResult(val OptCloseCheckResult) {
+	s.CheckResult = val
+}
+
 // YearCloseTaskHeaders wraps YearCloseTask with response headers.
 type YearCloseTaskHeaders struct {
 	ETag               OptString
@@ -73835,6 +73952,7 @@ func (s *YearCloseTaskHeaders) SetResponse(val YearCloseTask) {
 	s.Response = val
 }
 
+func (*YearCloseTaskHeaders) checkYearCloseTaskRes()    {}
 func (*YearCloseTaskHeaders) completeYearCloseTaskRes() {}
 func (*YearCloseTaskHeaders) reopenYearCloseTaskRes()   {}
 func (*YearCloseTaskHeaders) updateYearCloseTaskRes()   {}

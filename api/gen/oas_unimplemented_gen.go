@@ -481,6 +481,37 @@ func (UnimplementedHandler) CheckCloseTask(ctx context.Context, params CheckClos
 	return r, ht.ErrNotImplemented
 }
 
+// CheckYearCloseTask implements checkYearCloseTask operation.
+//
+// Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8,
+// T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who
+// ran it and what it found; the task is set done when it passed and open when it did not. The checks
+// read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes
+// when no parked entry of the company dated in the fiscal year (the leading ledger's first regular
+// period's first day to its last regular period's last day) is `parked` or `pending_approval`, those
+// parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them;
+// `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the
+// year's last day (its last regular period's), and names each ledger with its run;
+// `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year,
+// `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it
+// would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning),
+// and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`);
+// `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the
+// fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its
+// run, or without one, and with the periods opened since that make it stale. A check is a statement
+// about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409
+// `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
+// `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
+// Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year
+// close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it
+// (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open
+// again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+//
+// POST /v1/year-closes/{id}/tasks/{code}:check
+func (UnimplementedHandler) CheckYearCloseTask(ctx context.Context, params CheckYearCloseTaskParams) (r CheckYearCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ClearSupplierInvoiceDownPayments implements clearSupplierInvoiceDownPayments operation.
 //
 // Clears paid down payment requests of the invoice's supplier against the posted invoice (SAP F-54;

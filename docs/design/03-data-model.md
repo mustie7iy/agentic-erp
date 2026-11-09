@@ -3531,7 +3531,8 @@ A year close is one per company and fiscal year (`year_close_once`), its
 `year_end` the leading ledger's last day of its last regular period, from
 which its tasks' `due_on` were counted from the configuration's year tasks
 (`close.year_tasks`, the same shape as `close.tasks`, validated alike;
-no year check is known before T64m5). Its ledgers carry no period: the
+its checks `config.YearCloseChecks`, T64m5, each recorded in the task's
+check result columns as a period close's). Its ledgers carry no period: the
 close reads each covered ledger's periods of the year (`ledger.period_status`)
 through the ledger's port. Its rows follow the period close's rules
 through the same trigger functions (`closing.check_period_close`,

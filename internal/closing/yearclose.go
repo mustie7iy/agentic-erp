@@ -80,26 +80,24 @@ func (e *Endpoints) yearLedgers(ctx context.Context, legalEntity uuid.UUID, year
 	kept := make([]LedgerPeriod, len(years))
 	for i, l := range years {
 		kept[i] = LedgerPeriod{LedgerID: l.LedgerID, Code: l.Code, Name: l.Name, Leading: l.Leading}
-		for _, p := range l.Periods { // by period: the last regular one stays
-			if !p.Special {
-				kept[i].Period = &p
-			}
+		if len(l.Periods) > 0 {
+			kept[i] = yearEnd(l)
 		}
 	}
 	return pick(kept, ids, fmt.Sprintf("periods of %d", year), "fiscal_year")
 }
 
-// yearCovered are the ledgers a year close covers, the leading one first,
-// then by code, each with its periods of the year as the ledger holds them
-// now.
-func (e *Endpoints) yearCovered(ctx context.Context, tx pgx.Tx, c closeRow) ([]LedgerYear, error) {
-	covered, err := coveredIDs(ctx, tx, yearCloses, c.ID)
+// yearCoveredOf are the ledgers the year close of a legal entity's fiscal
+// year covers, the leading one first, then by code, each with its periods
+// of the year as the ledger holds them now.
+func (e *Endpoints) yearCoveredOf(ctx context.Context, tx pgx.Tx, closeID, legalEntity uuid.UUID, year int16) ([]LedgerYear, error) {
+	covered, err := coveredIDs(ctx, tx, yearCloses, closeID)
 	if err != nil {
 		return nil, err
 	}
-	years, err := e.Ledger.YearPeriods(ctx, c.LegalEntityID, c.FiscalYear)
+	years, err := e.Ledger.YearPeriods(ctx, legalEntity, year)
 	if err != nil {
-		return nil, fmt.Errorf("closing: periods of year close %s: %w", c.ID, err)
+		return nil, fmt.Errorf("closing: periods of year close %s: %w", closeID, err)
 	}
 	var out []LedgerYear
 	for _, l := range years {
@@ -122,7 +120,7 @@ func (e *Endpoints) yearCloseOut(ctx context.Context, tx pgx.Tx, c closeRow) (ge
 	if err != nil {
 		return gen.YearClose{}, err
 	}
-	covered, err := e.yearCovered(ctx, tx, c)
+	covered, err := e.yearCoveredOf(ctx, tx, c.ID, c.LegalEntityID, c.FiscalYear)
 	if err != nil {
 		return gen.YearClose{}, err
 	}

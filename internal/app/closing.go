@@ -42,8 +42,8 @@ func (closingCompanies) Company(ctx context.Context, id uuid.UUID) (closing.Comp
 }
 
 // closingLedger gives the closing context the ledger's posting periods
-// (a year's by ledger for a year close),
-// what a close's checks read (parked entries and revaluation runs), the
+// (a year's by ledger for a year close), what a close's checks read
+// (parked entries, revaluation runs and a year's carry-forward), the
 // period lock a sign-off takes, the variance report's profit and loss and
 // the journal entries its comments cite, and an accrual proposal's
 // accounts, centers and parked entry, that entry's status and its
@@ -86,8 +86,9 @@ func (closingLedger) YearPeriods(ctx context.Context, legalEntity uuid.UUID, fis
 	return out, err
 }
 
-func (closingLedger) Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, limit int) (int, []closing.ParkedEntry, error) {
-	n, ps, err := ledger.CloseChecks{}.Parked(ctx, legalEntity, from, to, statuses, limit)
+func (closingLedger) Parked(ctx context.Context, legalEntity uuid.UUID, from, to time.Time, statuses []string, special bool,
+	limit int) (int, []closing.ParkedEntry, error) {
+	n, ps, err := ledger.CloseChecks{}.Parked(ctx, legalEntity, from, to, statuses, special, limit)
 	out := make([]closing.ParkedEntry, len(ps))
 	for i, p := range ps {
 		out[i] = closing.ParkedEntry{ID: p.ID, DocumentType: p.DocumentType, PostingDate: p.PostingDate, Status: p.Status, Reference: p.Reference,
@@ -98,6 +99,15 @@ func (closingLedger) Parked(ctx context.Context, legalEntity uuid.UUID, from, to
 
 func (closingLedger) PostedRevaluation(ctx context.Context, legalEntity, ledgerID uuid.UUID, keyDate time.Time) (uuid.UUID, bool, error) {
 	return ledger.CloseChecks{}.PostedRevaluation(ctx, legalEntity, ledgerID, keyDate)
+}
+
+func (closingLedger) CarryForward(ctx context.Context, legalEntity, ledgerID uuid.UUID, fiscalYear int16) (closing.CarryForward, error) {
+	cf, err := ledger.CloseChecks{}.CarryForward(ctx, legalEntity, ledgerID, fiscalYear)
+	out := closing.CarryForward{Run: cf.Run}
+	for _, p := range cf.OpenedSince {
+		out.OpenedSince = append(out.OpenedSince, closing.FiscalPeriod{FiscalYear: p.FiscalYear, Period: p.Period})
+	}
+	return out, err
 }
 
 func (closingLedger) Lock(ctx context.Context, period uuid.UUID, version int32) error {
