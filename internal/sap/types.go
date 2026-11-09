@@ -224,6 +224,15 @@ type ACDOCA struct {
 	LIFNR string `json:"LIFNR"`
 	XBLNR string `json:"XBLNR"`
 	AUGBL string `json:"AUGBL"` // clearing document, empty if open
+	// AUGDT is the clearing date (YYYYMMDD), initial (blank or 00000000)
+	// on an open item, and BSTAT the document status, "S" a noted item
+	// (such as a down payment request) with no G/L effect, as the SAP
+	// specialist confirmed (po:2026-11-09, A3 [H], A15 [M]). Both are
+	// optional: the migration's check of open vendor items against their
+	// reconciliation account reads an item cleared after its key date as
+	// open by AUGDT, and an extract without it as AUGBL says today.
+	AUGDT string `json:"AUGDT,omitempty"`
+	BSTAT string `json:"BSTAT,omitempty"`
 	// UMSKZ is a vendor line's special G/L indicator, "" on an ordinary
 	// line; in the standard system "A" marks a general down payment (SAP
 	// Help, "Posting Keys and Special G/L Indicators",

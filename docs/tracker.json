@@ -9532,9 +9532,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP's open vendor items against their reconciliation account's balance (ADR-0060 §9; SAP specialist, po:2026-11-09, A15 [M], to verify on the pilot system): a control per reconciliation account at the key date, the sum of the open vendor items (lines with LIFNR filled, UMSKZ blank and BSTAT not S, open at the key date by AUGDT) against the account's balance, a difference reported in the run's report rather than refused; its listing names the cases that make one: special G/L postings on alternative reconciliation accounts (T074), items left on an old account after LFB1-AKONT changed, balances without vendor items (SKB1-MITKZ K with LIFNR blank), a period 000 carry-forward without items, and a valuation posted to the reconciliation account",
-      "r": "internal/integration reconcile.go · docs/migration.md \"What to check on a real SAP system\" (vendor reconciliation accounts) · ADR-0060 §9, Gaps (answered)",
+      "r": "internal/integration recaccounts.go (quality gate warning per vendor reconciliation account; key date the company's latest BUDAT; open by AUGDT; the difference split into lines without a vendor, special G/L lines and cleared items not netting in the extract; open items of vendors whose LFB1-AKONT is another counted) · internal/sap ACDOCA.AUGDT, BSTAT · TestReconciliationAccounts · docs/migration.md \"What to check on a real SAP system\" (vendor reconciliation accounts, built; to verify on the pilot system) · ADR-0060 §9 As built, Gaps",
       "src": "po:2026-11-09",
       "c": []
      }

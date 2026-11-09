@@ -831,10 +831,22 @@ others record a confirmation.
   000 without items from before S/4HANA; a year-end valuation posted to the
   reconciliation account rather than an adjustment account (by
   configuration: the valuation runs' AWTYP or BLART, T030H); and items open
-  at the key date but cleared later (AUGDT after the key date). A check per
-  account at the key date, only over lines with LIFNR filled, UMSKZ blank
-  and BSTAT not `S`, reported rather than refused when it fails, is a
-  tracker leaf.
+  at the key date but cleared later (AUGDT after the key date). **Built
+  (sapvend):** the quality gate checks each vendor reconciliation account
+  (SKB1-MITKZ `K`, T074's special G/L accounts left out) at the key date,
+  the company's latest posting date (BUDAT) in the extract: the open vendor
+  items, lines with LIFNR filled, UMSKZ blank and BSTAT not `S`, open at
+  the key date (AUGBL blank, or AUGDT after it), against the account's
+  balance, its lines without the noted items. A difference is a `warning`
+  keyed `<BUKRS>/<account>`, never an error, and splits it into lines
+  without a vendor, special G/L lines and cleared vendor items that do not
+  net to zero in the extract (a clearing in another year or on another
+  account), and counts the open items of vendors whose LFB1-AKONT is now
+  another account. The extract should carry ACDOCA-AUGDT and BSTAT (both
+  optional: without AUGDT an item with AUGBL counts as cleared). The
+  period 000 carry-forward and a valuation posted to the account are named
+  but not told apart (the extract carries no POPER, AWTYP or T030H); verify
+  the check against the pilot's data.
 
 **Facts still awaited from the pilot customer** (the customer questionnaire
 of 2026-11-09, not answered yet). Each has a **planning default, to be
