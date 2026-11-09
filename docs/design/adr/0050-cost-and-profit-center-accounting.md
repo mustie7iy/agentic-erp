@@ -288,7 +288,8 @@ As built in T56a (migration 000128):
   today's tree, as SAP does (decision P7).
 
   As built in T56b (migration 000139):
-  - **Tables.** `hierarchy` (kind, code `^[0-9A-Z_-]{1,15}$` unique per
+  - **Tables.** `hierarchy` (kind, code `^[0-9A-Z_-]{1,15}$`, 24 since
+    000244, unique per
     kind, `is_standard` with at most one standard per kind, all three
     fixed), `hierarchy_node` (parent in the same hierarchy by foreign key,
     code unique among the hierarchy's nodes, `position` among siblings) and
@@ -1396,6 +1397,12 @@ fixes of the leaves above, each named by its question):
   KHINR names, inner or not (exactly one per tree, as before), and the
   ledger holds it there (§3 as amended, migration 000243). A group an
   earlier run loaded with centers takes the subgroups SAP added since.
+- **Group codes of 24 characters (A11(c) [M])**: SETHEADER-SETNAME holds
+  24, so the hierarchy's and the node's codes take up to 24 of 0-9, A-Z, _
+  and - (migration 000244 widens 000139's checks; the contract's code
+  patterns of the hierarchy list's filter, `HierarchyCreate` and
+  `HierarchyNodeAdd` widen with them, a request-side change that breaks no
+  client), and the gate's group code check with them.
 - **A segment SAP did not derive from the profit center (A9(c) [M])**:
   refused, with an issue naming the case (the BAdI FAGL_DERIVE_SEGMENT or
   a manual entry), not loaded (decided by default: §3 gives a profit center

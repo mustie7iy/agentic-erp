@@ -1286,7 +1286,10 @@ hierarchy's kind (`hierarchy_member_kind`, `hierarchy_member_center`) once
 per hierarchy (`hierarchy_member_once`) at a node not removed
 (`check_hierarchy_member`); a move changes `node_id`. A node may hold
 centers and child nodes alike, as SAP's groups do (migration 000243,
-ADR-0050 §3 as amended; 000139 kept centers at leaves).
+ADR-0050 §3 as amended; 000139 kept centers at leaves). Hierarchy and node
+codes hold up to 24 of 0-9, A-Z, _ and - (`hierarchy_code_check`,
+`hierarchy_node_code_check`; migration 000244, as SAP's SETHEADER-SETNAME;
+000139 held 15).
 Nodes and places are not deleted but removed by the change that removes
 them (`removed_by_change_id`). Every active center is in the standard
 hierarchy of its kind at commit (`check_center_placed`, deferred).

@@ -75,6 +75,22 @@ func TestGroupPlan(t *testing.T) {
 	}
 }
 
+// TestGroupCodesOf24: a set named with 24 characters, as SETHEADER-SETNAME
+// holds (A11(c)), is a group the gate passes.
+func TestGroupCodesOf24(t *testing.T) {
+	x := gateGroups()
+	name := strings.Repeat("A", 24)
+	for i := range x.SETHEADER {
+		if x.SETHEADER[i].SETNAME == "ADM" {
+			x.SETHEADER[i].SETNAME, x.SETHEADERT[i].SETNAME = name, name
+		}
+	}
+	x.SETNODE[0].SUBSETNAME, x.CSKS[0].KHINR = name, name
+	if g := planGroups(x); len(g.issues) != 0 {
+		t.Errorf("issues: got %v, want none", g.issues)
+	}
+}
+
 // TestGroupPlanInnerGroups: a group may hold values beside its subgroups,
 // and a center's KHINR may name a group with subgroups (the SAP
 // specialist, A10(d)): the center sits at that inner group.
@@ -108,7 +124,11 @@ func TestGroupQualityGate(t *testing.T) {
 		"no standard set": {func(x *sap.Extract) { x.TKA01[0].KHINR = "NONE" }, "error TKA01 A1: standard hierarchy NONE (KHINR) is not a cost center group"},
 		"no standard hierarchy": {func(x *sap.Extract) { x.TKA01 = nil },
 			"warning SETHEADER 0101/A1: controlling area A1 has groups of class 0101 but no standard hierarchy"},
-		"a set code":    {func(x *sap.Extract) { x.SETHEADER[4].SETNAME = "x y"; x.SETNODE[2].SUBSETNAME = "x y" }, `error SETHEADER 0101/A1/x y: set "x y" is not a code`},
+		"a set code": {func(x *sap.Extract) { x.SETHEADER[4].SETNAME = "x y"; x.SETNODE[2].SUBSETNAME = "x y" }, `error SETHEADER 0101/A1/x y: set "x y" is not a code`},
+		"a set code of 25": {func(x *sap.Extract) {
+			name := strings.Repeat("A", 25)
+			x.SETHEADER[4].SETNAME, x.SETNODE[2].SUBSETNAME = name, name
+		}, `is not a code the platform holds (up to 24`},
 		"no set text":   {func(x *sap.Extract) { x.SETHEADERT[1].DESCRIPT = "" }, "error SETHEADER 0101/A1/ADM: no text with a name (SETHEADERT)"},
 		"a German text": {func(x *sap.Extract) { x.SETHEADERT[1].LANGU = "D" }, `warning SETHEADER 0101/A1/ADM: no text in English; it loads named "Group ADM"`},
 		"a node of no set": {func(x *sap.Extract) { x.SETNODE[0].SETNAME = "NOPE" },

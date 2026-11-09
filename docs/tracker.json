@@ -2944,9 +2944,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP group codes up to 24 characters (SAP specialist, po:2026-11-09, A11(c) [M]): SETHEADER-SETNAME holds 24 characters, 15 being the limit of the CO transactions; the quality gate's group code check (up to 15 of 0-9, A-Z, _ and -) and the hierarchy node's code, which the platform holds at 15, take 24, so a set kept with a longer name (GS02) migrates; implied: the contract's code patterns ^[0-9A-Z_-]{1,15}$ (api/openapi.yaml) widen, the check of migration 000139_hierarchies changes in a new migration, and the breaking-change check applies",
-        "r": "internal/integration sets.go · ledger hierarchy_node · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/integration sets.go nodeCode (24) · migration 000244_hierarchy_codes_24 (hierarchy_code_check, hierarchy_node_code_check) · api/openapi.yaml code patterns {1,24} (request side; oasdiff) · TestHierarchyCodesOf24, TestGroupQualityGate · ADR-0050 §3, §10 As built (SAP specialist's answers) · 03-data-model · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

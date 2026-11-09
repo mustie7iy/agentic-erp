@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -64,6 +65,8 @@ func TestHierarchies(t *testing.T) {
 		"a second root":                    {node, []any{f.tenant, id(), alt, nil, "ROOT2", f.actor}, "hierarchy_one_root"},
 		"a hierarchy code SAP cannot hold": {hierarchy, []any{f.tenant, id(), "cost_center", "lower", false, f.actor}, "hierarchy_code_check"},
 		"a node code SAP cannot hold":      {node, []any{f.tenant, id(), alt, altRoot, "lower", f.actor}, "hierarchy_node_code_check"},
+		"a hierarchy code of 25":           {hierarchy, []any{f.tenant, id(), "cost_center", strings.Repeat("H", 25), false, f.actor}, "hierarchy_code_check"},
+		"a node code of 25":                {node, []any{f.tenant, id(), alt, altRoot, strings.Repeat("N", 25), f.actor}, "hierarchy_node_code_check"},
 		"a hierarchy without a name": {`INSERT INTO ledger.hierarchy (tenant_id, id, kind, code, name, is_standard, created_by, updated_by)
 			VALUES ($1, gen_random_uuid(), 'cost_center', 'NONAME', '', false, $2, $2)`, []any{f.tenant, f.actor}, "hierarchy_name_check"},
 		"a node without a name": {`UPDATE ledger.hierarchy_node SET name = '', version = version + 1 WHERE id = $1`, []any{f.ccLeaf},
@@ -86,6 +89,18 @@ func TestHierarchies(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			failsWith(t, f.try(t, c.sql, c.args...), c.want)
 		})
+	}
+}
+
+// TestHierarchyCodesOf24: a hierarchy and a node take a code of 24
+// characters, as SETHEADER-SETNAME holds (000244, A11(c)).
+func TestHierarchyCodesOf24(t *testing.T) {
+	need(t)
+	f := newCenters(t)
+	code := strings.Repeat("A", 24)
+	tree, root := f.alternative(t, code)
+	if err := f.try(t, node, f.tenant, id(), tree, root, strings.Repeat("N", 24), f.actor); err != nil {
+		t.Errorf("a node code of 24: got %v, want none", err)
 	}
 }
 

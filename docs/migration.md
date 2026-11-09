@@ -365,7 +365,7 @@ not renamed or moved, a group SAP added is added below its parent, and a
 center an earlier run loaded keeps its places (a controller places it
 through the API). A group an earlier run loaded holding centers that SAP
 has since given subgroups takes them below its centers. The quality gate refuses a group code that is not one
-(up to 15 of 0-9, A-Z, _ and -), a group without a name in any language
+(up to 24 of 0-9, A-Z, _ and -, as SETHEADER-SETNAME holds), a group without a name in any language
 (warning of one only in another language than English), a line naming a group the extract lacks or a
 subgroup of another class or area, a value whose sign or option is
 another (patterns, CP, are not expanded) or whose range ends before it
@@ -378,9 +378,10 @@ one hierarchy, or whose KHINR is not a group of it. It warns of a value
 taking no center of the extract (it places nothing) and of an area with
 groups but no standard hierarchy, whose centers go to the UNASSIGNED leaf.
 An alternative hierarchy whose code the tenant already has is refused by
-the load and fails the run. The SAP specialist's answers of 2026-11-09
-change one more of these refusals (tracker leaf, po:2026-11-09): set names
-are up to 24 characters in SETHEADER, not 15 (below, "What to check").
+the load and fails the run. Set names are up to 24 characters in
+SETHEADER (the SAP specialist's answer A11(c) [M], po:2026-11-09; 15 in the
+CO transactions, longer only for sets kept with GS02), which the
+platform's hierarchy and node codes hold since migration 000244.
 
 The configuration draft (`erp config generate`) takes each profit and loss
 account's cost element from SAP's cost element category (CSKB-KATYP of its
@@ -768,7 +769,7 @@ others record a confirmation.
   their internal form (numeric codes zero-padded to ten), that I and E
   and EQ and BT are the signs and options cost and profit center groups
   use, and that CSKS-KHINR and CEPC-KHINR name a leaf of the standard
-  hierarchy; how long a set name may be (the platform holds 15
+  hierarchy; how long a set name may be (the platform held 15
   characters); that CSKB carries KOKRS, KSTAR, DATBI and KATYP, with 01
   primary costs and 11 and 12 revenues and sales deductions; and whether
   the extract should read TKA02 to tell a company code's controlling area.
@@ -788,7 +789,7 @@ others record a confirmation.
   KSH2/KCH2 use only I with EQ or BT [M]; sets edited with GS02 may hold
   other options (CP), which stay refused. A group name holds at most 15
   characters in the CO transactions [M], but SETHEADER-SETNAME holds 24,
-  the size to hold (tracker leaf). CSKB carries KOKRS, KSTAR, DATAB, DATBI
+  which the platform's codes hold (built, migration 000244). CSKB carries KOKRS, KSTAR, DATAB, DATBI
   and KATYP [H]; KATYP 01, 11 and 12 mean what the draft takes [H], and
   others met are 22 (external settlement), 41-43 (secondary) and 90
   (statistical, for balance sheet accounts, asset accounts in S/4HANA). An

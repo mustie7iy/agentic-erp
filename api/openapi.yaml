@@ -5064,7 +5064,7 @@ paths:
           description: Only the hierarchy with this code.
           schema:
             type: string
-            pattern: "^[0-9A-Z_-]{1,15}$"
+            pattern: "^[0-9A-Z_-]{1,24}$"
         - name: is_standard
           in: query
           required: false
@@ -29243,8 +29243,8 @@ components:
             - profit_center
         code:
           type: string
-          pattern: "^[0-9A-Z_-]{1,15}$"
-          description: "Code (up to 15 of 0-9, A-Z, _ and -), unique per kind. Immutable."
+          pattern: "^[0-9A-Z_-]{1,24}$"
+          description: "Code (up to 24 of 0-9, A-Z, _ and -, as SAP's set names), unique per kind. Immutable."
         name:
           type: string
           minLength: 1
@@ -29387,8 +29387,8 @@ components:
       properties:
         code:
           type: string
-          pattern: "^[0-9A-Z_-]{1,15}$"
-          description: "Code (up to 15 of 0-9, A-Z, _ and -), unique in the hierarchy. Immutable."
+          pattern: "^[0-9A-Z_-]{1,24}$"
+          description: "Code (up to 24 of 0-9, A-Z, _ and -, as SAP's set names), unique in the hierarchy. Immutable."
         name:
           type: string
           minLength: 1

@@ -26,8 +26,9 @@ import (
 // that inner node, which the ledger allows (ADR-0050 §3 as amended).
 
 // nodeCode is the form of a hierarchy's and a node's code (ADR-0050 §3 as
-// built in T56b).
-var nodeCode = regexp.MustCompile(`^[0-9A-Z_-]{1,15}$`)
+// built in T56b): up to 24 characters, as SETHEADER-SETNAME holds (the SAP
+// specialist, po:2026-11-09, A11(c); migration 000244).
+var nodeCode = regexp.MustCompile(`^[0-9A-Z_-]{1,24}$`)
 
 // setKinds are the hierarchy kinds by set class.
 var setKinds = map[string]string{sap.SetClassCostCenters: ledger.HierarchyCostCenters, sap.SetClassProfitCenters: ledger.HierarchyProfitCenters}
@@ -215,7 +216,7 @@ func (g *groupPlan) value(v sap.SETLEAF) {
 // is not one, or no name.
 func (g *groupPlan) checkSet(s *sapSet) {
 	if !nodeCode.MatchString(s.name) {
-		g.add(SevError, "SETHEADER", s.key(), "set %q is not a code the platform holds (up to 15 of 0-9, A-Z, _ and -)", s.name)
+		g.add(SevError, "SETHEADER", s.key(), "set %q is not a code the platform holds (up to 24 of 0-9, A-Z, _ and -)", s.name)
 	}
 	t, isEnglish, ok := pickText(g.texts[s.key()])
 	switch {

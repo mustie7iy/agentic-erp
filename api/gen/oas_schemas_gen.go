@@ -36493,7 +36493,7 @@ type HierarchyCreate struct {
 	// Kind of center it holds (422 `request.validation_failed` for another). Open enumeration: clients
 	// must accept and preserve values not listed here; values may be added within /v1.
 	Kind string `json:"kind"`
-	// Code (up to 15 of 0-9, A-Z, _ and -), unique per kind. Immutable.
+	// Code (up to 24 of 0-9, A-Z, _ and -, as SAP's set names), unique per kind. Immutable.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`
@@ -36684,7 +36684,7 @@ func (s *HierarchyNode) SetCenterIds(val []uuid.UUID) {
 // A node to add below a node.
 // Ref: #/components/schemas/HierarchyNodeAdd
 type HierarchyNodeAdd struct {
-	// Code (up to 15 of 0-9, A-Z, _ and -), unique in the hierarchy. Immutable.
+	// Code (up to 24 of 0-9, A-Z, _ and -, as SAP's set names), unique in the hierarchy. Immutable.
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`
