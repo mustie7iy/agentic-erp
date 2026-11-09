@@ -44,37 +44,43 @@ func checkOutputTax(ctx context.Context, le uuid.UUID, date time.Time, lines []L
 	return checkOutputLines(lines, byCode, date, expTC)
 }
 
-// onLineCountry is the country whose subdivision a line with the code
-// names: its component's that levies the line's; "" when none does.
-func onLineCountry(t TaxCode) string {
+// levyingComponent is the component of the code that levies the subdivision each
+// line names, the first in component order; false when none does.
+func levyingComponent(t TaxCode) (TaxComponent, bool) {
 	for _, c := range t.Components {
 		if c.JurisdictionOnLine {
-			return c.Jurisdiction
+			return c, true
 		}
 	}
-	return ""
+	return TaxComponent{}, false
 }
 
 // checkJurisdictions requires a line's jurisdiction exactly where its
 // code's component levies the line's subdivision (422
 // ledger.jurisdiction_required), and then one of that component's country
-// (422 ledger.jurisdiction_not_levied).
+// and, where the component lists the subdivisions it accepts, one of them
+// (422 ledger.jurisdiction_not_levied; the emirate guard).
 func checkJurisdictions(lines []Line, byCode map[string]TaxCode) error {
 	for i, l := range lines {
-		country := ""
+		var c TaxComponent
+		levies := false
 		if l.TaxCode != nil {
-			country = onLineCountry(byCode[*l.TaxCode])
+			c, levies = levyingComponent(byCode[*l.TaxCode])
 		}
 		field := fmt.Sprintf("lines[%d].tax_jurisdiction", i)
 		switch j := l.TaxJurisdiction; {
-		case j == nil && country != "":
+		case j == nil && levies:
 			return problem.Unprocessable("ledger.jurisdiction_required", fmt.Sprintf("Line %d carries tax code %s, which levies the tax of the "+
-				"subdivision its lines name: name the province or emirate (%s-…).", i+1, *l.TaxCode, country),
-				problem.FieldError{Field: field, Code: "required", Message: "a subdivision of " + country})
-		case j != nil && (country == "" || !strings.HasPrefix(*j, country+"-")):
+				"subdivision its lines name: name the province or emirate (%s-…).", i+1, *l.TaxCode, c.Jurisdiction),
+				problem.FieldError{Field: field, Code: "required", Message: "a subdivision of " + c.Jurisdiction})
+		case j != nil && (!levies || !strings.HasPrefix(*j, c.Jurisdiction+"-")):
 			return problem.Unprocessable("ledger.jurisdiction_not_levied", fmt.Sprintf("Line %d names jurisdiction %s, which its tax code does not "+
 				"levy: a line names one only where its code levies its lines' subdivisions.", i+1, *j),
 				problem.FieldError{Field: field, Code: "not_levied", Message: "only with a code that levies its lines' subdivision"})
+		case j != nil && len(c.Subdivisions) > 0 && !slices.Contains(c.Subdivisions, *j):
+			return problem.Unprocessable("ledger.jurisdiction_not_levied", fmt.Sprintf("Line %d names jurisdiction %s, which tax code %s does not "+
+				"levy: it levies %s.", i+1, *j, *l.TaxCode, strings.Join(c.Subdivisions, ", ")),
+				problem.FieldError{Field: field, Code: "not_levied", Message: "one of " + strings.Join(c.Subdivisions, ", ")})
 		}
 	}
 	return nil

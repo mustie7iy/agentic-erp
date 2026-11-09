@@ -99,7 +99,10 @@ The boxes:
    is on no box and its item stays unreported, as the ledger checks only
    that it is a subdivision of AE: a guard refusing an emirate the pack
    does not list is a tracker leaf of its own (review:T61k), which lands
-   before the sign-off.
+   before the sign-off. Landed in 2026.3: the tax specialist confirmed the
+   seven codes (product owner, 2026-11-09), S5 lists them, and the ledger
+   refuses a line naming another (422 `ledger.jurisdiction_not_levied`;
+   ADR-0049 §7 As built, the emirate guard).
 
 How the tenant's codes reach the boxes (the pack's mapping, decided by
 default in ADR-0049 §11 As built, T61k):

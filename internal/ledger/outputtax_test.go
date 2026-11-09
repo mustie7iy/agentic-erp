@@ -17,8 +17,9 @@ import (
 
 // outputCodes gives company 2000 an output tax account 240000 and the
 // output codes of the worked cases: S5, the UAE's standard rate, levied in
-// the emirate each line names (VAT 201 boxes 1a-1g); HON, Ontario's HST;
-// Z0 zero-rated and E0 exempt, recorded at rate 0.
+// the emirate each line names (VAT 201 boxes 1a-1g), and S5G the same
+// listing the emirates it accepts (the emirate guard; two of them here);
+// HON, Ontario's HST; Z0 zero-rated and E0 exempt, recorded at rate 0.
 func outputCodes(t *testing.T, e env) {
 	t.Helper()
 	doc := document(t)
@@ -31,7 +32,9 @@ func outputCodes(t *testing.T, e env) {
 		return config.TaxCode{Code: code, Description: code, Direction: config.TaxOutput, Kind: kind, Components: []config.TaxComponent{
 			{Key: "vat", AccountKey: config.KeyOutput, Account: "240000", Jurisdiction: jurisdiction, JurisdictionOnLine: onLine, Rates: rate(pct)}}}
 	}
-	fixture.TaxCodes(t, e.ten, doc, out("S5", config.TaxStandard, "5", "AE", true), out("HON", config.TaxStandard, "13", "CA-ON", false),
+	guarded := out("S5G", config.TaxStandard, "5", "AE", true)
+	guarded.Components[0].Subdivisions = []string{"AE-AZ", "AE-DU"}
+	fixture.TaxCodes(t, e.ten, doc, out("S5", config.TaxStandard, "5", "AE", true), guarded, out("HON", config.TaxStandard, "13", "CA-ON", false),
 		out("Z0", config.TaxZero, "0", "", false), out("E0", config.TaxExempt, "0", "", false))
 }
 
@@ -82,6 +85,8 @@ func TestOutputTax(t *testing.T) {
 		"a summary by emirate": {saleEntry(t, e, saleLine{"100000", "3150.00", "", ""}, saleLine{"400000", "-1000.00", "S5", "AE-DU"},
 			saleLine{"240000", "-50.00", "S5", "AE-DU"}, saleLine{"400000", "-2000.00", "S5", "AE-AZ"}, saleLine{"240000", "-100.00", "S5", "AE-AZ"}),
 			"S5/AE-AZ -200000 -10000 at 5; S5/AE-DU -100000 -5000 at 5"},
+		"an emirate the code lists": {saleEntry(t, e, saleLine{"100000", "105.00", "", ""}, saleLine{"400000", "-100.00", "S5G", "AE-DU"},
+			saleLine{"240000", "-5.00", "S5G", "AE-DU"}), "S5G/AE-DU -10000 -500 at 5"},
 		"Ontario HST": {saleEntry(t, e, saleLine{"100000", "113.00", "", ""}, saleLine{"400000", "-100.00", "HON", ""}, saleLine{"240000", "-13.00", "HON", ""}),
 			"HON/CA-ON -10000 -1300 at 13"},
 		"zero-rated and exempt": {saleEntry(t, e, saleLine{"100000", "150.00", "", ""}, saleLine{"400000", "-100.00", "Z0", ""},
@@ -127,6 +132,8 @@ func TestOutputTaxRefused(t *testing.T) {
 			saleLine{"240000", "-5.00", "S5", ""}), "ledger.jurisdiction_required"},
 		"another country's": {saleEntry(t, e, saleLine{"100000", "105.00", "", ""}, saleLine{"400000", "-100.00", "S5", "CA-ON"},
 			saleLine{"240000", "-5.00", "S5", "CA-ON"}), "ledger.jurisdiction_not_levied"},
+		"an emirate the code does not list": {saleEntry(t, e, saleLine{"100000", "105.00", "", ""}, saleLine{"400000", "-100.00", "S5G", "AE-DX"},
+			saleLine{"240000", "-5.00", "S5G", "AE-DX"}), "ledger.jurisdiction_not_levied"},
 		"a code of its own jurisdiction": {saleEntry(t, e, saleLine{"100000", "113.00", "", ""}, saleLine{"400000", "-100.00", "HON", "CA-ON"},
 			saleLine{"240000", "-13.00", "HON", "CA-ON"}), "ledger.jurisdiction_not_levied"},
 		"no tax code": {saleEntry(t, e, saleLine{"100000", "100.00", "", "AE-DU"}, saleLine{"400000", "-100.00", "", ""}), "ledger.jurisdiction_not_levied"},

@@ -64,7 +64,8 @@ The rates and codes:
    must), import VAT from the customs declaration, one standard output
    code for every emirate (each line names its emirate's ISO 3166-2
    code, such as AE-DU; the ledger checks only that it is a subdivision
-   of AE), and zero-rated, exempt and
+   of AE, and from 2026.3 that it is one of the seven emirates S5 lists,
+   the emirate guard), and zero-rated, exempt and
    out-of-scope output codes; no zero-rated or exempt purchase code.
 3. Recovery: input VAT, reverse charge and import VAT wholly recovered on
    1300 (subject to the six-month payment rule of VAT Law Art. 55, which

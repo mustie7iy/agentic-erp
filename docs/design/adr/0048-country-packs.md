@@ -258,6 +258,20 @@ settings cannot simply overwrite their document.
   the return is a new version rather than a change to 2026.1, which is
   released. It is the newest UAE version; the walkthrough's step 41
   applies it.
+- **As built (the emirate guard, review:T61k): UAE 2026.3** is 2026.2 with
+  S5's component, which levies the emirate each sales line names, listing
+  the seven emirates it accepts (`subdivisions: [AE-AZ, AE-DU, AE-SH,
+  AE-AJ, AE-UQ, AE-RK, AE-FU]`, the ISO 3166-2 codes the tax specialist
+  confirmed, product owner 2026-11-09), so the ledger refuses a line naming
+  another (ADR-0049 §7 As built, the emirate guard). Every file but
+  `pack.yaml` and `tax.yaml` is 2026.2's byte for byte, and the manifest
+  differs only in its version and header comment (`TestUAEPack2026_3`);
+  `returns.yaml`'s labels calling the codes pending stay, as the file is
+  2026.2's. It carries no `sign_off`, as 2026.2 does not: the sign-off of
+  T62f's items and the VAT 201 is the next version. **Decided by
+  default**, as for 2026.2: the guard is a new version rather than a change
+  to a released one. It is the newest UAE version; the walkthrough's step
+  41 applies it and shows a sale naming a mistyped emirate (AE-DB) refused.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

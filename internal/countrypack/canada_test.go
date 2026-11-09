@@ -266,25 +266,7 @@ func TestCanadaPack2026_5(t *testing.T) {
 	if !reflect.DeepEqual(&unsigned, prev) {
 		t.Error("2026.5 without its version and sign-off: got other than 2026.4, want it unchanged")
 	}
-	files, err := fs.ReadDir(packs.FS, "ca/2026.5")
-	if err != nil {
-		t.Fatalf("ReadDir(ca/2026.5): %v", err)
-	}
-	for _, f := range files {
-		if f.Name() == "pack.yaml" {
-			continue
-		}
-		t.Run(f.Name(), func(t *testing.T) {
-			was, errWas := fs.ReadFile(packs.FS, "ca/2026.4/"+f.Name())
-			is, errIs := fs.ReadFile(packs.FS, "ca/2026.5/"+f.Name())
-			if errWas != nil || errIs != nil {
-				t.Fatalf("read: got %v and %v, want the file in both versions", errWas, errIs)
-			}
-			if string(was) != string(is) {
-				t.Error("got other bytes than 2026.4's, want the same file")
-			}
-		})
-	}
+	sameFiles(t, "ca/2026.4", "ca/2026.5", "pack.yaml")
 }
 
 // Canada 2026.6 is 2026.5 plus the GST/HST return (T61j): every file but
@@ -320,25 +302,7 @@ func TestCanadaPack2026_6(t *testing.T) {
 	if !reflect.DeepEqual(&same, prev) {
 		t.Error("2026.6 without its version, sign-off, the return and its source: got other than 2026.5, want it unchanged")
 	}
-	files, err := fs.ReadDir(packs.FS, "ca/2026.6")
-	if err != nil {
-		t.Fatalf("ReadDir(ca/2026.6): %v", err)
-	}
-	for _, f := range files {
-		if f.Name() == "pack.yaml" || f.Name() == "returns.yaml" {
-			continue
-		}
-		t.Run(f.Name(), func(t *testing.T) {
-			was, errWas := fs.ReadFile(packs.FS, "ca/2026.5/"+f.Name())
-			is, errIs := fs.ReadFile(packs.FS, "ca/2026.6/"+f.Name())
-			if errWas != nil || errIs != nil {
-				t.Fatalf("read: got %v and %v, want the file in both versions", errWas, errIs)
-			}
-			if string(was) != string(is) {
-				t.Error("got other bytes than 2026.5's, want the same file")
-			}
-		})
-	}
+	sameFiles(t, "ca/2026.5", "ca/2026.6", "pack.yaml", "returns.yaml")
 }
 
 // gst34Source is the CRA's instructions for the GST/HST return, which

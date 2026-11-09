@@ -29674,7 +29674,7 @@ components:
           pattern: "^[A-Z0-9]{1,4}$"
         tax_jurisdiction:
           type: string
-          description: "The province or emirate the line's tax is levied in (ISO 3166-2, `CA-ON`, `AE-DU`; ADR-0049 §7): required on every line, base and tax, of a code whose component levies its lines' subdivision (`jurisdiction_on_line`; 422 `ledger.jurisdiction_required`), a subdivision of that component's country, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items are per jurisdiction."
+          description: "The province or emirate the line's tax is levied in (ISO 3166-2, `CA-ON`, `AE-DU`; ADR-0049 §7): required on every line, base and tax, of a code whose component levies its lines' subdivision (`jurisdiction_on_line`; 422 `ledger.jurisdiction_required`), a subdivision of that component's country and, where the component lists the subdivisions it accepts (`subdivisions`, the emirate guard), one of them, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items are per jurisdiction."
           pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$"
         tax_base:
           $ref: "#/components/schemas/Money"

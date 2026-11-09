@@ -733,6 +733,29 @@ sales invoice or a daily summary per code and jurisdiction) is decision P2.
   validates them; an instance of the previous release refuses a service
   principal's entry outright (403, `x-agent: false`) and never writes the
   columns, so the key fails closed in a mixed cell and needs no ordering.
+- **As built (the emirate guard, review:T61k, migration 000233):** a
+  component levying its lines' subdivision lists the subdivisions it
+  accepts (`subdivisions`, each a subdivision of its country, listed once;
+  only on such a component: `config.Validate`, and the database's
+  `tax_component_subdivisions`), and the ledger refuses a line naming
+  another with 422 `ledger.jurisdiction_not_levied`, naming those it
+  levies (`checkJurisdictions`; trigger `journal_line_tax_jurisdiction_code`
+  behind it, which a reversal still passes), so a mistyped emirate cannot
+  leave a sale's output VAT off the VAT 201's boxes 1a-1g. UAE pack 2026.3
+  is 2026.2 with S5 listing the seven emirates, AE-AZ, AE-DU, AE-SH, AE-AJ,
+  AE-UQ, AE-RK and AE-FU, the ISO 3166-2 codes the tax specialist confirmed
+  (product owner, 2026-11-09; ADR-0048 As built, the emirate guard).
+  **Decided by default:** the list is optional, a component without one
+  accepting any subdivision of its country as before, since the released
+  2026.1 and 2026.2 hold none and a released version never changes, and a
+  tenant's own code levying its lines' subdivision (an adjustment code for
+  box 1's adjustment column) is valid without it; the 422 keeps the
+  existing code and its field error (`not_levied`), its message listing
+  what the code levies. **Rolling upgrade (06 §6.4):** 000233 is additive
+  (a null list accepts what it did); an instance of the previous release
+  never writes the list, and a configuration activated by it leaves the
+  list as it was, so a pack listing subdivisions is applied once the
+  rollout is complete.
 
 ### 8. Calculation and rounding
 - Base × rate is exact (`big.Rat`, as `money.Convert`), rounded **once per
@@ -1407,7 +1430,8 @@ companies (all in the tenant, under RLS). A registration change is financial
     another subdivision of AE is on no box and its item stays unreported
     (the ledger checks only the country). A guard refusing an emirate the
     pack does not list is its own tracker leaf (review:T61k), to land
-    before the sign-off.
+    before the sign-off (landed: §7 As built, the emirate guard, UAE
+    2026.3).
   - **The mapping.** Box 3 takes the owed part (`vat_due`, `self_output`)
     of reverse-charge codes, RC5 and DR5, as §9 As built reports the
     domestic reverse charge in box 3 (the Context lists imports only);
