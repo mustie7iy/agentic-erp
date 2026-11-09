@@ -140,6 +140,9 @@ type Rate struct {
 type Ledger interface {
 	// PeriodOf is the company's period; ok is false when it has none.
 	PeriodOf(ctx context.Context, company uuid.UUID, year, period int16) (Period, bool, error)
+	// PeriodsOf are the companies' periods by company, read at once; a
+	// company without the period is absent.
+	PeriodsOf(ctx context.Context, companies []uuid.UUID, year, period int16) (map[uuid.UUID]Period, error)
 	Accounts(ctx context.Context, company uuid.UUID) ([]Account, error)
 	BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16) ([]Balance, error)
 	// RateOn is the latest rate of the type valid on the date; ok is

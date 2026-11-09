@@ -289,6 +289,10 @@ func (noPeriod) PeriodOf(context.Context, uuid.UUID, int16, int16) (consolidatio
 	return consolidation.Period{}, false, nil
 }
 
+func (noPeriod) PeriodsOf(context.Context, []uuid.UUID, int16, int16) (map[uuid.UUID]consolidation.Period, error) {
+	return map[uuid.UUID]consolidation.Period{}, nil
+}
+
 // TestConsolidationDatabaseFailures: every database statement of a run's
 // requests and steps failing fails it, never hidden; outside a unit of
 // work each refuses.

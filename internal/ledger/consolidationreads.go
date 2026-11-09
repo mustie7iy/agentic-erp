@@ -106,6 +106,29 @@ func (ConsolidationReads) PeriodOf(ctx context.Context, legalEntity, ledgerID uu
 	return p, true, nil
 }
 
+// PeriodsOf are the companies' periods of the fiscal year in the ledger,
+// by company, with their status, version and pending unlock request, in
+// one statement: a consolidation run's staleness reads every company of it
+// (ADR-0059 §10). A company without the period is absent.
+func (ConsolidationReads) PeriodsOf(ctx context.Context, legalEntities []uuid.UUID, ledgerID uuid.UUID, year, period int16) (map[uuid.UUID]PeriodState, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT ps.legal_entity_id, ps.id, ps.fiscal_year, ps.period, fp.start_date, fp.end_date, ps.status, ps.version,
+			ps.unlock_request_id
+		FROM ledger.period_status ps
+		JOIN ledger.fiscal_period fp ON fp.tenant_id = ps.tenant_id AND fp.calendar_id = ps.calendar_id AND fp.fiscal_year = ps.fiscal_year
+			AND fp.period = ps.period
+		WHERE ps.legal_entity_id = ANY($1) AND ps.ledger_id = $2 AND ps.fiscal_year = $3 AND ps.period = $4`, legalEntities, ledgerID, year, period)
+	out := map[uuid.UUID]PeriodState{}
+	var company uuid.UUID
+	var p PeriodState
+	_, err = pgx.ForEachRow(rows, []any{&company, &p.ID, &p.FiscalYear, &p.Period, &p.Start, &p.End, &p.Status, &p.Version, &p.UnlockRequestID},
+		func() error { out[company] = p; return nil })
+	return out, errs.Wrapf(err, "ledger: periods %d/%d of %d companies", year, period, len(legalEntities))
+}
+
 // AccountsOf are the company's accounts by number.
 func (ConsolidationReads) AccountsOf(ctx context.Context, legalEntity uuid.UUID) ([]AccountOf, error) {
 	tx, _, err := reqctx.Request(ctx)

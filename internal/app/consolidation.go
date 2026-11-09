@@ -54,6 +54,19 @@ func (consolidationLedger) PeriodOf(ctx context.Context, company uuid.UUID, year
 	return consolidation.Period{Start: p.Start, End: p.End, Status: p.Status, Version: p.Version, UnlockRequestID: p.UnlockRequestID}, ok, err
 }
 
+func (consolidationLedger) PeriodsOf(ctx context.Context, companies []uuid.UUID, year, period int16) (map[uuid.UUID]consolidation.Period, error) {
+	leading, err := ledger.ConsolidationReads{}.LeadingLedger(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ps, err := ledger.ConsolidationReads{}.PeriodsOf(ctx, companies, leading, year, period)
+	out := make(map[uuid.UUID]consolidation.Period, len(ps))
+	for id, p := range ps {
+		out[id] = consolidation.Period{Start: p.Start, End: p.End, Status: p.Status, Version: p.Version, UnlockRequestID: p.UnlockRequestID}
+	}
+	return out, err
+}
+
 func (consolidationLedger) Accounts(ctx context.Context, company uuid.UUID) ([]consolidation.Account, error) {
 	as, err := ledger.ConsolidationReads{}.AccountsOf(ctx, company)
 	out := make([]consolidation.Account, len(as))

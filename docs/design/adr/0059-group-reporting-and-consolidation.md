@@ -1569,8 +1569,12 @@ default, for the product owner to overrule:
   ("none" for a period the ledger no longer has); 409
   `consolidation.run_stale` naming each company whose period's version
   moved, both versions and a pending unlock request. The period's pending
-  unlock request is `PeriodOf`'s new field, read from the same
-  `period_status` row (`unlock_request_id`), not a new read (§4a).
+  unlock request is read from the same `period_status` row
+  (`unlock_request_id`). §4a says T68g adds no read; it adds one,
+  `ConsolidationReads.PeriodsOf` (the port's `PeriodsOf`): `PeriodOf`
+  for many companies in one statement, since reading each company's
+  period apart cost a 100-company run's statement 200 round trips (p95
+  above 1 s at ERP_BUDGET_SCALE=1, load 53).
 - **Locks.** The run is read first without a lock (its visibility, group
   and period), then every run of the group's period that is not
   discarded is locked `FOR UPDATE` in id order and the run read again, so
@@ -1582,8 +1586,10 @@ default, for the product owner to overrule:
   `ConsolidationRunChanged`. `consolidation_run_one_final` maps to 409
   `consolidation.final_exists`. A run's `stale` (§10) is shown on its
   reads once every company of it is translated (absent before) and on
-  its statements; reading it costs one `PeriodOf` per company and period
-  of the page. The run also shows `finalized_by` with its name,
+  its statements; reading it costs one `PeriodsOf` per fiscal year and
+  period of the page. `TestConsolidatedStatementBudget` with it: p95
+  0.23-0.28 s at ERP_BUDGET_SCALE=1 and 0.23-0.42 s at 2 (load averages
+  19-24, 2026-11-09), against 1 s. The run also shows `finalized_by` with its name,
   `finalized_at`, `superseded_by` and `supersedes` (the final run it
   superseded), so `:finalize`'s answer names the run it superseded.
 - **Not in T68g.** Freezing a member's acquisition figures at its first

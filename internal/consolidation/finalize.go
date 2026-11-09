@@ -40,24 +40,34 @@ type periodKey struct {
 
 // periodsNow reads, as they are now, the leading-ledger periods of the
 // companies of the runs that are all translated (their stale is known),
-// once per company and period. A period the ledger no longer has is the
-// zero Period, whose version no run recorded.
+// one ledger read per fiscal year and period. A period the ledger no
+// longer has is the zero Period, whose version no run recorded.
 func (e *Endpoints) periodsNow(ctx context.Context, rs []Run, ms map[uuid.UUID][]Member) (map[periodKey]Period, error) {
-	out := map[periodKey]Period{}
+	type yearPeriod struct{ year, period int16 }
+	companies := map[yearPeriod][]uuid.UUID{}
+	var order []yearPeriod
 	for _, r := range rs {
 		if !translated(ms[r.ID]) {
 			continue
 		}
+		yp := yearPeriod{r.FiscalYear, r.Period}
+		if _, ok := companies[yp]; !ok {
+			order = append(order, yp)
+		}
 		for _, m := range ms[r.ID] {
-			k := periodKey{company: m.LegalEntityID, year: r.FiscalYear, period: r.Period}
-			if _, ok := out[k]; ok {
-				continue
+			if !slices.Contains(companies[yp], m.LegalEntityID) {
+				companies[yp] = append(companies[yp], m.LegalEntityID)
 			}
-			p, _, err := e.Ledger.PeriodOf(ctx, m.LegalEntityID, r.FiscalYear, r.Period)
-			if err != nil {
-				return nil, fmt.Errorf("consolidation: period %d/%d of %s: %w", r.FiscalYear, r.Period, m.CompanyCode, err)
-			}
-			out[k] = p
+		}
+	}
+	out := map[periodKey]Period{}
+	for _, yp := range order {
+		ps, err := e.Ledger.PeriodsOf(ctx, companies[yp], yp.year, yp.period)
+		if err != nil {
+			return nil, fmt.Errorf("consolidation: periods %d/%d of %d companies: %w", yp.year, yp.period, len(companies[yp]), err)
+		}
+		for company, p := range ps {
+			out[periodKey{company: company, year: yp.year, period: yp.period}] = p
 		}
 	}
 	return out, nil
