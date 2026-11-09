@@ -2411,7 +2411,7 @@
        {
         "s": "D",
         "t": "Scheduled e-invoice fetch, changed bytes and the original: the workflow dispatcher and ERP_EINVOICE_FETCH_INTERVAL; changed_hash set by an update guarded on the new hash, one audit record and event per change (run-twice test); the gauge erp_einvoices_unacknowledged; GET /v1/e-invoices/{id}/content (x-agent false); walkthrough: Alex downloads the e-invoice with the stand-in's hash, a redelivery with other bytes is counted as changed once",
-        "r": "db/migrations/000233, 000234 · workflow ScheduledEInvoiceFetch · ERP_EINVOICE_FETCH_INTERVAL · integration.EInvoiceConnectors · operations.StartTaken · einvoicing.einvoice.changed_hash · GET /v1/e-invoices/{id}/content · einvoicing.document_changed · erp_einvoices_unacknowledged · walkthrough step_einvoice · ADR-0061 §4, §8 and As built · T65b",
+        "r": "db/migrations/000233-000236 · workflow ScheduledEInvoiceFetch · ERP_EINVOICE_FETCH_INTERVAL · integration.EInvoiceConnectors · operations.StartTaken · einvoicing.einvoice.changed_hash · GET /v1/e-invoices/{id}/content · einvoicing.document_changed · erp_einvoices_unacknowledged · walkthrough step_einvoice · ADR-0061 §4, §8 and As built · T65b",
         "src": "adr:ADR-0061",
         "c": []
        },

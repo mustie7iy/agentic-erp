@@ -1351,24 +1351,24 @@ func (UnimplementedHandler) ExcludeBankStatementLine(ctx context.Context, req *R
 // delivered again change nothing more. Its acknowledgement moves the document's version without an
 // event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`,
 // `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the
-// documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the
-// Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such
-// message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when
-// the provider, the store or the database failed (after five tries in the workflow engine, one in
-// process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a
-// document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch
-// meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A
-// connector that is not an active `einvoice_provider` connector with credentials that resolve is
-// refused before anything is queued (404 `request.not_found`, 422
-// `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422
-// `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so
-// is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only
-// adapter until a provider is chosen. A server without object storage refuses every fetch (503
-// `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides
-// fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider`
-// connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch
-// an Operation of the same kind created by the fetcher, carried out as the workflow
-// `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
+// documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one
+// names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation
+// with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a
+// field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider,
+// the store or the database failed (after five tries in the workflow engine, one in process), which
+// the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above
+// 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A
+// provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is
+// not an active `einvoice_provider` connector with credentials that resolve is refused before anything
+// is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409
+// `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`,
+// `integration.secret_unavailable`); so is, in production, the provider's stand-in (422
+// `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without
+// object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint
+// for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from
+// every active `einvoice_provider` connector of an active tenant once per
+// `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created
+// by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`).
 //
 // POST /v1/e-invoices:fetch
 func (UnimplementedHandler) FetchEInvoices(ctx context.Context, req *EInvoiceFetch, params FetchEInvoicesParams) (r FetchEInvoicesRes, _ error) {

@@ -14381,7 +14381,7 @@ paths:
       tags:
         - einvoicing
       summary: Fetch e-invoices from the provider now
-      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded (`/v1/e-invoices?fetch_operation_id={id}`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
+      description: "Fetches, now, the documents the tenant's accredited e-invoicing provider holds for the companies of an `einvoice_provider` connector (ADR-0061 §4, T65a; SAP Document and Reporting Compliance's inbound e-documents): the fetch is queued as an Operation (kind `einvoicing.fetch`) and carried out as the workflow `FetchEInvoices`, or in process in a cell without a workflow engine, as a system principal acting for the connector's companies. It lists the documents the provider has not had acknowledged, and records each once per connector and the provider's message id: its bytes kept write-once in object storage under their SHA-256, the document `received` with its company (the connector's company whose participant identifier the provider listed it for; none when it names none of them), the fetch's Operation as its `fetch_operation_id`, an audit record and EInvoiceChanged; after that commit the provider is told the document is kept (its acknowledgement), and `acknowledged_at` is set. A document already recorded is not recorded again and its acknowledgement is sent again, so an acknowledgement lost is repaired by the next fetch. A message delivered again under its id with other bytes (T65b) is not recorded again either: the document keeps its first bytes, the legal original, and records the new bytes' SHA-256 as `changed_sha256` with `changed_at`, with an audit record and EInvoiceChanged once per different bytes, so the same changed bytes delivered again change nothing more. Its acknowledgement moves the document's version without an event. When the fetch is done its Operation succeeds with the counts in its `result` (`recorded`, `already_recorded`, `changed`: a message found with other bytes) and its `resource` the list of the documents it recorded or found changed (`/v1/e-invoices?fetch_operation_id={id}`; a changed one names the fetch as its `changed_fetch_operation_id`); a message not recorded fails the Operation with `einvoicing.fetch_incomplete`, the others recorded: its problem names each such message as a field error `messages.{id}` with the code that stopped it, `platform.unavailable` when the provider, the store or the database failed (after five tries in the workflow engine, one in process), which the next fetch takes again, or a refusal such as `einvoicing.document_too_large` (a document above 10 MiB, not recorded until validation records it refused, T65c), which the next fetch meets again. A provider whose messages cannot be listed fails it with `platform.unavailable`. A connector that is not an active `einvoice_provider` connector with credentials that resolve is refused before anything is queued (404 `request.not_found`, 422 `integration.not_an_einvoice_provider`, 409 `integration.connector_disabled`, 422 `integration.secret_required`, `integration.invalid_settings`, `integration.secret_unavailable`); so is, in production, the provider's stand-in (422 `integration.adapter_not_certified`), the only adapter until a provider is chosen. A server without object storage refuses every fetch (503 `platform.unavailable`). The ERP polls; it opens no endpoint for the provider to call. Besides fetches on demand, a cell with a workflow engine fetches from every active `einvoice_provider` connector of an active tenant once per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h; T65b), each fetch an Operation of the same kind created by the fetcher, carried out as the workflow `ScheduledEInvoiceFetch`. Human-only (`x-agent: false`)."
       x-permission: einvoicing.einvoice.manage
       x-agent: false
       x-problem-codes:
@@ -14473,7 +14473,7 @@ paths:
         - name: fetch_operation_id
           in: query
           required: false
-          description: Only the e-invoices this fetch recorded (its Operation's id).
+          description: "Only the e-invoices this fetch recorded or found changed (its Operation's id, matching `fetch_operation_id` or `changed_fetch_operation_id`)."
           schema:
             type: string
             format: uuid
@@ -14518,6 +14518,7 @@ paths:
                     acknowledged_at: "2026-11-08T10:00:01Z"
                     changed_sha256: null
                     changed_at: null
+                    changed_fetch_operation_id: null
                     version: 2
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -14565,6 +14566,7 @@ paths:
                 acknowledged_at: "2026-11-08T10:00:01Z"
                 changed_sha256: null
                 changed_at: null
+                changed_fetch_operation_id: null
                 version: 2
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -40261,7 +40263,7 @@ components:
       type: object
       description: "A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15): recorded once per connector and the provider's message id, its bytes kept as received."
       required: [id, connector_id, connector_name, message_id, receiver, legal_entity_id, company_code, company_name, status, sha256, size,
-        fetch_operation_id, received_at, acknowledged_at, changed_sha256, changed_at, version]
+        fetch_operation_id, received_at, acknowledged_at, changed_sha256, changed_at, changed_fetch_operation_id, version]
       properties:
         id: {type: string, format: uuid}
         connector_id: {type: string, format: uuid, description: The `einvoice_provider` connector it was received through.}
@@ -40279,6 +40281,7 @@ components:
         acknowledged_at: {type: [string, 'null'], format: date-time, description: "When the provider was told it is kept; null until then (the next fetch acknowledges it again)."}
         changed_sha256: {type: [string, 'null'], pattern: "^[0-9a-f]{64}$", description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest such, hex; null while it delivered none. The document keeps its first bytes, the legal original (`sha256`, `getEInvoiceContent`); a person takes a change up with the supplier or the provider."}
         changed_at: {type: [string, 'null'], format: date-time, description: "When a fetch found those bytes; null with `changed_sha256`."}
+        changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those bytes: its Operation's id, which lists the document under `fetch_operation_id` too; null with `changed_sha256`."}
         version: {type: integer, format: int32}
     ConsolidationRunPage:
       type: object

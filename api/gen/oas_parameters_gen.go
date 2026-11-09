@@ -42590,7 +42590,8 @@ type ListEInvoicesParams struct {
 	ConnectorID OptUUID `json:",omitempty,omitzero"`
 	// Only e-invoices in this status.
 	Status OptString `json:",omitempty,omitzero"`
-	// Only the e-invoices this fetch recorded (its Operation's id).
+	// Only the e-invoices this fetch recorded or found changed (its Operation's id, matching
+	// `fetch_operation_id` or `changed_fetch_operation_id`).
 	FetchOperationID OptUUID `json:",omitempty,omitzero"`
 	// Only e-invoices received at or after this time.
 	ReceivedFrom OptDateTime `json:",omitempty,omitzero"`

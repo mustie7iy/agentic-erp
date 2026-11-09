@@ -41,7 +41,7 @@ func (e *Endpoints) GetEInvoiceContent(ctx context.Context, params gen.GetEInvoi
 		return nil, fmt.Errorf("einvoicing: read e-invoice %s: %w", params.ID, err)
 	}
 	if e.Objects == nil {
-		return nil, problem.Unavailable("E-invoices are kept in object storage, which this server does not have.", 0)
+		return nil, noStore()
 	}
 	content, _, err := e.Objects.Get(ctx, ref)
 	switch {

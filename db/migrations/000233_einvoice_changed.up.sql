@@ -7,16 +7,20 @@
 -- redelivery of the same changed bytes changes nothing again. Expand only:
 -- three nullable columns the previous version neither reads nor writes,
 -- the trigger replaced to let them change, and the worker role's read of
--- the two columns the unacknowledged gauge counts (000234 adds its index).
+-- the two columns the unacknowledged gauge counts (000234 validates the
+-- checks, 000235 and 000236 add the indexes).
 ALTER TABLE einvoicing.einvoice
-  ADD COLUMN changed_hash bytea CHECK (length(changed_hash) = 32),
+  ADD COLUMN changed_hash bytea,
   ADD COLUMN changed_at timestamptz,
   ADD COLUMN changed_fetch_operation_id uuid,  -- platform.operation
+  ADD CONSTRAINT einvoice_changed_hash CHECK (length(changed_hash) = 32) NOT VALID,
   -- Set together, never to the bytes kept, and never before the document
-  -- was received.
+  -- was received. NOT VALID here, validated by 000234 (06 §6.4), so adding
+  -- them scans nothing under the table's lock; new rows and updates are
+  -- checked at once.
   ADD CONSTRAINT einvoice_changed CHECK ((changed_hash IS NULL) = (changed_at IS NULL)
     AND (changed_hash IS NULL) = (changed_fetch_operation_id IS NULL)
-    AND changed_hash IS DISTINCT FROM sha256 AND (changed_at IS NULL OR changed_at >= received_at));
+    AND changed_hash IS DISTINCT FROM sha256 AND (changed_at IS NULL OR changed_at >= received_at)) NOT VALID;
 GRANT UPDATE (changed_hash, changed_at, changed_fetch_operation_id) ON einvoicing.einvoice TO erp_app;
 
 -- As 000231's, and a change of bytes, once recorded, is never undone.

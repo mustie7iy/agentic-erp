@@ -35,18 +35,19 @@ type EInvoice struct {
 	// ChangedHash is the SHA-256 of other bytes the provider delivered
 	// later under the message id, the latest, and ChangedAt when a fetch
 	// found them; nil while there are none (ADR-0061 §4).
-	ChangedHash []byte
-	ChangedAt   *time.Time
-	Version     int32
+	ChangedHash      []byte
+	ChangedAt        *time.Time
+	ChangedFetchedBy *uuid.UUID // the fetch that found them
+	Version          int32
 }
 
 const einvoiceColumns = `id, connector_id, message_id, receiver, legal_entity_id, status, sha256, size, fetch_operation_id, received_at, acknowledged_at,
-	changed_hash, changed_at, version`
+	changed_hash, changed_at, changed_fetch_operation_id, version`
 
 // fields are the destinations of einvoiceColumns, in order.
 func (d *EInvoice) fields() []any {
 	return []any{&d.ID, &d.ConnectorID, &d.MessageID, &d.Receiver, &d.LegalEntityID, &d.Status, &d.SHA256, &d.Size, &d.FetchOperationID, &d.ReceivedAt,
-		&d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.Version}
+		&d.AcknowledgedAt, &d.ChangedHash, &d.ChangedAt, &d.ChangedFetchedBy, &d.Version}
 }
 
 func scanEInvoice(r pgx.Row) (EInvoice, error) {
@@ -86,7 +87,7 @@ func (e *Endpoints) ListEInvoices(ctx context.Context, params gen.ListEInvoicesP
 	}
 	q, args := ks.SQL(`SELECT `+einvoiceColumns+` FROM einvoicing.einvoice
 		WHERE ($1::uuid IS NULL OR legal_entity_id = $1) AND ($2::uuid IS NULL OR connector_id = $2) AND ($3 = '' OR status = $3)
-		  AND ($4::uuid IS NULL OR fetch_operation_id = $4) AND ($5::timestamptz IS NULL OR received_at >= $5)
+		  AND ($4::uuid IS NULL OR fetch_operation_id = $4 OR changed_fetch_operation_id = $4) AND ($5::timestamptz IS NULL OR received_at >= $5)
 		  AND ($6::timestamptz IS NULL OR received_at < $6) AND ($7 OR legal_entity_id = ANY($8))`,
 		[]any{apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.ConnectorID), params.Status.Value,
 			apitypes.Ptr[uuid.UUID](params.FetchOperationID), apitypes.Ptr[time.Time](params.ReceivedFrom), apitypes.Ptr[time.Time](params.ReceivedTo),
@@ -199,9 +200,11 @@ func (n names) toAPI(d EInvoice) gen.EInvoice {
 	if d.ChangedAt != nil {
 		out.ChangedSHA256.SetTo(hex.EncodeToString(d.ChangedHash))
 		out.ChangedAt.SetTo(*d.ChangedAt)
+		out.ChangedFetchOperationID.SetTo(*d.ChangedFetchedBy)
 	} else {
 		out.ChangedSHA256.SetToNull()
 		out.ChangedAt.SetToNull()
+		out.ChangedFetchOperationID.SetToNull()
 	}
 	return out
 }

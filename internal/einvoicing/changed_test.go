@@ -89,7 +89,9 @@ func TestRedeliveredEInvoice(t *testing.T) {
 		"sha256":            {events[1]["sha256"], hash(first)},
 		"changed_sha256":    {events[1]["changed_sha256"], hash(second)},
 		"legal_entity_code": {events[1]["legal_entity_code"], "1000"},
+		"the fetch":         {events[1]["changed_fetch_operation_id"], op.String()},
 		"receipt's change":  {events[0]["changed_sha256"], nil},
+		"receipt's fetch":   {events[0]["changed_fetch_operation_id"], nil},
 	} {
 		if c.got != c.want {
 			t.Errorf("the change's EInvoiceChanged, %s: got %v, want %v", field, c.got, c.want)
@@ -174,7 +176,8 @@ func (failingGets) Get(context.Context, string) ([]byte, string, error) {
 func TestEInvoiceContent(t *testing.T) {
 	s, _ := listScene(t)
 	s.srv.Redeliver("MSG-1", einvoicetest.Invoice("INV-1 corrected"))
-	s.record(t, s.fetch(t, s.connector), einvoicing.Message{ID: "MSG-1", Receiver: usParticipant})
+	changedBy := s.fetch(t, s.connector)
+	s.record(t, changedBy, einvoicing.Message{ID: "MSG-1", Receiver: usParticipant})
 	var id, other uuid.UUID
 	pgtest.Scan(t, `SELECT id FROM einvoicing.einvoice WHERE tenant_id = $1 AND message_id = 'MSG-1'`, []any{s.f.Tenant.ID}, &id)
 	pgtest.Scan(t, `SELECT id FROM einvoicing.einvoice WHERE tenant_id = $1 AND message_id = 'MSG-3'`, []any{s.f.Tenant.ID}, &other)
@@ -189,6 +192,10 @@ func TestEInvoiceContent(t *testing.T) {
 		t.Errorf("an agent: got %d %s, want 403 (x-agent: false)", r.Code, r.Body)
 	}
 	doc, _ := s.f.Must(http.StatusOK, http.MethodGet, "/v1/e-invoices/"+id.String(), "", "")
+	if found, _ := s.f.Must(http.StatusOK, http.MethodGet, "/v1/e-invoices?fetch_operation_id="+changedBy.String(), "", ""); messages(apitest.List(t, found, "items")) != "MSG-1" ||
+		doc["changed_fetch_operation_id"] != changedBy.String() {
+		t.Errorf("the fetch that found the change: got %v and %v, want MSG-1 listed under it and named by it", found, doc["changed_fetch_operation_id"])
+	}
 	if got, want := doc["changed_sha256"], hash(einvoicetest.Invoice("INV-1 corrected")); got != want || doc["changed_at"] == nil {
 		t.Errorf("the document's change: got %v at %v, want %s with its time", got, doc["changed_at"], want)
 	}
@@ -286,5 +293,17 @@ func TestQueueEInvoiceFetch(t *testing.T) {
 	}
 	if err := queue(context.Background()); err == nil {
 		t.Error("outside a unit of work: got nil error, want an error")
+	}
+}
+
+// TestPendingWithoutStore: a server without object storage refuses a
+// fetch's first step before the provider is asked, so a scheduled fetch,
+// which no request refused, fails rather than fetching what it cannot keep.
+func TestPendingWithoutStore(t *testing.T) {
+	s := setup(t)
+	cfg := s.cfg
+	cfg.Objects = nil
+	if _, err := app.EInvoicing(cfg).PendingEInvoices(context.Background(), s.connector, s.within()); problem.From(err).Code != "platform.unavailable" {
+		t.Errorf("got %v, want platform.unavailable", err)
 	}
 }

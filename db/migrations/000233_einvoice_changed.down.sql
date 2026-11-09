@@ -23,4 +23,4 @@ BEGIN
   RETURN NEW;
 END $$;
 REVOKE UPDATE (changed_hash, changed_at, changed_fetch_operation_id) ON einvoicing.einvoice FROM erp_app;
-ALTER TABLE einvoicing.einvoice DROP CONSTRAINT einvoice_changed, DROP COLUMN changed_fetch_operation_id, DROP COLUMN changed_at, DROP COLUMN changed_hash;
+ALTER TABLE einvoicing.einvoice DROP CONSTRAINT einvoice_changed, DROP CONSTRAINT einvoice_changed_hash, DROP COLUMN changed_fetch_operation_id, DROP COLUMN changed_at, DROP COLUMN changed_hash;

@@ -4028,7 +4028,7 @@ step_einvoice() {
 # downloaded as received, and the provider's redelivery under its id with
 # other bytes recorded as its change, once.
 einvoice_original() {
-  local connector=$1 doc=$2 sum=$3 changed
+  local connector=$1 doc=$2 sum=$3 changed op
   say "Alex downloads GOI-2001 as received, the legal original kept write-once; its SHA-256 is the stand-in's, and the"
   say "server compares it with the hash recorded on every read:"
   api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/GOI-2001.downloaded.xml"
@@ -4045,9 +4045,14 @@ einvoice_original() {
   wait_op
   excerpt '"operation \(.status): recorded \(.result.recorded), already recorded \(.result.already_recorded), changed \(.result.changed)"'
   expect "the redelivery's counts" "$(field '"\(.result.recorded) \(.result.already_recorded) \(.result.changed)"')" "0 0 1"
-  api 200 '"  \(.message_id): \(.status), its bytes \(.sha256[0:16])…, changed to \(.changed_sha256[0:16])… at \(.changed_at)"' getEInvoice -p "id=$doc"
-  expect "the bytes kept" "$(field .sha256)" "$sum"
-  expect "the change recorded" "$(field .changed_sha256)" "$changed"
+  op=$(field .id)
+  say "The fetch's documents, its Operation's resource, are those it recorded or found changed:"
+  api 200 '.items[] | "  \(.message_id): \(.status), its bytes \(.sha256[0:16])…, changed to \(.changed_sha256[0:16])… at \(.changed_at) by this fetch \(.changed_fetch_operation_id == "'"$op"'")"' \
+    listEInvoices -p "fetch_operation_id=$op"
+  expect "the fetch's changed documents" "$(field '[.items[].id] | join(" ")')" "$doc"
+  expect "the bytes kept" "$(field '.items[0].sha256')" "$sum"
+  expect "the change recorded" "$(field '.items[0].changed_sha256')" "$changed"
+  expect "the fetch that found it" "$(field '.items[0].changed_fetch_operation_id')" "$op"
   QUIET=1 api 200 '' getEInvoiceContent -p "id=$doc" -out "$WORK/provider/GOI-2001.downloaded-again.xml"
   expect "the download after the change" "$(shasum -a 256 "$WORK/provider/GOI-2001.downloaded-again.xml" | cut -d' ' -f1)" "$sum"
   say "The provider loses that acknowledgement too and delivers the same changed bytes again; it is not a change again:"

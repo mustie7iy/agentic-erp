@@ -69114,12 +69114,16 @@ func (s *EInvoice) encodeFields(e *jx.Encoder) {
 		s.ChangedAt.Encode(e, json.EncodeDateTime)
 	}
 	{
+		e.FieldStart("changed_fetch_operation_id")
+		s.ChangedFetchOperationID.Encode(e)
+	}
+	{
 		e.FieldStart("version")
 		e.Int32(s.Version)
 	}
 }
 
-var jsonFieldsNameOfEInvoice = [17]string{
+var jsonFieldsNameOfEInvoice = [18]string{
 	0:  "id",
 	1:  "connector_id",
 	2:  "connector_name",
@@ -69136,7 +69140,8 @@ var jsonFieldsNameOfEInvoice = [17]string{
 	13: "acknowledged_at",
 	14: "changed_sha256",
 	15: "changed_at",
-	16: "version",
+	16: "changed_fetch_operation_id",
+	17: "version",
 }
 
 // Decode decodes EInvoice from json.
@@ -69326,8 +69331,18 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"changed_at\"")
 			}
-		case "version":
+		case "changed_fetch_operation_id":
 			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				if err := s.ChangedFetchOperationID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"changed_fetch_operation_id\"")
+			}
+		case "version":
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -69350,7 +69365,7 @@ func (s *EInvoice) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11111111,
 		0b11111111,
-		0b00000001,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

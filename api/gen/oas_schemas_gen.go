@@ -28049,7 +28049,10 @@ type EInvoice struct {
 	ChangedSHA256 NilString `json:"changed_sha256"`
 	// When a fetch found those bytes; null with `changed_sha256`.
 	ChangedAt NilDateTime `json:"changed_at"`
-	Version   int32       `json:"version"`
+	// The fetch that found those bytes: its Operation's id, which lists the document under
+	// `fetch_operation_id` too; null with `changed_sha256`.
+	ChangedFetchOperationID NilUUID `json:"changed_fetch_operation_id"`
+	Version                 int32   `json:"version"`
 }
 
 // GetID returns the value of ID.
@@ -28130,6 +28133,11 @@ func (s *EInvoice) GetChangedSHA256() NilString {
 // GetChangedAt returns the value of ChangedAt.
 func (s *EInvoice) GetChangedAt() NilDateTime {
 	return s.ChangedAt
+}
+
+// GetChangedFetchOperationID returns the value of ChangedFetchOperationID.
+func (s *EInvoice) GetChangedFetchOperationID() NilUUID {
+	return s.ChangedFetchOperationID
 }
 
 // GetVersion returns the value of Version.
@@ -28215,6 +28223,11 @@ func (s *EInvoice) SetChangedSHA256(val NilString) {
 // SetChangedAt sets the value of ChangedAt.
 func (s *EInvoice) SetChangedAt(val NilDateTime) {
 	s.ChangedAt = val
+}
+
+// SetChangedFetchOperationID sets the value of ChangedFetchOperationID.
+func (s *EInvoice) SetChangedFetchOperationID(val NilUUID) {
+	s.ChangedFetchOperationID = val
 }
 
 // SetVersion sets the value of Version.

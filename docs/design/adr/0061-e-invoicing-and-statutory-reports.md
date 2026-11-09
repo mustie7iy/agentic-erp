@@ -782,11 +782,13 @@ earlier attempt and `already_recorded` otherwise. Decided by default:
 §8, §11 and §15 for the schedule, a changed redelivery and the original:
 migrations 000233 (`changed_hash`, `changed_at` and
 `changed_fetch_operation_id` on `einvoicing.einvoice`, set together, never
-to the bytes kept, never before receipt, `einvoice_changed`; the trigger
-replaced so they may be set and never undone; the worker role's read of
-`received_at` and `acknowledged_at`) and 000234 (the cell-wide partial
-index `einvoice_unacknowledged`, built concurrently as the other gauges'
-indexes are). Decided by default:
+to the bytes kept, never before receipt, `einvoice_changed` and
+`einvoice_changed_hash` added NOT VALID; the trigger replaced so they may
+be set and never undone; the worker role's read of `received_at` and
+`acknowledged_at`), 000234 (the checks validated), 000235 (the cell-wide
+partial index `einvoice_unacknowledged`, built concurrently as the other
+gauges' indexes are) and 000236 (`einvoice_by_changed_fetch`). Decided by
+default:
 
 - **A scheduled fetch is an Operation too.** The dispatcher starts, once
   per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h, 0 none) and active
@@ -805,22 +807,30 @@ indexes are). Decided by default:
   documents name that Operation as their `fetch_operation_id`, and its
   counts and failures are an on-demand fetch's. A connector refused since
   the dispatch (disabled, its secret gone) fails that Operation with the
-  problem. A cell without a workflow engine fetches on demand only, as it
+  problem, and a server without object storage fails it at its first
+  step, before the provider is asked (`platform.unavailable`), as it
+  refuses a fetch on demand. A cell without a workflow engine fetches on demand only, as it
   fetches no statements on a schedule (ADR-0047).
 - **A changed redelivery.** A message recorded before whose bytes are
   neither the bytes kept nor the change last recorded sets
   `changed_hash`, `changed_at` and the fetch, guarded by `sha256 <> $new
   AND changed_hash IS DISTINCT FROM $new` (ADR-0008), with the audit
   record `einvoicing.einvoice.bytes_changed` and EInvoiceChanged
-  (`changed_sha256` added; the status does not move, so `status_before` is
-  the status); the outcome is `changed`, a fetch's new count. The same
+  (`changed_sha256` and `changed_fetch_operation_id` added; the status
+  does not move, so `status_before` is the status); the outcome is
+  `changed`, a fetch's new count. The fetch that found the change is the
+  document's `changed_fetch_operation_id`, and the list's
+  `fetch_operation_id` filter, a fetch's Operation's `resource`, matches
+  it as well as the recording fetch, so a fetch's result leads to the
+  documents it found changed (review round 1). The same
   changed bytes again, or the first bytes again, are `already_recorded`;
   a step run again after its commit counts the change as its fetch's, as
   a recording does (`changed_fetch_operation_id`). The row keeps its first
   bytes, the original (§8). The new bytes are kept in object storage
   under their own hash too, since they are kept before the row is read;
   nothing serves them, and `changed_sha256` names them. The list and the
-  document carry `changed_sha256` and `changed_at`.
+  document carry `changed_sha256`, `changed_at` and
+  `changed_fetch_operation_id`.
 - **The original.** `GET /v1/e-invoices/{id}/content` serves the bytes
   as first received, `application/octet-stream` as
   `getSupplierInvoiceDocument` serves a captured document, visible as the
@@ -834,5 +844,6 @@ indexes are). Decided by default:
 - **The walkthrough.** `step_einvoice` goes on: Alex downloads GOI-2001,
   its SHA-256 the stand-in's; the stand-in delivers it again with other
   bytes and a fetch counts it `changed`, the document keeping its first
-  bytes and naming the new ones' hash; the same bytes delivered once more
+  bytes and naming the new ones' hash, found through the fetch's list;
+  the same bytes delivered once more
   are counted already recorded, the change named once.

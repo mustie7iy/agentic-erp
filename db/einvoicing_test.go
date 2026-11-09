@@ -157,7 +157,7 @@ func TestEInvoiceProviderKind(t *testing.T) {
 	})
 }
 
-// TestEInvoiceChange (T65b, migration 000233; ADR-0061 §4, §8): a change
+// TestEInvoiceChange (T65b, migrations 000233, 000234; ADR-0061 §4, §8): a change
 // of an e-invoice's bytes is recorded beside its first bytes, its hash,
 // time and fetch set together, never to the bytes kept, never before the
 // document was received, and never undone; the worker role reads when a
@@ -181,7 +181,7 @@ func TestEInvoiceChange(t *testing.T) {
 		{"a change before the document was received", []string{
 			"changed_hash = sha256('y'::bytea), changed_at = now() - interval '1 hour', changed_fetch_operation_id = gen_random_uuid()"}, "einvoice_changed"},
 		{"a change of a malformed hash", []string{"changed_hash = 'y'::bytea, changed_at = now(), changed_fetch_operation_id = gen_random_uuid()"},
-			"einvoice_changed_hash_check"},
+			"einvoice_changed_hash"},
 		{"a change undone", []string{changed, "changed_hash = NULL, changed_at = NULL, changed_fetch_operation_id = NULL"},
 			"keeps what was recorded, its acknowledgement and its change of bytes"},
 	} {
@@ -201,6 +201,13 @@ func TestEInvoiceChange(t *testing.T) {
 			}
 		})
 	}
+	t.Run("the checks validated by 000234", func(t *testing.T) {
+		var valid bool
+		if err := testDB.QueryRow(context.Background(), `SELECT bool_and(convalidated) FROM pg_constraint
+			WHERE conrelid = 'einvoicing.einvoice'::regclass AND conname IN ('einvoice_changed', 'einvoice_changed_hash')`).Scan(&valid); err != nil || !valid {
+			t.Errorf("got %v %v, want both validated", valid, err)
+		}
+	})
 	t.Run("the worker role", func(t *testing.T) {
 		if err := inRole(t, "erp_worker", func(tx pgx.Tx) error {
 			return exec(tx, `SELECT count(*) FROM einvoicing.einvoice WHERE acknowledged_at IS NULL AND received_at < now()`)

@@ -48,7 +48,7 @@ func (e *Endpoints) QueueEInvoiceFetch(ctx context.Context, operation, connector
 // carries out.
 func (e *Endpoints) FetchEInvoices(ctx context.Context, req *gen.EInvoiceFetch, _ gen.FetchEInvoicesParams) (gen.FetchEInvoicesRes, error) {
 	if e.Objects == nil {
-		return nil, problem.Unavailable("E-invoices are kept in object storage, which this server does not have.", 0)
+		return nil, noStore()
 	}
 	if _, err := e.Connectors.Provider(ctx, req.ConnectorID); err != nil {
 		return nil, err
@@ -58,6 +58,12 @@ func (e *Endpoints) FetchEInvoices(ctx context.Context, req *gen.EInvoiceFetch, 
 		return nil, fmt.Errorf("einvoicing: operation of a fetch from connector %s: %w", req.ConnectorID, err)
 	}
 	return &gen.OperationHeaders{Location: gen.NewOptString("/v1/operations/" + op.ID.String()), Response: op}, nil
+}
+
+// noStore refuses work on a server without object storage, where an
+// e-invoice's bytes could not be kept.
+func noStore() *problem.Problem {
+	return problem.Unavailable("E-invoices are kept in object storage, which this server does not have.", 0)
 }
 
 // inTx runs fn in a transaction of in, with its transaction and
@@ -91,7 +97,14 @@ func (e *Endpoints) provider(ctx context.Context, connector uuid.UUID, in Within
 
 // PendingEInvoices lists the documents the connector's provider holds and
 // has not had acknowledged: the first step of a fetch.
+//
+// A server without object storage refuses it before the provider is asked,
+// as FetchEInvoices refuses to queue a fetch there: a scheduled fetch
+// reaches this step without that request.
 func (e *Endpoints) PendingEInvoices(ctx context.Context, connector uuid.UUID, in Within) ([]Message, error) {
+	if e.Objects == nil {
+		return nil, noStore()
+	}
 	_, p, _, err := e.provider(ctx, connector, in)
 	if err != nil {
 		return nil, err
@@ -168,7 +181,7 @@ func (e *Endpoints) record(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c
 	if err != nil {
 		return "", fmt.Errorf("einvoicing: record message %s of connector %s: %w", m.ID, c.ID, err)
 	}
-	return Recorded, recordChange(ctx, doc, company, nil)
+	return Recorded, recordChange(ctx, doc, company, received)
 }
 
 // redelivered handles a message recorded before (ADR-0061 §4). Bytes other
@@ -192,7 +205,7 @@ func (e *Endpoints) redelivered(ctx context.Context, tx pgx.Tx, p reqctx.Princip
 	if err != nil {
 		return "", err
 	}
-	return Changed, recordChange(ctx, doc, company, &doc.Status)
+	return Changed, recordChange(ctx, doc, company, bytesChanged)
 }
 
 // companyOf is the document's company; none when it has none.
@@ -262,21 +275,34 @@ func acknowledged(ctx context.Context, tx pgx.Tx, p reqctx.Principal, connector 
 	return nil
 }
 
+// change is what changed of a document: its receipt or its bytes (the
+// processing slices add the changes of status).
+type change int
+
+const (
+	received change = iota
+	bytesChanged
+)
+
 // recordChange audits a document's change and publishes EInvoiceChanged
-// (api/asyncapi.yaml): its receipt (status_before nil, the action its
-// status) or a change of its bytes (status_before its status, which does
-// not move; the action einvoicing.einvoice.bytes_changed). The processing
-// slices add the changes of status.
-func recordChange(ctx context.Context, d EInvoice, company *Company, statusBefore *string) error {
+// (api/asyncapi.yaml): its receipt (status_before nil, the action
+// einvoicing.einvoice.received) or a change of its bytes (status_before
+// its status, which does not move; the action
+// einvoicing.einvoice.bytes_changed). Both carry the change of bytes the
+// document holds, if any, and the fetch that found it.
+func recordChange(ctx context.Context, d EInvoice, company *Company, what change) error {
 	payload := map[string]any{"einvoice_id": d.ID, "connector_id": d.ConnectorID, "message_id": d.MessageID, "legal_entity_id": d.LegalEntityID,
-		"legal_entity_code": nil, "status": d.Status, "status_before": statusBefore, "sha256": hex.EncodeToString(d.SHA256), "changed_sha256": nil,
-		"fetch_operation_id": d.FetchOperationID, "version": d.Version}
+		"legal_entity_code": nil, "status": d.Status, "status_before": nil, "sha256": hex.EncodeToString(d.SHA256), "changed_sha256": nil,
+		"changed_fetch_operation_id": d.ChangedFetchedBy, "fetch_operation_id": d.FetchOperationID, "version": d.Version}
 	if company != nil {
 		payload["legal_entity_code"] = company.Code
 	}
-	action := "einvoicing.einvoice." + d.Status
 	if d.ChangedHash != nil {
 		payload["changed_sha256"] = hex.EncodeToString(d.ChangedHash)
+	}
+	action := "einvoicing.einvoice.received"
+	if what == bytesChanged {
+		payload["status_before"] = d.Status
 		action = "einvoicing.einvoice.bytes_changed"
 	}
 	return audit.Record(ctx, action, "einvoicing.einvoice", d.ID, payload,
