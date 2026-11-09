@@ -281,9 +281,12 @@ func carryForward(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r carryFor
 // changed, so the previous year is carried forward again first.
 func notStale(ctx context.Context, tx pgx.Tx, prev CarryForwardRun, l keptLedger) error {
 	stale, err := openedSinceOf(ctx, tx, []uuid.UUID{prev.ID})
-	opened := stale[prev.ID]
-	if err != nil || len(opened) == 0 {
+	if err != nil {
 		return err
+	}
+	opened := stale[prev.ID]
+	if len(opened) == 0 {
+		return nil
 	}
 	names := make([]string, len(opened))
 	for i, o := range opened {

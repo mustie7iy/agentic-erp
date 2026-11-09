@@ -845,8 +845,9 @@ for the product owner to overrule:
    the whole page in a fixed number of statements (companies, names,
    totals and staleness by run), not per run.
 4. *The balances* (`listBalanceCarryForwardBalances`) page by account
-   number byte by byte (`COLLATE "C"`), then currency, then kind (the row's
-   key in its run, so no id is needed), filter `account_id`; each row names
+   number byte by byte (`COLLATE "C"`), then currency, kind and account id
+   (the row's key in its run, unique even if two accounts shared a number,
+   which only the configuration rules out), filter `account_id`; each row names
    its account (number, name, type). Beside the rows, every page carries the
    whole run's totals whatever the filter, the run's local and group
    currencies and its result and debits and credits in them, the figures
@@ -859,7 +860,8 @@ for the product owner to overrule:
    `TestCarryForwardBudget` adds a page of 500 of the chained run's 7,506
    rows, the first and one deep in the run alternately, after one warm
    read: median 19 ms, p95 20 ms (scale 1) and 40 ms (scale 2) against
-   150 ms. The chained run itself measured 436 ms median, p95 508 ms and
+   150 ms; with the account id ending the page order (review round 1),
+   p95 26 ms and 22 ms. The chained run itself measured 436 ms median, p95 508 ms and
    651 ms. A page reads the run's totals with every page, an aggregate
    over its rows by the primary key's leading columns.
 6. *Walkthrough* (`step_year_end`): Carla lists `PREV`'s runs, current and

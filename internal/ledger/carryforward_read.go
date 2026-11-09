@@ -107,7 +107,7 @@ func openedSinceOf(ctx context.Context, tx pgx.Tx, runs []uuid.UUID) (map[uuid.U
 		out[run] = append(out[run], p)
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("ledger: periods opened since carry-forward runs %v: %w", runs, err)
+		return nil, fmt.Errorf("ledger: periods opened since %d carry-forward runs: %w", len(runs), err)
 	}
 	return out, nil
 }
@@ -162,7 +162,7 @@ func carryForwardTotalsOf(ctx context.Context, tx pgx.Tx, runs []uuid.UUID) (map
 		out[run] = append(out[run], t)
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("ledger: totals of carry-forward runs %v: %w", runs, err)
+		return nil, fmt.Errorf("ledger: totals of %d carry-forward runs: %w", len(runs), err)
 	}
 	return out, nil
 }

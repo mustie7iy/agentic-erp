@@ -31,7 +31,7 @@ func (s cfEnv) setPeriod(tb testing.TB, le uuid.UUID, year, period int, status s
 // get reads a run as GET shows it.
 func (s cfEnv) get(tb testing.TB, run any) map[string]any {
 	tb.Helper()
-	got, _ := s.Must(200, "GET", fmt.Sprint("/v1/balance-carry-forwards/", run), "", "")
+	got, _ := s.In(tb).Must(200, "GET", fmt.Sprint("/v1/balance-carry-forwards/", run), "", "")
 	return got
 }
 
@@ -64,16 +64,21 @@ func TestCarryForwardStaleOnRead(t *testing.T) {
 	if got := staleness(t, s.get(t, y26["id"])); got != "false" {
 		t.Errorf("2026 with 2027/1 open: got %s, want false: a later year is not carried", got)
 	}
-	s.setPeriod(t, s.us, 2025, 13, ledger.Open)
-	for name, want := range map[string]string{"open": "true 2025/13 0L", "closed again": "true 2025/13 0L"} {
-		if name == "closed again" {
-			s.setPeriod(t, s.us, 2025, 13, ledger.Closed)
-		}
-		for year, run := range map[int]map[string]any{2025: y25, 2026: y26} {
-			if got := staleness(t, s.get(t, run["id"])); got != want {
-				t.Errorf("%d with 2025/13 %s: got %s, want %s", year, name, got, want)
+	// In order: the period open, then closed again, each read stale.
+	for _, c := range []struct{ name, status string }{{"open", ledger.Open}, {"closed again", ledger.Closed}} {
+		t.Run(c.name, func(t *testing.T) {
+			s.setPeriod(t, s.us, 2025, 13, c.status)
+			for _, r := range []struct {
+				year int
+				run  map[string]any
+			}{{2025, y25}, {2026, y26}} {
+				t.Run(fmt.Sprint(r.year), func(t *testing.T) {
+					if got := staleness(t, s.get(t, r.run["id"])); got != "true 2025/13 0L" {
+						t.Errorf("got %s, want true 2025/13 0L", got)
+					}
+				})
 			}
-		}
+		})
 	}
 	page, _ := s.Must(200, "GET", fmt.Sprintf("/v1/balance-carry-forwards?legal_entity_id=%s&fiscal_year=2026", s.us), "", "")
 	if got := staleness(t, apitest.List(t, page, "items")[0].(map[string]any)); got != "true 2025/13 0L" {
@@ -254,7 +259,7 @@ func (s cfEnv) rowsInOrder(tb testing.TB, run any) []string {
 	tb.Helper()
 	return s.strings(tb, `SELECT a.number || ' ' || b.kind || ' ' || b.currency_tc || ' ' || b.amount_tc || ' ' || b.amount_lc || ' ' || b.amount_gc
 		FROM ledger.carry_forward_balance b JOIN ledger.gl_account a ON a.id = b.account_id WHERE b.run_id = $1
-		ORDER BY a.number COLLATE "C", b.currency_tc COLLATE "C", b.kind COLLATE "C"`, run)
+		ORDER BY a.number COLLATE "C", b.currency_tc COLLATE "C", b.kind COLLATE "C", b.account_id`, run)
 }
 
 // TestCarryForwardReadFailures: the list and the balances fail with each
