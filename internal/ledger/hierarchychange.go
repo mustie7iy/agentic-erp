@@ -275,22 +275,12 @@ const unassignedCode = "UNASSIGNED"
 // two first centers are serialized per tenant and kind: the second finds
 // what the first created.
 func unassignedLeaf(ctx context.Context, tx pgx.Tx, kind string) (uuid.UUID, error) {
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('ledger.standard_hierarchy:' || platform.require_tenant() || ':' || $1, 0))`,
-		kind); err != nil {
-		return uuid.Nil, fmt.Errorf("ledger: lock the standard hierarchy of %s: %w", kind, err)
-	}
-	t, err := loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
-	if err != nil && problem.From(err).Code == "request.not_found" {
-		if _, err := CreateHierarchy(ctx, NewHierarchy{Kind: kind, Code: "STANDARD", Name: "Standard hierarchy", IsStandard: true}); err != nil {
-			if problem.From(err).Code == "ledger.hierarchy_exists" {
-				return uuid.Nil, invalidChange("standard_node_id", reasonUnknown,
-					"the tenant has no standard hierarchy of this kind and another hierarchy has the code STANDARD; create a standard hierarchy first, or reject the creation and request it again with standard_node_id")
-			}
-			return uuid.Nil, err
-		}
-		t, err = loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
-	}
+	t, err := standardOrNew(ctx, tx, kind)
 	if err != nil {
+		if problem.From(err).Code == "ledger.hierarchy_exists" {
+			return uuid.Nil, invalidChange("standard_node_id", reasonUnknown,
+				"the tenant has no standard hierarchy of this kind and another hierarchy has the code STANDARD; create a standard hierarchy first, or reject the creation and request it again with standard_node_id")
+		}
 		return uuid.Nil, err
 	}
 	for id, n := range t.nodes {
@@ -303,6 +293,26 @@ func unassignedLeaf(ctx context.Context, tx pgx.Tx, kind string) (uuid.UUID, err
 		return id, nil
 	}
 	return addUnassigned(ctx, tx, t)
+}
+
+// standardOrNew is the tenant's standard hierarchy of a kind, locked,
+// created coded STANDARD, with its root, when the tenant has none
+// (ledger.hierarchy_exists when another hierarchy of the kind has that
+// code). Its callers are serialized per tenant and kind by an advisory
+// lock, so the second finds what the first created.
+func standardOrNew(ctx context.Context, tx pgx.Tx, kind string) (tree, error) {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('ledger.standard_hierarchy:' || platform.require_tenant() || ':' || $1, 0))`,
+		kind); err != nil {
+		return tree{}, fmt.Errorf("ledger: lock the standard hierarchy of %s: %w", kind, err)
+	}
+	t, err := loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
+	if err != nil && problem.From(err).Code == "request.not_found" {
+		if _, err := CreateHierarchy(ctx, NewHierarchy{Kind: kind, Code: "STANDARD", Name: "Standard hierarchy", IsStandard: true}); err != nil {
+			return tree{}, err
+		}
+		t, err = loadTree(ctx, tx, `h.kind = $1 AND h.is_standard`, true, kind)
+	}
+	return t, err
 }
 
 // addUnassigned adds the UNASSIGNED leaf below the standard hierarchy's

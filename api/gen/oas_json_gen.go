@@ -116752,9 +116752,29 @@ func (s *MigrationExtractCounts) encodeFields(e *jx.Encoder) {
 		e.FieldStart("fagl_segmt")
 		e.Int(s.FaglSegmt)
 	}
+	{
+		e.FieldStart("tka01")
+		e.Int(s.Tka01)
+	}
+	{
+		e.FieldStart("setheader")
+		e.Int(s.Setheader)
+	}
+	{
+		e.FieldStart("setheadert")
+		e.Int(s.Setheadert)
+	}
+	{
+		e.FieldStart("setnode")
+		e.Int(s.Setnode)
+	}
+	{
+		e.FieldStart("setleaf")
+		e.Int(s.Setleaf)
+	}
 }
 
-var jsonFieldsNameOfMigrationExtractCounts = [27]string{
+var jsonFieldsNameOfMigrationExtractCounts = [32]string{
 	0:  "t001",
 	1:  "skb1",
 	2:  "lfa1",
@@ -116782,6 +116802,11 @@ var jsonFieldsNameOfMigrationExtractCounts = [27]string{
 	24: "cepc_bukrs",
 	25: "fagl_segm",
 	26: "fagl_segmt",
+	27: "tka01",
+	28: "setheader",
+	29: "setheadert",
+	30: "setnode",
+	31: "setleaf",
 }
 
 // Decode decodes MigrationExtractCounts from json.
@@ -117117,6 +117142,66 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"fagl_segmt\"")
 			}
+		case "tka01":
+			requiredBitSet[3] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int()
+				s.Tka01 = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tka01\"")
+			}
+		case "setheader":
+			requiredBitSet[3] |= 1 << 4
+			if err := func() error {
+				v, err := d.Int()
+				s.Setheader = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"setheader\"")
+			}
+		case "setheadert":
+			requiredBitSet[3] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int()
+				s.Setheadert = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"setheadert\"")
+			}
+		case "setnode":
+			requiredBitSet[3] |= 1 << 6
+			if err := func() error {
+				v, err := d.Int()
+				s.Setnode = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"setnode\"")
+			}
+		case "setleaf":
+			requiredBitSet[3] |= 1 << 7
+			if err := func() error {
+				v, err := d.Int()
+				s.Setleaf = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"setleaf\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -117130,7 +117215,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 		0b11111111,
 		0b11111111,
 		0b11111111,
-		0b00000111,
+		0b11111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -117428,9 +117513,27 @@ func (s *MigrationLoadedCounts) encodeFields(e *jx.Encoder) {
 			s.CostCenters.Encode(e)
 		}
 	}
+	{
+		if s.Hierarchies.Set {
+			e.FieldStart("hierarchies")
+			s.Hierarchies.Encode(e)
+		}
+	}
+	{
+		if s.HierarchyNodes.Set {
+			e.FieldStart("hierarchy_nodes")
+			s.HierarchyNodes.Encode(e)
+		}
+	}
+	{
+		if s.HierarchyPlaces.Set {
+			e.FieldStart("hierarchy_places")
+			s.HierarchyPlaces.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfMigrationLoadedCounts = [16]string{
+var jsonFieldsNameOfMigrationLoadedCounts = [19]string{
 	0:  "suppliers",
 	1:  "suppliers_extended",
 	2:  "suppliers_blocked",
@@ -117447,6 +117550,9 @@ var jsonFieldsNameOfMigrationLoadedCounts = [16]string{
 	13: "profit_centers",
 	14: "profit_centers_extended",
 	15: "cost_centers",
+	16: "hierarchies",
+	17: "hierarchy_nodes",
+	18: "hierarchy_places",
 }
 
 // Decode decodes MigrationLoadedCounts from json.
@@ -117616,6 +117722,36 @@ func (s *MigrationLoadedCounts) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"cost_centers\"")
+			}
+		case "hierarchies":
+			if err := func() error {
+				s.Hierarchies.Reset()
+				if err := s.Hierarchies.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"hierarchies\"")
+			}
+		case "hierarchy_nodes":
+			if err := func() error {
+				s.HierarchyNodes.Reset()
+				if err := s.HierarchyNodes.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"hierarchy_nodes\"")
+			}
+		case "hierarchy_places":
+			if err := func() error {
+				s.HierarchyPlaces.Reset()
+				if err := s.HierarchyPlaces.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"hierarchy_places\"")
 			}
 		default:
 			return d.Skip()

@@ -708,6 +708,16 @@ step_tenant() {
   jq -r --arg cc "$CC" '.T042A[] | select(.ZBUKR == $cc) | "     T042A method \(.ZLSCH), \(.WAERS), rank \(.RANGF): house bank \(.HBKID)"' "$WORK/data/extract.json"
   grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | sed 's/^/     /'
   expect "the generated method's ranking" "$(grep -A 9 '^    payment_methods:$' "$WORK/config.yaml" | grep -cE '^ +- (MAIN|MUSD)$')" 2
+  say "SAP's cost element categories (CSKB-KATYP; T56h2) give the accounts' cost elements: sales revenue a revenue"
+  say "element (11), the expenses primary costs (01), and the exchange rate accounts, no cost elements in SAP, none,"
+  say "so their lines take no cost object (ADR-0050 §4)."
+  jq -r '.CSKB[] | select(.KSTAR == "0000400000" or .KSTAR == "0000510000") | "     CSKB \(.KOKRS)/\(.KSTAR): KATYP \(.KATYP)"' "$WORK/data/extract.json"
+  grep -E -A 3 '^      - number: "(400000|510000|680000)"$' "$WORK/config.yaml" | grep -E 'number|cost_element' | sed 's/^/     /'
+  local account element
+  for account in 400000:revenue 510000:primary_cost 680000:none; do
+    element=$(awk -v n="      - number: \"${account%%:*}\"" '$0 == n { f = 1; next } f && /^      - number:/ { exit } f && /cost_element:/ { print $2; exit }' "$WORK/config.yaml")
+    expect "account ${account%%:*}'s cost element from KATYP" "$element" "${account#*:}"
+  done
   say "The USD account's ledger account must be revalued at month end (ADR-0042), which SAP's extract cannot"
   say "tell, so the draft names it and does not validate until a reviewer flags it with its gain and loss accounts:"
   grep "\[error\]" "$WORK/generate.out" | sed 's/^ */     /'
@@ -860,9 +870,9 @@ step_migrate() {
 # P3200 (locked from 1 October) and four cost centers, active at once with
 # SAP's time slices as their periods, each created by an applied center
 # change naming the run, with no approval request of its own (the run is
-# their approval), at the standard hierarchy's UNASSIGNED leaf until SAP's
-# hierarchies are migrated (T56h2). The reconciliation compared them per
-# center. Step 12 builds its structure in that standard hierarchy.
+# their approval), each at its leaf of SAP's groups (migrated_groups). The
+# reconciliation compared them per center. Step 12 builds its structure in
+# the standard hierarchies.
 migrated_centers() {
   say "SAP's cost and profit centers and its segment came over first (CSKS, CEPC, FAGL_SEGM with their texts;"
   say "ADR-0050 §10): each SAP time slice a period. Cost center 3120 moved to profit center P3200 on 1 July:"
@@ -892,9 +902,44 @@ migrated_centers() {
   api 200 '.items[] | "center change \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
     listCenterChanges -p "cost_center_id=$cc3120"
   expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
-  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$cc3120"
-  expect "3120's place until SAP's hierarchies are migrated" "$(field '.items[0].nodes[-1].code')" UNASSIGNED
+  migrated_groups "$cc3120" "$pc3200"
   as ada
+}
+
+# migrated_groups CC3120 PC3200 shows SAP's cost and profit center groups
+# as the load brought them over (ADR-0050 §10, T56h2): the standard
+# hierarchy H1000 of the controlling area (TKA01-KHINR) and the profit
+# centers' PH1000 below the standard hierarchies' root, each center
+# created at its leaf, the ranges of the groups' values expanded against
+# SAP's centers (3100 to 3199 holds 3100 and 3120), and the alternative
+# hierarchy REGIONS, whose Quebec takes 3100 to 3299 without 3100 and
+# 3300, with 3120 and 3200 in it.
+migrated_groups() {
+  say "SAP's cost and profit center groups came over too (sets 0101 and 0106: SETHEADER, SETNODE, SETLEAF; T56h2):"
+  say "the controlling area's standard hierarchy (TKA01-KHINR) and the profit centers' below the standard hierarchies'"
+  say "root, each node a change the run applied, and the groups no group includes as alternative hierarchies."
+  jq -r '.TKA01[] | "     TKA01 \(.KOKRS): standard hierarchy \(.KHINR)"' "$WORK/data/extract.json"
+  jq -r '.SETLEAF[] | select(.SETNAME == "H3100" or .SETNAME == "QC")
+    | "     SETLEAF \(.SETCLASS)/\(.SETNAME): \(if .VALSIGN == "I" then "include" else "exclude" end) \(.VALFROM)\(if .VALOPTION == "BT" then " to \(.VALTO)" else "" end)"' \
+    "$WORK/data/extract.json"
+  grep '^Loaded:' "$WORK/migrate.out" | sed 's/^/     /'
+  expect "the groups loaded" "$(grep '^Loaded:' "$WORK/migrate.out" | sed 's/^Loaded: //' | jq -r '"\(.hierarchies) \(.hierarchy_nodes) \(.hierarchy_places)"')" "1 10 10"
+  say "A group's values are ranges, expanded against SAP's centers: H3100's 3100 to 3199 holds 3100 and 3120, and the"
+  say "alternative REGIONS' Quebec takes 3100 to 3299 without 3100 and 3300. Each center was created at its leaf:"
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$1"
+  expect "3120's places" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | sort | join(" ")')" \
+    "REGIONS:REGIONS/QC STANDARD:STANDARD/H1000/H3000/H3100"
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > P3200"' listProfitCenterPaths -p "id=$2"
+  expect "P3200's place" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | join(" ")')" "STANDARD:STANDARD/PH1000/PH-QC"
+  QUIET=1 api 200 '' listHierarchies -p kind=cost_center -p code=REGIONS
+  api 200 '"hierarchy \(.code) \(.name), standard: \(.is_standard)", (.nodes[] | "  \("  " * (.level - 1))\(.code) \(.name): \(.center_ids // [] | length) centers")' \
+    getHierarchy -p "id=$(field '.items[0].id')"
+  expect "Quebec's centers" "$(field '[.nodes[] | select(.code == "QC") | .center_ids // [] | length] | first')" 2
+  say "Each node is a change the run applied, with no approval request of its own:"
+  api 200 '.items[] | select(.kind == "node_create") | "center change \(.kind) \(.payload.code): \(.status), approval request \(.workflow_request_id // "none")"' \
+    listCenterChanges -p "hierarchy_id=$(field .id)"
+  expect "the alternative hierarchy's applied node changes" \
+    "$(field '[.items[] | select(.kind == "node_create" and .status == "applied" and .workflow_request_id == null)] | length')" 2
 }
 
 # migrated_foreign_item shows SAP's open invoice in USD of the CAD company
@@ -2427,8 +2472,8 @@ step_centers() {
   api 201 '"segment \(.code) \(.name)"' createSegment -body '{"code": "CA", "name": "Canada"}'
   local segment pch cch pc cc
   segment=$(field .id)
-  say "The migration (step 3) placed SAP's centers in the standard hierarchies, at their UNASSIGNED leaf, until"
-  say "SAP's own hierarchies are migrated (T56h2); Sam builds the pilot's structure in them."
+  say "The migration (step 3) loaded SAP's groups below the standard hierarchies' root, its centers at their leaves"
+  say "(T56h2); Sam builds the pilot's structure beside them."
   api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=profit_center -p is_standard=true
   pch=$(field '.items[0].id')
   QUIET=1 api 200 '' getHierarchy -p "id=$pch"

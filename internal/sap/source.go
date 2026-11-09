@@ -129,6 +129,33 @@ func filterCenters(all, out *Extract, inCC func(string) bool) {
 	}
 	out.FAGL_SEGM = keep(all.FAGL_SEGM, func(r FAGLSegm) bool { return segments[r.SEGMENT] })
 	out.FAGL_SEGMT = keep(all.FAGL_SEGMT, func(r FAGLSegmt) bool { return segments[r.SEGMENT] })
+	filterAreas(all, out)
+}
+
+// filterAreas keeps what belongs to the controlling areas of the centers
+// kept (T56h2): their standard hierarchies (TKA01), every cost and profit
+// center group of theirs (sets 0101 and 0106 with their texts, subsets and
+// values), which the load expands against the centers, and their cost
+// elements (CSKB). The extract does not say which controlling area a
+// company code without centers is assigned to (TKA02, not read), so its
+// scope keeps none of them.
+func filterAreas(all, out *Extract) {
+	areas := map[string]bool{}
+	for _, r := range out.CSKS {
+		areas[r.KOKRS] = true
+	}
+	for _, r := range out.CEPC {
+		areas[r.KOKRS] = true
+	}
+	group := func(class, area string) bool {
+		return (class == SetClassCostCenters || class == SetClassProfitCenters) && areas[area]
+	}
+	out.TKA01 = keep(all.TKA01, func(r TKA01) bool { return areas[r.KOKRS] })
+	out.SETHEADER = keep(all.SETHEADER, func(r SETHEADER) bool { return group(r.SETCLASS, r.SUBCLASS) })
+	out.SETHEADERT = keep(all.SETHEADERT, func(r SETHEADERT) bool { return group(r.SETCLASS, r.SUBCLASS) })
+	out.SETNODE = keep(all.SETNODE, func(r SETNODE) bool { return group(r.SETCLASS, r.SUBCLASS) })
+	out.SETLEAF = keep(all.SETLEAF, func(r SETLEAF) bool { return group(r.SETCLASS, r.SUBCLASS) })
+	out.CSKB = keep(all.CSKB, func(r CSKB) bool { return areas[r.KOKRS] })
 }
 
 // keep returns the rows that match, in order. It returns nil, not an empty

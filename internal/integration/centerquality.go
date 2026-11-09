@@ -43,6 +43,7 @@ func (q *qualityCheck) centers() {
 	for _, cc := range costCenters(q.e) {
 		c.costCenter(cc)
 	}
+	q.out = append(q.out, planGroups(q.e).issues...) // the center groups (T56h2)
 }
 
 // text checks that a center or segment has a name to load with (pickText),

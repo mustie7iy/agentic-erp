@@ -2774,9 +2774,17 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "SAP migration: hierarchies and cost element categories (split from T56h): sets 0101/0106 (SETHEADER, SETHEADERT, SETNODE, SETLEAF) loaded by every run as hierarchies through the ledger (ledger.CenterMigration StandardHierarchy, CreateHierarchy, AddNodes, PlaceCenters), each node and place an applied change naming the run without an approval request; the area's standard hierarchy (TKA01-KHINR; profit centers' the one tree their CEPC-KHINR name) below the tenant's standard hierarchy's root, the other top sets alternative hierarchies; values (I/E, EQ/BT) expanded against the extract's centers, each center created at its standard leaf (its values and KHINR, exactly one) and placed in the alternative ones; a later run adds only what SAP added; quality-gate issues (codes, names, a set with subsets and values, unknown or foreign subsets, signs and options, cycles, depth, a standard set missing, profit centers' leaves in two trees, codes across areas, a center not in exactly one standard leaf or twice in a tree; a value matching nothing and an area without a standard hierarchy warned); report counts (extract tables; hierarchies, hierarchy_nodes, hierarchy_places); CSKB-KATYP onto the accounts' cost_element in the configuration draft (01 primary_cost, 11/12 revenue, no CSKB row none, the rest noted); the mock's groups and cost elements; fields pending the SAP specialist; the OData mapping split to T56h5",
+        "r": "internal/sap types.go, source.go (filterAreas), mock.go (groups, costElements) · internal/ledger hierarchymigration.go, centermigration.go · internal/integration sets.go, settrees.go, setload.go · internal/delivery/sapconfig costelements.go · api/openapi.yaml, api/asyncapi.yaml (MigrationExtractCounts, MigrationLoadedCounts) · docs/migration.md · walkthrough step 1 (cost elements), step 3 (migrated_groups) · ADR-0050 §10 as built · T56h · T56h2",
+        "src": "split:T56h · adr:ADR-0050",
+        "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "SAP migration: hierarchies and cost element categories (split from T56h): sets 0101/0106 (SETHEADER/SETNODE/SETLEAF) with value ranges expanded against the migrated centers, the standard hierarchy from TKA01-KHINR, centers placed at their leaf (KHINR), alternative hierarchies; CSKB-KATYP onto the accounts' cost_element; quality-gate issues (a center not in exactly one standard leaf, a range matching nothing); mock generator extended; the OData mapping of the controlling tables T56h1 loads and this step adds (the cost and profit center read APIs, their names from the pilot's $metadata)",
-        "r": "T56h2",
+        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
+        "r": "T56h5",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
