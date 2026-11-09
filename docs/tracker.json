@@ -5612,12 +5612,12 @@
       "c": []
      },
      {
-      "s": "D",
+      "s": "P",
       "t": "On foundation: control plane for operators (list, provision, suspend, resume, offboard, rotate key, erase tenants) on the admin listener, recorded in the tenant's audit trail and events",
       "r": "internal/controlplane · api/control.yaml · ADR-0015",
       "c": [
        {
-        "s": "D",
+        "s": "P",
         "t": "Offboarding lifecycle: export to locked object storage, grace period, erasure of rows (but the audit trail) and objects (but the locked ones) by a worker or on request; exports written in parts of bounded size",
         "r": "internal/offboarding · platform.erase_tenant · ADR-0021 · ERP_OFFBOARD_GRACE · ADR-0026",
         "c": [
@@ -5632,6 +5632,13 @@
           "s": "D",
           "t": "An import restores each period's opened count as exported: 000227's trigger refused an inserted count (every import of a tenant with a period failed, batch58's ci-local); the importer sets app.importing to the tenant for its transaction, as the erasure sets app.erasing, and the trigger keeps an inserted count in that tenant alone (migration 000229)",
           "r": "offboarding.Importer · ledger.count_period_openings · db/carry_forward_test.go TestPeriodOpenedCount · ADR-0029 · ADR-0060 §6",
+          "src": "ci:batch58",
+          "c": []
+         },
+         {
+          "s": "T",
+          "t": "An import restores rows in any lifecycle state: the triggers that refuse inserting a row in any state but its first (closing.period_close, ledger.parked_entry, consolidation.run with run_member and run_balance, ledger.carry_forward_run) honour app.importing for the tenant as count_period_openings does, so a tenant with a signed-off close, a posted parked entry, a final consolidation or a superseded carry-forward can be restored and moved; the import test holds such rows; and a NOT NULL DEFAULT column an older export lacks gets its default, not NULL (ADR-0029 says defaults apply)",
+          "r": "offboarding.Importer · ADR-0029 · found fixing TestReonboarding in batch58",
           "src": "ci:batch58",
           "c": []
          },
