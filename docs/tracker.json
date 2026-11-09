@@ -1924,9 +1924,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Accepting differences and finalizing runs: :accept (consolidation.difference.accept, people only, IntercompanyDifferenceAccepted); :finalize (consolidation.run.finalize, people only) refused while a difference is open or a member's period is not locked, superseding the previous final under a lock of the period's runs, refused and stale once a member's period version moved since the figures were read; consolidation.People; walkthrough: the difference accepted and finalizing refused with consolidation.period_not_locked in step_consolidation, and at the end of step_close, after the sign-off, Acme Corp US's period locked, the group run again and finalized",
-        "r": "ADR-0059 · T68g",
+        "r": "db/migrations/000234 · acceptIntercompanyDifference · finalizeConsolidationRun · consolidation.People · IntercompanyDifferenceAccepted · ADR-0059 As built · T68g",
         "src": "adr:ADR-0059",
         "c": []
        },
@@ -1947,7 +1947,7 @@
       ]
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Intercompany matching",
       "r": "T68 · ADR-0059 §4, §8, §10 · T68b, T68c, T68f, T68g",
       "src": "baseline",
@@ -1968,7 +1968,7 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "Consolidated statements",
       "r": "T68 · ADR-0059 §3, §11 · T68a, T68e, T68g",
       "src": "baseline",

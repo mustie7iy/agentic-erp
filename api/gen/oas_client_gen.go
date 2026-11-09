@@ -75,6 +75,24 @@ type Invoker interface {
 	//
 	// POST /v1/liquidity-forecast-variance/comments/{id}:acceptProposal
 	AcceptForecastVarianceCommentProposal(ctx context.Context, request OptForecastVarianceCommentAccept, params AcceptForecastVarianceCommentProposalParams) (AcceptForecastVarianceCommentProposalRes, error)
+	// AcceptIntercompanyDifference invokes acceptIntercompanyDifference operation.
+	//
+	// Accepts an open intercompany difference of a computed consolidation run (ADR-0059 §8, T68g): the
+	// group's accountant accepts a difference above its elimination's tolerance with a reason, rather than
+	// have the companies correct their postings and run the group again. It becomes `accepted`, with who
+	// accepted it, when and why; it stays eliminated as it was, to the elimination's difference account,
+	// and no longer stops finalizing the run. The run's version moves with it, so a view of the run read
+	// before refuses `:finalize`. Refused for a difference that is not open (409
+	// `consolidation.difference_not_open`) and for a run that is not computed (409
+	// `consolidation.run_not_computed`: a draft is accepted before it is finalized; a final run has none
+	// open). `If-Match` is the difference's ETag, its `version` (412 `request.version_mismatch` when it
+	// moved since). Published as IntercompanyDifferenceAccepted and audited. A run of a group whose parent
+	// or a member the caller may not act in, or a difference that is not the run's, is not found (404).
+	// Besides `consolidation.difference.accept` the caller needs `ledger.entry.read`, since the difference
+	// shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+	//
+	// POST /v1/consolidation-runs/{id}/differences/{difference_id}:accept
+	AcceptIntercompanyDifference(ctx context.Context, request *ReasonInput, params AcceptIntercompanyDifferenceParams) (AcceptIntercompanyDifferenceRes, error)
 	// AcceptMemoRecordProposal invokes acceptMemoRecordProposal operation.
 	//
 	// A person accepts an agent's `proposed` memo record (409 `cash.memo_record_not_proposed` otherwise):
@@ -1132,6 +1150,30 @@ type Invoker interface {
 	//
 	// POST /v1/tax-returns/{id}:file
 	FileTaxReturn(ctx context.Context, request *TaxReturnFile, params FileTaxReturnParams) (FileTaxReturnRes, error)
+	// FinalizeConsolidationRun invokes finalizeConsolidationRun operation.
+	//
+	// Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10,
+	// T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the
+	// period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it),
+	// so the history of what was finalized, by whom and on which figures stays readable
+	// (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when
+	// the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany
+	// differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`,
+	// or have the companies correct their postings and run the group again); when a company's
+	// leading-ledger period was not locked when the run read its figures or is not locked now (409
+	// `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
+	// sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
+	// `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
+	// moved since the run read its figures, so run the group again). Finalizations of one group and period
+	// wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the
+	// run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that
+	// changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a
+	// member the caller may not act in is not found (404), as a run that does not exist. Besides
+	// `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+	//
+	// POST /v1/consolidation-runs/{id}:finalize
+	FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (FinalizeConsolidationRunRes, error)
 	// GetAccount invokes getAccount operation.
 	//
 	// Returns one general ledger account.
@@ -1519,7 +1561,8 @@ type Invoker interface {
 	// which leave no balance between the run's companies on an elimination's accounts and put each pair's
 	// difference on the elimination's difference account; the investment's elimination follows with T68h.
 	// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-	// never changes. Refused for a run that is queued, running, failed or discarded (409
+	// never changes; `stale` says whether a company's period changed since the run read its figures
+	// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
 	// `consolidation.run_not_computed`) and for a statement other than these two (404
 	// `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 	// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -1545,11 +1588,12 @@ type Invoker interface {
 	// the closing rate type, and its companies, the parent first and the members by company code, each
 	// with its local currency, closing rate and the date it is valid from, its role, ownership and first
 	// period, and the status and version of its leading ledger's period when the run read its figures; and
-	// the number of its intercompany differences per status (T68f). A run of a group whose parent or a
-	// member the caller may not act in is not found (404), as a run that does not exist, so neither its
-	// existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read
-	// snapshot).
+	// the number of its intercompany differences per status (T68f); whether it is `stale`, who finalized
+	// it and when, and the run that superseded it or that it superseded (ADR-0059 §10, T68g). A run of a
+	// group whose parent or a member the caller may not act in is not found (404), as a run that does not
+	// exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read`
+	// the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a
+	// repeatable-read snapshot).
 	//
 	// GET /v1/consolidation-runs/{id}
 	GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (GetConsolidationRunRes, error)
@@ -2753,7 +2797,8 @@ type Invoker interface {
 	// expenses at their booked group amounts), their sum (`difference`) and the elimination's `tolerance`:
 	// `matched` when the difference is zero, `within_tolerance` when its absolute value is at most the
 	// tolerance, `open` otherwise. Every pair is eliminated, its difference to the elimination's
-	// difference account (`listConsolidationEntries`); an open difference stops only finalization (T68g).
+	// difference account (`listConsolidationEntries`); an open difference stops only finalization
+	// (`:finalize`) until a person accepts it (`:accept`, T68g; then `accepted`, with who, when and why).
 	// Rows on an elimination's accounts naming a trading partner that is not one of the run's companies (a
 	// company outside the group, or a member before its first period) are listed per company and partner
 	// as `outside_group`, and rows naming none per company as `no_trading_partner` (lines posted before
@@ -5274,6 +5319,197 @@ func (c *Client) sendAcceptForecastVarianceCommentProposal(ctx context.Context, 
 
 	stage = "DecodeResponse"
 	result, err := decodeAcceptForecastVarianceCommentProposalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AcceptIntercompanyDifference invokes acceptIntercompanyDifference operation.
+//
+// Accepts an open intercompany difference of a computed consolidation run (ADR-0059 §8, T68g): the
+// group's accountant accepts a difference above its elimination's tolerance with a reason, rather than
+// have the companies correct their postings and run the group again. It becomes `accepted`, with who
+// accepted it, when and why; it stays eliminated as it was, to the elimination's difference account,
+// and no longer stops finalizing the run. The run's version moves with it, so a view of the run read
+// before refuses `:finalize`. Refused for a difference that is not open (409
+// `consolidation.difference_not_open`) and for a run that is not computed (409
+// `consolidation.run_not_computed`: a draft is accepted before it is finalized; a final run has none
+// open). `If-Match` is the difference's ETag, its `version` (412 `request.version_mismatch` when it
+// moved since). Published as IntercompanyDifferenceAccepted and audited. A run of a group whose parent
+// or a member the caller may not act in, or a difference that is not the run's, is not found (404).
+// Besides `consolidation.difference.accept` the caller needs `ledger.entry.read`, since the difference
+// shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+//
+// POST /v1/consolidation-runs/{id}/differences/{difference_id}:accept
+func (c *Client) AcceptIntercompanyDifference(ctx context.Context, request *ReasonInput, params AcceptIntercompanyDifferenceParams) (AcceptIntercompanyDifferenceRes, error) {
+	res, err := c.sendAcceptIntercompanyDifference(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAcceptIntercompanyDifference(ctx context.Context, request *ReasonInput, params AcceptIntercompanyDifferenceParams) (res AcceptIntercompanyDifferenceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptIntercompanyDifference"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}/differences/{difference_id}:accept"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcceptIntercompanyDifferenceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/differences/"
+	{
+		// Encode "difference_id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "difference_id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.DifferenceID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":accept"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAcceptIntercompanyDifferenceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcceptIntercompanyDifferenceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcceptIntercompanyDifferenceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -18479,6 +18715,181 @@ func (c *Client) sendFileTaxReturn(ctx context.Context, request *TaxReturnFile, 
 	return result, nil
 }
 
+// FinalizeConsolidationRun invokes finalizeConsolidationRun operation.
+//
+// Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10,
+// T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the
+// period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it),
+// so the history of what was finalized, by whom and on which figures stays readable
+// (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when
+// the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany
+// differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`,
+// or have the companies correct their postings and run the group again); when a company's
+// leading-ledger period was not locked when the run read its figures or is not locked now (409
+// `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
+// sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
+// `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
+// moved since the run read its figures, so run the group again). Finalizations of one group and period
+// wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the
+// run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that
+// changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a
+// member the caller may not act in is not found (404), as a run that does not exist. Besides
+// `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+//
+// POST /v1/consolidation-runs/{id}:finalize
+func (c *Client) FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (FinalizeConsolidationRunRes, error) {
+	res, err := c.sendFinalizeConsolidationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendFinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (res FinalizeConsolidationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("finalizeConsolidationRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/consolidation-runs/{id}:finalize"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, FinalizeConsolidationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/consolidation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":finalize"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, FinalizeConsolidationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeFinalizeConsolidationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetAccount invokes getAccount operation.
 //
 // Returns one general ledger account.
@@ -23353,7 +23764,8 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 // which leave no balance between the run's companies on an elimination's accounts and put each pair's
 // difference on the elimination's difference account; the investment's elimination follows with T68h.
 // The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-// never changes. Refused for a run that is queued, running, failed or discarded (409
+// never changes; `stale` says whether a company's period changed since the run read its figures
+// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
 // `consolidation.run_not_computed`) and for a statement other than these two (404
 // `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 // (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -23686,11 +24098,12 @@ func (c *Client) sendGetConsolidationGroup(ctx context.Context, params GetConsol
 // the closing rate type, and its companies, the parent first and the members by company code, each
 // with its local currency, closing rate and the date it is valid from, its role, ownership and first
 // period, and the status and version of its leading ledger's period when the run read its figures; and
-// the number of its intercompany differences per status (T68f). A run of a group whose parent or a
-// member the caller may not act in is not found (404), as a run that does not exist, so neither its
-// existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read
-// snapshot).
+// the number of its intercompany differences per status (T68f); whether it is `stale`, who finalized
+// it and when, and the run that superseded it or that it superseded (ADR-0059 §10, T68g). A run of a
+// group whose parent or a member the caller may not act in is not found (404), as a run that does not
+// exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read`
+// the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a
+// repeatable-read snapshot).
 //
 // GET /v1/consolidation-runs/{id}
 func (c *Client) GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (GetConsolidationRunRes, error) {
@@ -45589,7 +46002,8 @@ func (c *Client) sendListHouseBanks(ctx context.Context, params ListHouseBanksPa
 // expenses at their booked group amounts), their sum (`difference`) and the elimination's `tolerance`:
 // `matched` when the difference is zero, `within_tolerance` when its absolute value is at most the
 // tolerance, `open` otherwise. Every pair is eliminated, its difference to the elimination's
-// difference account (`listConsolidationEntries`); an open difference stops only finalization (T68g).
+// difference account (`listConsolidationEntries`); an open difference stops only finalization
+// (`:finalize`) until a person accepts it (`:accept`, T68g; then `accepted`, with who, when and why).
 // Rows on an elimination's accounts naming a trading partner that is not one of the run's companies (a
 // company outside the group, or a member before its first period) are listed per company and partner
 // as `outside_group`, and rows naming none per company as `no_trading_partner` (lines posted before

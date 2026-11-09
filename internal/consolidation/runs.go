@@ -44,6 +44,13 @@ func init() {
 		return problem.Conflict("consolidation.run_in_progress", "Another run of the group was started at the same time; it is queued or running "+
 			"(GET /v1/consolidation-runs?status=queued).")
 	})
+	// Finalizing locks the period's runs first (FinalizeConsolidationRun),
+	// so a second final of a period is never inserted; should a path ever
+	// reach the index, it is a conflict, not an internal error.
+	problem.RegisterConstraint("consolidation_run_one_final", func() *problem.Problem {
+		return problem.Conflict("consolidation.final_exists", "Another run of the group's period was finalized at the same time; "+
+			"read the period's runs (GET /v1/consolidation-runs?status=final) and finalize again to supersede it.")
+	})
 }
 
 // Run is a stored consolidation run.
@@ -58,6 +65,8 @@ type Run struct {
 	Status                    string
 	Problem                   *RunProblem
 	ComputedAt                *time.Time
+	FinalizedBy, SupersededBy *uuid.UUID
+	FinalizedAt               *time.Time
 	Version                   int32
 	CreatedAt, UpdatedAt      time.Time
 }
@@ -73,14 +82,15 @@ func runPath(id uuid.UUID) string { return "/v1/consolidation-runs/" + id.String
 
 // runSelect reads runs.
 const runSelect = `SELECT id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start, period_end, config_version, group_currency,
-		rate_type, status, problem, operation_id, computed_at, version, created_at, updated_at
+		rate_type, status, problem, operation_id, computed_at, finalized_by, finalized_at, superseded_by, version, created_at, updated_at
 	FROM consolidation.run`
 
 func scanRun(r pgx.Row) (Run, error) {
 	var x Run
 	var failure []byte
 	err := r.Scan(&x.ID, &x.GroupCode, &x.ParentID, &x.Companies, &x.FiscalYear, &x.Period, &x.PeriodStart, &x.PeriodEnd, &x.ConfigVersion,
-		&x.GroupCurrency, &x.RateType, &x.Status, &failure, &x.OperationID, &x.ComputedAt, &x.Version, &x.CreatedAt, &x.UpdatedAt)
+		&x.GroupCurrency, &x.RateType, &x.Status, &failure, &x.OperationID, &x.ComputedAt, &x.FinalizedBy, &x.FinalizedAt, &x.SupersededBy, &x.Version,
+		&x.CreatedAt, &x.UpdatedAt)
 	if err == nil && failure != nil {
 		x.Problem = &RunProblem{}
 		// The run wrote it from a RunProblem (FailConsolidationRun); a

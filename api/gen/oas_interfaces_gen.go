@@ -13,6 +13,10 @@ type AcceptForecastVarianceCommentProposalRes interface {
 	acceptForecastVarianceCommentProposalRes()
 }
 
+type AcceptIntercompanyDifferenceRes interface {
+	acceptIntercompanyDifferenceRes()
+}
+
 type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
@@ -359,6 +363,10 @@ type FetchEInvoicesRes interface {
 
 type FileTaxReturnRes interface {
 	fileTaxReturnRes()
+}
+
+type FinalizeConsolidationRunRes interface {
+	finalizeConsolidationRunRes()
 }
 
 type GetAccountRes interface {

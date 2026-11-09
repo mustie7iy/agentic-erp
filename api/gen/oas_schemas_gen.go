@@ -160,6 +160,30 @@ type AcceptForecastVarianceCommentProposalPreconditionRequired Problem
 func (*AcceptForecastVarianceCommentProposalPreconditionRequired) acceptForecastVarianceCommentProposalRes() {
 }
 
+type AcceptIntercompanyDifferenceBadRequest Problem
+
+func (*AcceptIntercompanyDifferenceBadRequest) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceForbidden Problem
+
+func (*AcceptIntercompanyDifferenceForbidden) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceNotFound Problem
+
+func (*AcceptIntercompanyDifferenceNotFound) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferencePreconditionFailed Problem
+
+func (*AcceptIntercompanyDifferencePreconditionFailed) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferencePreconditionRequired Problem
+
+func (*AcceptIntercompanyDifferencePreconditionRequired) acceptIntercompanyDifferenceRes() {}
+
+type AcceptIntercompanyDifferenceUnprocessableEntity Problem
+
+func (*AcceptIntercompanyDifferenceUnprocessableEntity) acceptIntercompanyDifferenceRes() {}
+
 type AcceptMemoRecordProposalBadRequest Problem
 
 func (*AcceptMemoRecordProposalBadRequest) acceptMemoRecordProposalRes() {}
@@ -20783,6 +20807,7 @@ func (s *ConflictHeaders) SetResponse(val Problem) {
 func (*ConflictHeaders) acceptBankStatementGapRes()                {}
 func (*ConflictHeaders) acceptBankStatementLineProposalRes()       {}
 func (*ConflictHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*ConflictHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*ConflictHeaders) acceptMemoRecordProposalRes()              {}
 func (*ConflictHeaders) acceptVarianceCommentRes()                 {}
 func (*ConflictHeaders) activateChangeRequestRes()                 {}
@@ -20868,6 +20893,7 @@ func (*ConflictHeaders) endSodRuleRes()                            {}
 func (*ConflictHeaders) excludeBankStatementLineRes()              {}
 func (*ConflictHeaders) fetchEInvoicesRes()                        {}
 func (*ConflictHeaders) fileTaxReturnRes()                         {}
+func (*ConflictHeaders) finalizeConsolidationRunRes()              {}
 func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
@@ -21536,6 +21562,9 @@ type ConsolidatedStatement struct {
 	// of the period (`final`), or a final run a later one superseded. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	RunStatus string `json:"run_status"`
+	// The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read
+	// its figures, so they may no longer be the ledger's (ADR-0059 §10).
+	Stale bool `json:"stale"`
 	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
 	Statement string `json:"statement"`
@@ -21581,6 +21610,11 @@ func (s *ConsolidatedStatement) GetPeriodEnd() time.Time {
 // GetRunStatus returns the value of RunStatus.
 func (s *ConsolidatedStatement) GetRunStatus() string {
 	return s.RunStatus
+}
+
+// GetStale returns the value of Stale.
+func (s *ConsolidatedStatement) GetStale() bool {
+	return s.Stale
 }
 
 // GetStatement returns the value of Statement.
@@ -21641,6 +21675,11 @@ func (s *ConsolidatedStatement) SetPeriodEnd(val time.Time) {
 // SetRunStatus sets the value of RunStatus.
 func (s *ConsolidatedStatement) SetRunStatus(val string) {
 	s.RunStatus = val
+}
+
+// SetStale sets the value of Stale.
+func (s *ConsolidatedStatement) SetStale(val bool) {
+	s.Stale = val
 }
 
 // SetStatement sets the value of Statement.
@@ -22711,9 +22750,10 @@ type ConsolidationRun struct {
 	// The period's last day: the closing rate's date.
 	PeriodEnd time.Time `json:"period_end"`
 	// Queued until its workflow starts it, running while its companies are translated, then computed, or
-	// failed with its problem; a computed or failed run may be discarded. final and superseded follow
-	// finalization (ADR-0059 §10). Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// failed with its problem; a computed or failed run may be discarded. A computed run is finalized
+	// (`:finalize`, ADR-0059 §10) as the group's consolidated figures of its period: final, until a later
+	// final run of the period supersedes it (superseded). Open enumeration: clients must accept and
+	// preserve values not listed here; values may be added within /v1.
 	Status  string                     `json:"status"`
 	Problem OptConsolidationRunProblem `json:"problem"`
 	// The configuration version whose group, group chart and mapping the run read
@@ -22732,9 +22772,28 @@ type ConsolidationRun struct {
 	ComputedAt OptDateTime `json:"computed_at"`
 	// The number of its intercompany differences per status present
 	// (`GET /v1/consolidation-runs/{id}/differences`), in the order matched, within_tolerance, open,
-	// outside_group, no_trading_partner; empty until its companies are matched (ADR-0059 §8).
+	// accepted, outside_group, no_trading_partner; empty until its companies are matched (ADR-0059 §8).
 	DifferenceCounts []ConsolidationDifferenceCount `json:"difference_counts"`
-	// The run's version (ETag).
+	// Whether a company's leading-ledger period changed since the run read its figures: its version now
+	// differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and
+	// a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final
+	// but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent
+	// until every company of the run is translated.
+	Stale OptBool `json:"stale"`
+	// Who finalized it (`:finalize`); absent unless it is final or superseded.
+	FinalizedBy OptUUID `json:"finalized_by"`
+	// Their name; absent unless it is final or superseded.
+	FinalizedByName OptString `json:"finalized_by_name"`
+	// When it was finalized; absent unless it is final or superseded.
+	FinalizedAt OptDateTime `json:"finalized_at"`
+	// The later final run of the group and period that superseded it (`GET /v1/consolidation-runs/{id}`);
+	// absent unless it is superseded.
+	SupersededBy OptUUID `json:"superseded_by"`
+	// The final run of the group and period this run superseded when it was finalized; absent when it
+	// superseded none.
+	Supersedes OptUUID `json:"supersedes"`
+	// The run's version (ETag); it moves with every change of the run and of its differences (ADR-0059
+	// §5).
 	Version int32 `json:"version"`
 	// When it was started.
 	CreatedAt time.Time `json:"created_at"`
@@ -22820,6 +22879,36 @@ func (s *ConsolidationRun) GetComputedAt() OptDateTime {
 // GetDifferenceCounts returns the value of DifferenceCounts.
 func (s *ConsolidationRun) GetDifferenceCounts() []ConsolidationDifferenceCount {
 	return s.DifferenceCounts
+}
+
+// GetStale returns the value of Stale.
+func (s *ConsolidationRun) GetStale() OptBool {
+	return s.Stale
+}
+
+// GetFinalizedBy returns the value of FinalizedBy.
+func (s *ConsolidationRun) GetFinalizedBy() OptUUID {
+	return s.FinalizedBy
+}
+
+// GetFinalizedByName returns the value of FinalizedByName.
+func (s *ConsolidationRun) GetFinalizedByName() OptString {
+	return s.FinalizedByName
+}
+
+// GetFinalizedAt returns the value of FinalizedAt.
+func (s *ConsolidationRun) GetFinalizedAt() OptDateTime {
+	return s.FinalizedAt
+}
+
+// GetSupersededBy returns the value of SupersededBy.
+func (s *ConsolidationRun) GetSupersededBy() OptUUID {
+	return s.SupersededBy
+}
+
+// GetSupersedes returns the value of Supersedes.
+func (s *ConsolidationRun) GetSupersedes() OptUUID {
+	return s.Supersedes
 }
 
 // GetVersion returns the value of Version.
@@ -22915,6 +23004,36 @@ func (s *ConsolidationRun) SetComputedAt(val OptDateTime) {
 // SetDifferenceCounts sets the value of DifferenceCounts.
 func (s *ConsolidationRun) SetDifferenceCounts(val []ConsolidationDifferenceCount) {
 	s.DifferenceCounts = val
+}
+
+// SetStale sets the value of Stale.
+func (s *ConsolidationRun) SetStale(val OptBool) {
+	s.Stale = val
+}
+
+// SetFinalizedBy sets the value of FinalizedBy.
+func (s *ConsolidationRun) SetFinalizedBy(val OptUUID) {
+	s.FinalizedBy = val
+}
+
+// SetFinalizedByName sets the value of FinalizedByName.
+func (s *ConsolidationRun) SetFinalizedByName(val OptString) {
+	s.FinalizedByName = val
+}
+
+// SetFinalizedAt sets the value of FinalizedAt.
+func (s *ConsolidationRun) SetFinalizedAt(val OptDateTime) {
+	s.FinalizedAt = val
+}
+
+// SetSupersededBy sets the value of SupersededBy.
+func (s *ConsolidationRun) SetSupersededBy(val OptUUID) {
+	s.SupersededBy = val
+}
+
+// SetSupersedes sets the value of Supersedes.
+func (s *ConsolidationRun) SetSupersedes(val OptUUID) {
+	s.Supersedes = val
 }
 
 // SetVersion sets the value of Version.
@@ -27794,7 +27913,8 @@ func (s *DiscardConsolidationRunOKHeaders) SetResponse(val ConsolidationRun) {
 	s.Response = val
 }
 
-func (*DiscardConsolidationRunOKHeaders) discardConsolidationRunRes() {}
+func (*DiscardConsolidationRunOKHeaders) discardConsolidationRunRes()  {}
+func (*DiscardConsolidationRunOKHeaders) finalizeConsolidationRunRes() {}
 
 type DiscardConsolidationRunPreconditionFailed Problem
 
@@ -30395,6 +30515,30 @@ func (*FileTaxReturnPreconditionRequired) fileTaxReturnRes() {}
 type FileTaxReturnUnprocessableEntity Problem
 
 func (*FileTaxReturnUnprocessableEntity) fileTaxReturnRes() {}
+
+type FinalizeConsolidationRunBadRequest Problem
+
+func (*FinalizeConsolidationRunBadRequest) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunForbidden Problem
+
+func (*FinalizeConsolidationRunForbidden) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunNotFound Problem
+
+func (*FinalizeConsolidationRunNotFound) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunPreconditionFailed Problem
+
+func (*FinalizeConsolidationRunPreconditionFailed) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunPreconditionRequired Problem
+
+func (*FinalizeConsolidationRunPreconditionRequired) finalizeConsolidationRunRes() {}
+
+type FinalizeConsolidationRunUnprocessableEntity Problem
+
+func (*FinalizeConsolidationRunUnprocessableEntity) finalizeConsolidationRunRes() {}
 
 // The posting status of one fiscal period for one legal entity and ledger.
 // Ref: #/components/schemas/FiscalPeriod
@@ -36884,8 +37028,9 @@ type IntercompanyDifference struct {
 	// `no_trading_partner`.
 	Partner OptTradingPartner `json:"partner"`
 	// `matched`: the difference is zero; `within_tolerance`: its absolute value is at most the tolerance;
-	// `open`: above it, which stops finalization until it is accepted or the companies correct their
-	// postings (T68g); `outside_group`, `no_trading_partner`: rows the run does not eliminate. Open
+	// `open`: above it, which stops finalization until it is accepted (`:accept`) or the companies correct
+	// their postings and run the group again; `accepted`: an open difference a person accepted, with who,
+	// when and why; `outside_group`, `no_trading_partner`: rows the run does not eliminate. Open
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Status string `json:"status"`
@@ -36899,6 +37044,16 @@ type IntercompanyDifference struct {
 	Difference OptMoney `json:"difference"`
 	// Of a pair: the elimination's tolerance, in the configuration version the run read.
 	Tolerance OptMoney `json:"tolerance"`
+	// Who accepted it; absent unless it is accepted.
+	AcceptedBy OptUUID `json:"accepted_by"`
+	// Their name; absent unless it is accepted.
+	AcceptedByName OptString `json:"accepted_by_name"`
+	// When it was accepted; absent unless it is accepted.
+	AcceptedAt OptDateTime `json:"accepted_at"`
+	// Why it was accepted, as given; absent unless it is accepted.
+	Reason OptString `json:"reason"`
+	// The difference's version (its ETag, `If-Match` of `:accept`).
+	Version int32 `json:"version"`
 }
 
 // GetID returns the value of ID.
@@ -36961,6 +37116,31 @@ func (s *IntercompanyDifference) GetTolerance() OptMoney {
 	return s.Tolerance
 }
 
+// GetAcceptedBy returns the value of AcceptedBy.
+func (s *IntercompanyDifference) GetAcceptedBy() OptUUID {
+	return s.AcceptedBy
+}
+
+// GetAcceptedByName returns the value of AcceptedByName.
+func (s *IntercompanyDifference) GetAcceptedByName() OptString {
+	return s.AcceptedByName
+}
+
+// GetAcceptedAt returns the value of AcceptedAt.
+func (s *IntercompanyDifference) GetAcceptedAt() OptDateTime {
+	return s.AcceptedAt
+}
+
+// GetReason returns the value of Reason.
+func (s *IntercompanyDifference) GetReason() OptString {
+	return s.Reason
+}
+
+// GetVersion returns the value of Version.
+func (s *IntercompanyDifference) GetVersion() int32 {
+	return s.Version
+}
+
 // SetID sets the value of ID.
 func (s *IntercompanyDifference) SetID(val uuid.UUID) {
 	s.ID = val
@@ -37020,6 +37200,70 @@ func (s *IntercompanyDifference) SetDifference(val OptMoney) {
 func (s *IntercompanyDifference) SetTolerance(val OptMoney) {
 	s.Tolerance = val
 }
+
+// SetAcceptedBy sets the value of AcceptedBy.
+func (s *IntercompanyDifference) SetAcceptedBy(val OptUUID) {
+	s.AcceptedBy = val
+}
+
+// SetAcceptedByName sets the value of AcceptedByName.
+func (s *IntercompanyDifference) SetAcceptedByName(val OptString) {
+	s.AcceptedByName = val
+}
+
+// SetAcceptedAt sets the value of AcceptedAt.
+func (s *IntercompanyDifference) SetAcceptedAt(val OptDateTime) {
+	s.AcceptedAt = val
+}
+
+// SetReason sets the value of Reason.
+func (s *IntercompanyDifference) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetVersion sets the value of Version.
+func (s *IntercompanyDifference) SetVersion(val int32) {
+	s.Version = val
+}
+
+// IntercompanyDifferenceHeaders wraps IntercompanyDifference with response headers.
+type IntercompanyDifferenceHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           IntercompanyDifference
+}
+
+// GetETag returns the value of ETag.
+func (s *IntercompanyDifferenceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *IntercompanyDifferenceHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *IntercompanyDifferenceHeaders) GetResponse() IntercompanyDifference {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *IntercompanyDifferenceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *IntercompanyDifferenceHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *IntercompanyDifferenceHeaders) SetResponse(val IntercompanyDifference) {
+	s.Response = val
+}
+
+func (*IntercompanyDifferenceHeaders) acceptIntercompanyDifferenceRes() {}
 
 // One page of a consolidation run's intercompany differences, with the totals over the filter.
 // Ref: #/components/schemas/IntercompanyDifferencePage
@@ -68069,6 +68313,7 @@ func (s *TooManyRequestsHeaders) SetResponse(val Problem) {
 func (*TooManyRequestsHeaders) acceptBankStatementGapRes()                {}
 func (*TooManyRequestsHeaders) acceptBankStatementLineProposalRes()       {}
 func (*TooManyRequestsHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*TooManyRequestsHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*TooManyRequestsHeaders) acceptMemoRecordProposalRes()              {}
 func (*TooManyRequestsHeaders) acceptVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()                 {}
@@ -68156,6 +68401,7 @@ func (*TooManyRequestsHeaders) endSodRuleRes()                            {}
 func (*TooManyRequestsHeaders) excludeBankStatementLineRes()              {}
 func (*TooManyRequestsHeaders) fetchEInvoicesRes()                        {}
 func (*TooManyRequestsHeaders) fileTaxReturnRes()                         {}
+func (*TooManyRequestsHeaders) finalizeConsolidationRunRes()              {}
 func (*TooManyRequestsHeaders) getAccountRes()                            {}
 func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                       {}
@@ -68563,6 +68809,7 @@ func (s *UnauthorizedHeaders) SetResponse(val Problem) {
 func (*UnauthorizedHeaders) acceptBankStatementGapRes()                {}
 func (*UnauthorizedHeaders) acceptBankStatementLineProposalRes()       {}
 func (*UnauthorizedHeaders) acceptForecastVarianceCommentProposalRes() {}
+func (*UnauthorizedHeaders) acceptIntercompanyDifferenceRes()          {}
 func (*UnauthorizedHeaders) acceptMemoRecordProposalRes()              {}
 func (*UnauthorizedHeaders) acceptVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()                 {}
@@ -68650,6 +68897,7 @@ func (*UnauthorizedHeaders) endSodRuleRes()                            {}
 func (*UnauthorizedHeaders) excludeBankStatementLineRes()              {}
 func (*UnauthorizedHeaders) fetchEInvoicesRes()                        {}
 func (*UnauthorizedHeaders) fileTaxReturnRes()                         {}
+func (*UnauthorizedHeaders) finalizeConsolidationRunRes()              {}
 func (*UnauthorizedHeaders) getAccountRes()                            {}
 func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                       {}

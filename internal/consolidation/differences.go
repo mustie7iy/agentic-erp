@@ -3,6 +3,7 @@ package consolidation
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -50,12 +52,25 @@ func (n names) eliminationRef(code string) gen.EliminationRef {
 // storedDifference is a difference as stored, with its company's code.
 type storedDifference struct {
 	id                         uuid.UUID
-	line                       int32
+	line, version              int32
 	elimination, code, status  string
 	company                    uuid.UUID
-	partner                    *uuid.UUID
+	partner, acceptedBy        *uuid.UUID
 	amount                     money.Minor
 	partnerAmount, diff, toler *money.Minor
+	acceptedAt                 *time.Time
+	reason                     *string
+}
+
+// differenceColumns are a difference's columns, as scanDifference reads
+// them, over differenceWhere's tables.
+const differenceColumns = `d.id, d.line_no, d.elimination_code, d.legal_entity_id, m.company_code, d.partner_id, d.status, d.amount, d.partner_amount,
+	d.difference, d.tolerance, d.accepted_by, d.accepted_at, d.reason, d.version`
+
+func scanDifference(row pgx.CollectableRow) (storedDifference, error) {
+	var s storedDifference
+	return s, errs.Wrapf(row.Scan(&s.id, &s.line, &s.elimination, &s.company, &s.code, &s.partner, &s.status, &s.amount, &s.partnerAmount, &s.diff,
+		&s.toler, &s.acceptedBy, &s.acceptedAt, &s.reason, &s.version), "scan intercompany difference")
 }
 
 // differenceWhere selects a run's ($1) differences by status ($2),
@@ -85,12 +100,9 @@ func (e *Endpoints) ListIntercompanyDifferences(ctx context.Context, params gen.
 		return nil, err
 	}
 	filter := []any{r.ID, params.Status.Value, params.Elimination.Value, apitypes.Ptr[uuid.UUID](params.LegalEntityID)}
-	rows, _ := tx.Query(ctx, `SELECT d.id, d.line_no, d.elimination_code, d.legal_entity_id, m.company_code, d.partner_id, d.status, d.amount,
-			d.partner_amount, d.difference, d.tolerance `+differenceWhere+` AND d.line_no > $5 ORDER BY d.line_no LIMIT $6`, append(filter, after, size+1)...)
-	page, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (storedDifference, error) {
-		var s storedDifference
-		return s, row.Scan(&s.id, &s.line, &s.elimination, &s.company, &s.code, &s.partner, &s.status, &s.amount, &s.partnerAmount, &s.diff, &s.toler)
-	})
+	rows, _ := tx.Query(ctx, `SELECT `+differenceColumns+` `+differenceWhere+` AND d.line_no > $5 ORDER BY d.line_no LIMIT $6`,
+		append(filter, after, size+1)...)
+	page, err := pgx.CollectRows(rows, scanDifference)
 	if err != nil {
 		return nil, fmt.Errorf("consolidation: intercompany differences of run %s: %w", r.ID, err)
 	}
@@ -102,6 +114,9 @@ func (e *Endpoints) ListIntercompanyDifferences(ctx context.Context, params gen.
 	}
 	n, err := e.namesOf(ctx, tx, r, nil)
 	if err != nil {
+		return nil, err
+	}
+	if n.people, err = e.acceptors(ctx, page); err != nil {
 		return nil, err
 	}
 	for _, s := range page {
@@ -121,9 +136,20 @@ func (n names) optMoney(m *money.Minor) gen.OptMoney {
 
 // differenceAPI shows a difference with its names.
 func (n names) differenceAPI(s storedDifference) gen.IntercompanyDifference {
-	return gen.IntercompanyDifference{ID: s.id, LineNo: s.line, Elimination: n.eliminationRef(s.elimination), LegalEntityID: s.company,
+	out := gen.IntercompanyDifference{ID: s.id, LineNo: s.line, Elimination: n.eliminationRef(s.elimination), LegalEntityID: s.company,
 		CompanyCode: s.code, CompanyName: n.companies[s.company].Name, Partner: n.tradingPartner(s.partner), Status: s.status,
-		Amount: n.money(s.amount, n.group), PartnerAmount: n.optMoney(s.partnerAmount), Difference: n.optMoney(s.diff), Tolerance: n.optMoney(s.toler)}
+		Amount: n.money(s.amount, n.group), PartnerAmount: n.optMoney(s.partnerAmount), Difference: n.optMoney(s.diff), Tolerance: n.optMoney(s.toler),
+		AcceptedBy: apitypes.OptUUID(s.acceptedBy), Reason: apitypes.OptString(s.reason), Version: s.version}
+	if s.acceptedBy != nil {
+		out.AcceptedByName = gen.NewOptString(n.people[*s.acceptedBy])
+		out.AcceptedAt = gen.NewOptDateTime(*s.acceptedAt)
+	}
+	return out
+}
+
+// acceptors names the people who accepted a page's differences.
+func (e *Endpoints) acceptors(ctx context.Context, page []storedDifference) (map[uuid.UUID]string, error) {
+	return idref.Resolve(ctx, e.People.Named, idref.Of(page, func(s storedDifference) *uuid.UUID { return s.acceptedBy }), personRef)
 }
 
 // differenceTotals are the differences the filter selects summed per

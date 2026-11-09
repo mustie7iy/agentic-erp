@@ -88,23 +88,14 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 			return nil, err
 		}
 	}
-	doc, err := e.version(ctx, r.ConfigVersion)
-	if err != nil {
-		return nil, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
-	}
-	sums, err := accountSums(ctx, tx, r)
+	s, stale, err := e.statementOf(ctx, tx, r)
 	if err != nil {
 		return nil, err
 	}
-	exp, err := currency.Exponent(ctx, tx, r.GroupCurrency, nil)
-	if err != nil {
-		return nil, fmt.Errorf("consolidation: currency %s: %w", r.GroupCurrency, err)
-	}
 	// The run's configuration version never changes and was activated
 	// with its group (validation), so Group is never nil, as runAPI reads it.
-	s := statement{chart: doc.Consolidation, sums: sums, group: r.GroupCurrency, exp: exp}
-	out := gen.ConsolidatedStatement{RunID: r.ID, GroupCode: r.GroupCode, GroupName: doc.Consolidation.Group(r.GroupCode).Name, FiscalYear: int32(r.FiscalYear),
-		Period: int32(r.Period), PeriodEnd: r.PeriodEnd, RunStatus: r.Status, Statement: params.Statement, GroupCurrency: r.GroupCurrency,
+	out := gen.ConsolidatedStatement{RunID: r.ID, GroupCode: r.GroupCode, GroupName: s.chart.Group(r.GroupCode).Name, FiscalYear: int32(r.FiscalYear),
+		Period: int32(r.Period), PeriodEnd: r.PeriodEnd, RunStatus: r.Status, Stale: stale, Statement: params.Statement, GroupCurrency: r.GroupCurrency,
 		Items: []gen.ConsolidatedStatementRow{}, Totals: s.totals(params.Statement)}
 	for _, a := range s.accounts(types) {
 		if params.PageToken.Set && a.Number <= after.Number {
@@ -118,6 +109,31 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 		out.Items = append(out.Items, s.row(a))
 	}
 	return &out, nil
+}
+
+// statementOf reads what a run's statements are computed from: the group
+// chart of the version it read, its figures per group account and the
+// group currency's minor units; and whether the run is stale (ADR-0059
+// §10), which a computed, final or superseded run, every company of it
+// translated, always knows.
+func (e *Endpoints) statementOf(ctx context.Context, tx pgx.Tx, r Run) (statement, bool, error) {
+	doc, err := e.version(ctx, r.ConfigVersion)
+	if err != nil {
+		return statement{}, false, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
+	}
+	stale, _, err := e.staleOf(ctx, tx, r)
+	if err != nil {
+		return statement{}, false, err
+	}
+	sums, err := accountSums(ctx, tx, r)
+	if err != nil {
+		return statement{}, false, err
+	}
+	exp, err := currency.Exponent(ctx, tx, r.GroupCurrency, nil)
+	if err != nil {
+		return statement{}, false, fmt.Errorf("consolidation: currency %s: %w", r.GroupCurrency, err)
+	}
+	return statement{chart: doc.Consolidation, sums: sums, group: r.GroupCurrency, exp: exp}, stale, nil
 }
 
 // accountSums are a run's translated rows and its elimination entries'

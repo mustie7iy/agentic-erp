@@ -122,6 +122,7 @@ type names struct {
 	accounts  map[uuid.UUID]Account
 	exps      map[string]int
 	group     string
+	people    map[uuid.UUID]string // who accepted the differences shown
 }
 
 // namesOf reads the names of a page of a run's rows, of the companies

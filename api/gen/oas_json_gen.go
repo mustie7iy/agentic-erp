@@ -660,6 +660,234 @@ func (s *AcceptForecastVarianceCommentProposalPreconditionRequired) UnmarshalJSO
 	return s.Decode(d)
 }
 
+// Encode encodes AcceptIntercompanyDifferenceBadRequest as json.
+func (s *AcceptIntercompanyDifferenceBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes AcceptIntercompanyDifferenceBadRequest from json.
+func (s *AcceptIntercompanyDifferenceBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AcceptIntercompanyDifferenceBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = AcceptIntercompanyDifferenceBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AcceptIntercompanyDifferenceBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AcceptIntercompanyDifferenceBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AcceptIntercompanyDifferenceForbidden as json.
+func (s *AcceptIntercompanyDifferenceForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes AcceptIntercompanyDifferenceForbidden from json.
+func (s *AcceptIntercompanyDifferenceForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AcceptIntercompanyDifferenceForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = AcceptIntercompanyDifferenceForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AcceptIntercompanyDifferenceForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AcceptIntercompanyDifferenceForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AcceptIntercompanyDifferenceNotFound as json.
+func (s *AcceptIntercompanyDifferenceNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes AcceptIntercompanyDifferenceNotFound from json.
+func (s *AcceptIntercompanyDifferenceNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AcceptIntercompanyDifferenceNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = AcceptIntercompanyDifferenceNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AcceptIntercompanyDifferenceNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AcceptIntercompanyDifferenceNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AcceptIntercompanyDifferencePreconditionFailed as json.
+func (s *AcceptIntercompanyDifferencePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes AcceptIntercompanyDifferencePreconditionFailed from json.
+func (s *AcceptIntercompanyDifferencePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AcceptIntercompanyDifferencePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = AcceptIntercompanyDifferencePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AcceptIntercompanyDifferencePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AcceptIntercompanyDifferencePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AcceptIntercompanyDifferencePreconditionRequired as json.
+func (s *AcceptIntercompanyDifferencePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes AcceptIntercompanyDifferencePreconditionRequired from json.
+func (s *AcceptIntercompanyDifferencePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AcceptIntercompanyDifferencePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = AcceptIntercompanyDifferencePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AcceptIntercompanyDifferencePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AcceptIntercompanyDifferencePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes AcceptIntercompanyDifferenceUnprocessableEntity as json.
+func (s *AcceptIntercompanyDifferenceUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes AcceptIntercompanyDifferenceUnprocessableEntity from json.
+func (s *AcceptIntercompanyDifferenceUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode AcceptIntercompanyDifferenceUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = AcceptIntercompanyDifferenceUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *AcceptIntercompanyDifferenceUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *AcceptIntercompanyDifferenceUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes AcceptMemoRecordProposalBadRequest as json.
 func (s *AcceptMemoRecordProposalBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -49974,6 +50202,10 @@ func (s *ConsolidatedStatement) encodeFields(e *jx.Encoder) {
 		e.Str(s.RunStatus)
 	}
 	{
+		e.FieldStart("stale")
+		e.Bool(s.Stale)
+	}
+	{
 		e.FieldStart("statement")
 		e.Str(s.Statement)
 	}
@@ -50001,7 +50233,7 @@ func (s *ConsolidatedStatement) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidatedStatement = [12]string{
+var jsonFieldsNameOfConsolidatedStatement = [13]string{
 	0:  "run_id",
 	1:  "group_code",
 	2:  "group_name",
@@ -50009,11 +50241,12 @@ var jsonFieldsNameOfConsolidatedStatement = [12]string{
 	4:  "period",
 	5:  "period_end",
 	6:  "run_status",
-	7:  "statement",
-	8:  "group_currency",
-	9:  "items",
-	10: "totals",
-	11: "next_page_token",
+	7:  "stale",
+	8:  "statement",
+	9:  "group_currency",
+	10: "items",
+	11: "totals",
+	12: "next_page_token",
 }
 
 // Decode decodes ConsolidatedStatement from json.
@@ -50109,8 +50342,20 @@ func (s *ConsolidatedStatement) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"run_status\"")
 			}
-		case "statement":
+		case "stale":
 			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Bool()
+				s.Stale = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stale\"")
+			}
+		case "statement":
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.Statement = string(v)
@@ -50122,7 +50367,7 @@ func (s *ConsolidatedStatement) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"statement\"")
 			}
 		case "group_currency":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.GroupCurrency = string(v)
@@ -50134,7 +50379,7 @@ func (s *ConsolidatedStatement) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"group_currency\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				s.Items = make([]ConsolidatedStatementRow, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -50152,7 +50397,7 @@ func (s *ConsolidatedStatement) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "totals":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.Totals.Decode(d); err != nil {
 					return err
@@ -50182,7 +50427,7 @@ func (s *ConsolidatedStatement) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -52772,6 +53017,42 @@ func (s *ConsolidationRun) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		if s.Stale.Set {
+			e.FieldStart("stale")
+			s.Stale.Encode(e)
+		}
+	}
+	{
+		if s.FinalizedBy.Set {
+			e.FieldStart("finalized_by")
+			s.FinalizedBy.Encode(e)
+		}
+	}
+	{
+		if s.FinalizedByName.Set {
+			e.FieldStart("finalized_by_name")
+			s.FinalizedByName.Encode(e)
+		}
+	}
+	{
+		if s.FinalizedAt.Set {
+			e.FieldStart("finalized_at")
+			s.FinalizedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.SupersededBy.Set {
+			e.FieldStart("superseded_by")
+			s.SupersededBy.Encode(e)
+		}
+	}
+	{
+		if s.Supersedes.Set {
+			e.FieldStart("supersedes")
+			s.Supersedes.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("version")
 		e.Int32(s.Version)
 	}
@@ -52785,7 +53066,7 @@ func (s *ConsolidationRun) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidationRun = [19]string{
+var jsonFieldsNameOfConsolidationRun = [25]string{
 	0:  "id",
 	1:  "group_code",
 	2:  "group_name",
@@ -52802,9 +53083,15 @@ var jsonFieldsNameOfConsolidationRun = [19]string{
 	13: "members",
 	14: "computed_at",
 	15: "difference_counts",
-	16: "version",
-	17: "created_at",
-	18: "updated_at",
+	16: "stale",
+	17: "finalized_by",
+	18: "finalized_by_name",
+	19: "finalized_at",
+	20: "superseded_by",
+	21: "supersedes",
+	22: "version",
+	23: "created_at",
+	24: "updated_at",
 }
 
 // Decode decodes ConsolidationRun from json.
@@ -52812,7 +53099,7 @@ func (s *ConsolidationRun) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ConsolidationRun to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -53016,8 +53303,68 @@ func (s *ConsolidationRun) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"difference_counts\"")
 			}
+		case "stale":
+			if err := func() error {
+				s.Stale.Reset()
+				if err := s.Stale.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stale\"")
+			}
+		case "finalized_by":
+			if err := func() error {
+				s.FinalizedBy.Reset()
+				if err := s.FinalizedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"finalized_by\"")
+			}
+		case "finalized_by_name":
+			if err := func() error {
+				s.FinalizedByName.Reset()
+				if err := s.FinalizedByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"finalized_by_name\"")
+			}
+		case "finalized_at":
+			if err := func() error {
+				s.FinalizedAt.Reset()
+				if err := s.FinalizedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"finalized_at\"")
+			}
+		case "superseded_by":
+			if err := func() error {
+				s.SupersededBy.Reset()
+				if err := s.SupersededBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"superseded_by\"")
+			}
+		case "supersedes":
+			if err := func() error {
+				s.Supersedes.Reset()
+				if err := s.Supersedes.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"supersedes\"")
+			}
 		case "version":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -53029,7 +53376,7 @@ func (s *ConsolidationRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -53041,7 +53388,7 @@ func (s *ConsolidationRun) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "updated_at":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -53061,10 +53408,11 @@ func (s *ConsolidationRun) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11111111,
 		0b10111110,
-		0b00000111,
+		0b11000000,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -75460,6 +75808,234 @@ func (s *FileTaxReturnUnprocessableEntity) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes FinalizeConsolidationRunBadRequest as json.
+func (s *FinalizeConsolidationRunBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes FinalizeConsolidationRunBadRequest from json.
+func (s *FinalizeConsolidationRunBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode FinalizeConsolidationRunBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = FinalizeConsolidationRunBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *FinalizeConsolidationRunBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *FinalizeConsolidationRunBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes FinalizeConsolidationRunForbidden as json.
+func (s *FinalizeConsolidationRunForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes FinalizeConsolidationRunForbidden from json.
+func (s *FinalizeConsolidationRunForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode FinalizeConsolidationRunForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = FinalizeConsolidationRunForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *FinalizeConsolidationRunForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *FinalizeConsolidationRunForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes FinalizeConsolidationRunNotFound as json.
+func (s *FinalizeConsolidationRunNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes FinalizeConsolidationRunNotFound from json.
+func (s *FinalizeConsolidationRunNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode FinalizeConsolidationRunNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = FinalizeConsolidationRunNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *FinalizeConsolidationRunNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *FinalizeConsolidationRunNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes FinalizeConsolidationRunPreconditionFailed as json.
+func (s *FinalizeConsolidationRunPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes FinalizeConsolidationRunPreconditionFailed from json.
+func (s *FinalizeConsolidationRunPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode FinalizeConsolidationRunPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = FinalizeConsolidationRunPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *FinalizeConsolidationRunPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *FinalizeConsolidationRunPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes FinalizeConsolidationRunPreconditionRequired as json.
+func (s *FinalizeConsolidationRunPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes FinalizeConsolidationRunPreconditionRequired from json.
+func (s *FinalizeConsolidationRunPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode FinalizeConsolidationRunPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = FinalizeConsolidationRunPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *FinalizeConsolidationRunPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *FinalizeConsolidationRunPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes FinalizeConsolidationRunUnprocessableEntity as json.
+func (s *FinalizeConsolidationRunUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes FinalizeConsolidationRunUnprocessableEntity from json.
+func (s *FinalizeConsolidationRunUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode FinalizeConsolidationRunUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = FinalizeConsolidationRunUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *FinalizeConsolidationRunUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *FinalizeConsolidationRunUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode implements json.Marshaler.
 func (s *FiscalPeriod) Encode(e *jx.Encoder) {
 	e.ObjStart()
@@ -95147,9 +95723,37 @@ func (s *IntercompanyDifference) encodeFields(e *jx.Encoder) {
 			s.Tolerance.Encode(e)
 		}
 	}
+	{
+		if s.AcceptedBy.Set {
+			e.FieldStart("accepted_by")
+			s.AcceptedBy.Encode(e)
+		}
+	}
+	{
+		if s.AcceptedByName.Set {
+			e.FieldStart("accepted_by_name")
+			s.AcceptedByName.Encode(e)
+		}
+	}
+	{
+		if s.AcceptedAt.Set {
+			e.FieldStart("accepted_at")
+			s.AcceptedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.Reason.Set {
+			e.FieldStart("reason")
+			s.Reason.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("version")
+		e.Int32(s.Version)
+	}
 }
 
-var jsonFieldsNameOfIntercompanyDifference = [12]string{
+var jsonFieldsNameOfIntercompanyDifference = [17]string{
 	0:  "id",
 	1:  "line_no",
 	2:  "elimination",
@@ -95162,6 +95766,11 @@ var jsonFieldsNameOfIntercompanyDifference = [12]string{
 	9:  "partner_amount",
 	10: "difference",
 	11: "tolerance",
+	12: "accepted_by",
+	13: "accepted_by_name",
+	14: "accepted_at",
+	15: "reason",
+	16: "version",
 }
 
 // Decode decodes IntercompanyDifference from json.
@@ -95169,7 +95778,7 @@ func (s *IntercompanyDifference) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode IntercompanyDifference to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -95305,6 +95914,58 @@ func (s *IntercompanyDifference) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tolerance\"")
 			}
+		case "accepted_by":
+			if err := func() error {
+				s.AcceptedBy.Reset()
+				if err := s.AcceptedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"accepted_by\"")
+			}
+		case "accepted_by_name":
+			if err := func() error {
+				s.AcceptedByName.Reset()
+				if err := s.AcceptedByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"accepted_by_name\"")
+			}
+		case "accepted_at":
+			if err := func() error {
+				s.AcceptedAt.Reset()
+				if err := s.AcceptedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"accepted_at\"")
+			}
+		case "reason":
+			if err := func() error {
+				s.Reason.Reset()
+				if err := s.Reason.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reason\"")
+			}
+		case "version":
+			requiredBitSet[2] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.Version = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"version\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -95314,8 +95975,9 @@ func (s *IntercompanyDifference) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b10111111,
+		0b00000001,
 		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {

@@ -3446,7 +3446,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations and its consolidated statements"
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations, its consolidated statements and its open difference accepted"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3517,6 +3517,7 @@ step_consolidation() {
   consolidation_run
   consolidation_eliminations
   consolidation_statements
+  consolidation_accept
   as tom
   passed
 }
@@ -3753,6 +3754,36 @@ consolidation_statements() {
   done
   say "  $(jq '.items | length' "$WORK/balance-sheet.json") balance sheet and $(jq '.items | length' "$WORK/profit-and-loss.json") profit and loss rows checked against the balances list"
   expect "rows whose reported figure differs from the balances list's total" "$differ" ""
+}
+
+# consolidation_accept is accepting an intercompany difference (T68g,
+# ADR-0059 §8, §10), part of step_consolidation: Carla accepts the run's
+# open IC_BALANCES difference (the payable at the closing 1.40 against the
+# receivable as booked at 1.35) with her reason; the run's version moves
+# with it. Finalizing the run is then refused: the companies' periods of
+# today were open when the run read their figures, and a run is final only
+# on locked periods. step_close finalizes the group after the sign-off.
+consolidation_accept() {
+  local run difference tag
+  as carla
+  QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
+  run=$(field '.items[0].id')
+  QUIET=1 api 200 '' listIntercompanyDifferences -p "id=$run" -p status=open
+  difference=$(field '.items[0].id')
+  tag="\"$(field '.items[0].version')\""
+  say "The open difference is the rates' (ADR-0059 §8): Maple's receivable is booked at the invoice date's 1.35, Acme"
+  say "Corp US's payable translated at the closing 1.40; neither company's postings are wrong. Carla accepts it with her"
+  say "reason, a person's decision (agents are refused), so that it no longer stops finalizing the run:"
+  api 200 '"\(.elimination.code) \(.company_code)/\(.partner.code): \(.difference.amount) \(.difference.currency), \(.status) by \(.accepted_by_name): \(.reason)"' \
+    acceptIntercompanyDifference -p "id=$run" -p "difference_id=$difference" -if-match "$tag" \
+    -body '{"reason": "Rate difference: the receivable is booked at the invoice date'"'"'s rate, the payable translated at the closing rate"}'
+  expect "the accepted difference" "$(field '"\(.status) \(.accepted_by_name) \(.version)"')" "accepted Carla Controller 2"
+  api 200 '"run \(.status) at version \(.version): \([.difference_counts[] | "\(.count) \(.status)"] | join(", ")), stale \(.stale)"' getConsolidationRun -p "id=$run"
+  expect "the run's differences" "$(field '[.difference_counts[] | "\(.count) \(.status)"] | join(", ")')" "1 matched, 1 accepted"
+  say "Finalizing the run as the group's consolidated figures of $YEAR-$((10#${TODAY:5:2})) is refused: the companies' periods"
+  say "were open when it read their figures. A run is final only on locked periods; the group is run again after the"
+  say "close's sign-off (step_close):"
+  refused 409 consolidation.period_not_locked finalizeConsolidationRun -p "id=$run" -if-match "$ETAG"
 }
 
 # UAE_COMPANY is the UAE pilot company in the configuration before its
@@ -4425,7 +4456,7 @@ year_end_rerun() {
 # (T64c), its accrual proposals (T64e), its variances (T64h) and their
 # comments (T64i) and, last, its sign-off (T64d), which locks the period.
 step_close() {
-  heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off"
+  heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada
   say "Ada proposes the close template (ADR-0058 §3): the tasks every company's period close is given, each due"
   say "a number of business days after the period's last day (negative: before it), some waiting for others:"
@@ -4484,6 +4515,7 @@ step_close() {
   close_comments
   close_variance_agent
   close_sign_off
+  close_consolidation
   passed
 }
 
@@ -5269,6 +5301,54 @@ close_sign_off() {
   say "A manual entry dated in the period is refused: the period is locked."
   refused 409 ledger.period_not_open postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"A late courier charge\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"40.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-40.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+}
+
+# close_consolidation is finalizing the group's consolidation (T68g,
+# ADR-0059 §10), the end of step_close: after Maple's sign-off locked its
+# period, Carla closes and locks Acme Corp US's, runs the group MAPLE
+# again on the locked periods, discards step_consolidation's draft,
+# accepts the new run's open difference and finalizes it: the group's
+# consolidated figures of the period, by her, not stale.
+close_consolidation() {
+  local period us p draft run difference tag
+  period=$((10#${TODAY:5:2}))
+  as carla
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Maple's period is locked. Carla closes and locks Acme Corp US's period $YEAR-$period in its leading ledger, so that"
+  say "the group's figures can be finalized (ADR-0059 §10):"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$us" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  p=$(field ".items[] | select(.period == $period) | \"\(.id)/\(.version)\"")
+  api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  api 200 '"  period \(.fiscal_year)-\(.period) of Acme Corp US: \(.status)"' lockFiscalPeriod -p "id=${p%/*}" -if-match "$ETAG"
+  QUIET=1 api 200 '' listConsolidationRuns -p group_code=MAPLE -p status=computed
+  draft=$(field '.items[0].id')
+  say "She runs the group again: the run reads both companies' figures from their locked periods."
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  api 200 '"run \(.status): \([.members[] | "\(.company_code) period \(.period_status) at version \(.period_version)"] | join(", ")); \([.difference_counts[] | "\(.count) \(.status)"] | join(", "))"' \
+    getConsolidationRun -p "id=$run"
+  expect "the new run" "$(field '"\(.status) \([.members[].period_status] | unique | join(" "))"')" "computed locked"
+  say "The draft of step 40, read from open periods, is discarded:"
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$draft"
+  api 200 '"  run \(.id): \(.status)"' discardConsolidationRun -p "id=$draft" -if-match "$ETAG"
+  expect "the draft" "$(field .status)" discarded
+  QUIET=1 api 200 '' listIntercompanyDifferences -p "id=$run" -p status=open
+  difference=$(field '.items[0].id')
+  tag="\"$(field '.items[0].version')\""
+  say "The same rate difference is open in the new run; Carla accepts it again, and finalizes the run:"
+  api 200 '"  \(.elimination.code) \(.difference.amount) \(.difference.currency): \(.status) by \(.accepted_by_name)"' acceptIntercompanyDifference \
+    -p "id=$run" -p "difference_id=$difference" -if-match "$tag" -body '{"reason": "Rate difference, as in the draft"}'
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$run"
+  api 200 '"run of \(.group_code) for \(.fiscal_year)-\(.period): \(.status), finalized by \(.finalized_by_name) at \(.finalized_at), stale \(.stale)"' \
+    finalizeConsolidationRun -p "id=$run" -if-match "$ETAG"
+  expect "the final run" "$(field '"\(.status) \(.finalized_by_name) \(.stale)"')" "final Carla Controller false"
+  api 200 '"\(.statement), run \(.run_status), stale \(.stale): assets \(.totals.assets.consolidated.amount), profit \(.totals.profit.consolidated.amount) \(.group_currency)"' \
+    getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
+  expect "the final run's statement" "$(field '"\(.run_status) \(.stale)"')" "final false"
+  api 200 '"final runs of MAPLE: \([.items[] | "\(.fiscal_year)-\(.period) by \(.finalized_by_name)"] | join(", "))"' listConsolidationRuns -p group_code=MAPLE -p status=final
+  expect "the group's final runs" "$(field '.items | length')" 1
 }
 
 # step_cash_actuals is the statement lines of the week classified by

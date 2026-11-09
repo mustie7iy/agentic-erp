@@ -35,12 +35,13 @@ const (
 	DiffMatched          = "matched"
 	DiffWithinTolerance  = "within_tolerance"
 	DiffOpen             = "open"
+	DiffAccepted         = "accepted"
 	DiffOutsideGroup     = "outside_group"
 	DiffNoTradingPartner = "no_trading_partner"
 )
 
 // differenceStatuses are the statuses in their order.
-var differenceStatuses = []string{DiffMatched, DiffWithinTolerance, DiffOpen, DiffOutsideGroup, DiffNoTradingPartner}
+var differenceStatuses = []string{DiffMatched, DiffWithinTolerance, DiffOpen, DiffAccepted, DiffOutsideGroup, DiffNoTradingPartner}
 
 // Elimination entry kinds (ADR-0059 §5), in entry order: T68f writes the
 // intercompany ones, T68h the others.

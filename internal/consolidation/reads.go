@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
+	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -21,13 +22,17 @@ import (
 
 // runView is what runs are shown with: the documents of the configuration
 // versions they read (their groups' names), the tenant's companies by id
-// (their names now), the runs' members and their differences counted per
-// status.
+// (their names now), the runs' members, their differences counted per
+// status, their companies' periods now (stale), who finalized them and
+// the runs they superseded.
 type runView struct {
 	docs        map[int32]*config.Config
 	companies   map[uuid.UUID]Company
 	members     map[uuid.UUID][]Member
 	differences map[uuid.UUID][]gen.ConsolidationDifferenceCount
+	periods     map[periodKey]Period
+	people      map[uuid.UUID]string
+	supersedes  map[uuid.UUID]uuid.UUID
 }
 
 // viewOf reads what the runs are shown with.
@@ -55,8 +60,27 @@ func (e *Endpoints) viewOf(ctx context.Context, tx pgx.Tx, rs []Run) (runView, e
 	if v.members, err = members(ctx, tx, ids); err != nil {
 		return runView{}, err
 	}
-	v.differences, err = differenceCounts(ctx, tx, ids)
+	if v.differences, err = differenceCounts(ctx, tx, ids); err != nil {
+		return runView{}, err
+	}
+	if v.periods, err = e.periodsNow(ctx, rs, v.members); err != nil {
+		return runView{}, err
+	}
+	if v.people, err = idref.Resolve(ctx, e.People.Named, idref.Of(rs, func(r Run) *uuid.UUID { return r.FinalizedBy }), personRef); err != nil {
+		return runView{}, fmt.Errorf("consolidation: finalizers of %d runs: %w", len(rs), err)
+	}
+	v.supersedes, err = superseded(ctx, tx, ids)
 	return v, err
+}
+
+// superseded are the runs the runs superseded, by the run that superseded
+// each.
+func superseded(ctx context.Context, tx pgx.Tx, runs []uuid.UUID) (map[uuid.UUID]uuid.UUID, error) {
+	rows, _ := tx.Query(ctx, `SELECT superseded_by, id FROM consolidation.run WHERE superseded_by = ANY($1)`, runs)
+	out := map[uuid.UUID]uuid.UUID{}
+	var by, run uuid.UUID
+	_, err := pgx.ForEachRow(rows, []any{&by, &run}, func() error { out[by] = run; return nil })
+	return out, errs.Wrapf(err, "consolidation: runs superseded by %d runs", len(runs))
 }
 
 // differenceCounts are runs' differences counted per status, in the
@@ -85,6 +109,7 @@ func (v runView) runAPI(r Run) gen.ConsolidationRun {
 	if r.ComputedAt != nil {
 		out.ComputedAt = gen.NewOptDateTime(*r.ComputedAt)
 	}
+	v.finalization(r, &out)
 	for _, m := range v.members[r.ID] {
 		x := gen.ConsolidationRunMember{LegalEntityID: m.LegalEntityID, CompanyCode: m.CompanyCode, CompanyName: v.companies[m.LegalEntityID].Name,
 			LocalCurrency: m.LocalCurrency, Role: m.Role, OwnershipPercent: apitypes.OptString(m.OwnershipPercent), ClosingRate: plainRate(m.ClosingRate),
@@ -107,6 +132,22 @@ func (v runView) runAPI(r Run) gen.ConsolidationRun {
 		out.Members = append(out.Members, x)
 	}
 	return out
+}
+
+// finalization shows whether a run is stale, who finalized it and when,
+// and which run superseded it or it superseded.
+func (v runView) finalization(r Run, out *gen.ConsolidationRun) {
+	if ms := v.members[r.ID]; translated(ms) {
+		out.Stale = gen.NewOptBool(len(moved(r, ms, v.periods)) > 0)
+	}
+	if r.FinalizedBy != nil {
+		out.FinalizedBy, out.FinalizedByName = gen.NewOptUUID(*r.FinalizedBy), gen.NewOptString(v.people[*r.FinalizedBy])
+		out.FinalizedAt = gen.NewOptDateTime(*r.FinalizedAt)
+	}
+	out.SupersededBy = apitypes.OptUUID(r.SupersededBy)
+	if prior, ok := v.supersedes[r.ID]; ok {
+		out.Supersedes = gen.NewOptUUID(prior)
+	}
 }
 
 // shown reads a run of the request, visible to the caller (readRun), as

@@ -68,6 +68,27 @@ func (UnimplementedHandler) AcceptForecastVarianceCommentProposal(ctx context.Co
 	return r, ht.ErrNotImplemented
 }
 
+// AcceptIntercompanyDifference implements acceptIntercompanyDifference operation.
+//
+// Accepts an open intercompany difference of a computed consolidation run (ADR-0059 §8, T68g): the
+// group's accountant accepts a difference above its elimination's tolerance with a reason, rather than
+// have the companies correct their postings and run the group again. It becomes `accepted`, with who
+// accepted it, when and why; it stays eliminated as it was, to the elimination's difference account,
+// and no longer stops finalizing the run. The run's version moves with it, so a view of the run read
+// before refuses `:finalize`. Refused for a difference that is not open (409
+// `consolidation.difference_not_open`) and for a run that is not computed (409
+// `consolidation.run_not_computed`: a draft is accepted before it is finalized; a final run has none
+// open). `If-Match` is the difference's ETag, its `version` (412 `request.version_mismatch` when it
+// moved since). Published as IntercompanyDifferenceAccepted and audited. A run of a group whose parent
+// or a member the caller may not act in, or a difference that is not the run's, is not found (404).
+// Besides `consolidation.difference.accept` the caller needs `ledger.entry.read`, since the difference
+// shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+//
+// POST /v1/consolidation-runs/{id}/differences/{difference_id}:accept
+func (UnimplementedHandler) AcceptIntercompanyDifference(ctx context.Context, req *ReasonInput, params AcceptIntercompanyDifferenceParams) (r AcceptIntercompanyDifferenceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // AcceptMemoRecordProposal implements acceptMemoRecordProposal operation.
 //
 // A person accepts an agent's `proposed` memo record (409 `cash.memo_record_not_proposed` otherwise):
@@ -1386,6 +1407,33 @@ func (UnimplementedHandler) FileTaxReturn(ctx context.Context, req *TaxReturnFil
 	return r, ht.ErrNotImplemented
 }
 
+// FinalizeConsolidationRun implements finalizeConsolidationRun operation.
+//
+// Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10,
+// T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the
+// period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it),
+// so the history of what was finalized, by whom and on which figures stays readable
+// (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when
+// the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany
+// differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`,
+// or have the companies correct their postings and run the group again); when a company's
+// leading-ledger period was not locked when the run read its figures or is not locked now (409
+// `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
+// sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
+// `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
+// moved since the run read its figures, so run the group again). Finalizations of one group and period
+// wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the
+// run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that
+// changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a
+// member the caller may not act in is not found (404), as a run that does not exist. Besides
+// `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+//
+// POST /v1/consolidation-runs/{id}:finalize
+func (UnimplementedHandler) FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (r FinalizeConsolidationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetAccount implements getAccount operation.
 //
 // Returns one general ledger account.
@@ -1872,7 +1920,8 @@ func (UnimplementedHandler) GetConnector(ctx context.Context, params GetConnecto
 // which leave no balance between the run's companies on an elimination's accounts and put each pair's
 // difference on the elimination's difference account; the investment's elimination follows with T68h.
 // The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-// never changes. Refused for a run that is queued, running, failed or discarded (409
+// never changes; `stale` says whether a company's period changed since the run read its figures
+// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
 // `consolidation.run_not_computed`) and for a statement other than these two (404
 // `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 // (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -1904,11 +1953,12 @@ func (UnimplementedHandler) GetConsolidationGroup(ctx context.Context, params Ge
 // the closing rate type, and its companies, the parent first and the members by company code, each
 // with its local currency, closing rate and the date it is valid from, its role, ownership and first
 // period, and the status and version of its leading ledger's period when the run read its figures; and
-// the number of its intercompany differences per status (T68f). A run of a group whose parent or a
-// member the caller may not act in is not found (404), as a run that does not exist, so neither its
-// existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`). Read from one database state (a repeatable-read
-// snapshot).
+// the number of its intercompany differences per status (T68f); whether it is `stale`, who finalized
+// it and when, and the run that superseded it or that it superseded (ADR-0059 §10, T68g). A run of a
+// group whose parent or a member the caller may not act in is not found (404), as a run that does not
+// exist, so neither its existence nor its companies leak (ADR-0059 §12). Besides `consolidation.read`
+// the caller needs `ledger.entry.read` (`x-also-permissions`). Read from one database state (a
+// repeatable-read snapshot).
 //
 // GET /v1/consolidation-runs/{id}
 func (UnimplementedHandler) GetConsolidationRun(ctx context.Context, params GetConsolidationRunParams) (r GetConsolidationRunRes, _ error) {
@@ -3457,7 +3507,8 @@ func (UnimplementedHandler) ListHouseBanks(ctx context.Context, params ListHouse
 // expenses at their booked group amounts), their sum (`difference`) and the elimination's `tolerance`:
 // `matched` when the difference is zero, `within_tolerance` when its absolute value is at most the
 // tolerance, `open` otherwise. Every pair is eliminated, its difference to the elimination's
-// difference account (`listConsolidationEntries`); an open difference stops only finalization (T68g).
+// difference account (`listConsolidationEntries`); an open difference stops only finalization
+// (`:finalize`) until a person accepts it (`:accept`, T68g; then `accepted`, with who, when and why).
 // Rows on an elimination's accounts naming a trading partner that is not one of the run's companies (a
 // company outside the group, or a member before its first period) are listed per company and partner
 // as `outside_group`, and rows naming none per company as `no_trading_partner` (lines posted before

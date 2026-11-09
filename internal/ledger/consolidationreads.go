@@ -35,6 +35,9 @@ type PeriodState struct {
 	Start, End         time.Time
 	Status             string
 	Version            int32
+	// UnlockRequestID is the period's pending unlock request, if any
+	// (ADR-0059 §10: a stale run names it).
+	UnlockRequestID *uuid.UUID
 }
 
 // AccountOf is a company's account: its id, number, name and type.
@@ -88,12 +91,12 @@ func (ConsolidationReads) PeriodOf(ctx context.Context, legalEntity, ledgerID uu
 		return PeriodState{}, false, err
 	}
 	var p PeriodState
-	err = tx.QueryRow(ctx, `SELECT ps.id, ps.fiscal_year, ps.period, fp.start_date, fp.end_date, ps.status, ps.version
+	err = tx.QueryRow(ctx, `SELECT ps.id, ps.fiscal_year, ps.period, fp.start_date, fp.end_date, ps.status, ps.version, ps.unlock_request_id
 		FROM ledger.period_status ps
 		JOIN ledger.fiscal_period fp ON fp.tenant_id = ps.tenant_id AND fp.calendar_id = ps.calendar_id AND fp.fiscal_year = ps.fiscal_year
 			AND fp.period = ps.period
 		WHERE ps.legal_entity_id = $1 AND ps.ledger_id = $2 AND ps.fiscal_year = $3 AND ps.period = $4`, legalEntity, ledgerID, year, period).
-		Scan(&p.ID, &p.FiscalYear, &p.Period, &p.Start, &p.End, &p.Status, &p.Version)
+		Scan(&p.ID, &p.FiscalYear, &p.Period, &p.Start, &p.End, &p.Status, &p.Version, &p.UnlockRequestID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PeriodState{}, false, nil
 	}

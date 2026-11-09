@@ -1527,3 +1527,76 @@ product owner to overrule:
   intercompany item carry no trading partner until the tracker leaf
   "Revaluation of intercompany items by trading partner" (review:T68b) is
   built, so such revaluation differences show as `no_trading_partner`.
+
+**T68g (accepting differences and finalizing runs).** Built as §5, §8 and
+§10 say, in `internal/consolidation/finalize.go`, migration 000234: a
+difference's `accepted` status with `accepted_by`, `accepted_at`,
+`reason` and `version` (the columns T68f left), its one transition open
+-> accepted kept by the trigger `run_difference_transition` with its
+schema tests (`TestConsolidationDifferenceAcceptance`), and the
+permissions `consolidation.difference.accept` and
+`consolidation.run.finalize`. Finalization uses the run's columns,
+transitions and one-final index of 000224. The context answers
+`acceptIntercompanyDifference` (`POST
+/v1/consolidation-runs/{id}/differences/{difference_id}:accept`) and
+`finalizeConsolidationRun` (`POST /v1/consolidation-runs/{id}:finalize`),
+both `x-agent: false`, which authz enforces from the contract (403
+`identity.agent_not_allowed`), as every people-only operation is, and
+both also needing `ledger.entry.read`; `consolidation.People` names
+finalizers and acceptors (adapted over identity's `People`). Decided by
+default, for the product owner to overrule:
+- **Accepting.** `If-Match` is the difference's own `version`, now on
+  every difference read (its ETag); the run's version moves with it in
+  the same transaction (§5), so a `:finalize` or `:discard` on a view of
+  the run read before the acceptance is refused (412). Only a computed
+  run's differences are accepted (409 `consolidation.run_not_computed`,
+  checked before 409 `consolidation.difference_not_open`), which the
+  trigger also holds: a draft is accepted before it is finalized, and a
+  final run has none open. The reason is `ReasonInput`'s (1-2000
+  characters), refused blank with 422 `request.validation_failed` before
+  the column's check would. An accepted difference stays eliminated as
+  it was; it is counted and totalled as `accepted`, after `open`.
+  `IntercompanyDifferenceAccepted` names the run, group, period,
+  elimination, the pair by legal entity id, the difference and tolerance
+  in the group currency, the reason and both versions (no company names,
+  as the run's event; offered to webhooks); its audit record is
+  `consolidation.difference.accepted`. A difference written `accepted` is
+  refused but by an import (000230's `platform.importing`).
+- **Finalizing, in this order.** 409 `consolidation.run_not_computed`;
+  409 `consolidation.differences_open` with the count; 409
+  `consolidation.period_not_locked` naming each company whose period was
+  not `locked` when the run read it or is not now, with both statuses
+  ("none" for a period the ledger no longer has); 409
+  `consolidation.run_stale` naming each company whose period's version
+  moved, both versions and a pending unlock request. The period's pending
+  unlock request is `PeriodOf`'s new field, read from the same
+  `period_status` row (`unlock_request_id`), not a new read (§4a).
+- **Locks.** The run is read first without a lock (its visibility, group
+  and period), then every run of the group's period that is not
+  discarded is locked `FOR UPDATE` in id order and the run read again, so
+  a finalization never holds one run while it waits for another that a
+  single-run writer (a step, an acceptance, a discard) holds: no
+  deadlock. The previous final run is set `superseded` (with
+  `superseded_by`) before the run is set `final` (with `finalized_by`
+  and `finalized_at`); each change is audited and published as
+  `ConsolidationRunChanged`. `consolidation_run_one_final` maps to 409
+  `consolidation.final_exists`. A run's `stale` (§10) is shown on its
+  reads once every company of it is translated (absent before) and on
+  its statements; reading it costs one `PeriodOf` per company and period
+  of the page. The run also shows `finalized_by` with its name,
+  `finalized_at`, `superseded_by` and `supersedes` (the final run it
+  superseded), so `:finalize`'s answer names the run it superseded.
+- **Not in T68g.** Freezing a member's acquisition figures at its first
+  final run is T68h's, which builds them (§9); a finalization writes no
+  acquisition. Segregation of duties stays as question 5's answer: anyone
+  holding `consolidation.run.finalize` finalizes, the acceptor included.
+- **Walkthrough.** `step_consolidation` gains `consolidation_accept`
+  after `consolidation_statements`: Carla accepts the open IC_BALANCES
+  difference (-100.00 CAD, the rates' 1.35 against 1.40) with her reason,
+  and finalizing the run is refused with `consolidation.period_not_locked`
+  (both periods open when it read them). `step_close` ends with
+  `close_consolidation`: after the sign-off locked Maple's period, Carla
+  closes and locks Acme Corp US's, runs MAPLE again (both companies read
+  from locked periods), discards step 40's draft, accepts the new run's
+  open difference and finalizes it: final, by Carla Controller, not
+  stale; its balance sheet reads `final`.

@@ -42,8 +42,17 @@
 // naming a company outside the run or none, and writes each pair's
 // intercompany entry; ListIntercompanyDifferences and
 // ListConsolidationEntries read them, and the statements' eliminations
-// are the entries' lines. Accepting differences, finalization and the
-// investment's elimination follow in T68g-T68h.
+// are the entries' lines.
+//
+// T68g adds accepting differences and finalization (ADR-0059 §8, §10,
+// finalize): a person accepts an open difference of a computed run with a
+// reason (AcceptIntercompanyDifference); FinalizeConsolidationRun makes a
+// computed run without open differences, whose companies' periods were
+// locked when it read them and still are at the versions it recorded, the
+// group's final figures of its period, superseding the previous final run
+// under a lock of the period's runs. A run is stale once a company's
+// period version moved since it read its figures. The investment's
+// elimination follows in T68h.
 package consolidation
 
 import (
@@ -89,11 +98,13 @@ type Companies interface {
 }
 
 // Period is a company's posting period in the leading ledger: its dates,
-// status and version (ADR-0059 §4a, PeriodOf).
+// status and version, and its pending unlock request, if any (ADR-0059
+// §4a, PeriodOf).
 type Period struct {
-	Start, End time.Time
-	Status     string
-	Version    int32
+	Start, End      time.Time
+	Status          string
+	Version         int32
+	UnlockRequestID *uuid.UUID
 }
 
 // Account is a company's account: its number, name and type.
@@ -136,6 +147,13 @@ type Ledger interface {
 	RateOn(ctx context.Context, rateType, from, to string, date time.Time) (Rate, bool, error)
 }
 
+// People names principals (identity context, ADR-0059 §2): who finalized
+// a run and who accepted a difference. An id the tenant has no principal
+// of is absent.
+type People interface {
+	Named(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // Runs keeps a run's Operation (operations, 04 §4.8).
 type Runs interface {
 	Start(ctx context.Context, resource string, request any) (gen.Operation, error)
@@ -150,6 +168,7 @@ type Endpoints struct {
 	Settings  Settings
 	Companies Companies
 	Ledger    Ledger
+	People    People
 	Runs      Runs
 	Pages     *pagination.Codec
 

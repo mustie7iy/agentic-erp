@@ -9,9 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestConsolidationPermissions (T68a, T68d; migrations 000223, 000224): the
-// consolidation read and run permissions are seeded and are no approval
-// permissions.
+// TestConsolidationPermissions (T68a, T68d, T68g; migrations 000223,
+// 000224, 000234): the consolidation read, run, acceptance and
+// finalization permissions are seeded and are no approval permissions.
 func TestConsolidationPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'consolidation.%' AND NOT is_approval ORDER BY code`)
@@ -22,7 +22,7 @@ func TestConsolidationPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "consolidation.read consolidation.run.manage"; got != want {
+	if got, want := strings.Join(codes, " "), "consolidation.difference.accept consolidation.read consolidation.run.finalize consolidation.run.manage"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -392,7 +392,7 @@ func TestConsolidationEliminationRules(t *testing.T) {
 			return with(s, step(diffRow, s.tenant, s.run, 0, s.member, nil, "no_trading_partner", 5, nil, nil, nil))
 		}, "run_difference_line_no_check"},
 		{"an unknown status", func(s scene) []stmt {
-			return with(s, step(diffRow, s.tenant, s.run, 1, s.member, id(), "accepted", 5, nil, nil, nil))
+			return with(s, step(diffRow, s.tenant, s.run, 1, s.member, id(), "resolved", 5, nil, nil, nil))
 		}, "run_difference_status_check"},
 		{"a difference of a malformed elimination code", func(s scene) []stmt {
 			return with(s, step(strings.Replace(diffRow, "'IC_BALANCES'", "'ic balances'", 1), s.tenant, s.run, 1, s.member, nil, "no_trading_partner", 5,
@@ -420,6 +420,92 @@ func TestConsolidationEliminationRules(t *testing.T) {
 		{"a pair's entry twice", func(s scene) []stmt {
 			return with(s, entry(s), step(entryRow, s.tenant, s.run, 2, "intercompany", s.member, s.parent, "IC_BALANCES"))
 		}, "run_entry_one_per_pair"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), parent: id(), member: id(), run: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestConsolidationDifferenceAcceptance (T68g, migration 000234; ADR-0059
+// §5, §8): a difference moves only open -> accepted, while its run is
+// computed, its version one up and its figures kept, never written
+// accepted; who accepted it, when and why are set exactly when it is
+// accepted, the reason not blank; an accepted difference is above its
+// tolerance as an open one is; nothing else of it is updated.
+func TestConsolidationDifferenceAcceptance(t *testing.T) {
+	need(t)
+	const (
+		runRow = `INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start, period_end,
+			config_version, group_currency, rate_type, status, operation_id, created_by, updated_by)
+			VALUES ($1, $2, 'MAPLE', $3, ARRAY[$3, $4]::uuid[], 2026, 11, '2026-11-01', '2026-11-30', 7, 'CAD', 'average', 'queued', gen_random_uuid(), $5, $5)`
+		memberRow = `INSERT INTO consolidation.run_member (tenant_id, run_id, legal_entity_id, company_code, role, ownership_percent, first_fiscal_year,
+			first_fiscal_period, local_currency, closing_rate) VALUES ($1, $2, $3, '3000', 'parent', NULL, NULL, NULL, 'CAD', 1),
+			($1, $2, $4, '1000', 'member', 80, 2026, 11, 'USD', 1.4)`
+		diffRow = `INSERT INTO consolidation.run_difference (tenant_id, id, run_id, line_no, elimination_code, legal_entity_id, partner_id, status, amount,
+			partner_amount, difference, tolerance) VALUES ($1, gen_random_uuid(), $2, $3, 'IC_BALANCES', $4, $5, $6, -2800, 2700, -100, $7)`
+		accept = `UPDATE consolidation.run_difference SET status = 'accepted', accepted_by = $1, accepted_at = now(), reason = $2, version = version + 1`
+	)
+	type scene struct{ tenant, actor, parent, member, run uuid.UUID }
+	computed := func(s scene, status string, tolerance int) []stmt {
+		return []stmt{step(runRow, s.tenant, s.run, s.parent, s.member, s.actor), step(`UPDATE consolidation.run SET status = 'running', version = version + 1`),
+			step(memberRow, s.tenant, s.run, s.parent, s.member), step(diffRow, s.tenant, s.run, 1, s.member, s.parent, status, tolerance),
+			step(`UPDATE consolidation.run SET status = 'computed', computed_at = now(), version = version + 1`)}
+	}
+	open := func(s scene, rest ...stmt) []stmt { return append(computed(s, "open", 10), rest...) }
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"an open difference accepted", func(s scene) []stmt { return open(s, step(accept, s.actor, "Rates")) }, ""},
+		{"accepted while its run runs", func(s scene) []stmt {
+			return append(computed(s, "open", 10)[:4], step(accept, s.actor, "Rates"))
+		}, "not computed: its differences are accepted while it is computed"},
+		{"accepted once its run is final", func(s scene) []stmt {
+			return open(s, step(`UPDATE consolidation.run SET status = 'final', finalized_by = updated_by, finalized_at = now(), version = version + 1`),
+				step(accept, s.actor, "Rates"))
+		}, "not computed"},
+		{"a match accepted", func(s scene) []stmt {
+			return append(computed(s, "within_tolerance", 1000), step(accept, s.actor, "Rates"))
+		}, "moves only from open to accepted"},
+		{"accepted twice", func(s scene) []stmt { return open(s, step(accept, s.actor, "Rates"), step(accept, s.actor, "Again")) }, "moves only from open to accepted"},
+		{"an accepted difference reopened", func(s scene) []stmt {
+			return open(s, step(accept, s.actor, "Rates"), step(`UPDATE consolidation.run_difference SET status = 'open', version = version + 1`))
+		}, "moves only from open to accepted"},
+		{"accepted at the same version", func(s scene) []stmt {
+			return open(s, step(`UPDATE consolidation.run_difference SET status = 'accepted', accepted_by = $1, accepted_at = now(), reason = 'r'`, s.actor))
+		}, "moves only from open to accepted"},
+		{"accepted without who", func(s scene) []stmt {
+			return open(s, step(`UPDATE consolidation.run_difference SET status = 'accepted', accepted_at = now(), reason = 'r', version = version + 1`))
+		}, "run_difference_accepted"},
+		{"accepted with a blank reason", func(s scene) []stmt { return open(s, step(accept, s.actor, "  ")) }, "run_difference_accepted"},
+		{"an open difference with a reason", func(s scene) []stmt {
+			return open(s, step(`UPDATE consolidation.run_difference SET reason = 'r', version = version + 1`))
+		}, "moves only from open to accepted"},
+		{"its figures changed", func(s scene) []stmt {
+			return open(s, step(`UPDATE consolidation.run_difference SET amount = 0`))
+		}, "permission denied"},
+		{"written accepted", func(s scene) []stmt {
+			return append(computed(s, "open", 10)[:3], step(`INSERT INTO consolidation.run_difference (tenant_id, id, run_id, line_no, elimination_code,
+				legal_entity_id, partner_id, status, amount, partner_amount, difference, tolerance, accepted_by, accepted_at, reason, version)
+				VALUES ($1, gen_random_uuid(), $2, 1, 'IC_BALANCES', $3, $4, 'accepted', -2800, 2700, -100, 10, $5, now(), 'r', 2)`,
+				s.tenant, s.run, s.member, s.parent, s.actor))
+		}, "not written accepted"},
+		{"a version below one", func(s scene) []stmt {
+			return append(computed(s, "open", 10)[:3], step(`INSERT INTO consolidation.run_difference (tenant_id, id, run_id, line_no, elimination_code,
+				legal_entity_id, partner_id, status, amount, partner_amount, difference, tolerance, version)
+				VALUES ($1, gen_random_uuid(), $2, 1, 'IC_BALANCES', $3, $4, 'open', -2800, 2700, -100, 10, 0)`, s.tenant, s.run, s.member, s.parent))
+		}, "run_difference_version"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

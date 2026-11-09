@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// An import restores rows in any lifecycle state (ADR-0029, migration
-// 000230): a row past its first state, or one written while its parent
+// An import restores rows in any lifecycle state (ADR-0029, migrations
+// 000230 and 000234, an accepted intercompany difference): a row past its first state, or one written while its parent
 // was in a state it has left, is inserted only while app.importing names
 // the row's own tenant; every other insert is refused as before. A
 // carry-forward run, never deleted, goes with its tenant's erasure alone.
@@ -34,6 +34,9 @@ const (
 		VALUES ($1, $2, $3, '1000', 'parent', 'USD', 1)`
 	importedBalance = `INSERT INTO consolidation.run_balance (tenant_id, run_id, legal_entity_id, line_no, group_account, kind, amount_gc)
 		VALUES ($1, $2, $3, 1, 'G3900', 'cta', 5)`
+	importedDifference = `INSERT INTO consolidation.run_difference (tenant_id, id, run_id, line_no, elimination_code, legal_entity_id, partner_id, status,
+		amount, partner_amount, difference, tolerance, accepted_by, accepted_at, reason, version)
+		VALUES ($1, gen_random_uuid(), $2, 1, 'IC_BALANCES', $3, gen_random_uuid(), 'accepted', -2800, 2700, -100, 10, $4, now(), 'Rates', 2)`
 )
 
 // importCases are the rows migration 000230 lets an import restore.
@@ -88,6 +91,11 @@ func importCases() []importCase {
 		}, row: func(tx pgx.Tx, c carryForward) error {
 			return exec(tx, importedBalance, c.tenant, runID, c.entity)
 		}, want: "run_rows_while_running"},
+		{name: "a final run's accepted difference", before: func(tx pgx.Tx, c carryForward) error {
+			return finalRun(tx, c, true)
+		}, row: func(tx pgx.Tx, c carryForward) error {
+			return exec(tx, importedDifference, c.tenant, runID, c.entity, c.actor)
+		}, want: "run_difference_transition"},
 		{name: "a superseded carry-forward run, then its successor", row: func(tx pgx.Tx, c carryForward) error {
 			old, next := id(), id()
 			if err := exec(tx, `INSERT INTO ledger.carry_forward_run (tenant_id, id, legal_entity_id, ledger_id, from_fiscal_year, to_fiscal_year, basis,
