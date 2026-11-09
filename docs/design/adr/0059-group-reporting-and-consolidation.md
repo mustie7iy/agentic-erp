@@ -299,7 +299,8 @@ legal entity on the other side of an intercompany transaction.
   trading partner without a partner (the migration does not read SAP's
   trading partner, a question below): such intercompany balances show as
   `no_trading_partner` (§8) until their companies repost them or the
-  product owner asks for a migration leaf.
+  product owner asks for a migration leaf. (SAP's propagation is not
+  guaranteed, the SAP specialist answered on 2026-11-09: question 4.)
 
 ### 4a. Changes to the ledger's published API
 Each is additive and built in the slice that first needs it, as ADR-0058
@@ -474,7 +475,10 @@ or failed run (409 `consolidation.run_not_discardable` otherwise).
 
 ### 7. Currency translation
 **The method** (to confirm with an accounting specialist; a question for
-the product owner below). Each member is translated from its
+the product owner below; confirmed by the specialist on 2026-11-09 with
+additions, question 1: the difference is other comprehensive income, and
+the part of group-currency revaluation and of net investment items that is
+translation moves there). Each member is translated from its
 leading-ledger local-currency figures into the group currency:
 - **Assets and liabilities** at the **closing rate**: the latest rate of
   the configured `rate_type` from the member's local currency into the
@@ -568,7 +572,10 @@ the debits (each entry's credits equal them).
 
 ### 9. Investment, equity and non-controlling interests
 **The method** (to confirm with an accounting specialist; questions for
-the product owner below). For each member M held at ownership q (a
+the product owner below; answered by the specialist on 2026-11-09,
+question 2: fair values unless the subsidiary was incorporated or under
+common control, goodwill retranslated, a bargain purchase gain posted after
+confirmation, dividends to the interest). For each member M held at ownership q (a
 fraction, `ownership_percent / 100`) and first consolidated in period F,
 with F−1 the regular period before F (the previous fiscal year's last
 when F is period 1):
@@ -958,6 +965,33 @@ evidence) and this ADR's "As built".
    **Answered po:2026-11-05:** as recommended: build as designed; an
    accounting specialist confirms the method against IAS 21 before T68d
    ships (a tracker leaf).
+   **The accounting specialist's answer (po:2026-11-09, B1-B4; a technical
+   review, not a signed opinion; the auditor confirms the policy choice
+   marked):** B1, assets and liabilities at the closing rate, non-monetary
+   ones included: confirmed (IAS 21.39(a); 21.47 adds goodwill and fair
+   value adjustments). B2, income and expenses at each transaction's rate:
+   confirmed (IAS 21.39(b)); an average rate is only a permitted
+   approximation (IAS 21.40), so no new rate type. B3: equity at historical
+   rates confirmed as a policy choice (IAS 21 prescribes none; **policy**,
+   for the auditor); prior results in retained earnings at their historical
+   group amounts confirmed; the difference to a reserve per subsidiary
+   confirmed with two additions: it is recognised in **other comprehensive
+   income** (IAS 21.39(c), 21.41) and accumulated in equity (IAS
+   21.52(b)), so the statements must show it there, and the part
+   attributable to the non-controlling interest goes to the interest (IAS
+   21.41; §9's translation share), kept per subsidiary for reclassification
+   on disposal (IAS 21.48). B4: a subsidiary's exchange differences on items
+   in other currencies than its functional currency stay in profit or loss
+   (IAS 21.28), confirmed, with two corrections: a group-currency
+   revaluation (ADR-0042's group difference) beyond the functional-currency
+   difference translated is a translation effect and belongs in other
+   comprehensive income (IAS 21.39(c)); and exchange differences on a
+   monetary item forming part of the net investment in a foreign operation
+   (a long-term intercompany loan not expected to be settled) go to other
+   comprehensive income in the consolidated statements (IAS 21.32), while
+   other intragroup items keep theirs in profit or loss (IAS 21.45). The
+   tracker leaf for the confirmation is done; each addition and correction
+   is a tracker leaf (src po:2026-11-09).
 2. **Non-controlling interests and goodwill** (accounting rules).
    Designed: the interest measured at its proportionate share of the
    subsidiary's book net assets; no fair value adjustments of acquired
@@ -974,6 +1008,43 @@ evidence) and this ADR's "As built".
    has one.
    **Answered po:2026-11-05:** as recommended; a specialist confirms against
    IFRS 3 and IFRS 10 before T68h ships.
+   **The accounting specialist's answer (po:2026-11-09, B5-B9; a technical
+   review, not a signed opinion):**
+   - B5, partly confirmed: the proportionate share of net assets is an
+     allowed measure of the interest (IFRS 3.19), but the acquired net
+     assets must be at acquisition-date fair value (IFRS 3.18), so book
+     values without fair value adjustments do not comply in general. They
+     are acceptable for the pilot when the subsidiary was incorporated by
+     the parent (IFRS 3 does not apply: no goodwill, the investment
+     eliminated against share capital), when the combination was under
+     common control (IFRS 3.2(c)), or when book values approximate fair
+     values immaterially (IAS 8.8); which applies waits for the pilot
+     customer's group structure (D11). Otherwise a fair value adjustment
+     layer, with its deferred tax, is needed (a tracker leaf).
+   - B6: the residual is confirmed (IFRS 3.32), plus the fair value of a
+     previously held interest in a step acquisition (out of scope,
+     question 3); goodwill is not amortised (IAS 36.10(b), 36.90), tested
+     outside the system, but the system must be able to post its
+     impairment. **Goodwill of a foreign subsidiary must be retranslated at
+     each closing rate: yes** (IAS 21.47): it is held in the subsidiary's
+     functional currency, and its translation difference goes to the
+     translation reserve (shared with the interest only when that is
+     measured at fair value). The interest at acquisition is not
+     retranslated as such; it changes through its share of profit, other
+     comprehensive income and other equity changes (B9). A tracker leaf.
+   - B7: reassess that every asset, liability, the interest and the
+     consideration are identified and measured right, then recognise a
+     remaining gain in profit or loss at the acquisition date, attributed
+     to the acquirer (IFRS 3.34-36): keep the stop as a gate needing
+     explicit confirmation, then post the gain (a tracker leaf).
+   - B8, confirmed: results count only from when control is obtained
+     (IFRS 10.B88, 10.20), earlier ones are part of the net assets acquired;
+     the monthly granularity is acceptable when the days before the
+     acquisition in its month are immaterial.
+   - B9, confirmed (IFRS 10.B94, B89; presentation IFRS 10.22, IAS
+     1.54(q), 1.81B), with two additions: dividends paid to the interest
+     reduce it, and changes in ownership without loss of control are
+     equity transactions (IFRS 10.23, B96). A tracker leaf.
 3. **Group structures beyond the design** (new scope): holdings through
    another subsidiary, changes in ownership or capital after first
    consolidation, disposals, acquisitions during a period, members on
@@ -994,6 +1065,17 @@ evidence) and this ADR's "As built".
    equity amounts) once an SAP specialist confirms the extract carries
    them.
    **Answered po:2026-11-05:** as recommended.
+   **The SAP specialist's answer (po:2026-11-09, A2):** the vendor's
+   trading partner is LFA1-VBUND (KNA1-VBUND for a customer) [H], the
+   line's ACDOCA-RASSC [H] (BSEG-VBUND on the entry view). SAP does not
+   guarantee it on every line of a document [M, to verify on the pilot
+   system]: the vendor or customer line always has it, document entry
+   usually proposes it on the G/L lines, but lines from materials
+   management (MIRO, GR/IR), generated lines (tax, exchange and price
+   differences, cash discount), documents with several vendors and lines a
+   user cleared often lack it. The specialist recommends deriving the
+   trading partner of a whole intercompany document from its vendor line
+   at migration. The migration leaf is in the tracker (src po:2026-11-09).
 5. **Segregation of duties on finalization** (security posture). Built:
    any person holding `consolidation.run.finalize` finalizes, including
    one who accepted the run's differences. Recommendation: keep it for the
@@ -1017,6 +1099,21 @@ tracker item only when one does (07 §7.5).
 - Screens in the web workspace (headless first, ADR-0053).
 
 ## Facts for a specialist (stated from memory, not verified here)
+Answered on 2026-11-09 (po:2026-11-09): the trading partner fields and
+their propagation (SAP specialist, A2, question 4) and the accounting
+rules of §7 and §9 (accounting specialist, B1-B9, questions 1 and 2, with
+their paragraphs of IAS 21, IFRS 3, IFRS 10, IAS 36, IAS 1 and IAS 8).
+Still open: SAP Group Reporting's own objects, and the pilot's group
+structure (the pilot customer's D11). Its **planning default, to be
+confirmed by the customer before go-live (⚠)** (questionnaire defaults,
+po:2026-11-09): the Canadian company holds 100% of the UAE company, which it
+incorporated, from the first migrated period, with CAD the group currency.
+Under it no non-controlling interest, goodwill or fair value adjustment
+arises (IFRS 3 does not apply, B5), and the investment is eliminated
+against share capital; so the B5, B6 and B7 leaves are not pilot items
+(after the pilot unless the customer's answer differs: if the UAE company
+is the parent, held below 100% or acquired, they are needed before the
+first consolidation).
 - SAP: Group Reporting's consolidation units and groups, FS items,
   translation methods, the intercompany matching and reconciliation app,
   the consolidation journal ACDOCU, the trading partner on the business

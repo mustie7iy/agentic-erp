@@ -569,6 +569,11 @@ start: an asset depreciates from the period of its depreciation start, and
 a retirement or transfer out takes its share off at the start of the period
 of its value date, so the retired share depreciates for none of that
 period (decided by default; SAP's period controls vary this per method).
+The accounting specialist accepted the monthly convention on 2026-11-09
+(po:2026-11-09, B11; IAS 8.8) with two caveats, a tracker leaf: a
+transfer's receiving side must pick up the month, so none is lost; and
+depreciation must be able to stop at classification as held for sale
+(IAS 16.55, IFRS 5), which nothing here does yet.
 
 **The planned schedule** of an asset in a ledger through a period P walks
 its periods from the depreciation start's (k = 1) to P. It applies each
@@ -1009,7 +1014,21 @@ depreciation per account equal the ledger's balances of those accounts
 where no migration loaded balances on them; a test proves it on the
 walkthrough's data, whose asset accounts carry none. The
 sheet is IAS 16.73(e)'s reconciliation of carrying amounts in shape (from
-memory, for a specialist: the disclosure's exact lines).
+memory, for a specialist: the disclosure's exact lines). The accounting
+specialist listed the lines on 2026-11-09 (po:2026-11-09, B14; a technical
+review, not a signed opinion): IAS 16.73(d) gross carrying amount and
+accumulated depreciation, with impairment, at the beginning and end; IAS
+16.73(e) additions, acquisitions through business combinations, assets
+classified as held for sale or disposed of (cost and accumulated
+depreciation removed), depreciation, impairment losses recognised and
+reversed, net exchange differences on translation (a foreign operation, the
+presentation currency; essential for the consolidated schedule) and other
+changes (transfers); and IAS 16.73(a)-(c), the measurement basis, methods
+and useful lives or rates per class, usually notes text. The sheet above
+already has the opening and closing cost and accumulated depreciation, the
+year's depreciation and what retirements and transfers took; the question
+put to the specialist named fewer columns than are built. Missing are the
+impairment, business combination and translation lines (a tracker leaf).
 
 ### 10. API and events (contract first)
 Paths, in `api/openapi.yaml` (problem codes as `x-problem-codes`; writes
@@ -1361,16 +1380,36 @@ the `assets` schema), 04 §4.9 (T57d) and this ADR's "As built".
   depreciation has started, applied prospectively). IFRS requires a review
   of useful life and residual value at least at each year end (IAS 16.51,
   from memory, for a specialist). Recommendation: a leaf before the pilot's
-  first year end.
+  first year end. **The accounting specialist (po:2026-11-09, B13):** the
+  rule is confirmed (IAS 16.51; the method too, 16.61; prospectively as a
+  change in estimate, IAS 8.36-38), and the change is **required before the
+  first year end**: if the review shows a change, the company must book
+  it. The minimum is changing life, residual value and method
+  prospectively from a chosen period; a manual journal would leave the
+  asset register wrong. A tracker leaf (src po:2026-11-09).
 - **Take-over of existing assets at cutover and their SAP migration**
   (§11). The pilots' SAP companies will have fixed assets. Recommendation:
-  a migration leaf after T57i, sourced by this decision.
+  a migration leaf after T57i, sourced by this decision. The pilot
+  customer's **planning default, to be confirmed by the customer before
+  go-live** (D15, po:2026-11-09) is that it uses SAP Asset Accounting (and
+  not Cash Management), so the take-over is likely needed; it remains the
+  product owner's open decision, and no leaf is added until then.
 - **Price differences and non-recovered tax of assets bought on an
   order** (§6): today they are expensed on `price_difference`, so such an
   asset is capitalised at the order price only (IAS 16.16, from memory,
   counts non-refundable purchase taxes in cost). Recommendation: a ledger
   change posting an order item's price difference to the item's account
   when that is a class's clearing account, as its own leaf after T57c.
+  **The accounting specialist (po:2026-11-09, B10):** cost includes the
+  purchase price, import duties and non-refundable purchase taxes, after
+  trade discounts and rebates (IAS 16.16(a)), and an invoice price
+  difference on an asset is capitalised, not expensed. Acceptable for the
+  pilot while the amounts are immaterial (IAS 8.8), with two cases that
+  are often material: UAE blocked input VAT (motor vehicles available for
+  personal use, entertainment) and partly recoverable Canadian sales tax
+  (PST) on equipment. Recommended: fix before the first year end and, until
+  then, a report of the amounts expensed on asset purchase orders, for the
+  auditor to judge materiality. A tracker leaf (src po:2026-11-09).
 - **Tax depreciation (Canada's capital cost allowance)**: a tax schedule,
   not a ledger. Recommendation: not in T57; with the Canadian corporate
   income tax work if the pilot asks.
@@ -1379,7 +1418,10 @@ the `assets` schema), 04 §4.9 (T57d) and this ADR's "As built".
 Neither the roadmap entry nor a PO decision asks for these; each becomes a
 tracker item only when one does (07 §7.5).
 - Assets under construction with their own settlement rules.
-- Units-of-production and other depreciation methods.
+- Units-of-production and other depreciation methods (acceptable only if
+  the pilot has no assets that need it, the accounting specialist
+  answered on 2026-11-09, B12; whether it uses SAP Asset Accounting waits
+  for the pilot customer, D15).
 - Revaluation and impairment of assets.
 - Insurance and leasing data on the asset master.
 - A group-currency depreciation and history sheet of their own (§1, §7:
@@ -1388,6 +1430,21 @@ tracker item only when one does (07 §7.5).
   (the roadmap names none).
 
 ## Facts for a specialist (stated from memory, not verified here)
+The IAS 16 and IAS 8 points below were answered by an accounting
+specialist on 2026-11-09 (po:2026-11-09, B10-B14; a technical review, not
+a signed opinion): cost under IAS 16.16(a) (B10); depreciation from when
+the asset is available for use and until the earlier of held-for-sale
+classification (IFRS 5) and derecognition (IAS 16.55), the monthly
+convention acceptable (IAS 8.8) provided a transfer's receiving side
+picks up the month and depreciation can stop at held-for-sale
+classification (B11); the methods (IAS 16.62, 16.60, 16.61; a
+revenue-based method inappropriate, 16.62A; per class when each class's
+consumption pattern is homogeneous; B12); the year-end review (IAS 16.51,
+16.61, IAS 8.36-38; B13); the gain or loss on derecognition (IAS 16.71,
+not revenue, 16.68) and the disclosure's lines (IAS 16.73; B14). The
+answers cite this ADR's 16.16, 16.51, 16.55, 16.62, 16.68, 16.71 and
+16.73(e) as stated; 16.50 is not among them. The Canadian, UAE and SAP
+points stay open.
 - IAS 16: cost including non-refundable purchase taxes (16.16); depreciation
   begins when available for use (16.55); depreciable amount over useful
   life, methods including straight-line and diminishing balance (16.50,

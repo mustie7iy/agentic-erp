@@ -144,8 +144,13 @@ cleared items of such a year do in `balances` mode. Decided (product owner,
 2026-10-31) and not built yet: such an item is loaded open at its fiscal
 year's end, as SAP's key-date reading by the clearing date does, and the
 later year's run clears it; this needs SAP's clearing date and the clearing
-document's fiscal year (AUGDT, AUGGJ, for an SAP specialist to confirm) in
-the extract (ADR-0034 As built, tracker).
+document's fiscal year in the extract (ADR-0034 As built, tracker). The SAP
+specialist confirmed the fields (po:2026-11-09, A3, [H]): ACDOCA-AUGDT and
+ACDOCA-AUGGJ beside AUGBL, all three empty on an open item (AUGDT
+`00000000`, AUGGJ `0000`); they are on ACDOCA from S/4HANA 1610, on BSEG
+(AUGDT, AUGGJ) before. A clearing reset (FBRA) empties them again, so
+whether an item was open at a year's end is read from AUGDT against that
+day, never from AUGBL being filled today.
 
 A document whose lines are all in one document currency (ACDOCA RWCUR, SAP's
 transaction currency) other than the company's posts in that currency, as the
@@ -159,8 +164,10 @@ CAD company is a USD item: a USD payment or final invoice clears it, a payment
 run in USD pays it, and a revaluation values it as one posted on the platform,
 while the trial balance and the open payables stay SAP's in CAD. A down
 payment's request is in its document currency, and its tax is checked in it,
-on the assumption that SAP calculates it there (for an SAP specialist to
-confirm). Documents SAP cleared together post in one currency:
+as SAP calculates it there (confirmed by the SAP specialist, po:2026-11-09,
+A14, [H]: the request is a noted item, BSTAT `S`, special G/L F, posting
+nothing to the G/L; its tax is posted only with the down payment itself,
+special G/L A). Documents SAP cleared together post in one currency:
 in `documents` mode the documents cleared together (directly or through
 others) post in the currency an earlier run posted those of them it loaded in,
 else in their document currency when they share one, and a set that mixes
@@ -270,7 +277,11 @@ one hierarchy, or whose KHINR is not a leaf of it. It warns of a value
 taking no center of the extract (it places nothing) and of an area with
 groups but no standard hierarchy, whose centers go to the UNASSIGNED leaf.
 An alternative hierarchy whose code the tenant already has is refused by
-the load and fails the run.
+the load and fails the run. The SAP specialist's answers of 2026-11-09
+change two of these refusals (tracker leaves, po:2026-11-09): SAP lets a
+group hold values beside its subgroups, and a center's KHINR need not name
+a lowest-level group, so values on inner groups are to load; and set names
+are up to 24 characters in SETHEADER, not 15 (below, "What to check").
 
 The configuration draft (`erp config generate`) takes each profit and loss
 account's cost element from SAP's cost element category (CSKB-KATYP of its
@@ -282,7 +293,9 @@ account's type cannot take, a secondary or statistical one (which the
 platform does not hold until T60) or areas that disagree leave the type's
 default, with a note for the reviewer, as does a company whose areas have
 no cost elements or whose area the extract does not tell (a company code
-without centers: TKA02 is not read).
+without centers: TKA02 is not read). To change after the SAP specialist's
+answers of 2026-11-09 (tracker leaves, po:2026-11-09): the slice valid at
+the cutover date is taken rather than the latest, and TKA02 is read.
 
 A later run keeps what an earlier one loaded: it assigns a profit center
 it finds there to the run's company codes it is not yet assigned to
@@ -401,22 +414,67 @@ stopped the run before the load.
 
 ## What to check on a real SAP system
 
+An SAP specialist answered the open points of this section on 2026-11-09
+(product owner, po:2026-11-09; answers A1-A16), from the S/4HANA
+on-premise 2020-2023 data dictionary as generally shipped, without a live
+system. Each answer carries the specialist's confidence: **[H]** standard,
+stable behaviour (still worth one SE11 check); **[M]** standard with known
+exceptions, to verify on the pilot system; **[L]** best understanding
+only, to verify in SE11 or `$metadata` before relying on it. An answer
+that changes what is built is a tracker leaf (src po:2026-11-09); the
+others record a confirmation.
+
 - OData services are activated (`/IWFND/MAINT_SERVICE`) and the technical user
-  has read authorization only.
+  has read authorization only. Several released APIs reached on-premise
+  only in later releases than S/4HANA Cloud: activate them and confirm
+  against the pilot's `$metadata` (A7).
 - Entity and field names in `internal/sap/odata.go` match your release (check `$metadata`).
+  The specialist's names (A7, **[L]** unless marked, to verify against the
+  pilot's `$metadata`; the tracker leaf "Validation against a live system's
+  $metadata" records them): `API_JOURNALENTRYITEMBASIC_SRV`,
+  `A_JournalEntryItemBasic` with `TransactionCurrency` and
+  `AmountInTransactionCurrency` (RWCUR, WSL) [M], `CostCenter`,
+  `ProfitCenter`, `Segment` [M], `PurchasingDocument`,
+  `PurchasingDocumentItem` [M], `SpecialGLCode`, `TaxCode` [M],
+  `PartnerCompany` (RASSC) [L], `ClearingDate`, `ClearingDocFiscalYear`,
+  `ClearingAccountingDocument` [L] (on-premise alternative:
+  `API_OPLACCTGDOCITEMCUBE_SRV`, `A_OperationalAcctgDocItemCube` [L]);
+  cost and profit center read APIs exist with release-dependent names
+  (e.g. `API_COSTCENTER_SRV`, `A_CostCenter`, `A_CostCenterText`) [L].
+  None is known for T030 (GR/IR account determination, configuration) [H],
+  segments (FAGL_SEGM) [M], center groups (sets 0101/0106) and CSKB [M]:
+  these come from the file extract only.
 - The supplier invoice indicators RBKP-XRECH (invoice or credit memo) and
   RSEG-TBTKZ (subsequent debit/credit item) are in the extract. The OData
   mapping does not carry them yet, so the quality gate refuses an OData
   extract's parked invoices until their properties are mapped (T72b), and
   its posted ones too, whose invoiced quantities the load takes over by
-  their direction for matching (T72b2).
+  their direction for matching (T72b2). Confirmed (A13(d), [H]): XRECH `X`
+  is an invoice and blank a credit memo, TBTKZ `X` a subsequent
+  debit/credit. Their OData properties (A7, [M], to verify on the pilot
+  system): `API_SUPPLIERINVOICE_PROCESS_SRV`, `A_SupplierInvoice`'s
+  `IsInvoice` (true an invoice, false a credit memo) and
+  `A_SuplrInvcItemPurOrdRef`'s `IsSubsequentDebitCredit`.
 - ACDOCA-EBELN and EBELP (a GR/IR line's order item) and T030 are in the
   extract. The OData mapping carries neither yet: the quality gate refuses an
   OData extract's lines on the legal entity's `gr_ir` account, and warns for
   each company with goods receipts that SAP's GR/IR account (T030 WRX) cannot
   be told, so lines on it are recognised only when it is the legal entity's
   `gr_ir` account (T72f). Confirm that every line your system posts there
-  names its order item.
+  names its order item. Answered (A13(a), [M], to verify on the pilot
+  system): lines SAP's materials management posts (MIGO, MIRO, MR11, MR8M)
+  carry it; manual G/L postings to the GR/IR account (possible when the
+  account is not "post automatically only", SKB1-XINTB), legacy or
+  migration balances and some reclassification postings do not, and the
+  gate refuses those: check SKB1-XINTB and profile the GR/IR account's
+  lines before the first run. A goods receipt's line carries the order's
+  currency, but an invoice's carries the invoice's, which MIRO allows to
+  differ from the order's (A13(b), [M]): the gate refuses such a line
+  today (tracker leaf). SAP clears GR/IR by quantity, and the difference
+  between receipt and invoice valuation goes to the exchange rate
+  difference account (transaction key KDM) or, by price control and stock
+  coverage, to stock or price difference (PRD), not always one account
+  (A13(c), [M]).
 - Vendor bank accounts from OData: `A_BusinessPartnerBank` keys an account by
   its business partner, which the extraction links to its supplier through
   `A_BusinessPartner`'s `Supplier`, so the numbers need not be equal; a
@@ -424,7 +482,15 @@ stopped the run before the load.
   warns of each vendor in scope that no partner links to, which loads without
   bank accounts (review:T72d, ADR-0034 As built). The entity and property are
   stated from memory: confirm them in `$metadata`, and that every supplier's
-  business partner names it.
+  business partner names it. Answered (A7): every S/4HANA supplier has a
+  business partner [H] (customer-vendor integration makes it mandatory, link
+  table CVI_VEND_LINK), and the two numbers may differ, so the link is
+  joined, never assumed equal, as the load does. The properties (A7, [M],
+  to verify on the pilot system): `API_BUSINESS_PARTNER`,
+  `A_BusinessPartnerBank` with `BusinessPartner`, `BankIdentification`,
+  `BankCountryKey`, `BankNumber`, `BankAccount`, `IBAN`, `SWIFTCode`,
+  `BankControlKey` and `BankAccountHolderName`; `A_BusinessPartner`'s
+  `Supplier`, and in reverse `A_Supplier`'s `Supplier`.
 - Canadian vendor bank accounts (LFBK, bank country CA) load as scheme `ca`
   only with the bank key (BANKL) in the Canadian Payments Association's
   electronic routing form, 0 + institution (3 digits) + transit (5 digits),
@@ -434,7 +500,16 @@ stopped the run before the load.
   is generated into the configuration from the same bank key and its account
   number; another form is noted and left for the reviewers (T72d). Confirm
   that the extract's T012K carries the house bank's bank country and key
-  (T012-BANKS/BANKL) and the account number (T012K-BANKN).
+  (T012-BANKS/BANKL) and the account number (T012K-BANKN). Answered (A6,
+  [M], to verify on the pilot system): the routing form (`000112345`) is the
+  usual one, since CPA-005 and EFT files need it, but legacy data also holds
+  the paper (MICR) form transit-institution with a hyphen (`12345-001`) and
+  sometimes eight digits without the leading zero (`00112345`). The
+  hyphenated form converts without guessing (`12345-001` is `000112345`)
+  and is to be accepted (tracker leaf); ambiguous forms stay refused.
+  Profile LFBK-BANKL and BNKA-BANKL for BANKS `CA` before the load. The
+  fields are confirmed (A5, [H]): T012K-BANKN the account number (an IBAN,
+  if used, in TIBAN), T012-BANKS the bank country, T012-BANKL the bank key.
 - Each house bank account (T012K) is generated in its currency, T012K-WAERS:
   an account in another currency than the company's is noted, and the draft
   validates once its ledger account is flagged `revalue_foreign_currency`
@@ -442,7 +517,15 @@ stopped the run before the load.
   `currency: UNKNOWN`, which validation refuses until a reviewer sets it
   (ADR-0038). Confirm that the extract's T012K carries WAERS, and what an
   empty one means in your system, before go-live: a bank's currency never
-  changes once it is created.
+  changes once it is created. Answered (A5): T012K-WAERS is the currency
+  [H]. An empty one [M, to verify on the pilot system] means no currency was
+  maintained, so SAP does not restrict the account; the binding currency is
+  then that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the
+  company code's, which the draft is to take when WAERS is blank (tracker
+  leaf). From S/4HANA 1610 house bank accounts are kept in Bank Account
+  Management (FI-BAM: FCLM_BAM_AMD, linked by FCLM_BAM_ACLINK2); T012K is
+  still filled and read, and BAM's currency list and validity are a useful
+  cross-check.
 - Payment methods come into the configuration draft from T042Z (per
   country, named in the company's country), T042E (per company code) and
   T042A (the bank ranking per method and currency, in RANGF order; a row
@@ -454,14 +537,34 @@ stopped the run before the load.
   order: the quality gate refuses a method the company's configuration
   lacks, or one listed twice (ADR-0038). Confirm the tables and fields in
   your release, that a lower RANGF ranks first, and that ZWELS's order is
-  the order of preference.
+  the order of preference. Answered (A4): the tables and fields are as
+  stated, with T042I to add [H]: the account per house bank, method and
+  currency (HBKID to HKTID, the T012K account), without which the bank is
+  known but not its account; an item may fix its method (BSEG/ACDOCA-ZLSCH)
+  and LFB1-HBKID may fix the house bank. A lower RANGF ranks first [H]; a
+  T042A row without a currency applies to every currency without a row of
+  its own [M]. ZWELS's letter order is **not** the order of preference [M]:
+  the payment run (F110) tries the methods in the order of its own
+  parameters per company code, restricted to those ZWELS allows, and an
+  item's fixed method wins over both. The method order and T042I's account
+  are a tracker leaf; verify both on the pilot system.
 - Vendor addresses: the extract's LFA1 may carry the vendor's street with
   house number, city, postal code and region as STRAS, ORT01, PSTLZ and
   REGIO, which the load gives the supplier as its `legal` address (product
-  owner 2026-11-04, ADR-0054 As built). These field names are written from
-  memory and are **pending the SAP specialist**: confirm whether your
-  release keeps the address in LFA1 or only in the central address (ADRC,
-  by LFA1-ADRNR), and which fields the extract takes it from. The fields are
+  owner 2026-11-04, ADR-0054 As built). These field names were written from
+  memory; the SAP specialist answered (A1, [H]): LFA1-STRAS, ORT01, PSTLZ,
+  REGIO and LAND1 exist and are filled, but as a redundant copy of the
+  central address, and LFA1-STRAS (35 characters) holds street and house
+  number together, which cannot be split reliably. The address is to be
+  read from ADRC (tracker leaf): street ADRC-STREET, house number
+  ADRC-HOUSE_NUM1 (ADRC-HOUSE_NUM2 its supplement), city ADRC-CITY1, postal
+  code ADRC-POST_CODE1, region ADRC-REGION, country ADRC-COUNTRY, joined by
+  LFA1-ADRNR = ADRC-ADDRNUMBER in the same client, filtered to ADRC-NATION
+  blank (the international version; other values are other scripts) and
+  ADRC-DATE_FROM <= the cutover date <= ADRC-DATE_TO. Many systems hold the
+  house number in STREET with HOUSE_NUM1 blank, which is normal, not an
+  error; ADRC-STR_SUPPL1/2/3 and ADRC-LOCATION hold further lines if the
+  legal address needs them. Until then the fields are
   optional: a vendor without them, as every vendor of an OData extract is
   (the mapping does not carry them), loads without an address; one with a
   street but no city, a city but no street, or a text longer than an
@@ -485,6 +588,17 @@ stopped the run before the load.
   the walkthrough's ADMIN and SALES). The OData mapping reads none of
   these tables yet: an OData run loads no centers until the cost and
   profit center read APIs are mapped against the pilot's `$metadata`.
+  Answered (A8, every point [H]): the tables, fields and meanings are as
+  stated. The keys are KOKRS, KOSTL, DATBI for CSKS (DATAB is no key
+  field) and KOKRS, PRCTR, DATBI for CEPC; CEPCT is keyed by SPRAS, PRCTR,
+  DATBI, KOKRS; KTEXT holds 20 characters and LTEXT 40. Further locks SAP
+  keeps, not read: BKZKS (actual secondary costs), PKZKS (plan secondary
+  costs), PKZER (plan revenues); VERAK_USER holds the responsible user's
+  ID. The language key is stored as `E` (SE16 may show `EN`, its ISO
+  form): the extract reads raw values. A company code belongs to exactly
+  one controlling area, which TKA02 (BUKRS to KOKRS) names; it is to be
+  read (tracker leaf). Which KOSAR keys the pilot uses waits for the
+  pilot customer (below).
 - The center groups and cost elements (T56h2; ADR-0050 §10 names the
   tables from memory): that TKA01 carries the cost centers' standard
   hierarchy as KHINR, and whether it (or another table) names the profit
@@ -501,9 +615,80 @@ stopped the run before the load.
   characters); that CSKB carries KOKRS, KSTAR, DATBI and KATYP, with 01
   primary costs and 11 and 12 revenues and sales deductions; and whether
   the extract should read TKA02 to tell a company code's controlling area.
-  The OData mapping reads none of these tables.
+  The OData mapping reads none of these tables. Answered (A10-A12):
+  TKA01-KHINR names the cost centers' standard hierarchy [H]; the profit
+  centers' is in TKA01-PHINR [L, to verify in SE11 on the pilot system],
+  and deriving it from CEPC-KHINR (walking SETNODE up to the root), as the
+  load does, is a sound fallback. SETHEADER, SETHEADERT, SETNODE and
+  SETLEAF are as described [H], SUBCLASS the controlling area for classes
+  0101 and 0106; subsets are ordered by SETNODE-SEQNR where the release has
+  it, else LINEID, and values by LINEID. CSKS-KHINR and CEPC-KHINR need
+  **not** name a lowest-level node [M]: a set may hold subsets and values
+  on the same node, so the tree must allow values on inner nodes (tracker
+  leaf; the gate refuses such a group today). Set values hold numeric codes
+  zero-padded to ten [H], alphanumeric codes left-justified and unpadded,
+  the same ALPHA rule as CSKS-KOSTL, which is the load's. Groups kept in
+  KSH2/KCH2 use only I with EQ or BT [M]; sets edited with GS02 may hold
+  other options (CP), which stay refused. A group name holds at most 15
+  characters in the CO transactions [M], but SETHEADER-SETNAME holds 24,
+  the size to hold (tracker leaf). CSKB carries KOKRS, KSTAR, DATAB, DATBI
+  and KATYP [H]; KATYP 01, 11 and 12 mean what the draft takes [H], and
+  others met are 22 (external settlement), 41-43 (secondary) and 90
+  (statistical, for balance sheet accounts, asset accounts in S/4HANA). An
+  account without a CSKB row is no cost element [H]; S/4HANA's G/L
+  account type SKA1-GLACCOUNT_TYPE decides it (`N` non-operating without
+  CSKB, `P` primary costs or revenue, `S` secondary, `X` balance sheet), a
+  cross-check worth reading. The slice to use is the one valid at the
+  cutover date, not the latest [M]: the latest only when none covers it,
+  and the account flagged, since an expired cost element means CO postings
+  were stopped on purpose (tracker leaf).
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents
   creating documents in SAP may count as indirect use. This design never
   writes to SAP. Confirm with the contract owner anyway.
+- **Vendor reconciliation accounts** (ADR-0060 §9): apart from open vendor
+  items, other things can make up a reconciliation account's balance in SAP
+  (A15, [M], to verify on the pilot system), each told by a field: special
+  G/L postings on alternative reconciliation accounts (ACDOCA-UMSKZ not
+  blank, the account from T074); noted items such as down payment requests,
+  which are open items with no G/L effect (BSTAT `S`); items left on an old
+  account after the vendor's LFB1-AKONT changed (LFB1-AKONT against
+  ACDOCA-RACCT); balances on an account flagged as a reconciliation account
+  after it had one, or loaded without vendor items (SKB1-MITKZ `K` with
+  lines whose ACDOCA-LIFNR is blank); a balance carried forward into period
+  000 without items from before S/4HANA; a year-end valuation posted to the
+  reconciliation account rather than an adjustment account (by
+  configuration: the valuation runs' AWTYP or BLART, T030H); and items open
+  at the key date but cleared later (AUGDT after the key date). A check per
+  account at the key date, only over lines with LIFNR filled, UMSKZ blank
+  and BSTAT not `S`, reported rather than refused when it fails, is a
+  tracker leaf.
+
+**Facts still awaited from the pilot customer** (the customer questionnaire
+of 2026-11-09, not answered yet). Each has a **planning default, to be
+confirmed by the customer before go-live** (the questionnaire's defaults,
+po:2026-11-09; ⚠ marks a default that could do harm if wrong):
+- **D17, the licence: ⚠ a gate.** The default (read-only extraction is no
+  indirect or digital access) is **not** applied: no extraction from the
+  customer's SAP system until its contract owner confirms in writing.
+- D9: S/4HANA 2023 on-premise (FPS02 or later), OData for a read-only
+  technical user, `$metadata` sent; the OData names above are checked
+  against it.
+- D10: SE16H for small configuration tables, a custom ABAP extract report
+  (or SAP Data Services) for ACDOCA and other large tables; CSV in UTF-8,
+  separator `;`, a header row of technical field names, dates `YYYYMMDD`,
+  decimal point `.`, no thousands separators; amounts in SAP's **internal**
+  format, not external, so the extract also takes TCURX to convert the
+  amounts of currencies with other than two decimals (the bullet above on
+  JPY and KWD assumes the external format).
+- D12: SAP's standard cost center categories E (development), F
+  (production), H (service), L (management), V (administration) and W
+  (sales), to be created in the configuration; the extract's distinct
+  CSKS-KOSAR values then add any customer keys.
+- D15: SAP Asset Accounting used (the fixed asset take-over, ADR-0057 §11,
+  is then likely needed; it stays the product owner's open decision),
+  Cash Management not.
+- ⚠ D11: the Canadian company holds 100% of the UAE company, which it
+  incorporated, group currency CAD: no non-controlling interest, goodwill
+  or fair value adjustment for the pilot (ADR-0059).

@@ -1202,6 +1202,43 @@ pending the SAP specialist, docs/migration.md):
   `$metadata`, which is not recorded, so it is split off as T56h5 rather
   than guessed.
 
+Answered by the SAP specialist (product owner, po:2026-11-09; questions
+A8-A12 of docs/migration.md "What to check on a real SAP system", which
+records each answer in full; [H] high, [M] medium and to verify on the
+pilot system, [L] low and to verify in SE11). What changes the built load
+is a tracker leaf under the T56h leaves:
+- **Master data (A8, [H])**: the tables, fields and meanings §10 and T56h1
+  read are confirmed (CSKS keyed KOKRS, KOSTL, DATBI; CEPC KOKRS, PRCTR,
+  DATBI; `E` the stored English key). A company code belongs to exactly
+  one controlling area, named by TKA02 (BUKRS to KOKRS): **to read**
+  (leaf), so a company code without centers has a known area.
+- **Centers on journal lines (A9, for T56h4)**: RCNTR, PRCTR and SEGMENT
+  are in the master data's internal form [H]. PRCTR is derived from
+  CSKS-PRCTR at posting [M]: a cost center without a profit center gets the
+  dummy profit center, and a line keeps the derivation of its posting date,
+  so it may differ from today's master after a change; SEGMENT comes from
+  CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it
+  or the profit center's segment changed after posting [M]. ACDOCA also
+  carries KOKRS [H], blank for a company code without CO active. So T56h4
+  is to reconcile against the derivation valid at each line's posting date
+  and to read ACDOCA-KOKRS (leaf).
+- **Groups (A10, A11)**: TKA01-KHINR [H]; the profit centers' standard
+  hierarchy is TKA01-PHINR [L], and the CEPC-KHINR derivation above stays
+  the fallback until it is verified; the set tables as read [H]. A node may
+  hold values beside subsets and a center's KHINR need not be a lowest node
+  [M]: the gate's refusal of a group with both is **to lift** (leaf). Values
+  as read [H for numeric codes]; only I with EQ or BT in groups kept in
+  KSH2/KCH2 [M], other options (GS02) stay refused. SETHEADER-SETNAME holds
+  24 characters (15 in the CO transactions) [M]: **to hold 24** (leaf).
+- **Cost elements (A12)**: CSKB's fields and KATYP 01, 11, 12 confirmed
+  [H] (others: 22, 41-43, 90); no CSKB row means no cost element [H],
+  which SKA1-GLACCOUNT_TYPE (`N`, `P`, `S`, `X`) cross-checks. The slice
+  valid at the cutover date is the one to use, not the latest [M]: **to
+  change** (leaf), the latest only when none covers that date, flagged.
+- **Not recorded here**: the answer on the ledger to extract (A16, RLDNR)
+  is taken up by lane t56h3b with the OKB9 defaults (T56h3); the KOSAR
+  keys the pilot uses wait for the pilot customer.
+
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not
 the configuration document: they change monthly in a living business,

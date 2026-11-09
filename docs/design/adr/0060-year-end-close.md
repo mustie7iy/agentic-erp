@@ -160,7 +160,20 @@ ADR-0053).
   `ledger.special_period_tax_code`) until the tax specialist confirms how
   year-end adjustments enter the returns (question 2, answered
   po:2026-11-05): tax returns select tax items by their tax period's dates, and
-  whether a year-end adjustment may carry tax is a tax rule.
+  whether a year-end adjustment may carry tax is a tax rule. The UAE tax
+  specialist answered for the VAT 201 on 2026-11-09 (po:2026-11-09, C10,
+  [M]; question 2): yes, a year-end adjustment can carry VAT, which follows
+  the tax documents and statutory adjustments, not the accounting date;
+  an adjustment carrying VAT belongs to the return of the period in which
+  its tax invoice or tax credit note is issued (or its tax point falls),
+  and the statutory annual adjustments (input tax apportionment, the
+  capital assets scheme) to the first return after the end of the tax year
+  or adjustment period (VAT Executive Regulation, apportionment and capital
+  assets articles). Accruals, provisions and reclassifications carry no
+  VAT and keep the refusal. The specialist suggests allowing a VAT code on
+  a year-end adjustment only when it references a tax document, its return
+  period derived from that document's date: a tracker leaf. Canada's GST34
+  is not answered: its refusal stays.
 - **The period close's parked-entry check.** ADR-0058's
   `no_parked_entries` selects parked entries by date within the period
   (`CloseChecks.Parked`), so an audit adjustment parked for period 13,
@@ -210,7 +223,14 @@ Its rows sum to zero per transaction currency in transaction, local and
 group currency, because every entry does (000005); a test asserts it on
 every run. Carrying the result per transaction currency is what keeps that
 invariant; how SAP presents a foreign-currency result in retained earnings
-is for a specialist (below).
+is for a specialist (below). An accounting specialist found it acceptable on
+2026-11-09 (po:2026-11-09, B15; a technical review, not a signed opinion):
+IFRS prescribes no closing-entry mechanics, and carrying the result per
+transaction currency with its local and group amounts as booked is fine
+provided the local total equals the year's profit or loss and the group
+total the translated profit used in consolidation. The split by
+transaction currency has no meaning for equity and is not to be presented
+in reports.
 
 **Never journal lines.** A carry-forward writes no journal entry. The
 readers that sum every year's lines (`Accounts.Balances`, revaluation, open
@@ -396,7 +416,18 @@ the equality holds for every company depends on what the migration loaded
 on reconciliation accounts (docs/migration.md keeps open vendor items as
 lines in both modes; whether anything else of a reconciliation account's
 SAP balance can reach it is for a migration specialist). Until then it is
-a manual task of the template (a gap below).
+a manual task of the template (a gap below). The SAP specialist answered on
+2026-11-09 (po:2026-11-09, A15, [M]): yes, other things can, each told by
+a field (docs/migration.md, "What to check on a real SAP system": special
+G/L postings on alternative reconciliation accounts, noted items, a
+changed reconciliation account, balances without vendor items, a period
+000 carry-forward, valuation posted to the account, items cleared after
+the key date). With ACDOCA the vendor line is the G/L line, so the equality
+usually holds; the specialist recommends a check per account at the key
+date over lines with a vendor (LIFNR), no special G/L indicator (UMSKZ)
+and not noted (BSTAT not `S`), reported rather than refused: a tracker
+leaf for the migration's reconciliation. The platform's own year-end
+check stays a gap: no ADR asks for it.
 
 ### 10. Parallel ledgers and foreign currency
 - **Per ledger** (ADR-0045): a carry-forward is run per ledger, from that
@@ -629,7 +660,10 @@ recommended.
    (`ledger.special_period_tax_code`), so no year-end adjustment changes a
    tax return. Recommendation: keep the refusal until the tax specialist
    says whether a pilot country's returns take year-end adjustments, and
-   how they are dated.
+   how they are dated. **The UAE tax specialist's answer (po:2026-11-09,
+   C10, [M]):** for the VAT 201, a year-end adjustment may carry VAT when it
+   rests on a tax document, in the return of that document's period (§3);
+   a tracker leaf. The GST34 is not answered and keeps the refusal.
 
 ## Gaps (out of scope, not built, no question asked)
 Neither the PO decision nor an ADR asks for these; each becomes a tracker
@@ -637,7 +671,8 @@ item only when one does (07 §7.5).
 - Opening balances in the trial balance (a period 0 row needs a contract
   change) and financial statements (T65).
 - An automatic check of open items against their reconciliation accounts
-  (§9), until a migration specialist says when it holds.
+  (§9) on the platform; the migration specialist said when it holds on
+  2026-11-09 (A15), and the migration's check is a tracker leaf.
 - Supplier and customer balances carried per partner (SAP F.07).
 - Year-close tasks in the cross-close worklist (`listCloseTasks`), whose
   rows carry a period.
@@ -652,10 +687,11 @@ item only when one does (07 §7.5).
   "What SAP does".
 - How a profit or loss in a foreign transaction currency is presented in
   retained earnings (§5 carries it per transaction currency, with its local
-  and group amounts).
+  and group amounts): answered on 2026-11-09 (B15, §5).
 - Whether year-end adjustments in special periods count in a period's tax
-  return in Canada and the UAE (question 2), and any statutory deadline for
-  a year's close: none is asserted.
+  return in Canada and the UAE (question 2): answered for the UAE on
+  2026-11-09 (C10, §3), open for Canada; and any statutory deadline for a
+  year's close: none is asserted.
 
 ## Sources
 - The repository: ADR-0058 (§1's question, the close), ADR-0045, ADR-0006,
