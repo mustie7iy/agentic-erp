@@ -933,8 +933,9 @@ default:
 - **A scheduled fetch is an Operation too.** The dispatcher starts, once
   per `ERP_EINVOICE_FETCH_INTERVAL` (default 1h, 0 none) and active
   `einvoice_provider` connector of an active tenant
-  (`integration.EInvoiceConnectors`, `tenancy.tenant.status = 'active'`:
-  a suspended or offboarded tenant's provider is not polled), the workflow
+  (`integration.EInvoiceConnectors`, through `database.ActiveTenants` as
+  every worker's read: a suspended or offboarded tenant's provider is not
+  polled), the workflow
   `ScheduledEInvoiceFetch` under `{tenant}-connector-{connector}-einvoices-{period}`
   (ADR-0047's pattern: replicas start each once; a period started without
   a failure is not looked at again). Its first step records the fetch's
@@ -945,7 +946,12 @@ default:
   names the workflow at once (`operations.StartTaken`), so no dispatcher
   starts another for it. The fetch then runs `FetchEInvoices`'s steps: the
   documents name that Operation as their `fetch_operation_id`, and its
-  counts and failures are an on-demand fetch's. A connector refused since
+  counts and failures are an on-demand fetch's. Every step of both
+  workflows runs through `perform` with `database.BeginActive`, so a fetch
+  whose tenant is suspended mid-way waits until it is active again
+  (ADR-0015 As built, po:2026-11-09), and the in-process fetcher takes up
+  the queued fetches of active tenants only (`operations.StillQueuedOf`;
+  integration, batch 61). A connector refused since
   the dispatch (disabled, its secret gone) fails that Operation with the
   problem, and a server without object storage fails it at its first
   step, before the provider is asked (`platform.unavailable`), as it

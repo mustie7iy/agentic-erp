@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/einvoicing/einvoicetest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 )
@@ -234,6 +235,26 @@ func TestRunnersLeaveInactiveTenants(t *testing.T) {
 		}
 		if n := s.snapshots(t, "2026-04-17"); n != 1 {
 			t.Errorf("the resumed tenant's snapshots: got %d, want 1", n)
+		}
+	})
+	t.Run("e-invoice fetches", func(t *testing.T) {
+		s := einvoiceSetup(t)
+		s.srv.Deliver("MSG-1", fetchParticipant, einvoicetest.Invoice("INV-1"))
+		in := s.queue(t, false)
+		w := &workflows.EInvoiceFetcher{Fetches: s.f}
+		s.e.Tenant.SetStatus(t, "suspended")
+		if _, err := w.RunOnce(ctx); err != nil {
+			t.Fatalf("round while suspended: %v", err)
+		}
+		if got := fetchOutcome(t, in); got != "queued -" {
+			t.Errorf("the suspended tenant's fetch: got %s, want queued", got)
+		}
+		resume(t, s.e.Tenant.ID)
+		if _, err := w.RunOnce(ctx); err != nil {
+			t.Fatalf("round once active again: %v", err)
+		}
+		if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "recorded": 1, "already_recorded": 0}` {
+			t.Errorf("the resumed tenant's fetch: got %s, want MSG-1 recorded", got)
 		}
 	})
 	t.Run("configuration simulations", func(t *testing.T) {

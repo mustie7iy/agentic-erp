@@ -5,12 +5,15 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/testsuite"
 	sdkworkflow "go.temporal.io/sdk/workflow"
 
@@ -207,4 +210,69 @@ func TestDispatchEInvoiceFetches(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestScheduledEInvoiceFetchWaitsWhileSuspended: a scheduled fetch whose
+// tenant is suspended as it lists the provider's messages records nothing
+// while suspended, hands the step to the wait without spending its tries,
+// and records the message once the tenant is active again (po:2026-11-09).
+func TestScheduledEInvoiceFetchWaitsWhileSuspended(t *testing.T) {
+	s := einvoiceSetup(t)
+	s.srv.Deliver("MSG-1", fetchParticipant, einvoicetest.Invoice("INV-1"))
+	period := time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+	in := workflows.ScheduledEInvoiceFetchInput(s.e.Tenant.ID, s.connector, period)
+	var mu sync.Mutex
+	started := map[string]int{}
+	var failed error
+	setStatus := func(status string) {
+		if _, err := pgtest.Admin(t).Exec(context.Background(), `UPDATE tenancy.tenant SET status = $2, version = version + 1 WHERE id = $1`,
+			s.e.Tenant.ID, status); err != nil {
+			failed = err
+		}
+	}
+	t.Cleanup(func() { setStatus("active") })
+	recordedWhileSuspended := -1
+	var suite testsuite.WorkflowTestSuite
+	env := workflowEnv(&suite)
+	env.RegisterWorkflowWithOptions(workflows.ScheduledEInvoiceFetch, sdkworkflow.RegisterOptions{Name: workflows.ScheduledEInvoiceFetchWorkflow})
+	env.RegisterActivity(s.f)
+	env.RegisterActivity(&workflows.Tenants{Pool: pgtest.Pool(t), AppRole: "erp_app"})
+	env.SetStartWorkflowOptions(client.StartWorkflowOptions{ID: workflows.ScheduledEInvoiceFetchWorkflowID(s.e.Tenant.ID, s.connector, period)})
+	env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
+		mu.Lock()
+		defer mu.Unlock()
+		started[info.ActivityType.Name]++
+		switch n := started[info.ActivityType.Name]; {
+		case info.ActivityType.Name == "PendingEInvoices" && n == 1:
+			setStatus("suspended")
+		case info.ActivityType.Name == "AwaitActive" && n == 2:
+			if err := pgtest.Admin(t).QueryRow(context.Background(), `SELECT count(*) FROM einvoicing.einvoice WHERE tenant_id = $1`,
+				s.e.Tenant.ID).Scan(&recordedWhileSuspended); err != nil {
+				failed = err
+			}
+			setStatus("active")
+		}
+	})
+	env.ExecuteWorkflow(workflows.ScheduledEInvoiceFetchWorkflow, in)
+	if failed != nil {
+		t.Fatalf("set the tenant's status: %v", failed)
+	}
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the scheduled fetch: got %v, want nil", err)
+	}
+	for name, c := range map[string]struct{ got, want int }{
+		"attempts of PendingEInvoices (one while suspended, handed to the wait at once, and one after)": {started["PendingEInvoices"], 2},
+		"attempts of AwaitActive":            {started["AwaitActive"], 2},
+		"documents recorded while suspended": {recordedWhileSuspended, 0},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: got %d, want %d", name, c.got, c.want)
+		}
+	}
+	if got := fetchOutcome(t, in); got != `succeeded {"changed": 0, "recorded": 1, "already_recorded": 0}` {
+		t.Errorf("the fetch once active again: got %s, want MSG-1 recorded", got)
+	}
 }

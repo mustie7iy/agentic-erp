@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/platform/secrets"
@@ -212,10 +213,11 @@ func StatementChannels(ctx context.Context, tx pgx.Tx) (map[TenantConnector]bool
 // einvoice_provider connectors of active tenants, by tenant and id: those
 // the workflow dispatcher fetches e-invoices from once per period
 // (ADR-0061 §4). A suspended or offboarded tenant's connectors are left
-// out, so its provider is not polled for it (PO 2026-11-09).
+// out (database.ActiveTenants, as every worker's read), so its provider is
+// not polled for it (PO 2026-11-09).
 func EInvoiceConnectors(ctx context.Context, tx pgx.Tx) ([]TenantConnector, error) {
-	rows, _ := tx.Query(ctx, `SELECT c.tenant_id, c.id FROM integration.connector c WHERE c.kind = $1 AND c.status = 'active'
-		AND EXISTS (SELECT FROM tenancy.tenant t WHERE t.id = c.tenant_id AND t.status = 'active') ORDER BY c.tenant_id, c.id`, EInvoiceProvider)
+	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM integration.connector WHERE kind = $1 AND status = 'active'
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY tenant_id, id`, EInvoiceProvider)
 	list, err := pgx.CollectRows(rows, pgx.RowToStructByPos[TenantConnector])
 	if err != nil {
 		return nil, fmt.Errorf("integration: list the e-invoice providers to fetch from: %w", err)

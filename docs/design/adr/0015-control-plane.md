@@ -132,8 +132,9 @@ row under RLS), and for a tenant that is not active rolls back and returns
 a `*database.TenantInactiveError` naming the tenant and its status, an
 ordinary error, not a non-retryable application error. Every activity type of
 `internal/workflows` (payments, approvals, statements, recurring entries,
-cash snapshots, migrations, depreciation and consolidation runs) and the
-configuration simulation worker begin their transactions with it, so the
+cash snapshots, migrations, depreciation and consolidation runs, and
+e-invoice fetches, on demand and scheduled, ADR-0061 §4, routed so in
+integration, batch 61) and the configuration simulation worker begin their transactions with it, so the
 check is not repeated in any activity; a scope without a tenant (a
 worker's read across tenants) is not checked. The status is read, not
 locked, as the unit of work reads it for a request: a step whose

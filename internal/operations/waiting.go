@@ -68,12 +68,14 @@ func TenantsOf(ctx context.Context, tx pgx.Tx, kind string) ([]uuid.UUID, error)
 // the operations of a kind still queued whose resource is the path of
 // what they work on, as QueuedOf reads them: the work of an in-process
 // worker of a cell without a workflow engine, for a kind whose work holds
-// nothing a cancellation must end (an e-invoice fetch, ADR-0061 §4). An
+// nothing a cancellation must end (an e-invoice fetch, ADR-0061 §4), of
+// active tenants only, as QueuedOf's (ADR-0015, po:2026-11-09). An
 // operation leaves the list when its work finishes it; one cancelled, or
 // one a workflow took, is not taken up.
 func StillQueuedOf(ctx context.Context, tx pgx.Tx, kind string) ([]Waiting, error) {
 	rows, _ := tx.Query(ctx, `SELECT kind, tenant_id, id, substring(resource from '[^/]+$')::uuid, '00000000-0000-0000-0000-000000000000'::uuid, '', 0
-		FROM platform.operation WHERE kind = $1 AND status = 'queued' AND workflow_id IS NULL AND resource IS NOT NULL ORDER BY id`, kind)
+		FROM platform.operation WHERE kind = $1 AND status = 'queued' AND workflow_id IS NULL AND resource IS NOT NULL
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY id`, kind)
 	waiting, err := pgx.CollectRows(rows, ScanWaiting)
 	return waiting, errs.Wrapf(err, "operations: list the %s operations still queued", kind)
 }

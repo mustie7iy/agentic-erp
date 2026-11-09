@@ -203,31 +203,28 @@ var fetchOptions = workflow.ActivityOptions{StartToCloseTimeout: 5 * time.Minute
 // backoff on an error of the machinery (the provider unreachable, the store
 // or the database failing), as the other workflows' (ADR-0012); a business
 // problem is not retried. Ending the Operation is tried until it is
-// recorded (recording), so a fetch always ends.
-//
-// The steps return Future.Get's error unwrapped: it is the workflow result,
-// and the engine records Get's ActivityError, which carries the activity
-// type and id, as the failure; a wrap would put a generic wrapError failure
-// on top and add no context.
+// recorded (recording), so a fetch always ends. Each step runs through
+// perform, so a fetch whose tenant is suspended waits until it is active
+// again (po:2026-11-09), and its errors are perform's, unwrapped.
 func FetchEInvoices(ctx workflow.Context, in EInvoiceFetchInput) error {
 	ctx = workflow.WithActivityOptions(ctx, fetchOptions)
 	var a *EInvoiceFetches
 	return fetchSteps{
 		pending: func() ([]EInvoiceMessage, error) {
 			var messages []EInvoiceMessage
-			err := workflow.ExecuteActivity(ctx, a.PendingEInvoices, in).Get(ctx, &messages)
-			return messages, err //nolint:wrapcheck // the workflow result, see FetchEInvoices
+			err := perform(ctx, in.TenantID, &messages, a.PendingEInvoices, in)
+			return messages, err
 		},
 		record: func(m EInvoiceMessage) (string, error) {
 			var outcome string
-			err := workflow.ExecuteActivity(ctx, a.RecordEInvoice, in, m).Get(ctx, &outcome)
-			return outcome, err //nolint:wrapcheck // the workflow result, see FetchEInvoices
+			err := perform(ctx, in.TenantID, &outcome, a.RecordEInvoice, in, m)
+			return outcome, err
 		},
 		finish: func(counts EInvoiceCounts, failed []EInvoiceFailure) error {
-			return workflow.ExecuteActivity(recording(ctx), a.FinishEInvoiceFetch, in, counts, failed).Get(ctx, nil)
+			return perform(recording(ctx), in.TenantID, nil, a.FinishEInvoiceFetch, in, counts, failed)
 		},
 		fail: func(why problem.Problem) error {
-			return workflow.ExecuteActivity(recording(ctx), a.FailEInvoiceFetch, in, why).Get(ctx, nil)
+			return perform(recording(ctx), in.TenantID, nil, a.FailEInvoiceFetch, in, why)
 		},
 	}.run()
 }
@@ -236,12 +233,13 @@ func FetchEInvoices(ctx workflow.Context, in EInvoiceFetchInput) error {
 // per period for an active connector (ADR-0061 §4): it records the
 // Operation under the id the input names, naming this workflow
 // (QueueEInvoiceFetch, idempotent), and then fetches as FetchEInvoices
-// does, the documents and counts under that Operation.
+// does, the documents and counts under that Operation. Its steps wait
+// while the tenant is not active, as FetchEInvoices' do (perform).
 func ScheduledEInvoiceFetch(ctx workflow.Context, in EInvoiceFetchInput) error {
 	queue := workflow.WithActivityOptions(ctx, fetchOptions)
 	var a *EInvoiceFetches
-	if err := workflow.ExecuteActivity(queue, a.QueueEInvoiceFetch, in, workflow.GetInfo(ctx).WorkflowExecution.ID).Get(ctx, nil); err != nil {
-		return err //nolint:wrapcheck // the workflow result, see FetchEInvoices
+	if err := perform(queue, in.TenantID, nil, a.QueueEInvoiceFetch, in, workflow.GetInfo(ctx).WorkflowExecution.ID); err != nil {
+		return err
 	}
 	return FetchEInvoices(ctx, in)
 }
@@ -260,7 +258,7 @@ type EInvoiceFetches struct {
 }
 
 func (f *EInvoiceFetches) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, f.Pool, f.Begin, s)
+	return database.BeginActive(ctx, f.Pool, f.Begin, s)
 }
 
 // within is the fetch's Within: a transaction of its tenant as the
