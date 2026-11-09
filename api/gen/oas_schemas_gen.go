@@ -44488,8 +44488,9 @@ type MigrationRunReport struct {
 	// SAP documents of the scope not on the platform (`documents` mode), the first 100; absent when there
 	// are none.
 	MissingDocuments []string `json:"missing_documents"`
-	// SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of
-	// an amount; absent when there are none. Any one fails the reconciliation.
+	// SAP values the reconciliation could not use: amounts that do not parse, sums out of the range of an
+	// amount, or journal lines in more than one ledger (ACDOCA RLDNR; then no control is computed); absent
+	// when there are none. Any one fails the reconciliation.
 	Issues []MigrationIssue `json:"issues"`
 	// Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
 	Passed OptBool `json:"passed"`

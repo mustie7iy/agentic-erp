@@ -131,6 +131,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.vendorBanks()
 	q.purchaseOrders()
 	q.movements()
+	q.ledgers()
 	q.journal()
 	q.lineCenters()
 	q.downPayments()
@@ -328,6 +329,14 @@ func (q *qualityCheck) movements() {
 		if m.BWART != "101" {
 			q.add(SevWarning, "MSEG", m.MBLNR+"/"+m.MJAHR+"/"+m.ZEILE, "movement type %s is not migrated; received quantities count receipts (101) only", m.BWART)
 		}
+	}
+}
+
+// ledgers refuses an extract whose journal lines are in more than one
+// ledger (ledgerIssue).
+func (q *qualityCheck) ledgers() {
+	if issue, ok := ledgerIssue(q.e); ok {
+		q.out = append(q.out, issue)
 	}
 }
 

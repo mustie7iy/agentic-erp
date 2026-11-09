@@ -327,6 +327,15 @@ Each control is computed twice: from the raw SAP extract and from the
 platform, read through the owning contexts.
 They must be equal.
 
+SAP holds a journal line once per ledger (ACDOCA RLDNR), and which
+identifier the leading ledger has is not recorded here (a question for the
+SAP specialist, below). So no ledger is picked by a guessed identifier:
+the quality gate refuses an extract whose journal lines are in more than
+one ledger, naming the ledgers found, and the reconciliation, which
+extracts again without the gate, refuses such an extract without
+computing any control, rather than post or sum each line once per ledger
+(review:T56h4). An extract of one ledger's lines loads as it is.
+
 - Trial balance per account (differences listed by account)
 - Total debits posted (`documents` mode)
 - Open payables, in total and per vendor, without the down payments
@@ -555,6 +564,14 @@ stopped the run before the load.
   (the platform has one cost center per company and account); and whether
   a default naming an order or another object than a cost center can
   occur and is to be noted only.
+- The ledger of the journal lines (ACDOCA RLDNR; review:T56h4): which
+  identifier the leading ledger has in the pilot's system, and whether the
+  file extract should be limited to its lines (the load refuses an extract
+  whose lines are in more than one ledger and takes one ledger's lines as
+  they are, whichever it is). The OData mapping does not read the line's
+  ledger and labels every line alike, so the gate cannot tell an OData
+  extract's ledgers apart: confirm whether `A_JournalEntryItemBasic`
+  returns the leading ledger's lines alone (T56h5).
 - Amounts for currencies with no decimals or three decimals (JPY, KWD) come in
   external format.
 - **SAP digital-access licensing:** reading data is usually fine, but agents

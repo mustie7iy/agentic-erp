@@ -163,7 +163,12 @@ type RSEG struct {
 
 // ACDOCA - Universal Journal line item.
 type ACDOCA struct {
-	RLDNR  string `json:"RLDNR"` // ledger, "0L" = leading
+	// RLDNR is the line's ledger. SAP holds a line once per ledger, and
+	// which identifier its leading ledger has is not recorded (a question
+	// for the SAP specialist, docs/migration.md), so no ledger is chosen
+	// by a guessed one: the migration's quality gate refuses an extract
+	// whose lines are in more than one (review:T56h4).
+	RLDNR  string `json:"RLDNR"`
 	RBUKRS string `json:"RBUKRS"`
 	GJAHR  string `json:"GJAHR"`
 	BELNR  string `json:"BELNR"`

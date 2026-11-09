@@ -2783,7 +2783,7 @@
        },
        {
         "s": "T",
-        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
+        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, and the line's ledger (ACDOCA RLDNR, today a constant label in the OData mapping, so the quality gate cannot refuse an OData extract of several ledgers; review:T56h4), their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
         "r": "T56h5",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
@@ -2803,6 +2803,13 @@
         "r": "internal/sap types.go, odata.go (not mapped), mock.go (lineCenters) · internal/integration linecenters.go, centertotals.go, load.go (journalPosting), reconcile.go · internal/app app.go (ledger.AssignmentBalances) · api/openapi.yaml (MigrationDiff key) · docs/migration.md · walkthrough step 3 (migrated_line_centers) · ADR-0050 §10 as built · T56h · T56h4",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "SAP migration: the ledger of journal lines (fix of T56h4): ACDOCA RLDNR was neither checked by the load nor by the reconciliation, and the scope kept the lines of a guessed leading ledger \"0L\"; the scope keeps every ledger's lines, the quality gate refuses an extract whose lines are in more than one ledger, naming them, and the reconciliation refuses one without computing a control, so no line is posted or summed twice; the specialist is asked for the leading ledger's identifier and whether the file extract should be limited to it",
+        "r": "internal/sap source.go, types.go, odata.go · internal/integration ledgers.go, quality.go, reconcile.go · api/openapi.yaml (MigrationRunReport issues) · docs/migration.md · ADR-0050 §10 as built · T56h4b",
+        "src": "review:T56h4",
         "c": []
        },
        {

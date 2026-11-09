@@ -37,9 +37,11 @@ type Diff struct {
 }
 
 // Reconciliation is the reconciliation part of a run's report. Issues are
-// SAP values it could not use: amounts that do not parse, or sums out of
-// the range of an amount. A reconciliation run extracts again without the
-// quality gate, so it reports them as the gate does, and fails.
+// SAP values it could not use: amounts that do not parse, sums out of the
+// range of an amount, or journal lines in more than one ledger
+// (ledgerIssue), which it refuses without computing a control. A
+// reconciliation run extracts again without the quality gate, so it
+// reports them as the gate does, and fails.
 type Reconciliation struct {
 	Checks  []Check  `json:"checks"`
 	Diffs   []Diff   `json:"diffs"`
@@ -54,6 +56,9 @@ type Reconciliation struct {
 // for the fiscal year; counts cover the records this or earlier runs
 // loaded for the scope's SAP keys.
 func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r refs) (Reconciliation, error) {
+	if issue, ok := ledgerIssue(ext); ok { // extracted again without the gate: refused, never summed twice
+		return Reconciliation{Issues: []Issue{issue}}, nil
+	}
 	rc := &reconciler{e: e, ext: ext, t: t, r: r, vendorOf: map[uuid.UUID]string{}, recon: map[string]bool{}, pnl: map[string]bool{}}
 	for key, id := range r {
 		if lifnr, ok := strings.CutPrefix(key, "LFA1/"); ok {

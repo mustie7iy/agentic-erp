@@ -115,6 +115,11 @@ var DefaultEntities = []EntityMapping{
 	// the API's properties for them are not recorded, so an OData
 	// extract's lines load without centers, the ledger deriving them as
 	// for any line without, until the pilot's $metadata names them (T56h5).
+	// Nor is the line's ledger: RLDNR is a constant label, so the quality
+	// gate cannot tell an OData extract's ledgers apart as it does a file
+	// extract's (review:T56h4); whether the API returns the leading
+	// ledger's lines alone is a question for the SAP specialist
+	// (docs/migration.md).
 	{Table: "ACDOCA", Service: "API_JOURNALENTRYITEMBASIC_SRV", Entity: "A_JournalEntryItemBasic", CompanyField: "CompanyCode", YearField: "FiscalYear",
 		Static: map[string]string{"RLDNR": "0L"},
 		Fields: map[string]string{"RBUKRS": "CompanyCode", "GJAHR": "FiscalYear", "BELNR": "AccountingDocument",

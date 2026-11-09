@@ -53,7 +53,10 @@ func WriteExtract(path string, e *Extract) error {
 }
 
 // FilterScope keeps only rows belonging to the scope's company codes and
-// fiscal year (leading ledger only for ACDOCA).
+// fiscal year. ACDOCA keeps the lines of every ledger: which one is SAP's
+// leading ledger is not recorded (docs/migration.md), so the migration's
+// quality gate refuses lines in more than one rather than this guessing
+// one (review:T56h4).
 func FilterScope(all *Extract, scope Scope) *Extract {
 	inCC := func(cc string) bool { return slices.Contains(scope.CompanyCodes, cc) }
 	out := &Extract{}
@@ -80,7 +83,7 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 		invs[r.BELNR+"/"+r.GJAHR] = true
 	}
 	out.RSEG = keep(all.RSEG, func(r RSEG) bool { return invs[r.BELNR+"/"+r.GJAHR] })
-	out.ACDOCA = keep(all.ACDOCA, func(r ACDOCA) bool { return r.RLDNR == "0L" && inCC(r.RBUKRS) && r.GJAHR == scope.FiscalYear })
+	out.ACDOCA = keep(all.ACDOCA, func(r ACDOCA) bool { return inCC(r.RBUKRS) && r.GJAHR == scope.FiscalYear })
 	filterCenters(all, out, inCC)
 	// Customizing: company-specific tables by company code; client-wide
 	// tables (payment terms, payment methods per country, roles) unchanged.

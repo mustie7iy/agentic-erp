@@ -1247,6 +1247,16 @@ SAP specialist, docs/migration.md):
   trial balance already compares each account. Three checks and their
   differences (`cost center total`, `profit center total`, `segment
   total`).
+- **The ledger of SAP's lines** (review:T56h4, decided by default: the
+  leading ledger's identifier is not recorded, and a run's scope names no
+  ledger): SAP holds a line once per ledger (ACDOCA RLDNR), so lines of a
+  non-leading ledger would post, and add to every center total, twice.
+  The scope no longer keeps the lines of a guessed "0L"; the quality gate
+  refuses an extract whose lines are in more than one ledger, naming
+  them, and the reconciliation refuses one without computing a control.
+  The specialist is asked for the identifier and whether the file extract
+  should be limited to it (docs/migration.md); the OData mapping labels
+  every line alike, so its ledgers are a T56h5 question.
 
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not
