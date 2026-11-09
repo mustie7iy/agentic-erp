@@ -1604,15 +1604,16 @@ step_procure() {
 # order_document shows the released order's document for Tyrell (T72g,
 # ADR-0054): Maple's postal address of step 2 as the buyer's and the
 # address to deliver to, and Tyrell's street, which the migration took
-# from SAP's vendor master (LFA1 STRAS, ORT01, PSTLZ, REGIO; pending the
-# SAP specialist). Then Ben adds the address Tyrell takes orders at, which
-# the document prints instead of its legal one.
+# from SAP's central address (ADRC by LFA1-ADRNR, po:2026-11-09): the row
+# valid today, not the old address whose row ended in 2019. Then Ben adds
+# the address Tyrell takes orders at, which the document prints instead
+# of its legal one.
 order_document() {
   local number change utc_today want
   number=$(field .document_number)
   say "Ben fetches the order's document to send to Tyrell (by hand: email and EDI are post-pilot). It names Maple"
   say "with its configured postal address, delivers there, as no item names an address of its own, and prints"
-  say "Tyrell's street, which the migration took from SAP's vendor master (product owner 2026-11-04):"
+  say "Tyrell's street, which the migration took from SAP's central address, ADRC (product owner 2026-11-04):"
   api 200 '' getPurchaseOrderDocument -p "id=$PO"
   sed 's/^/     /' "$WORK/last.json"
   for want in "PURCHASE ORDER $number" "Payment terms: 2/10N30" "10 EA at 470.00 CAD per 1 EA" "Delivery date $DELIVERY" "Total 4700.00 CAD"; do
@@ -1626,6 +1627,7 @@ order_document() {
   [[ $doc == *$'Deliver to\n  Maple Industries Canada\n'"$maple"* ]] || fail "the order's document does not deliver to Maple's postal address"
   [[ $doc == *$')\n  2019 Tyrell Plaza\n  Los Angeles, CA, 90012\n  Country US\n\nDeliver to'* ]] ||
     fail "the order's document does not show Tyrell's street from SAP"
+  if grep -qF "Old Tyrell Road" "$WORK/last.json"; then fail "the order's document prints Tyrell's address of before 2020 from SAP"; fi
   # The item's own date is printed, not the requisition's: no item is left
   # to be delivered by it (ADR-0054 As built).
   if grep -qF "Needed by" "$WORK/last.json"; then fail "the order's document prints the requisition's date beside the item's own"; fi

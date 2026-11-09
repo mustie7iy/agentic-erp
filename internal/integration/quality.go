@@ -61,6 +61,10 @@ type target struct {
 	// documents in, by document key (postedCurrencies), which a document
 	// SAP cleared together with them posts in too (foreignDocuments).
 	posted map[string]string
+	// today is the day the run loads, the cutover date of the master data
+	// it migrates: a vendor's central address valid on it is the one taken
+	// (po:2026-11-09, A1).
+	today time.Time
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -115,7 +119,7 @@ func duplicateInvoices(e *sap.Extract) map[string]string {
 // loaded. Problems found here are cheap to fix in SAP or in the
 // configuration; problems found after cutover are not.
 func checkQuality(e *sap.Extract, t target) []Issue {
-	q := &qualityCheck{e: e, t: t}
+	q := &qualityCheck{e: e, t: t, addresses: addressesOf(e)}
 	q.foreign, q.conflicts = foreignDocuments(e, t)
 	q.amountForm()
 	q.companies()
@@ -147,6 +151,8 @@ type qualityCheck struct {
 	currency map[string]string   // by company code
 	account  map[string]sap.SKB1 // by company code/account
 	vendor   map[string]sap.LFA1 // by vendor number
+	// addresses are the extract's central addresses (ADRC).
+	addresses addresses
 	// vendorAccounts are the company/account of each vendor's
 	// reconciliation account (LFB1-AKONT), specialAccounts those T074 names
 	// as special G/L accounts (specialGL).
@@ -202,7 +208,7 @@ func (q *qualityCheck) vendors() {
 		if strings.TrimSpace(v.STCD1) == "" {
 			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has no tax number", v.NAME1)
 		}
-		if _, _, why := vendorAddress(v, time.Time{}); why != "" {
+		if _, _, why := vendorAddress(v, q.addresses, q.t.today); why != "" {
 			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has %s: it loads without an address", v.NAME1, why)
 		}
 		key := strings.ToUpper(strings.Join(strings.Fields(v.NAME1), " "))

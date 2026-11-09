@@ -660,28 +660,30 @@ others record a confirmation.
   parameters per company code, restricted to those ZWELS allows, and an
   item's fixed method wins over both. The method order and T042I's account
   are a tracker leaf; verify both on the pilot system.
-- Vendor addresses: the extract's LFA1 may carry the vendor's street with
-  house number, city, postal code and region as STRAS, ORT01, PSTLZ and
-  REGIO, which the load gives the supplier as its `legal` address (product
-  owner 2026-11-04, ADR-0054 As built). These field names were written from
-  memory; the SAP specialist answered (A1, [H]): LFA1-STRAS, ORT01, PSTLZ,
-  REGIO and LAND1 exist and are filled, but as a redundant copy of the
-  central address, and LFA1-STRAS (35 characters) holds street and house
-  number together, which cannot be split reliably. The address is to be
-  read from ADRC (tracker leaf): street ADRC-STREET, house number
-  ADRC-HOUSE_NUM1 (ADRC-HOUSE_NUM2 its supplement), city ADRC-CITY1, postal
-  code ADRC-POST_CODE1, region ADRC-REGION, country ADRC-COUNTRY, joined by
-  LFA1-ADRNR = ADRC-ADDRNUMBER in the same client, filtered to ADRC-NATION
-  blank (the international version; other values are other scripts) and
-  ADRC-DATE_FROM <= the cutover date <= ADRC-DATE_TO. Many systems hold the
-  house number in STREET with HOUSE_NUM1 blank, which is normal, not an
-  error; ADRC-STR_SUPPL1/2/3 and ADRC-LOCATION hold further lines if the
-  legal address needs them. Until then the fields are
-  optional: a vendor without them, as every vendor of an OData extract is
-  (the mapping does not carry them), loads without an address; one with a
-  street but no city, a city but no street, or a text longer than an
-  address holds is warned of by the quality gate and loads without one. A
-  vendor an earlier run created keeps the address it has.
+- Vendor addresses: the load first took the vendor's street with house
+  number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
+  REGIO (product owner 2026-11-04, ADR-0054 As built), field names written
+  from memory. The SAP specialist answered (A1, [H]): those fields exist
+  and are filled, but as a redundant copy of the central address, and
+  LFA1-STRAS (35 characters) holds street and house number together. The
+  load now reads ADRC (sapvend): LFA1-ADRNR = ADRC-ADDRNUMBER in the
+  extract's client, the row with ADRC-NATION blank (the international
+  version; other values are other scripts) and ADRC-DATE_FROM <= the run's
+  day <= ADRC-DATE_TO; street ADRC-STREET followed by ADRC-HOUSE_NUM1 and
+  ADRC-HOUSE_NUM2, further lines ADRC-STR_SUPPL1/2/3 and ADRC-LOCATION as
+  the address's second line, city ADRC-CITY1, postal code ADRC-POST_CODE1,
+  region ADRC-REGION, country ADRC-COUNTRY (LFA1-LAND1 when blank). A blank
+  HOUSE_NUM1 is normal: many systems hold the house number in STREET. The
+  extract exports ADRC for the vendors' ADRNR (the run reads only those of
+  the scope's vendors). A vendor without ADRNR, as every vendor of an OData
+  extract is (the mapping does not carry it), loads without an address; a
+  vendor naming an address the extract holds no valid row of, or several,
+  one without a street name or a city, or a text longer than an address
+  holds is warned of by the quality gate and loads without one. A vendor an
+  earlier run created keeps the address it has. **To verify on the pilot
+  system:** whether its countries print the house number before the street
+  (the load keeps SAP's field order, street then number, and does not
+  apply SAP's per-country address layout, which the answers do not give).
 - The controlling master data (T56h; ADR-0050 §10 states the tables from
   memory, and internal/sap's types say which fields are not even in its
   list): that CSKS carries KOKRS, KOSTL, DATAB, DATBI, BUKRS, KOSAR, VERAK,

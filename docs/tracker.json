@@ -3267,9 +3267,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Migrated suppliers' addresses from SAP's central address ADRC instead of LFA1 (SAP specialist, po:2026-11-09, A1 [H]): LFA1-STRAS, ORT01, PSTLZ and REGIO are a redundant copy of the central address, and STRAS (35 characters) holds street and house number together; the extract reads ADRC-STREET, HOUSE_NUM1 (HOUSE_NUM2 its supplement), CITY1, POST_CODE1, REGION and COUNTRY, joined by LFA1-ADRNR = ADRC-ADDRNUMBER in the same client, with ADRC-NATION blank (the international version) and the cutover date between ADRC-DATE_FROM and DATE_TO; a blank HOUSE_NUM1 (the house number typed into STREET) is normal, not a finding; STR_SUPPL1-3 and LOCATION considered where the legal address needs further lines; the supplier's legal address, the quality gate's warnings and the purchase order document's supplier block take the ADRC fields",
-        "r": "internal/sap (LFA1, ADRC) · integration vendorAddress · docs/migration.md \"What to check on a real SAP system\" (vendor addresses, answered) · ADR-0054 As built (podocb, answered)",
+        "r": "internal/sap ADRC, LFA1-ADRNR (STRAS, ORT01, PSTLZ, REGIO no longer read), FilterScope, mock (Tyrell's old address ended in 2019) · integration addresses.go vendorAddress (the international row valid on the run's day; line 1 STREET HOUSE_NUM1 HOUSE_NUM2, line 2 STR_SUPPL1-3 and LOCATION; COUNTRY, else LAND1), quality gate warnings · MigrationExtractCounts.adrc · TestCentralAddress, TestVendorAddresses · walkthrough step 4 (order_document) · docs/migration.md (vendor addresses, built; house number layout per country to verify) · ADR-0054 As built (sapvend) · 03-data-model §3.17",
         "src": "po:2026-11-09",
         "c": []
        },

@@ -176,7 +176,7 @@ func (g *mockGen) masterData() {
 		if id == blockedVendor {
 			v.SPERR = "X"
 		}
-		addressed(&v)
+		g.addressed(&v)
 		g.e.LFA1 = append(g.e.LFA1, v)
 		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: v.LAND1, BANKN: fmt.Sprintf("%012d", 400000000000+int64(i)*7777)})
 		if i < 18 {
@@ -189,20 +189,29 @@ func (g *mockGen) masterData() {
 	g.canadianVendors(terms)
 }
 
-// mockAddresses are the street, city, postal code and region of the
-// vendors whose master holds an address (LFA1 STRAS, ORT01, PSTLZ, REGIO,
-// field names pending the SAP specialist, see LFA1):
-// Tyrell, which the walkthrough orders from, and Laurentian Paper. The
+// mockAddresses are the central addresses (ADRC) of the vendors whose
+// master holds one, by vendor number: Tyrell, which the walkthrough orders
+// from, and Laurentian Paper. Their ADRNR is their vendor number. Both
+// hold the house number in the street with HOUSE_NUM1 blank, as many
+// systems do (po:2026-11-09, A1), and Tyrell's address moved: the row of
+// its old one ended before today, so the load takes the current one. The
 // others hold none, as an extract may leave them out.
-var mockAddresses = map[string][4]string{
-	"0000100011": {"2019 Tyrell Plaza", "Los Angeles", "90012", "CA"},
-	"0000300001": {"85 Rue de la Gauchetière", "Montréal", "H2Z 1B5", "QC"},
+var mockAddresses = map[string][]ADRC{
+	"0000100011": {
+		{DATE_FROM: "00010101", DATE_TO: "20191231", STREET: "1 Old Tyrell Road", CITY1: "Pasadena", POST_CODE1: "91101", REGION: "CA", COUNTRY: "US"},
+		{DATE_FROM: "20200101", DATE_TO: "99991231", STREET: "2019 Tyrell Plaza", CITY1: "Los Angeles", POST_CODE1: "90012", REGION: "CA", COUNTRY: "US"},
+	},
+	"0000300001": {
+		{DATE_FROM: "00010101", DATE_TO: "99991231", STREET: "85 Rue de la Gauchetière", CITY1: "Montréal", POST_CODE1: "H2Z 1B5", REGION: "QC", COUNTRY: "CA"},
+	},
 }
 
-// addressed gives v its address from mockAddresses, if it has one there.
-func addressed(v *LFA1) {
-	if a, ok := mockAddresses[v.LIFNR]; ok {
-		v.STRAS, v.ORT01, v.PSTLZ, v.REGIO = a[0], a[1], a[2], a[3]
+// addressed gives v its central address from mockAddresses, if it has one
+// there.
+func (g *mockGen) addressed(v *LFA1) {
+	for _, a := range mockAddresses[v.LIFNR] {
+		v.ADRNR, a.ADDRNUMBER = v.LIFNR, v.LIFNR
+		g.e.ADRC = append(g.e.ADRC, a)
 	}
 }
 
@@ -230,7 +239,7 @@ func (g *mockGen) canadianVendors(terms []string) {
 	for i, name := range canadianVendorNames {
 		id := fmt.Sprintf("%010d", 300001+i)
 		v := LFA1{LIFNR: id, NAME1: name, LAND1: "CA", STCD1: fmt.Sprintf("%09d", 800000000+i*7919)}
-		addressed(&v)
+		g.addressed(&v)
 		g.e.LFA1 = append(g.e.LFA1, v)
 		institution, transit := []string{"001", "002", "003", "004", "006", "010"}[i], fmt.Sprintf("%05d", 10+i*111)
 		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: "0" + institution + transit, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
