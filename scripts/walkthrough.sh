@@ -718,6 +718,7 @@ step_tenant() {
     element=$(awk -v n="      - number: \"${account%%:*}\"" '$0 == n { f = 1; next } f && /^      - number:/ { exit } f && /cost_element:/ { print $2; exit }' "$WORK/config.yaml")
     expect "account ${account%%:*}'s cost element from KATYP" "$element" "${account#*:}"
   done
+  default_assignments
   say "The USD account's ledger account must be revalued at month end (ADR-0042), which SAP's extract cannot"
   say "tell, so the draft names it and does not validate until a reviewer flags it with its gain and loss accounts:"
   grep "\[error\]" "$WORK/generate.out" | sed 's/^ */     /'
@@ -775,6 +776,73 @@ YAML
     "T CAD MAIN, T USD MUSD"
   people
   passed
+}
+
+# default_assignments shows SAP's default account assignments (OKB9:
+# TKA3A with its details TKA3C and TKA3P; T56h3) as the draft step 1
+# generated notes them: the general assignment of salaries to cost center
+# 3100 is the entry to propose once the migration has loaded 3100 (the
+# ledger activates a default only for a cost center it holds, ADR-0050
+# §4), so it is not in the tenant's first configuration; every other row
+# is noted with why. migrated_default_assignment proposes it in step 3.
+default_assignments() {
+  say "SAP's default account assignments (OKB9, TKA3A) give the company's cost elements a cost center, an order or"
+  say "a profit center, or say SAP finds the object per valuation area, business area or profit center (REGEL"
+  say "1, 2, 3; TKA3C and TKA3P). The platform keeps one default cost center per company and account (T56h3):"
+  jq -r --arg cc "$CC" '.TKA3A[] | select(.BUKRS == $cc) | "     TKA3A \(.KOKRS)/\(.KSTAR): \([(.KOSTL // empty | "cost center \(.)"),
+      (.AUFNR // empty | "order \(.)"), (.PRCTR // empty | "profit center \(.)"), (.REGEL // empty | "REGEL \(.)"), (.BSSUBST // empty | "BSSUBST \(.)")] | join(", "))"' \
+    "$WORK/data/extract.json"
+  say "The draft notes each row. Salaries' general assignment to cost center 3100, which the migration loads, is the"
+  say "entry to propose once 3100 is migrated, as the ledger activates a default only for a cost center it holds;"
+  say "every other row is noted with why, and TKA3A's own cost center is never taken when REGEL is set:"
+  grep "companies\[$CC\]\.default_assignments" "$WORK/generate.out" | sed 's/^ */     /'
+  if grep -q 'default_assignments' "$WORK/config.yaml"; then fail "the draft holds default assignments before their cost centers are migrated"; fi
+  expect "the notes on rows not proposed" "$(grep -c "companies\[$CC\]\.default_assignments\[[0-9]*\]: TKA3A .*; not proposed$" "$WORK/generate.out")" 8
+  grep -q "default_assignments\[540000\]: .*REGEL 3, .*TKA3P profit center P3100: cost center 3120; TKA3P profit center P3200: cost center 3200).*TKA3A's own cost center 3120 is not taken as a fallback" \
+    "$WORK/generate.out" || fail "the REGEL 3 row's note does not name its TKA3P rows"
+  sed -nE "s/^ *companies\[$CC\]\.default_assignments\[[0-9]+\]: propose after the migration: \{account: \"([0-9]+)\", cost_center: \"([^\"]+)\"\}.*/\1 \2/p" \
+    "$WORK/generate.out" >"$WORK/default_assignment"
+  expect "the default to propose after the migration" "$(cat "$WORK/default_assignment")" "610000 3100"
+}
+
+# migrated_default_assignment proposes the default the draft of step 1
+# noted (T56h3), now that the run has loaded its cost center: a
+# posting-related change (tier 3), replayed and approved by the process
+# owner and the controller, after which the active configuration gives
+# account 610000 cost center 3100 as SAP's OKB9 did.
+migrated_default_assignment() {
+  local account center base cr request
+  read -r account center <"$WORK/default_assignment"
+  as ada
+  say "With cost center $center migrated, Ada proposes the default the draft noted in step 1: account $account takes"
+  say "cost center $center when a line names none, as SAP's OKB9 had it (T56h3). It is posting-related (tier 3)."
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq --arg cc "$CC" --arg a "$account" --arg c "$center" --argjson base "$base" '{title: "Default cost center of account \($a) from SAP",
+    rationale: "OKB9 (TKA3A), proposed once the migration loaded cost center \($c) (T56h3)", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == $cc then .default_assignments = ((.default_assignments // []) + [{account: $a, cost_center: $c}]) else . end))}' \
+    "$WORK/last.json" >"$WORK/default.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @default.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 3
+  QUIET=1 api 201 '' createRegressionSuite -body '{"name": "Before the default cost center", "window_days": 366}'
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 202 '"\(.kind) \(.status)"' simulateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  wait_op
+  api 200 '.evidence[] | "evidence \(.kind): \(if .passed then "passed" else "FAILED" end), \(.summary)"' getChangeRequest -p "id=$cr"
+  expect "status after the evidence" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "SAP's default cost center for salaries"
+  approve carla "$request" "Cost center $center is migrated and open for actual costs"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .default_assignments[] | "default assignment: account \(.account), cost center \(.cost_center)"' \
+    listConfigVersions -p is_active=true
+  expect "the active default assignments" \
+    "$(field '[.items[0].document.companies[] | select(.code == "'"$CC"'") | .default_assignments[] | "\(.account) \(.cost_center)"] | join(", ")')" "$account $center"
 }
 
 step_migrate() {
@@ -859,6 +927,7 @@ step_migrate() {
     expect "the migrated $kind's status" "$(field .status)" posted
   done
   migrated_centers
+  migrated_default_assignment
   migrated_line_centers
   migrated_down_payment
   migrated_foreign_item

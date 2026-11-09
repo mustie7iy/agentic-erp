@@ -285,6 +285,7 @@ func (g *gen) company(t sap.T001) config.Company {
 	co.InvoiceTolerance = g.invoiceTolerance(p, t.BUKRS)
 	co.HouseBank, co.HouseBanks = g.houseBanks(p, &co)
 	co.PaymentMethods = g.paymentMethods(p, t.LAND1, &co)
+	g.defaultAssignments(p, &co)
 	return co
 }
 

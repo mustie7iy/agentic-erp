@@ -1,6 +1,7 @@
 package sap
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,11 +10,21 @@ import (
 	"slices"
 )
 
+// LeadingLedger is SAP's standard leading ledger (ACDOCA RLDNR "0L"), as the
+// SAP specialist gave it (PO 2026-11-09, high confidence), to be confirmed
+// on the pilot system in FINSC_LEDGER, whose "Leading ledger" flag marks
+// it. The other ledgers (local GAAP such as 2L or L1, extension ledgers
+// such as E1, which hold delta lines only) are never added to it.
+const LeadingLedger = "0L"
+
 // Scope selects what to migrate. Migrating one company code and fiscal year
-// at a time is what makes cutover incremental and reversible.
+// at a time is what makes cutover incremental and reversible. Ledger is the
+// leading ledger whose journal lines are migrated, LeadingLedger when
+// empty: a system whose FINSC_LEDGER flags another sets it.
 type Scope struct {
 	CompanyCodes []string `json:"companyCodes"`
 	FiscalYear   string   `json:"fiscalYear"`
+	Ledger       string   `json:"ledger,omitempty"`
 }
 
 // Source delivers SAP data for a scope: a file extract, the mock, or live
@@ -53,7 +64,11 @@ func WriteExtract(path string, e *Extract) error {
 }
 
 // FilterScope keeps only rows belonging to the scope's company codes and
-// fiscal year (leading ledger only for ACDOCA).
+// fiscal year, and of ACDOCA only the scope's leading ledger's lines. It
+// counts the scope's lines of each other ledger in OtherLedgers, which the
+// export should have left out (the SAP specialist: WHERE RLDNR = '0L'), so
+// that the migration's quality gate refuses them as a safety net rather
+// than the run proceeding as if the extract were whole (review:T56h4).
 func FilterScope(all *Extract, scope Scope) *Extract {
 	inCC := func(cc string) bool { return slices.Contains(scope.CompanyCodes, cc) }
 	out := &Extract{}
@@ -80,7 +95,7 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 		invs[r.BELNR+"/"+r.GJAHR] = true
 	}
 	out.RSEG = keep(all.RSEG, func(r RSEG) bool { return invs[r.BELNR+"/"+r.GJAHR] })
-	out.ACDOCA = keep(all.ACDOCA, func(r ACDOCA) bool { return r.RLDNR == "0L" && inCC(r.RBUKRS) && r.GJAHR == scope.FiscalYear })
+	filterLedger(all, out, scope, inCC)
 	filterCenters(all, out, inCC)
 	// Customizing: company-specific tables by company code; client-wide
 	// tables (payment terms, payment methods per country, roles) unchanged.
@@ -94,8 +109,29 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	out.T042E = keep(all.T042E, func(r T042E) bool { return inCC(r.ZBUKR) })
 	out.T042A = keep(all.T042A, func(r T042A) bool { return inCC(r.ZBUKR) })
 	out.T042I = keep(all.T042I, func(r T042I) bool { return inCC(r.ZBUKR) })
+	out.TKA3A = keep(all.TKA3A, func(r TKA3A) bool { return inCC(r.BUKRS) })
+	out.TKA3C = keep(all.TKA3C, func(r TKA3C) bool { return inCC(r.BUKRS) })
+	out.TKA3P = keep(all.TKA3P, func(r TKA3P) bool { return inCC(r.BUKRS) })
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
 	return out
+}
+
+// filterLedger keeps the scope's journal lines of its leading ledger and
+// counts those of the others.
+func filterLedger(all, out *Extract, scope Scope, inCC func(string) bool) {
+	out.Ledger = cmp.Or(scope.Ledger, LeadingLedger)
+	for _, r := range all.ACDOCA {
+		switch {
+		case !inCC(r.RBUKRS) || r.GJAHR != scope.FiscalYear:
+		case r.RLDNR == out.Ledger:
+			out.ACDOCA = append(out.ACDOCA, r)
+		default:
+			if out.OtherLedgers == nil {
+				out.OtherLedgers = map[string]int{}
+			}
+			out.OtherLedgers[r.RLDNR]++
+		}
+	}
 }
 
 // filterCenters keeps the controlling master data of the scope's company

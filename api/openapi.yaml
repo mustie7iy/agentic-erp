@@ -47000,7 +47000,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MigrationIssue"
-          description: "SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of an amount; absent when there are none. Any one fails the reconciliation."
+          description: "SAP values the reconciliation could not use: amounts that do not parse, sums out of the range of an amount, or journal lines of other ledgers than the leading one (ACDOCA RLDNR; then no control is computed); absent when there are none. Any one fails the reconciliation."
         passed:
           type: boolean
           description: Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.

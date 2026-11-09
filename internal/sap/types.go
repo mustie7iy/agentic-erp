@@ -163,7 +163,11 @@ type RSEG struct {
 
 // ACDOCA - Universal Journal line item.
 type ACDOCA struct {
-	RLDNR  string `json:"RLDNR"` // ledger, "0L" = leading
+	// RLDNR is the line's ledger. SAP holds a line once per ledger; a
+	// scope migrates its leading ledger's (LeadingLedger, Scope.Ledger),
+	// and the migration's quality gate refuses an extract holding lines
+	// of others (Extract.OtherLedgers; review:T56h4).
+	RLDNR  string `json:"RLDNR"`
 	RBUKRS string `json:"RBUKRS"`
 	GJAHR  string `json:"GJAHR"`
 	BELNR  string `json:"BELNR"`
@@ -407,6 +411,69 @@ type CSKB struct {
 	KATYP string `json:"KATYP"`
 }
 
+// --- Default account assignments (OKB9; ADR-0050 §10, T56h3) ---
+//
+// The tables and fields below are those the SAP specialist named
+// (PO, 2026-11-09), to be validated in SE11 on the pilot's release: TKA3A
+// holds the general automatic account assignment per company code and
+// cost element, TKA3C and TKA3P its details by valuation or business area
+// and by profit center. SAP keeps no validity dates: a change overwrites
+// the row. There is no released OData API for them, so only a file
+// extract carries them. Read only by the configuration draft
+// (delivery/sapconfig), which notes from them the default_assignments to
+// propose once the migration has loaded the cost centers (T56h3).
+
+// TKA3A - automatic account assignment of company code BUKRS and cost
+// element (in S/4HANA the G/L account) KSTAR in client MANDT: its
+// controlling area KOKRS and the default cost center KOSTL, internal order
+// AUFNR or profit center PRCTR. REGEL is the detail indicator (data
+// element CO_MASCHK): blank the general assignment of this row; 1 the
+// valuation area mandatory (TKA3C by BWKEY); 2 the business area
+// mandatory (TKA3C by GSBER); 3 the profit center mandatory (TKA3P by
+// PRCTR). With REGEL set, this row's KOSTL, AUFNR and PRCTR are not to be
+// taken as a fallback. XGSBER is the business-area assignment priority and
+// BSSUBST set finds the profitability segment by substitution.
+type TKA3A struct {
+	MANDT   string `json:"MANDT"`
+	BUKRS   string `json:"BUKRS"`
+	KSTAR   string `json:"KSTAR"`
+	KOKRS   string `json:"KOKRS"`
+	KOSTL   string `json:"KOSTL,omitempty"`
+	AUFNR   string `json:"AUFNR,omitempty"`
+	PRCTR   string `json:"PRCTR,omitempty"`
+	REGEL   string `json:"REGEL,omitempty"`
+	XGSBER  string `json:"XGSBER,omitempty"`
+	BSSUBST string `json:"BSSUBST,omitempty"`
+}
+
+// TKA3C - automatic account assignment by valuation area (BWKEY) and
+// business area (GSBER), both keys, a blank one kept as blank: the cost
+// center, order or profit center of the posting's areas.
+type TKA3C struct {
+	MANDT string `json:"MANDT"`
+	BUKRS string `json:"BUKRS"`
+	KSTAR string `json:"KSTAR"`
+	BWKEY string `json:"BWKEY"`
+	GSBER string `json:"GSBER"`
+	KOKRS string `json:"KOKRS"`
+	KOSTL string `json:"KOSTL,omitempty"`
+	AUFNR string `json:"AUFNR,omitempty"`
+	PRCTR string `json:"PRCTR,omitempty"`
+}
+
+// TKA3P - automatic account assignment by profit center (PRCTR, a key):
+// the cost center or order of a posting to the profit center. Its fields
+// are to be confirmed in SE11.
+type TKA3P struct {
+	MANDT string `json:"MANDT"`
+	BUKRS string `json:"BUKRS"`
+	KSTAR string `json:"KSTAR"`
+	PRCTR string `json:"PRCTR"`
+	KOKRS string `json:"KOKRS"`
+	KOSTL string `json:"KOSTL,omitempty"`
+	AUFNR string `json:"AUFNR,omitempty"`
+}
+
 // --- Customizing (configuration) tables, read by the configuration agent ---
 
 // T052 - payment terms.
@@ -618,6 +685,9 @@ type Extract struct {
 	SETNODE    []SETNODE    `json:"SETNODE,omitempty"`
 	SETLEAF    []SETLEAF    `json:"SETLEAF,omitempty"`
 	CSKB       []CSKB       `json:"CSKB,omitempty"`
+	TKA3A      []TKA3A      `json:"TKA3A,omitempty"`
+	TKA3C      []TKA3C      `json:"TKA3C,omitempty"`
+	TKA3P      []TKA3P      `json:"TKA3P,omitempty"`
 
 	T052       []T052      `json:"T052,omitempty"`
 	T007A      []T007A     `json:"T007A,omitempty"`
@@ -633,6 +703,13 @@ type Extract struct {
 	AGR_TCODES []AGRTcode  `json:"AGR_TCODES,omitempty"`
 	AGR_USERS  []AGRUser   `json:"AGR_USERS,omitempty"`
 
+	// Ledger is the ledger whose journal lines ACDOCA holds, and
+	// OtherLedgers the number of the scope's lines of each other ledger
+	// FilterScope left out, by RLDNR (review:T56h4). FilterScope derives
+	// both, so an extract file holds neither.
+	Ledger       string         `json:"-"`
+	OtherLedgers map[string]int `json:"-"`
+
 	// VendorsWithoutPartner are the vendors (LFA1-LIFNR) of an OData
 	// extract that no business partner links to as its supplier, so whose
 	// bank accounts it could not read (ODataSource, review:T72d). A file
@@ -644,7 +721,8 @@ type Extract struct {
 // tables a migration run reads and the customizing its report has always
 // counted. The payment method tables (T042*) are read only by the
 // configuration draft (delivery/sapconfig), so a run's report does not
-// count them, nor CSKB.
+// count them, nor CSKB and the default account assignments (TKA3A, TKA3C,
+// TKA3P).
 func (e *Extract) Counts() map[string]int {
 	return map[string]int{
 		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "LFB1": len(e.LFB1),

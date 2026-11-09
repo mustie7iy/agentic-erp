@@ -1286,6 +1286,68 @@ SAP specialist, docs/migration.md):
   trial balance already compares each account. Three checks and their
   differences (`cost center total`, `profit center total`, `segment
   total`).
+- **The ledger of SAP's lines** (review:T56h4): SAP holds a line once per
+  ledger (ACDOCA RLDNR), so lines of a non-leading ledger would post, and
+  add to every center total, twice. The SAP specialist (PO 2026-11-09)
+  names the standard leading ledger 0L, to be confirmed in FINSC_LEDGER,
+  and asks for the export to hold its lines alone with the load's refusal
+  kept as a safety net. So the scope keeps the lines of its leading
+  ledger (`sap.Scope.Ledger`, `sap.LeadingLedger` 0L when empty; not yet
+  in the API's run scope, decided by default as no pilot is known to
+  differ), counts the others' lines (`Extract.OtherLedgers`), and the
+  quality gate refuses an extract holding any, naming each ledger and its
+  lines, as the reconciliation does without computing a control. The
+  OData mapping labels every line the leading ledger, so its ledgers are
+  a T56h5 question.
+
+As built in T56h3 (no migration; OKB9's tables and fields are the SAP
+specialist's answers, PO 2026-11-09, to be validated in SE11 on the
+pilot's release, docs/migration.md):
+- **Extract**: `internal/sap` carries TKA3A (MANDT, BUKRS, KSTAR, KOKRS,
+  KOSTL, AUFNR, PRCTR, REGEL, XGSBER, BSSUBST), TKA3C (keyed also by
+  BWKEY and GSBER, blanks kept) and TKA3P (keyed also by PRCTR), kept by
+  the scope's company codes. There is no released OData API for OKB9, so
+  only the file extract carries them. The mock's company 3000 has one row
+  per case below.
+- **Where they go** (decided by default, as T56h2 settled CSKB: the
+  chart and `default_assignments` are configuration, and §4's activation
+  check reads them): into the configuration draft (`delivery/sapconfig`,
+  `erp config generate`), not the run. The draft's notes are the issues
+  the leaf asks of a quality gate, and the proposal the configuration
+  change takes after the migration.
+- **What is proposed** (the specialist's rule: the platform keeps one cost
+  center per company and account): a TKA3A row with REGEL blank and a
+  cost center (KOSTL) is the company's default for the account when the
+  cost center is one the migration loads in the company (every CSKS
+  slice of it in the company code and TKA3A's area, the latest
+  open-ended without BKZKP, as §4 takes a default only valid without end
+  and open for actual costs) and the account is in the company's chart
+  and needs a cost center (`primary_cost`). It is not in the draft
+  (review:T56h3 round 1): the draft is the tenant's first configuration,
+  provisioned before the run loads the cost centers, and the ledger
+  activates a default only for a cost center it holds (§4, T56c,
+  `ledger.Setup.Check`). Its note gives the entry (`propose after the
+  migration: {account, cost_center}`) for a posting-related change once
+  the run has loaded the cost center, which the walkthrough's step 3
+  proposes, has replayed and approved, and activates.
+- **What is noted, not proposed**: REGEL 1, 2 or 3, naming the TKA3C or
+  TKA3P rows SAP would read, and never TKA3A's own cost center as a
+  fallback (the specialist: not to be assumed); another REGEL value;
+  BSSUBST set (named beside REGEL when both are); an order-only or
+  profit-center-only default, or none; a cost center the extract does not
+  have in the company (or has in another company code too, which the run
+  refuses), or whose latest slice ends or is locked; an account not in
+  the chart or needing no cost center. An order or profit center beside a
+  proposed cost center is noted as not proposed (a default holds a cost
+  center alone). XGSBER is extracted and not used: it orders
+  business-area assignment, which only REGEL 2 rows read, and those are
+  not proposed.
+- **History**: SAP keeps none (a change overwrites the row); the
+  configuration's versions keep the platform's, so no snapshot table is
+  added.
+- **Not checked**: the orders and profit centers a row names (AUFK with
+  JEST/JCDS, CEPC), as no such row is proposed; the ledger checks the
+  cost center again when the change activates (`ledger.Setup.Check`).
 
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not
