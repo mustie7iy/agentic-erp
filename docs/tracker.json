@@ -2928,9 +2928,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A migrated line's segment that differs from its profit center's (SAP specialist, po:2026-11-09, A9(c) [M], to verify on the pilot system; for T56h4): SAP derives SEGMENT from CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it, or the profit center's segment changed after posting, while T56h4's quality gate refuses a segment that is not the profit center's and ADR-0050 gives a profit center one segment without validity; the step decides by default whether such a line loads with SAP's segment or is refused with an issue of its own naming the case, and amends ADR-0050 §5 if loading needs time-dependent segments",
-        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "r": "T56h4 · internal/integration linecenters.go centers (refused, naming FAGL_DERIVE_SEGMENT or a manual entry; decided by default, §5 not amended) · TestLineCenterQualityGate · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md (to profile on the pilot system)",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

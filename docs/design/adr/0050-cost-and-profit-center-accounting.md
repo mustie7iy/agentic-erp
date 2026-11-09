@@ -1374,6 +1374,15 @@ fixes of the leaves above, each named by its question):
   names them first). A slice without a profit center accepts the line's
   (SAP's dummy profit center, which the ledger takes beside a cost center
   without one). The mock's lines carry their company code's TKA02 area.
+- **A segment SAP did not derive from the profit center (A9(c) [M])**:
+  refused, with an issue naming the case (the BAdI FAGL_DERIVE_SEGMENT or
+  a manual entry), not loaded (decided by default: §3 gives a profit center
+  one segment without validity and §5 every line its profit center's,
+  which the journal line's foreign key holds; loading SAP's segment would
+  need time-dependent or line-level segments, a change of §3 and §5 no
+  decision asks for). §5 is not amended. A profit center whose segment
+  changed after posting has slices naming two segments, already refused as
+  a reorganisation. The pilot's lines are to be profiled for the case.
 
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not

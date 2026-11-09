@@ -321,7 +321,14 @@ company code's of the line's area in the extract (CSKS), a profit center
 not assigned to it (CEPC_BUKRS), so not migrated, a cost center no slice
 of which covers the posting date, a profit center other than that slice's
 (when it has one), and a segment that is not the line's profit
-center's (CEPC-SEGMENT), or one on a line without a profit center. The
+center's (CEPC-SEGMENT), or one on a line without a profit center. SAP
+sets a line's segment otherwise than from its profit center when the BAdI
+FAGL_DERIVE_SEGMENT or a manual entry sets it (A9(c) [M], to verify on the
+pilot system: profile the lines whose SEGMENT is not their PRCTR's
+CEPC-SEGMENT); the platform gives a profit center one segment and every
+line its profit center's, so such a line is refused with an issue naming
+that case rather than loaded. A profit center whose segment changed after
+posting is refused as a reorganisation (below). The
 reconciliation, which extracts again without the gate, refuses the same
 lines and counts them for no center. In
 `documents` mode that is every line; in `balances` mode only the lines of

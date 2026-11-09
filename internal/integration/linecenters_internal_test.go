@@ -32,6 +32,11 @@ func lineGate(balances bool, foreign map[string]string, change func(x *sap.Extra
 	return out
 }
 
+// segmentCase is the gate's naming of a line whose segment SAP did not
+// take from its profit center (A9(c)).
+const segmentCase = ": SAP set the line's segment otherwise than from the profit center (the BAdI FAGL_DERIVE_SEGMENT or a manual entry), " +
+	"which the platform does not hold, a profit center having one segment"
+
 func centerLine(rcntr, prctr, segment string) sap.ACDOCA {
 	return sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000001", DOCLN: "000001", BUDAT: "20260315", KOKRS: "A1", RCNTR: rcntr, PRCTR: prctr,
 		SEGMENT: segment}
@@ -77,9 +82,9 @@ func TestLineCenterQualityGate(t *testing.T) {
 			want: []string{key + "cost center C1 is not valid on the posting date 20260315 (no CSKS slice of controlling area A1 covers it)"}},
 		"a profit center not assigned": {line: centerLine("", "P1", ""), change: func(x *sap.Extract) { x.CEPC_BUKRS[0].BUKRS = "1000" },
 			want: []string{key + "profit center P1 is not one of company 2000's of controlling area A1 in the extract (CEPC_BUKRS), so the run does not migrate it"}},
-		"another segment": {line: centerLine("C1", "P1", "S2"), want: []string{key + "segment S2 is not profit center P1's (S1)"}},
+		"another segment": {line: centerLine("C1", "P1", "S2"), want: []string{key + "segment S2 is not profit center P1's (S1)" + segmentCase}},
 		"a segment of a profit center without one": {line: centerLine("", "P1", "S1"), change: func(x *sap.Extract) { x.CEPC[0].SEGMENT = "" },
-			want: []string{key + "segment S1 is not profit center P1's (none)"}},
+			want: []string{key + "segment S1 is not profit center P1's (none)" + segmentCase}},
 		"a segment without a profit center": {line: centerLine("C1", "", "S1"),
 			want: []string{key + "segment S1 without a profit center; the platform takes a line's segment from its profit center"}},
 		"every refusal": {line: centerLine("C9", "P9", "S1"), want: []string{

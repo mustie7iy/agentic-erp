@@ -34,7 +34,14 @@ import (
 // which may differ from today's after a change of the cost center: the
 // gate, and the reconciliation, which reads the extract again, compare it
 // with the cost center's slice valid on the posting date, as the ledger
-// does when the run posts it. A cost center without a profit center then
+// does when the run posts it. SAP derives a line's segment from its profit
+// center unless a substitution (the BAdI FAGL_DERIVE_SEGMENT) or a manual
+// entry set it (A9(c) [M]); the platform gives a profit center one segment
+// without validity and every line its profit center's (ADR-0050 §3, §5,
+// held by a foreign key), so such a line is refused, naming the case, not
+// loaded with a segment the ledger cannot hold. A profit center whose
+// segment changed after posting has slices naming two segments, which the
+// gate already refuses as a reorganisation. A cost center without a profit center then
 // gave SAP's line the dummy profit center, which the ledger takes as it
 // takes a profit center given beside a cost center without one.
 
@@ -106,7 +113,9 @@ func (x lineCenterIndex) centers(l sap.ACDOCA) (cost, profit string, why []strin
 	case l.PRCTR == "":
 		why = append(why, fmt.Sprintf("segment %s without a profit center; the platform takes a line's segment from its profit center", l.SEGMENT))
 	case profit != "" && x.segment[profit] != l.SEGMENT:
-		why = append(why, fmt.Sprintf("segment %s is not profit center %s's (%s)", l.SEGMENT, l.PRCTR, orNone(x.segment[profit])))
+		why = append(why, fmt.Sprintf("segment %s is not profit center %s's (%s): SAP set the line's segment otherwise than from the profit center "+
+			"(the BAdI FAGL_DERIVE_SEGMENT or a manual entry), which the platform does not hold, a profit center having one segment",
+			l.SEGMENT, l.PRCTR, orNone(x.segment[profit])))
 	}
 	return cost, profit, why
 }
