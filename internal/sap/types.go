@@ -22,6 +22,12 @@ type SKB1 struct {
 	XBILK string `json:"XBILK"`
 	// MITKZ reconciliation account type: "K" = vendors, "D" = customers.
 	MITKZ string `json:"MITKZ"`
+	// WAERS is the account's currency. Read only by the configuration
+	// draft, for a house bank account whose T012K WAERS is empty: SAP then
+	// does not restrict the account, and the binding currency is its G/L
+	// account's (T012K-HKONT, SKB1-WAERS), as the SAP specialist answered
+	// (po:2026-11-09, A5 [M], to verify on the pilot system).
+	WAERS string `json:"WAERS,omitempty"`
 }
 
 // LFA1 - vendor general data.
@@ -572,10 +578,11 @@ type T012K struct {
 	// house bank is generated in: a foreign-currency account in its own
 	// currency, not the company's (ADR-0038, T53a). The field, its data
 	// element and check table are the ABAP dictionary's as a published
-	// mirror shows them (https://leanx.eu/en/sap/table/t012k.html), still to
-	// be confirmed by an SAP specialist, as is what an empty WAERS means
-	// there; the configuration draft refuses an account without one rather
-	// than guess the company's currency.
+	// mirror shows them (https://leanx.eu/en/sap/table/t012k.html), which
+	// the SAP specialist confirmed (po:2026-11-09, A5 [H]). An empty WAERS
+	// means no currency was maintained: the configuration draft takes the
+	// G/L account's (SKB1 WAERS of HKONT; A5 [M]) and refuses an account
+	// neither gives one rather than guess the company's currency.
 	WAERS string `json:"WAERS,omitempty"`
 }
 

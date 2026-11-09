@@ -8785,9 +8785,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A house bank account without T012K-WAERS drafted in its G/L account's currency (SAP specialist, po:2026-11-09, A5 [M], to verify on the pilot system): an empty WAERS means no currency was maintained, so SAP does not restrict the account, and the binding currency is that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the company code's; the configuration draft takes SKB1-WAERS, noted for the reviewers, instead of currency UNKNOWN, which remains where neither gives a currency; FI-BAM (FCLM_BAM_AMD) a possible cross-check",
-      "r": "delivery/sapconfig (house banks) · internal/sap T012K, SKB1 · ADR-0038 As built (SAP house banks in their account's currency, answered) · docs/migration.md",
+      "r": "delivery/sapconfig houseBankCurrency, ledgerCurrency (SKB1 WAERS of T012K-HKONT, noted; UNKNOWN where neither gives one) · internal/sap SKB1.WAERS · TestHouseBankCurrencyRefused · ADR-0038 As built (SAP house banks in their account's currency, built in sapvend) · docs/migration.md (house bank currency; to verify on the pilot system)",
       "src": "po:2026-11-09",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []

@@ -909,8 +909,14 @@ wrong, left in a form validation refuses):
   A5):** WAERS is the account's currency [H]; an empty one means no
   currency was maintained, so SAP does not restrict the account, and the
   binding currency is its G/L account's (T012K-HKONT, SKB1-WAERS), usually
-  the company code's [M, to verify on the pilot system]. Taking SKB1-WAERS
-  when WAERS is blank, rather than `UNKNOWN`, is a tracker leaf.
+  the company code's [M, to verify on the pilot system]. **As built
+  (sapvend):** an account without WAERS is drafted in its G/L account's
+  currency, the extract's SKB1 WAERS of T012K-HKONT (sap.SKB1.WAERS,
+  optional), noted for the reviewers with the answer's confidence and
+  FI-BAM (FCLM_BAM_AMD) as a possible cross-check, which the draft does
+  not read; an account in the company's currency then needs nothing more,
+  one in another is noted as T012K's would be. `UNKNOWN` remains, noted,
+  where neither T012K nor SKB1 gives a currency.
 - **Revaluation.** A foreign-currency bank's ledger accounts must be
   flagged `revalue_foreign_currency` with their unrealised gain and loss in
   `fx_valuation.accounts` (T53a, ADR-0042). SAP's valuation accounts are not

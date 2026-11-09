@@ -625,16 +625,18 @@ others record a confirmation.
 - Each house bank account (T012K) is generated in its currency, T012K-WAERS:
   an account in another currency than the company's is noted, and the draft
   validates once its ledger account is flagged `revalue_foreign_currency`
-  with its unrealised gain and loss; an account without WAERS is drafted with
-  `currency: UNKNOWN`, which validation refuses until a reviewer sets it
+  with its unrealised gain and loss; an account without WAERS is drafted in
+  its G/L account's currency (SKB1-WAERS of T012K-HKONT, which the extract's
+  SKB1 should therefore carry), noted, and with `currency: UNKNOWN` where
+  SKB1 gives none either, which validation refuses until a reviewer sets it
   (ADR-0038). Confirm that the extract's T012K carries WAERS, and what an
   empty one means in your system, before go-live: a bank's currency never
   changes once it is created. Answered (A5): T012K-WAERS is the currency
   [H]. An empty one [M, to verify on the pilot system] means no currency was
   maintained, so SAP does not restrict the account; the binding currency is
   then that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the
-  company code's, which the draft is to take when WAERS is blank (tracker
-  leaf). From S/4HANA 1610 house bank accounts are kept in Bank Account
+  company code's, which the draft takes when WAERS is blank (sapvend; to
+  verify on the pilot system). From S/4HANA 1610 house bank accounts are kept in Bank Account
   Management (FI-BAM: FCLM_BAM_AMD, linked by FCLM_BAM_ACLINK2); T012K is
   still filled and read, and BAM's currency list and validity are a useful
   cross-check.
