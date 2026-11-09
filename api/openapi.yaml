@@ -45124,7 +45124,7 @@ components:
         hierarchy_nodes:
           type: integer
           minimum: 1
-          description: "SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy, each a node change the run applied: the run is their approval (ADR-0050 §10, T56h2)."
+          description: "SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy: each a node change the run applied (the run is their approval, ADR-0050 §10, T56h2), and each alternative hierarchy's root, created with it."
         hierarchy_places:
           type: integer
           minimum: 1

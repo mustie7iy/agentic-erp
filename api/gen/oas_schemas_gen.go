@@ -42779,8 +42779,9 @@ type MigrationLoadedCounts struct {
 	// group includes, each coded as its top group (ADR-0050 §10, T56h2). SAP's standard hierarchies are
 	// loaded below the tenant's standard hierarchy's root, created when the tenant has none.
 	Hierarchies OptInt `json:"hierarchies"`
-	// SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy, each a node change the
-	// run applied: the run is their approval (ADR-0050 §10, T56h2).
+	// SAP groups (SETHEADER, SETHEADERT, SETNODE) loaded as nodes of a hierarchy: each a node change the
+	// run applied (the run is their approval, ADR-0050 §10, T56h2), and each alternative hierarchy's
+	// root, created with it.
 	HierarchyNodes OptInt `json:"hierarchy_nodes"`
 	// Centers this run created placed at a leaf of SAP's groups, in the standard or an alternative
 	// hierarchy, their values (SETLEAF) expanded against the extract's centers (ADR-0050 §10, T56h2).

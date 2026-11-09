@@ -251,7 +251,11 @@ alternative hierarchy at the leaf that takes it, if any (`hierarchy_places`
 counts both). A later run keeps what is loaded: a group it finds loaded is
 not renamed or moved, a group SAP added is added below its parent, and a
 center an earlier run loaded keeps its places (a controller places it
-through the API). The quality gate refuses a group code that is not one
+through the API). A group an earlier run loaded as a leaf holding centers
+that SAP has since given subgroups is refused by the load
+(`ledger.hierarchy_change_invalid`, `has_centers`), and every run of such
+an extract fails until a controller moves those centers to other leaves
+through the API (`POST /v1/hierarchies/{id}:place`). The quality gate refuses a group code that is not one
 (up to 15 of 0-9, A-Z, _ and -), a group without a name in any language
 (warning of one only in another language than English), a group holding
 both subgroups and values, a line naming a group the extract lacks or a

@@ -117,6 +117,9 @@ func appliedChange(ctx context.Context, tx pgx.Tx, ref centerRef, kind string, p
 	_, err := tx.Exec(ctx, `INSERT INTO ledger.center_change (tenant_id, id, cost_center_id, profit_center_id, hierarchy_id, kind, payload, reason, status,
 			applied_at, requested_by, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'applied', now(), $9, $9, $9)`,
 		p.TenantID, id, cc, pc, ref.hierarchy, kind, b, reason, p.ID)
+	if ref.id == uuid.Nil {
+		return id, errs.Wrapf(err, "ledger: record the migrated %s change of hierarchy %s", kind, *ref.hierarchy)
+	}
 	return id, errs.Wrapf(err, "ledger: record the migrated %s change of %s %s", kind, ref.kind.table, ref.id)
 }
 
