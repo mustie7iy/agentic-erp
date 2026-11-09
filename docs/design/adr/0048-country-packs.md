@@ -200,6 +200,15 @@ settings cannot simply overwrite their document.
   the API lists it first by version and a tenant in production applies
   2026.5 until the signed version exists. The walkthrough applies it
   instead of an unreleased copy with an illustrative return.
+- **As built (T61j sign-off): Canada 2026.7** is 2026.6 signed off. The
+  product owner reported on 2026-11-09 that the tax specialist, **Musto
+  Ibrahim**, signed off the GST/HST return as written; 2026.7's files are
+  2026.6's byte for byte but `pack.yaml`, which gains `sign_off:
+  {tax_specialist: "Musto Ibrahim", date: 2026-11-09}`, its version and
+  header comment (`TestCanadaPack2026_7`). Production applies it; 2026.6
+  stays released, unsigned. What was confirmed is in ADR-0049 §11 As
+  built (T61j: Signed off). It is the newest Canada version, which the
+  walkthrough's step 2 applies, without the note an unsigned pack brings.
 - **As built (T62f): the UAE pack, 2026.1** (`packs/ae/2026.1`): a starter
   chart with every account determination key (1300 VAT recoverable, 2300
   VAT payable), the Canada pack's number ranges and net payment terms (the

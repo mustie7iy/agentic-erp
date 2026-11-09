@@ -2319,9 +2319,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "GST/HST return signed off by the tax specialist before the pilot: a new Canada pack version with sign_off (a released version never changes), after the specialist confirms 2026.6's GST34 lines, the sums of 112, 113A, 113B, 113C, 114 and 115 written from memory, and how the tenant's codes map to the lines (packs/ca/TAX-PENDING-T61j.md)",
-        "r": "after T61j · ADR-0049 §11 As built (T61j) · ADR-0048",
+        "r": "packs/ca/2026.7 (sign_off Musto Ibrahim 2026-11-09) · packs/released.sha256 · packs/ca/TAX-PENDING-T61j.md · TestCanadaPack2026_7 · ADR-0049 §11 As built (T61j: Signed off) and Sources As built · ADR-0048 As built (T61j sign-off) · walkthrough steps 2 and 11 · after T61j · po:2026-11-09",
         "src": "split:T61j · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []

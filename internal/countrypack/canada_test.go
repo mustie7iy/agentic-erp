@@ -273,8 +273,8 @@ func TestCanadaPack2026_5(t *testing.T) {
 // pack.yaml is 2026.5's byte for byte and returns.yaml is new; the
 // manifest is 2026.5's but for its version, the source of the return's
 // lines and no sign-off (its header comment aside), as the tax specialist
-// has not confirmed the return. It is the latest Canada pack and defines
-// the return type GST34.
+// has not confirmed the return (2026.7 is signed off). It defines the
+// return type GST34.
 func TestCanadaPack2026_6(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -286,9 +286,6 @@ func TestCanadaPack2026_6(t *testing.T) {
 	}
 	if ca.SignedOff() {
 		t.Error("SignedOff: got true, want false until the tax specialist confirms the return")
-	}
-	if got := lib.Latest("CA"); got != ca {
-		t.Errorf("Latest(CA): got %s, want ca/2026.6", got.Dir())
 	}
 	if ca.Return("GST34") == nil || len(prev.Returns.Returns) != 0 {
 		t.Errorf("returns: got %d in 2026.5 and GST34 %v in 2026.6, want none and the return", len(prev.Returns.Returns), ca.Return("GST34") != nil)
@@ -303,6 +300,37 @@ func TestCanadaPack2026_6(t *testing.T) {
 		t.Error("2026.6 without its version, sign-off, the return and its source: got other than 2026.5, want it unchanged")
 	}
 	sameFiles(t, "ca/2026.5", "ca/2026.6", "pack.yaml", "returns.yaml")
+}
+
+// Canada 2026.7 is 2026.6 signed off (T61j's sign-off leaf): every file
+// is 2026.6's but pack.yaml, whose manifest differs only in its version
+// and the sign-off, the tax specialist's as the product owner reported it
+// on 2026-11-09 (its header comment aside). It is the latest Canada pack,
+// its GST/HST return 2026.6's, line for line.
+func TestCanadaPack2026_7(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ca := lib.Get("CA", "2026.6"), lib.Get("CA", "2026.7")
+	if prev == nil || ca == nil {
+		t.Fatalf("Get(CA, 2026.6) and Get(CA, 2026.7): got %v and %v, want both", prev, ca)
+	}
+	if got, want := ca.Manifest.SignOff, (&SignOff{TaxSpecialist: "Musto Ibrahim", Date: "2026-11-09"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("sign-off: got %+v, want %+v", got, want)
+	}
+	if !ca.SignedOff() || ca.Return("GST34") == nil {
+		t.Errorf("SignedOff and GST34: got %v and %v, want true and the return", ca.SignedOff(), ca.Return("GST34") != nil)
+	}
+	unsigned := *ca
+	unsigned.Manifest.Version, unsigned.Manifest.SignOff = prev.Manifest.Version, nil
+	if !reflect.DeepEqual(&unsigned, prev) {
+		t.Error("2026.7 without its version and sign-off: got other than 2026.6, want it unchanged")
+	}
+	if got := lib.Latest("CA"); got != ca {
+		t.Errorf("Latest(CA): got %s, want ca/2026.7", got.Dir())
+	}
+	sameFiles(t, "ca/2026.6", "ca/2026.7", "pack.yaml")
 }
 
 // gst34Source is the CRA's instructions for the GST/HST return, which

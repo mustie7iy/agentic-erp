@@ -434,8 +434,8 @@ start() {
   say ""
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
-  say "  - the tax specialist's sign-off of the GST34's lines (T61j: Canada $CA_PACK is not signed off) and the FPZ-500 for a"
-  say "    Quebec registrant (step 41 files the UAE VAT 201, signed off with UAE pack 2026.4): step 11 prepares,"
+  say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
+  say "    in UAE pack 2026.4, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -1297,18 +1297,17 @@ step_pack() {
   local version
   version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
   expect "the latest Canada pack" "$version" "$CA_PACK"
-  say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11. The tax specialist has not"
-  say "signed them off yet, so production refuses to apply it (409 config.pack_not_signed_off) and 2026.5 is the"
-  say "signed-off version; outside production it is applied with a note, as here."
+  say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11, signed off by the tax specialist"
+  say "(Musto Ibrahim, 2026-11-09), so production applies it; 2026.6, the same pack unsigned, stays released."
+  expect "the latest Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+    "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
     -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   local cr
   cr=$(field .id)
-  say "The merge's notes for the reviewers include, outside production, that the pack is not signed off:"
-  excerpt '.notes[] | select(.path | startswith("packs")) | "note: \(.message)"'
-  field '.notes[] | .message' | grep -q 'signed' || fail "no note says the pack is not signed off"
+  expect "notes that the pack is not signed off" "$(field '[.notes[] | select((.path | startswith("packs")) and (.message | contains("signed")))] | length')" 0
   say "  ($(field '[.notes[] | select(.message | startswith("conflict"))] | length') more notes list where SAP's settings were kept over the pack's)"
   say "Ada adds the pilot's own settings to the proposal: RBC house banks in CAD and USD, USD accounts revalued"
   say "at month end, bank statement rules (match by end-to-end id, approval above CAD 10,000), payment runs"
@@ -2051,10 +2050,11 @@ step_tax() {
   expect "Canada 2026.4's tax codes" "$(field '.items[] | select(.country == "CA" and .version == "2026.4") | .contents.tax_codes')" 10
   expect "Canada 2026.5's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "2026.5") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-02"
-  expect "Canada $CA_PACK's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$CA_PACK"'") | .signed_off')" false
+  expect "Canada $CA_PACK's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$CA_PACK"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+    "true Musto Ibrahim 2026-11-09"
   say "Canada pack 2026.4 brought the purchase codes for GST/HST, QST and PST (T62g), each with all its dated rates,"
   say "backed by the pack's sources; 2026.5 is the same pack signed off by the tax specialist (T62h), so production"
-  say "applies it. $CA_PACK adds the GST/HST return's lines (T61j), not yet signed off; step 2 applied it. Nova Scotia's HST:"
+  say "applies it. $CA_PACK brings the GST/HST return's lines (T61j), signed off too; step 2 applied it. Nova Scotia's HST:"
   api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
     "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
     listConfigVersions -p is_active=true

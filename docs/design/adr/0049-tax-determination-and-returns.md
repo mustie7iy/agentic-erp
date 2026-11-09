@@ -1373,6 +1373,17 @@ companies (all in the tenant, under RLS). A registration change is financial
     memory and the mapping, listed in `packs/ca/TAX-PENDING-T61j.md`,
     which `TestCanadaPackGST34` holds the pack to; the sign-off is a later
     version, its own tracker leaf (split from T61j), as T62h was.
+  - **Signed off (2026-11-09).** The product owner reported that the tax
+    specialist, Musto Ibrahim, signed off the GST/HST return as written:
+    2026.6's GST34 lines, the sums of 112, 113A, 113B, 113C, 114 and 115
+    written from memory, and how the tenant's codes map to the lines,
+    items 1-7 of `packs/ca/TAX-PENDING-T61j.md`. Canada pack 2026.7 is
+    2026.6 with `sign_off: {tax_specialist: "Musto Ibrahim", date:
+    2026-11-09}` and nothing else (`TestCanadaPack2026_7`; ADR-0048 As
+    built, Canada 2026.7). **Decided by default**, as for the VAT 201:
+    the labels' "from memory, pending the tax specialist" markers stay, the
+    sign-off freezing the content (dropping them is a later version, for
+    the product owner). The FPZ-500 (item 8) is not part of it.
   - **The FPZ-500 is not built.** P4 (b) includes it only if the pilot
     company is registered in Quebec, which the pilot has not said, and
     the Context records none of its lines (Unsure list): nothing is
@@ -1848,3 +1859,7 @@ rewritten.
   measure after the 2026 procedures amendments, the scope of the five-year
   limit and the FTA's side of the amended return, which stay open as
   questions.
+- **Confirmed as written (GST34, T61j, 2026-11-09):** the lines, sums and
+  mapping of `packs/ca/TAX-PENDING-T61j.md` (§11 As built, T61j: Signed
+  off), in Canada pack 2026.7. The FPZ-500's lines (P4) wait for the
+  specialist's list and the pilot's registrations, its own tracker leaf.
