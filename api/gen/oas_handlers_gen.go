@@ -10266,15 +10266,15 @@ func (s *Server) handleCreateConnectorRequest(args [0]string, argsEscaped bool, 
 // or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business
 // problem while the run is carried out (a rate recorded since, a company account with a balance and no
 // group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked
-// since; a member whose investment differs from its net assets at acquisition, which would be
-// goodwill, `consolidation.investment_mismatch`; a member whose ownership, origin, first period or
-// investment account differs from its frozen acquisition's, `consolidation.acquisition_changed`, or
-// whose parent's investment balance does, `consolidation.investment_changed`) fails the run and its
-// Operation with the problem. Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the
-// run at its next step with `consolidation.run_cancelled`, the Operation staying `cancelled`. A step
-// failing on an error of the machinery is tried five times; one that outlasts them fails the run with
-// `platform.internal`. Each change of the run's status is published as ConsolidationRunChanged and
-// audited. Human-only.
+// since; a member whose investment differs from its net assets at acquisition, which an incorporated
+// subsidiary without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose
+// ownership, origin, first period or investment account differs from its frozen acquisition's,
+// `consolidation.acquisition_changed`, or whose parent's investment balance does,
+// `consolidation.investment_changed`) fails the run and its Operation with the problem. Cancelling the
+// Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
+// `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the
+// machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each
+// change of the run's status is published as ConsolidationRunChanged and audited. Human-only.
 //
 // POST /v1/consolidation-runs
 func (s *Server) handleCreateConsolidationRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
