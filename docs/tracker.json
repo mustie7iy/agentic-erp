@@ -5840,6 +5840,20 @@
           "c": []
          }
         ]
+       },
+       {
+        "s": "D",
+        "t": "Workers leave a suspended (or provisioning, offboarded) tenant's queued work where it is and pick it up once the tenant is active again: the dispatcher's queued operations (proposals, releases, simulations, migrations, depreciation and consolidation runs), approval deadlines, statement fetches, recurring entries and cash snapshots, the in-process proposer, releaser, depreciator, consolidator, recurrer, snapshotter and simulation worker, the bank file transmitter, cash exporter, webhook dispatcher and contract expirer; ADR-0015 said so but no worker checked (a suspended tenant's queued payment release still ran)",
+        "r": "database.ActiveTenants · ADR-0015 As built · *_inactive_test.go, inactive_test.go TestDispatcherLeavesInactiveTenants",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A workflow already running when its tenant is suspended waits: its next step's transaction (database.BeginActive) fails with a retryable TenantInactiveError and commits nothing, the workflow waits in AwaitActive, retried without a limit, and runs the step again once the tenant is active, so no retry policy's limit fails the run; offboarding is not blocked",
+        "r": "database.BeginActive · workflows.perform, Tenants.AwaitActive · ADR-0015 As built · waiting_test.go TestActivitiesWaitWhileSuspended, TestReleaseWaitsWhileSuspended · database_test.go TestBeginActive",
+        "src": "po:2026-11-09",
+        "c": []
        }
       ]
      },

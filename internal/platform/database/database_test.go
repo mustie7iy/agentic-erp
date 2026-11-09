@@ -297,3 +297,107 @@ func TestPassword(t *testing.T) {
 		}
 	})
 }
+
+// TestActiveTenants: the worker role sees through ActiveTenants only the
+// tenants that are active, and a suspended, offboarded or provisioning
+// tenant again once it is active (ADR-0015).
+func TestActiveTenants(t *testing.T) {
+	active := pgtest.NewTenant(t)
+	pool := pgtest.Pool(t)
+	for _, status := range []string{"suspended", "offboarded", "provisioning"} {
+		t.Run(status, func(t *testing.T) {
+			other := pgtest.NewTenant(t)
+			listed := func() []uuid.UUID {
+				t.Helper()
+				var ids []uuid.UUID
+				err := pool.InTx(context.Background(), database.Scope{Role: "erp_worker", ReadOnly: true}, func(ctx context.Context, tx pgx.Tx) error {
+					rows, _ := tx.Query(ctx, `SELECT id FROM tenancy.tenant WHERE id = ANY($1) AND id IN `+database.ActiveTenants+` ORDER BY id`,
+						[]uuid.UUID{active.ID, other.ID})
+					var err error
+					ids, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+					return err
+				})
+				if err != nil {
+					t.Fatalf("list the active tenants: %v", err)
+				}
+				return ids
+			}
+			other.SetStatus(t, status)
+			if got := listed(); len(got) != 1 || got[0] != active.ID {
+				t.Errorf("with the other tenant %s: got %v, want only %s", status, got, active.ID)
+			}
+			pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'active', version = version + 1 WHERE id = $1`, other.ID)
+			if got := listed(); len(got) != 2 {
+				t.Errorf("with the other tenant active again: got %v, want both", got)
+			}
+		})
+	}
+}
+
+// TestBeginActive: a transaction in an active tenant's scope begins, and
+// one without a tenant is not checked; a suspended, offboarded or
+// provisioning tenant's is refused with its status and rolled back, and
+// begins again once the tenant is active (ADR-0015, po:2026-11-09). A
+// failed begin or status read is returned with its cause.
+func TestBeginActive(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	ten := pgtest.NewTenant(t)
+	begins := func(t *testing.T, begin database.BeginFunc, s database.Scope) error {
+		t.Helper()
+		tx, err := database.BeginActive(ctx, pool, begin, s)
+		if err != nil {
+			if tx != nil {
+				t.Errorf("transaction with the error %v: got one, want none", err)
+			}
+			return err
+		}
+		if err := tx.Rollback(ctx); err != nil {
+			t.Fatalf("roll back: %v", err)
+		}
+		return nil
+	}
+	app := database.Scope{Role: "erp_app", TenantID: ten.ID}
+	t.Run("active and without a tenant", func(t *testing.T) {
+		if err := begins(t, nil, app); err != nil {
+			t.Errorf("active tenant: got %v, want nil", err)
+		}
+		ten.SetStatus(t, "suspended")
+		if err := begins(t, nil, database.Scope{Role: "erp_worker", ReadOnly: true}); err != nil {
+			t.Errorf("without a tenant, one suspended: got %v, want nil", err)
+		}
+	})
+	for _, status := range []string{"suspended", "offboarded", "provisioning"} {
+		t.Run(status, func(t *testing.T) {
+			ten.SetStatus(t, status)
+			err := begins(t, nil, app)
+			var inactive *database.TenantInactiveError
+			if !errors.As(err, &inactive) {
+				t.Fatalf("got %v, want a TenantInactiveError", err)
+			}
+			if inactive.Status != status {
+				t.Errorf("status: got %q, want %q", inactive.Status, status)
+			}
+			pgtest.Exec(t, `UPDATE tenancy.tenant SET status = 'active', version = version + 1 WHERE id = $1`, ten.ID)
+			if err := begins(t, nil, app); err != nil {
+				t.Errorf("once active again: got %v, want nil", err)
+			}
+		})
+	}
+	t.Run("database failures", func(t *testing.T) {
+		down := errors.New("database down")
+		if err := begins(t, func(context.Context, database.Scope) (pgx.Tx, error) { return nil, down }, app); !errors.Is(err, down) {
+			t.Errorf("failed begin: got %v, want %v", err, down)
+		}
+		failing := func(ctx context.Context, s database.Scope) (pgx.Tx, error) {
+			tx, err := pool.Begin(ctx, s)
+			if err != nil {
+				return nil, err
+			}
+			return &pgtest.FailingTx{Tx: tx, FailAt: 1}, nil
+		}
+		if err := begins(t, failing, app); !errors.Is(err, pgtest.ErrInjected) {
+			t.Errorf("failed status read: got %v, want the injected failure", err)
+		}
+	})
+}

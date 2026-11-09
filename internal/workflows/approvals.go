@@ -67,8 +67,8 @@ func ApprovalDeadline(ctx workflow.Context, in DeadlineInput) error {
 			input.Prior = &prior
 		}
 		var pending bool
-		if err := workflow.ExecuteActivity(ctx, a.Escalate, input).Get(ctx, &pending); err != nil {
-			return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+		if err := perform(ctx, in.TenantID, &pending, a.Escalate, input); err != nil {
+			return err
 		}
 		if !pending {
 			return nil
@@ -98,7 +98,7 @@ type Approvals struct {
 }
 
 func (a *Approvals) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, a.Pool, a.Begin, s)
+	return database.BeginActive(ctx, a.Pool, a.Begin, s)
 }
 
 // Escalate escalates the request when it is still pending, in one

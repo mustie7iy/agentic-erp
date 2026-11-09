@@ -58,20 +58,20 @@ func FetchBankStatements(ctx workflow.Context, in FetchInput) error {
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute, MaximumAttempts: 5}})
 	var a *Statements
 	var names []string
-	if err := workflow.ExecuteActivity(ctx, a.ListStatementFiles, in).Get(ctx, &names); err != nil {
-		return err //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+	if err := perform(ctx, in.TenantID, &names, a.ListStatementFiles, in); err != nil {
+		return err
 	}
 	var failed []string
 	for _, name := range names {
 		var f payments.Fetched
-		if err := workflow.ExecuteActivity(ctx, a.ImportStatementFile, FileInput{FetchInput: in, Name: name}).Get(ctx, &f); err != nil {
+		if err := perform(ctx, in.TenantID, &f, a.ImportStatementFile, FileInput{FetchInput: in, Name: name}); err != nil {
 			failed = append(failed, name)
 			continue
 		}
 		if f.Status == payments.FetchRefused || f.Status == payments.FetchSkipped {
 			continue // left in the directory: for a person, or for the bank whose it is
 		}
-		if err := workflow.ExecuteActivity(ctx, a.ArchiveStatementFile, FileInput{FetchInput: in, Name: name, SHA256: f.SHA256}).Get(ctx, nil); err != nil {
+		if err := perform(ctx, in.TenantID, nil, a.ArchiveStatementFile, FileInput{FetchInput: in, Name: name, SHA256: f.SHA256}); err != nil {
 			failed = append(failed, name)
 		}
 	}
@@ -94,7 +94,7 @@ type Statements struct {
 }
 
 func (s *Statements) begin(ctx context.Context, sc database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, s.Pool, s.Begin, sc)
+	return database.BeginActive(ctx, s.Pool, s.Begin, sc)
 }
 
 // as runs fn in one transaction of the tenant as the fetcher.

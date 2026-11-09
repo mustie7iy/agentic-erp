@@ -56,7 +56,7 @@ func ParkRecurringEntry(ctx workflow.Context, in RecurInput) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: time.Minute}})
 	var a *Recurrences
-	return workflow.ExecuteActivity(ctx, a.ParkOccurrence, in).Get(ctx, nil) //nolint:wrapcheck // workflow result: the engine records Future.Get's ActivityError, which carries the activity type and id, as the failure; a wrap would put a generic wrapError failure on top and add no context
+	return perform(ctx, in.TenantID, nil, a.ParkOccurrence, in)
 }
 
 // Recurrences holds the recurring entries' activity and the dispatcher's
@@ -75,7 +75,7 @@ type Recurrences struct {
 }
 
 func (r *Recurrences) begin(ctx context.Context, s database.Scope) (pgx.Tx, error) {
-	return database.BeginOr(ctx, r.Pool, r.Begin, s)
+	return database.BeginActive(ctx, r.Pool, r.Begin, s)
 }
 
 // as runs fn in one transaction of the tenant as the recurrer.

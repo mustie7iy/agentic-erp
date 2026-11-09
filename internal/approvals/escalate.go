@@ -100,7 +100,8 @@ type RequestRef struct{ TenantID, ID uuid.UUID }
 // workflow, oldest first: what the workflows dispatcher asks approvals, as
 // the worker role, so that it reads none of its tables.
 func Unwatched(ctx context.Context, tx pgx.Tx) ([]RequestRef, error) {
-	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM workflow.approval_request WHERE status = 'pending' AND workflow_id IS NULL ORDER BY id`)
+	rows, _ := tx.Query(ctx, `SELECT tenant_id, id FROM workflow.approval_request WHERE status = 'pending' AND workflow_id IS NULL
+		AND tenant_id IN `+database.ActiveTenants+` ORDER BY id`)
 	pending, err := pgx.CollectRows(rows, pgx.RowToStructByPos[RequestRef])
 	if err != nil {
 		return nil, fmt.Errorf("approvals: list the pending requests without a deadline workflow: %w", err)

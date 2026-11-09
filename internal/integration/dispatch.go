@@ -207,7 +207,7 @@ func (d *Dispatcher) due(ctx context.Context, now time.Time) (map[uuid.UUID][]uu
 			FROM integration.webhook_delivery d
 			JOIN integration.webhook_subscription s ON s.tenant_id = d.tenant_id AND s.id = d.subscription_id
 				AND (s.status = 'active' OR (d.type = $4 AND s.status IN ('paused', 'disabled')))
-			WHERE d.status = 'pending' AND d.next_attempt_at <= $1 AND NOT EXISTS (
+			WHERE d.status = 'pending' AND d.next_attempt_at <= $1 AND d.tenant_id IN `+database.ActiveTenants+` AND NOT EXISTS (
 				SELECT FROM integration.webhook_delivery e WHERE e.tenant_id = d.tenant_id AND e.subscription_id = d.subscription_id
 					AND e.subject = d.subject AND e.status = 'pending' AND (e.occurred_at, e.event_id) < (d.occurred_at, d.event_id))) h
 		WHERE turn <= $2 ORDER BY turn, next_attempt_at, id LIMIT $3`, now, TenantInFlight, batch, PingType)
