@@ -49,7 +49,11 @@
 // before, reversed, rejected), read through the ledger's port; a person
 // rejects one, its entry cancelled under the ledger's owner rule; and two
 // checks find the close's proposals undecided and the previous close's
-// posted accruals not reversed.
+// posted accruals not reversed. T64m4 opens a company's year close
+// (ADR-0060 §8): one per fiscal year, its checklist the configuration's
+// year tasks (close.year_tasks), covering each ledger's periods of the
+// year, stored apart from period closes and worked by the same code
+// (closeKind).
 package closing
 
 import (
