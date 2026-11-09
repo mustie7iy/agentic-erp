@@ -106,6 +106,12 @@ delivery they fan out waits in the webhook dispatcher), the balance
 projector (derived data of committed postings), session sweeps, the audit
 anchor and verifier, key rotation, the directory sync, the webhook
 delivery prune (retention), the replica record and the offboarding worker.
-A workflow already started before the suspension runs on: its activities'
+Three limits of "left where it is": a suspended tenant's pending webhook
+deliveries older than the retention are still pruned, as held ones are; a
+daily cash snapshot is of the day's position, so a day missed while
+suspended is not taken afterwards; and without a workflow engine an
+in-process run already running (a release or a depreciation or
+consolidation run) pauses at its next step and goes on once the tenant is
+active again. A workflow already started before the suspension runs on: its activities'
 jobs (`uow.Job`) do not check the tenant's status. Whether a step should
 wait or fail for a tenant suspended mid-run is open for the product owner.
