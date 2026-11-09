@@ -21955,8 +21955,8 @@ func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
 }
 
 // The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`,
-// `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`
-// and `profit`.
+// `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`,
+// `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`.
 // Ref: #/components/schemas/ConsolidatedStatementTotals
 type ConsolidatedStatementTotals struct {
 	// The balance sheet's asset accounts summed; absent on the profit and loss.
@@ -21974,6 +21974,14 @@ type ConsolidatedStatementTotals struct {
 	// positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement:
 	// assets, liabilities, equity and profit sum to zero.
 	Profit ConsolidatedFigures `json:"profit"`
+	// The profit and loss's: the profit's share attributable to non-controlling interests (IAS 1.81B),
+	// read from the run's non-controlling interest entries, so zero reported; zero while a run
+	// consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance
+	// sheet.
+	NonControllingInterests OptConsolidatedFigures `json:"non_controlling_interests"`
+	// The profit and loss's: the profit's share attributable to the owners of the parent, the profit less
+	// `non_controlling_interests` in each column. Absent on the balance sheet.
+	OwnersOfTheParent OptConsolidatedFigures `json:"owners_of_the_parent"`
 }
 
 // GetAssets returns the value of Assets.
@@ -22006,6 +22014,16 @@ func (s *ConsolidatedStatementTotals) GetProfit() ConsolidatedFigures {
 	return s.Profit
 }
 
+// GetNonControllingInterests returns the value of NonControllingInterests.
+func (s *ConsolidatedStatementTotals) GetNonControllingInterests() OptConsolidatedFigures {
+	return s.NonControllingInterests
+}
+
+// GetOwnersOfTheParent returns the value of OwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) GetOwnersOfTheParent() OptConsolidatedFigures {
+	return s.OwnersOfTheParent
+}
+
 // SetAssets sets the value of Assets.
 func (s *ConsolidatedStatementTotals) SetAssets(val OptConsolidatedFigures) {
 	s.Assets = val
@@ -22034,6 +22052,163 @@ func (s *ConsolidatedStatementTotals) SetExpenses(val OptConsolidatedFigures) {
 // SetProfit sets the value of Profit.
 func (s *ConsolidatedStatementTotals) SetProfit(val ConsolidatedFigures) {
 	s.Profit = val
+}
+
+// SetNonControllingInterests sets the value of NonControllingInterests.
+func (s *ConsolidatedStatementTotals) SetNonControllingInterests(val OptConsolidatedFigures) {
+	s.NonControllingInterests = val
+}
+
+// SetOwnersOfTheParent sets the value of OwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) SetOwnersOfTheParent(val OptConsolidatedFigures) {
+	s.OwnersOfTheParent = val
+}
+
+// A member's acquisition figures as the run eliminated its investment with them (ADR-0059 §9):
+// measured at the period before its first, or read from those the group's first final run including it
+// froze (`frozen`). Absent for the parent, and for a member until the run's companies are eliminated.
+// Goodwill and the non-controlling interest are zero: a run consolidates only a member the parent
+// incorporated and holds whole, whose investment equals its net assets at acquisition (ADR-0059 As
+// built T68h).
+// Ref: #/components/schemas/ConsolidationAcquisition
+type ConsolidationAcquisition struct {
+	// The fiscal year of the period its acquisition is measured at, the one before its first.
+	FiscalYear int32 `json:"fiscal_year"`
+	// That period.
+	Period int32 `json:"period"`
+	// That period's closing rate from its local currency into the group currency, a plain decimal of up to
+	// 12 decimals; 1 in the group currency.
+	ClosingRate string `json:"closing_rate"`
+	// The date that rate is valid from; absent in the group currency.
+	RateValidFrom OptDate `json:"rate_valid_from"`
+	// Its assets and liabilities through that period, in its local currency, debit positive.
+	NetAssets Money `json:"net_assets"`
+	// Those translated at that period's closing rate, each balance rounded once, in the group currency:
+	// its equity at acquisition, which the investment entry reverses.
+	NetAssetsGroup Money `json:"net_assets_group"`
+	// The parent's balance on its investment account through the run's period, in the group currency.
+	Investment Money `json:"investment"`
+	// The investment less the net assets plus the interest: zero.
+	Goodwill Money `json:"goodwill"`
+	// The non-controlling interest at acquisition: zero.
+	NonControllingInterest Money `json:"non_controlling_interest"`
+	// Whether the run read these figures from the acquisition an earlier final run froze rather than
+	// measuring them; a final run including a member for the first time freezes them (`:finalize`).
+	Frozen bool `json:"frozen"`
+	// The final run that froze the member's acquisition (`GET /v1/consolidation-runs/{id}`): the one this
+	// run read it from, or this run once its finalization froze the figures it measured; absent while none
+	// has.
+	FrozenByRunID OptUUID `json:"frozen_by_run_id"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ConsolidationAcquisition) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *ConsolidationAcquisition) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetClosingRate returns the value of ClosingRate.
+func (s *ConsolidationAcquisition) GetClosingRate() string {
+	return s.ClosingRate
+}
+
+// GetRateValidFrom returns the value of RateValidFrom.
+func (s *ConsolidationAcquisition) GetRateValidFrom() OptDate {
+	return s.RateValidFrom
+}
+
+// GetNetAssets returns the value of NetAssets.
+func (s *ConsolidationAcquisition) GetNetAssets() Money {
+	return s.NetAssets
+}
+
+// GetNetAssetsGroup returns the value of NetAssetsGroup.
+func (s *ConsolidationAcquisition) GetNetAssetsGroup() Money {
+	return s.NetAssetsGroup
+}
+
+// GetInvestment returns the value of Investment.
+func (s *ConsolidationAcquisition) GetInvestment() Money {
+	return s.Investment
+}
+
+// GetGoodwill returns the value of Goodwill.
+func (s *ConsolidationAcquisition) GetGoodwill() Money {
+	return s.Goodwill
+}
+
+// GetNonControllingInterest returns the value of NonControllingInterest.
+func (s *ConsolidationAcquisition) GetNonControllingInterest() Money {
+	return s.NonControllingInterest
+}
+
+// GetFrozen returns the value of Frozen.
+func (s *ConsolidationAcquisition) GetFrozen() bool {
+	return s.Frozen
+}
+
+// GetFrozenByRunID returns the value of FrozenByRunID.
+func (s *ConsolidationAcquisition) GetFrozenByRunID() OptUUID {
+	return s.FrozenByRunID
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ConsolidationAcquisition) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *ConsolidationAcquisition) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetClosingRate sets the value of ClosingRate.
+func (s *ConsolidationAcquisition) SetClosingRate(val string) {
+	s.ClosingRate = val
+}
+
+// SetRateValidFrom sets the value of RateValidFrom.
+func (s *ConsolidationAcquisition) SetRateValidFrom(val OptDate) {
+	s.RateValidFrom = val
+}
+
+// SetNetAssets sets the value of NetAssets.
+func (s *ConsolidationAcquisition) SetNetAssets(val Money) {
+	s.NetAssets = val
+}
+
+// SetNetAssetsGroup sets the value of NetAssetsGroup.
+func (s *ConsolidationAcquisition) SetNetAssetsGroup(val Money) {
+	s.NetAssetsGroup = val
+}
+
+// SetInvestment sets the value of Investment.
+func (s *ConsolidationAcquisition) SetInvestment(val Money) {
+	s.Investment = val
+}
+
+// SetGoodwill sets the value of Goodwill.
+func (s *ConsolidationAcquisition) SetGoodwill(val Money) {
+	s.Goodwill = val
+}
+
+// SetNonControllingInterest sets the value of NonControllingInterest.
+func (s *ConsolidationAcquisition) SetNonControllingInterest(val Money) {
+	s.NonControllingInterest = val
+}
+
+// SetFrozen sets the value of Frozen.
+func (s *ConsolidationAcquisition) SetFrozen(val bool) {
+	s.Frozen = val
+}
+
+// SetFrozenByRunID sets the value of FrozenByRunID.
+func (s *ConsolidationAcquisition) SetFrozenByRunID(val OptUUID) {
+	s.FrozenByRunID = val
 }
 
 // A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a
@@ -22500,6 +22675,12 @@ type ConsolidationEntryLine struct {
 	AccountID      OptUUID            `json:"account_id"`
 	Account        OptAssetAccountRef `json:"account"`
 	TradingPartner OptTradingPartner  `json:"trading_partner"`
+	// An investment entry's line (ADR-0059 §9): `acquisition_equity`, the member's equity at acquisition
+	// on a group account reversed, of the member and no company account; `investment`, the parent's
+	// investment reversed, of its investment account. Absent on an intercompany entry's line. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Component OptString `json:"component"`
 	// The amount in the group currency, debit positive.
 	Amount Money `json:"amount"`
 }
@@ -22542,6 +22723,11 @@ func (s *ConsolidationEntryLine) GetAccount() OptAssetAccountRef {
 // GetTradingPartner returns the value of TradingPartner.
 func (s *ConsolidationEntryLine) GetTradingPartner() OptTradingPartner {
 	return s.TradingPartner
+}
+
+// GetComponent returns the value of Component.
+func (s *ConsolidationEntryLine) GetComponent() OptString {
+	return s.Component
 }
 
 // GetAmount returns the value of Amount.
@@ -22587,6 +22773,11 @@ func (s *ConsolidationEntryLine) SetAccount(val OptAssetAccountRef) {
 // SetTradingPartner sets the value of TradingPartner.
 func (s *ConsolidationEntryLine) SetTradingPartner(val OptTradingPartner) {
 	s.TradingPartner = val
+}
+
+// SetComponent sets the value of Component.
+func (s *ConsolidationEntryLine) SetComponent(val OptString) {
+	s.Component = val
 }
 
 // SetAmount sets the value of Amount.
@@ -22779,8 +22970,9 @@ func (s *ConsolidationGroupPage) SetNextPageToken(val OptString) {
 
 func (*ConsolidationGroupPage) listConsolidationGroupsRes() {}
 
-// A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the
-// period it is first consolidated in and the parent's account holding the investment in it.
+// A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, how
+// the parent came to hold it, the period it is first consolidated in and the parent's account holding
+// the investment in it.
 // Ref: #/components/schemas/ConsolidationMember
 type ConsolidationMember struct {
 	// The subsidiary's legal entity.
@@ -22794,6 +22986,13 @@ type ConsolidationMember struct {
 	// The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals,
 	// as configured.
 	OwnershipPercent string `json:"ownership_percent"`
+	// How the parent came to hold the subsidiary, as configured: `incorporated` (it founded it, so the
+	// investment is eliminated against the subsidiary's equity and there is no goodwill) or `acquired` (a
+	// business combination). A run consolidates only a subsidiary the parent incorporated and holds whole
+	// (ADR-0059 As built T68h; others are refused with `consolidation.structure_unsupported`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Origin string `json:"origin"`
 	// The fiscal year of the period the subsidiary is first consolidated in.
 	FirstFiscalYear int32 `json:"first_fiscal_year"`
 	// The regular period (1-12) from whose first day the subsidiary is consolidated.
@@ -22824,6 +23023,11 @@ func (s *ConsolidationMember) GetLocalCurrency() string {
 // GetOwnershipPercent returns the value of OwnershipPercent.
 func (s *ConsolidationMember) GetOwnershipPercent() string {
 	return s.OwnershipPercent
+}
+
+// GetOrigin returns the value of Origin.
+func (s *ConsolidationMember) GetOrigin() string {
+	return s.Origin
 }
 
 // GetFirstFiscalYear returns the value of FirstFiscalYear.
@@ -22864,6 +23068,11 @@ func (s *ConsolidationMember) SetLocalCurrency(val string) {
 // SetOwnershipPercent sets the value of OwnershipPercent.
 func (s *ConsolidationMember) SetOwnershipPercent(val string) {
 	s.OwnershipPercent = val
+}
+
+// SetOrigin sets the value of Origin.
+func (s *ConsolidationMember) SetOrigin(val string) {
+	s.Origin = val
 }
 
 // SetFirstFiscalYear sets the value of FirstFiscalYear.
@@ -23265,7 +23474,8 @@ type ConsolidationRunMember struct {
 	// That period's version when the run read its figures; absent until translated.
 	PeriodVersion OptInt32 `json:"period_version"`
 	// When its figures were read and translated; absent before.
-	TranslatedAt OptDateTime `json:"translated_at"`
+	TranslatedAt OptDateTime                 `json:"translated_at"`
+	Acquisition  OptConsolidationAcquisition `json:"acquisition"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -23333,6 +23543,11 @@ func (s *ConsolidationRunMember) GetTranslatedAt() OptDateTime {
 	return s.TranslatedAt
 }
 
+// GetAcquisition returns the value of Acquisition.
+func (s *ConsolidationRunMember) GetAcquisition() OptConsolidationAcquisition {
+	return s.Acquisition
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *ConsolidationRunMember) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -23398,6 +23613,11 @@ func (s *ConsolidationRunMember) SetTranslatedAt(val OptDateTime) {
 	s.TranslatedAt = val
 }
 
+// SetAcquisition sets the value of Acquisition.
+func (s *ConsolidationRunMember) SetAcquisition(val OptConsolidationAcquisition) {
+	s.Acquisition = val
+}
+
 // One page of consolidation runs, newest first.
 // Ref: #/components/schemas/ConsolidationRunPage
 type ConsolidationRunPage struct {
@@ -23432,7 +23652,9 @@ func (*ConsolidationRunPage) listConsolidationRunsRes() {}
 // The problem that failed a run: its code and detail, as its Operation's error gives them;
 // `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an
 // error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned
-// since, and `platform.internal` when a step's error outlasted its retries.
+// since, `consolidation.investment_mismatch`, `consolidation.acquisition_changed` or
+// `consolidation.investment_changed` when a member's investment could not be eliminated
+// (`createConsolidationRun`), and `platform.internal` when a step's error outlasted its retries.
 // Ref: #/components/schemas/ConsolidationRunProblem
 type ConsolidationRunProblem struct {
 	// The problem's code, such as `consolidation.rate_stale`.
@@ -48266,6 +48488,52 @@ func (o OptConsolidatedFigures) Get() (v ConsolidatedFigures, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptConsolidatedFigures) Or(d ConsolidatedFigures) ConsolidatedFigures {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptConsolidationAcquisition returns new OptConsolidationAcquisition with value set to v.
+func NewOptConsolidationAcquisition(v ConsolidationAcquisition) OptConsolidationAcquisition {
+	return OptConsolidationAcquisition{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptConsolidationAcquisition is optional ConsolidationAcquisition.
+type OptConsolidationAcquisition struct {
+	Value ConsolidationAcquisition
+	Set   bool
+}
+
+// IsSet returns true if OptConsolidationAcquisition was set.
+func (o OptConsolidationAcquisition) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptConsolidationAcquisition) Reset() {
+	var v ConsolidationAcquisition
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptConsolidationAcquisition) SetTo(v ConsolidationAcquisition) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptConsolidationAcquisition) Get() (v ConsolidationAcquisition, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptConsolidationAcquisition) Or(d ConsolidationAcquisition) ConsolidationAcquisition {
 	if v, ok := o.Get(); ok {
 		return v
 	}

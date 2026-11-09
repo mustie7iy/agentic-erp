@@ -750,7 +750,8 @@ cursor-paged with filters, 04 §4.5):
   `consolidation.period_not_locked`, `consolidation.negative_goodwill`,
   `consolidation.acquisition_changed`, `consolidation.investment_changed`,
   `consolidation.parent_currency`, `consolidation.final_exists`,
-  `consolidation.run_stale`,
+  `consolidation.run_stale`, `consolidation.structure_unsupported` and
+  `consolidation.investment_mismatch` (As built T68h),
   `consolidation.account_unmapped` (a member's account with a balance and
   no group account, a run's failure for a configuration activated before
   the rule); and `ledger.trading_partner_invalid`,
@@ -1152,7 +1153,8 @@ first consolidation).
   specialist.
 
 ## As built
-(Filled in by the slices T68a-T68h.)
+(Filled in by the slices T68a-T68h; T68h's part on goodwill and the
+non-controlling interest is split off, below.)
 
 **T68a (group chart, mapping and groups in configuration).** Built as §3:
 `consolidation.rate_type`, `consolidation.accounts` (number, name, type,
@@ -1743,3 +1745,110 @@ default, for the product owner to overrule:
   from locked periods), discards step 40's draft, accepts the new run's
   open difference and finalizes it: final, by Carla Controller, not
   stale; its balance sheet reads `final`.
+
+**T68h (investment and equity elimination, for a subsidiary the parent
+incorporated and holds whole).** Built as §5, §9 and §10 say for the
+pilot's structure, as the specialist's answers shape it (po:2026-11-09,
+question 2: B5(a), B8; the pilot customer's planning default D11, to be
+confirmed before go-live: the Canadian parent holds 100% of the UAE
+company, which it incorporated, so IFRS 3 does not apply, there is no
+goodwill and no non-controlling interest, and the investment is
+eliminated against the subsidiary's equity at historical amounts), in
+`internal/consolidation/acquisition.go` and `investment.go`, migration
+000243: `run_acquisition`, `acquisition`, `acquisition_equity` and
+`run_entry_line.component`, with their schema tests
+(`TestConsolidationAcquisitionRules`). Goodwill, the interest and the
+`nci` entry are not computed: their part of the leaf is split off
+(src split:T68h), beside B5-B7 and B9's leaves. Decided by default, for
+the product owner to overrule:
+- **How the parent came to hold a member.** A member gains `origin`,
+  `incorporated` or `acquired`, required (a structural change, tier 4),
+  shown on the group's read, since §3's members cannot tell an
+  incorporated subsidiary from an acquired one and B5 needs it. A run
+  refuses, at creation and again when it starts, a member it includes
+  that is held below 100% or not incorporated (422
+  `consolidation.structure_unsupported`, naming the member and the leaves
+  it waits for), rather than consolidate it without goodwill, fair values
+  or the interest.
+- **No goodwill.** A member whose investment differs from its net assets
+  at acquisition fails the run (`consolidation.investment_mismatch`,
+  naming both): an incorporated subsidiary has no goodwill (B5(a)), so
+  the run does not explain a difference; `consolidation.negative_goodwill`
+  stays B7's. `run_acquisition` and `acquisition` keep `goodwill_gc` and
+  `nci_gc` (zero), goodwill held to §9's residual by a check.
+- **Where it is measured.** §6 has `TranslateMember` write the
+  acquisition; it is measured in `EliminateConsolidationRun` instead,
+  since the investment is the parent's translated row and companies are
+  translated in code order (Acme Corp US, 1000, before its parent). The
+  member is translated through F-1 as §7 translates it, at F-1's closing
+  rate (checked when the run is created and started, §6, and read again
+  when measured; a member in the group currency needs neither the rate
+  nor F-1 in its ledger, 422 `consolidation.period_unknown` otherwise);
+  the net assets are its asset and liability rows, and every other row
+  its acquisition equity per group account, its results on retained
+  earnings, also those of F-1's fiscal year when F is period 1 (B8: the
+  results before control are part of the net assets acquired).
+- **The entry.** One `investment` entry per member with lines (no
+  elimination, no partner), after the intercompany ones: the acquisition
+  equity reversed per group account (the member, no company account,
+  component `acquisition_equity`) and the parent's rows on the member's
+  investment account reversed (component `investment`), lines of zero
+  left out.
+- **Freezing.** Finalizing a run inserts, for each member it measured,
+  the acquisition with the run's origin, ownership, first period and
+  investment account, and its equity from the investment entry, each
+  audited as `consolidation.acquisition.frozen` (no event: §13 names
+  none), and only once each member's period F-1 is locked now (409
+  `consolidation.period_not_locked`, naming it: a frozen acquisition is
+  never changed, so it comes from locked figures, as §10 asks of the run's
+  own period; F-1's version is not recorded, so a change while it was open
+  after the run measured it is not detected); a trigger lets only a final run of the group insert one (an
+  import excepted, 000230's `platform.importing`). Finalizing a run that
+  measured a member whose acquisition another final run froze since,
+  differently, is refused (409 `consolidation.acquisition_changed`: run
+  the group again). Later runs read the frozen figures and fail with
+  `consolidation.acquisition_changed` (origin, ownership, first period or
+  investment account) or `consolidation.investment_changed`. A run's
+  staleness (§10) reads its own period only, so a posting into F-1 after
+  a draft measured it and before the first final run is not seen; the
+  first final run freezes what it measured.
+- **Reads.** A run's member shows its `acquisition` (the period measured,
+  closing rate and validity, net assets in both currencies, investment,
+  goodwill, interest, `frozen` and `frozen_by_run_id`, the run that froze
+  it, the run itself once finalized) once eliminated; an entry line its
+  `component`; the profit and loss's totals `non_controlling_interests`
+  (minus the profit components of the run's `nci` entries, none written,
+  so zero) and `owners_of_the_parent` (the profit less it).
+- **Walkthrough.** MAPLE holds 100% of Acme Corp US, `incorporated`. In
+  `consolidation_run`, Tom records the USD rate from the last day of the
+  period before today's (1.35; in January PREV's 31 December at 1.38,
+  which `step_year_end` records too, through the same helper, so that
+  `step_close`'s final run measures at the same rate), Carla opens Acme
+  Corp US's period there and posts its USD 5,000.00 share capital on that
+  day, and Maple's investment of its CAD amount on the month's first day;
+  the run shows the acquisition (no goodwill, no interest) and
+  `consolidation_eliminations` the investment entry against the share
+  capital; the statements show G1700 eliminated and the profit the
+  owners'; `close_consolidation`'s final run freezes the acquisition, and
+  a later run, discarded, reads it frozen.
+- **For the pilot (open, not decided here):** an opening entry migrated
+  into the first consolidated period puts the subsidiary's equity after
+  F-1, so its acquisition at F-1 is empty while the parent's investment
+  is not, and the run refuses with `consolidation.investment_mismatch`;
+  the pilot's `first_period` then has to follow the opening entry's
+  period, or the specialist says how an incorporated subsidiary's equity
+  before the first consolidated period is treated.
+- **Open accounting question (review:T68h, for the product owner and the
+  specialist):** as built, an incorporated subsidiary's equity at F-1 is
+  eliminated whole, its results through F-1 and its translation reserve
+  with its share capital, as §9 and the brief ("pre-acquisition results
+  eliminated", B8) have it. The reviewer reads B5(a) ("the investment is
+  simply eliminated against share capital") and B8 (results count from
+  when control is obtained, for an incorporated subsidiary its
+  incorporation) as keeping those earlier results and the reserve in the
+  group, eliminating only the share capital. Under that reading a
+  subsidiary whose retained earnings at F-1 are not zero is refused today
+  (`consolidation.investment_mismatch`), and one whose investment happened
+  to equal all its equity would lose its earlier results from the group's
+  retained earnings. Which applies is an accounting rule; it is asked, not
+  decided here.

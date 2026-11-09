@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -150,7 +151,7 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err != nil {
 		return fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
 	}
-	t, err := e.targetOf(ctx, doc, r.GroupCode, int32(r.FiscalYear), int32(r.Period))
+	t, err := e.targetOf(ctx, tx, doc, r.GroupCode, int32(r.FiscalYear), int32(r.Period))
 	if err != nil {
 		return err
 	}
@@ -207,7 +208,7 @@ func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) 
 		return problem.Unprocessable("consolidation.period_unknown", fmt.Sprintf("Company %s has no period %d/%d in its leading ledger.", m.CompanyCode,
 			r.FiscalYear, r.Period), problem.FieldError{Field: "period", Code: "period_unknown", Message: "a period of company " + m.CompanyCode})
 	}
-	f, err := e.figuresOf(ctx, tx, r, m)
+	f, err := e.figuresOf(ctx, tx, r, m, r.FiscalYear, r.Period, money.ParseRat(m.ClosingRate)) // a numeric(28,12) above zero, always a decimal
 	if err != nil {
 		return err
 	}
@@ -225,13 +226,15 @@ func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) 
 	return e.progress(ctx, tx, r)
 }
 
-// figuresOf reads what a company's translation needs (figures).
-func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member) (figures, error) {
+// figuresOf reads what a company's translation through a period of the
+// run's calendar at the rate needs (figures): the run's period, or a
+// member's period before its first, where its acquisition is measured.
+func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member, year, period int16, rate *big.Rat) (figures, error) {
 	doc, err := e.version(ctx, r.ConfigVersion)
 	if err != nil {
 		return figures{}, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
 	}
-	f := figures{company: Company{ID: m.LegalEntityID, Code: m.CompanyCode, LocalCurrency: m.LocalCurrency}, year: r.FiscalYear,
+	f := figures{company: Company{ID: m.LegalEntityID, Code: m.CompanyCode, LocalCurrency: m.LocalCurrency}, year: year, rate: rate,
 		chart: doc.Consolidation, mapping: map[string]string{}, accounts: map[uuid.UUID]Account{}, partners: map[uuid.UUID]string{}}
 	if m.FirstYear != nil {
 		f.firstYear, f.firstP = *m.FirstYear, *m.FirstPeriod
@@ -241,7 +244,6 @@ func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member) (
 			f.mapping[a.Number] = a.GroupAccount
 		}
 	}
-	f.rate = money.ParseRat(m.ClosingRate) // a numeric(28,12) above zero, always a decimal
 	if f.expLC, err = currency.Exponent(ctx, tx, m.LocalCurrency, nil); err != nil {
 		return figures{}, fmt.Errorf("consolidation: currency %s: %w", m.LocalCurrency, err)
 	}
@@ -262,8 +264,8 @@ func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member) (
 	for _, c := range entities {
 		f.partners[c.ID] = c.Code
 	}
-	f.balances, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, r.FiscalYear, r.Period)
-	return f, errs.Wrapf(err, "consolidation: balances of %s through %d/%d", m.CompanyCode, r.FiscalYear, r.Period)
+	f.balances, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, year, period)
+	return f, errs.Wrapf(err, "consolidation: balances of %s through %d/%d", m.CompanyCode, year, period)
 }
 
 // writeRows writes a company's translated rows, numbered in their order,
