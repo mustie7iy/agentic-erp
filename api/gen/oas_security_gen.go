@@ -174,6 +174,7 @@ var operationRolesOidc = map[string][]string{
 	GetCompanyAccessOperation:                      []string{},
 	GetConfigVersionOperation:                      []string{},
 	GetConnectorOperation:                          []string{},
+	GetConsolidatedStatementOperation:              []string{},
 	GetConsolidationGroupOperation:                 []string{},
 	GetConsolidationRunOperation:                   []string{},
 	GetContractOperation:                           []string{},

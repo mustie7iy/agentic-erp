@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,18 +25,39 @@ import (
 // of the budget's group.
 const budgetAccounts = 1000
 
+// budgetTypes are the account types budget accounts take in turn.
+var budgetTypes = []config.AccountType{config.Asset, config.Liability, config.Equity, config.Revenue, config.Expense}
+
 // budgetChart is a chart of budgetAccounts accounts, B00000 to B00999, a
-// fifth of each type, each mapped to the group account of its type.
-func budgetChart() []config.Account {
-	types := []config.AccountType{config.Asset, config.Liability, config.Equity, config.Revenue, config.Expense}
+// fifth of each type, each mapped to the group account of its type or,
+// wide, to a group account of its own, GB00000 to GB00999
+// (wideGroupChart).
+func budgetChart(wide bool) []config.Account {
 	group := map[config.AccountType]string{config.Asset: "G1000", config.Liability: "G2000", config.Equity: "G3000", config.Revenue: "G4000",
 		config.Expense: "G5000"}
 	out := make([]config.Account, budgetAccounts)
 	for i := range out {
-		t := types[i%len(types)]
+		t := budgetTypes[i%len(budgetTypes)]
 		out[i] = config.Account{Number: fmt.Sprintf("B%05d", i), Name: fmt.Sprintf("Budget account %d", i), Type: t, GroupAccount: group[t]}
+		if wide {
+			out[i].GroupAccount = fmt.Sprintf("GB%05d", i)
+		}
 	}
 	return out
+}
+
+// wideGroupChart extends the group chart to its largest, 5,000 accounts
+// (ADR-0059 §3): GB00000 to GB00999, the budget accounts' own, and more
+// accounts without figures, GX00000 on, the types in turn.
+func wideGroupChart(cs *config.Consolidation) {
+	for i := range budgetAccounts {
+		cs.Accounts = append(cs.Accounts, config.GroupAccount{Number: fmt.Sprintf("GB%05d", i), Name: fmt.Sprintf("Budget group account %d", i),
+			Type: budgetTypes[i%len(budgetTypes)]})
+	}
+	for i := 0; len(cs.Accounts) < 5000; i++ {
+		cs.Accounts = append(cs.Accounts, config.GroupAccount{Number: fmt.Sprintf("GX%05d", i), Name: fmt.Sprintf("Group account %d", i),
+			Type: budgetTypes[i%len(budgetTypes)]})
+	}
 }
 
 // TestConsolidationRunBudget checks ADR-0059 §14's budget for a
@@ -57,7 +81,7 @@ func TestConsolidationRunBudget(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
 	defer cancel()
 	start := time.Now()
-	seedBudgetGroup(t, e)
+	seedBudgetGroup(t, e, false)
 	t.Logf("seeded a group of 100 companies with 1,000 accounts and 1,000 trading partner balances each in %v", time.Since(start))
 	c := &workflows.Consolidations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Consolidation(app.Config{}),
 		Actors: identity.Actors{}}
@@ -84,8 +108,10 @@ func TestConsolidationRunBudget(t *testing.T) {
 	}
 }
 
-// seedBudgetGroup writes TestConsolidationRunBudget's group (see there).
-func seedBudgetGroup(t *testing.T, e fixture.Env) {
+// seedBudgetGroup writes TestConsolidationRunBudget's group (see there);
+// wide, with wideGroupChart's group chart, each budget account mapped to
+// a group account of its own.
+func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 	t.Helper()
 	exec := func(sql string, args ...any) {
 		t.Helper()
@@ -93,6 +119,9 @@ func seedBudgetGroup(t *testing.T, e fixture.Env) {
 	}
 	doc := fixture.Document(t)
 	fixture.Consolidation(doc)
+	if wide {
+		wideGroupChart(&doc.Consolidation)
+	}
 	group := &doc.Consolidation.Groups[0]
 	parent := doc.Company("2000")
 	for i := 1; i <= 98; i++ {
@@ -105,7 +134,7 @@ func seedBudgetGroup(t *testing.T, e fixture.Env) {
 			InvestmentAccount: fmt.Sprintf("15%04d", i)})
 	}
 	for i := range doc.Companies {
-		doc.Companies[i].ChartOfAccounts = append(doc.Companies[i].ChartOfAccounts, budgetChart()...)
+		doc.Companies[i].ChartOfAccounts = append(doc.Companies[i].ChartOfAccounts, budgetChart(wide)...)
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
@@ -158,4 +187,78 @@ func seedBudgetGroup(t *testing.T, e fixture.Env) {
 			currency_tc, debit_tc / 2, credit_tc / 2, debit_lc / 2, credit_lc / 2, debit_gc / 2, credit_gc / 2
 		FROM ledger.period_balance WHERE tenant_id = $1 AND fiscal_year = 2026 AND fiscal_period = 11`, e.Tenant.ID, e.DE, e.US)
 	exec(`ANALYZE ledger.period_balance, ledger.trading_partner_balance, ledger.gl_account, ledger.company_account`)
+}
+
+// TestConsolidatedStatementBudget checks ADR-0059 §14's budget for a
+// consolidated statement of one run, every page (01-requirements §1.3:
+// p95 1 s, p99 3 s): TestConsolidationRunBudget's group of 100 companies,
+// each with 1,000 accounts with balances and 1,000 trading partner
+// balances, computed by its run, its 200,000 translated rows on a group
+// chart of 5,000 accounts, the largest allowed (wideGroupChart), each
+// budget account on one of its own. Each statement is read ten times by
+// its first page of the default size and its first, a middle and its last
+// page of 500, and checked: the balance sheet's totals and the profit
+// summing to zero.
+func TestConsolidatedStatementBudget(t *testing.T) {
+	nfr.Measure(t)
+	e := fixture.NewWith(t, nil, fixture.Consolidation, "consolidation.read", "consolidation.run.manage", "ledger.entry.read")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
+	defer cancel()
+	seedBudgetGroup(t, e, true)
+	c := &workflows.Consolidations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Consolidation(app.Config{}),
+		Actors: identity.Actors{}}
+	s := &conScenario{e: e, c: c}
+	in := s.start(t)
+	if err := (&workflows.Consolidator{Consolidations: c, Log: slog.New(slog.DiscardHandler)}).Consolidate(ctx, in); err != nil {
+		t.Fatalf("the run: %v", err)
+	}
+	base := "/v1/consolidation-runs/" + in.RunID.String() + "/statements/"
+	for _, statement := range []string{"balance_sheet", "profit_and_loss"} {
+		pages := statementPages(t, e, base+statement+"?page_size=500")
+		for name, query := range map[string]string{"first page of 50": "", "first page of 500": "?page_size=500",
+			"a middle page of 500": "?page_size=500&page_token=" + pages[len(pages)/2], "the last page of 500": "?page_size=500&page_token=" + pages[len(pages)-1]} {
+			var times []time.Duration
+			for range 10 {
+				start := time.Now()
+				page, _ := e.Must(200, "GET", base+statement+query, "", "")
+				times = append(times, time.Since(start))
+				if len(page["items"].([]any)) == 0 {
+					t.Fatalf("%s, %s: got no rows", statement, name)
+				}
+			}
+			slices.Sort(times)
+			p95 := times[len(times)*95/100]
+			t.Logf("%s, %s, of a run of 100 companies on 5,000 group accounts: median %v, p95 %v", statement, name, times[len(times)/2], p95)
+			if budget := nfr.Budget(time.Second); p95 > budget {
+				t.Errorf("%s, %s: p95 %v exceeds the %v budget (1 s scaled by ERP_BUDGET_SCALE)", statement, name, p95, budget)
+			}
+		}
+	}
+	bs, _ := e.Must(200, "GET", base+"balance_sheet", "", "")
+	var sum int64
+	for _, k := range []string{"assets", "liabilities", "equity", "profit"} {
+		a := bs["totals"].(map[string]any)[k].(map[string]any)["consolidated"].(map[string]any)["amount"].(string)
+		cents, err := strconv.ParseInt(strings.Replace(a, ".", "", 1), 10, 64)
+		if err != nil {
+			t.Fatalf("the balance sheet's %s: %v", k, err)
+		}
+		sum += cents
+	}
+	if sum != 0 {
+		t.Errorf("the balance sheet's totals and the profit: got a sum of %d cents, want zero", sum)
+	}
+}
+
+// statementPages are the page tokens of a statement's pages after its
+// first, in order.
+func statementPages(t *testing.T, e fixture.Env, path string) []string {
+	t.Helper()
+	var tokens []string
+	page, _ := e.Must(200, "GET", path, "", "")
+	for page["next_page_token"] != nil {
+		tok := page["next_page_token"].(string)
+		tokens = append(tokens, tok)
+		page, _ = e.Must(200, "GET", path+"&page_token="+tok, "", "")
+	}
+	return tokens
 }

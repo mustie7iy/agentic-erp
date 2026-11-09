@@ -489,6 +489,10 @@ type GetConnectorRes interface {
 	getConnectorRes()
 }
 
+type GetConsolidatedStatementRes interface {
+	getConsolidatedStatementRes()
+}
+
 type GetConsolidationGroupRes interface {
 	getConsolidationGroupRes()
 }

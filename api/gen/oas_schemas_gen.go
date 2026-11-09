@@ -20473,6 +20473,7 @@ func (*ConflictHeaders) getAccrualProposalRes()                    {}
 func (*ConflictHeaders) getAnalyticsModelRes()                     {}
 func (*ConflictHeaders) getBankFileContentRes()                    {}
 func (*ConflictHeaders) getCloseCalendarRes()                      {}
+func (*ConflictHeaders) getConsolidatedStatementRes()              {}
 func (*ConflictHeaders) getConsolidationGroupRes()                 {}
 func (*ConflictHeaders) getConsolidationRunRes()                   {}
 func (*ConflictHeaders) getLegalEntityTodayRes()                   {}
@@ -21040,6 +21041,376 @@ func (s *ConnectorUpdateSettings) init() ConnectorUpdateSettings {
 		*s = m
 	}
 	return m
+}
+
+// A total of a consolidated statement, in the group currency, debit positive: the companies'
+// translated figures summed, the run's eliminations and their sum.
+// Ref: #/components/schemas/ConsolidatedFigures
+type ConsolidatedFigures struct {
+	// The companies' translated figures summed (ADR-0059 §7).
+	Reported Money `json:"reported"`
+	// The run's eliminations (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	Eliminations Money `json:"eliminations"`
+	// The reported figures and the eliminations summed.
+	Consolidated Money `json:"consolidated"`
+}
+
+// GetReported returns the value of Reported.
+func (s *ConsolidatedFigures) GetReported() Money {
+	return s.Reported
+}
+
+// GetEliminations returns the value of Eliminations.
+func (s *ConsolidatedFigures) GetEliminations() Money {
+	return s.Eliminations
+}
+
+// GetConsolidated returns the value of Consolidated.
+func (s *ConsolidatedFigures) GetConsolidated() Money {
+	return s.Consolidated
+}
+
+// SetReported sets the value of Reported.
+func (s *ConsolidatedFigures) SetReported(val Money) {
+	s.Reported = val
+}
+
+// SetEliminations sets the value of Eliminations.
+func (s *ConsolidatedFigures) SetEliminations(val Money) {
+	s.Eliminations = val
+}
+
+// SetConsolidated sets the value of Consolidated.
+func (s *ConsolidatedFigures) SetConsolidated(val Money) {
+	s.Consolidated = val
+}
+
+// One page of a consolidated statement of a consolidation run (ADR-0059 §11), with its run and the
+// totals over the whole statement. Every figure is in the group currency, debit positive.
+// Ref: #/components/schemas/ConsolidatedStatement
+type ConsolidatedStatement struct {
+	// The run (`GET /v1/consolidation-runs/{id}`).
+	RunID uuid.UUID `json:"run_id"`
+	// The group's code.
+	GroupCode string `json:"group_code"`
+	// The group's name, in the configuration version the run read.
+	GroupName string `json:"group_name"`
+	// The fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The regular period.
+	Period int32 `json:"period"`
+	// The period's last day: the balance sheet's date.
+	PeriodEnd time.Time `json:"period_end"`
+	// The run's status (`ConsolidationRun.status`): a draft (`computed`), the group's consolidated figures
+	// of the period (`final`), or a final run a later one superseded. Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
+	RunStatus string `json:"run_status"`
+	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
+	// be added within /v1.
+	Statement string `json:"statement"`
+	// The group currency (ISO 4217), every figure's.
+	GroupCurrency string `json:"group_currency"`
+	// The statement's rows on this page, by group account number.
+	Items  []ConsolidatedStatementRow  `json:"items"`
+	Totals ConsolidatedStatementTotals `json:"totals"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetRunID returns the value of RunID.
+func (s *ConsolidatedStatement) GetRunID() uuid.UUID {
+	return s.RunID
+}
+
+// GetGroupCode returns the value of GroupCode.
+func (s *ConsolidatedStatement) GetGroupCode() string {
+	return s.GroupCode
+}
+
+// GetGroupName returns the value of GroupName.
+func (s *ConsolidatedStatement) GetGroupName() string {
+	return s.GroupName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ConsolidatedStatement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *ConsolidatedStatement) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetPeriodEnd returns the value of PeriodEnd.
+func (s *ConsolidatedStatement) GetPeriodEnd() time.Time {
+	return s.PeriodEnd
+}
+
+// GetRunStatus returns the value of RunStatus.
+func (s *ConsolidatedStatement) GetRunStatus() string {
+	return s.RunStatus
+}
+
+// GetStatement returns the value of Statement.
+func (s *ConsolidatedStatement) GetStatement() string {
+	return s.Statement
+}
+
+// GetGroupCurrency returns the value of GroupCurrency.
+func (s *ConsolidatedStatement) GetGroupCurrency() string {
+	return s.GroupCurrency
+}
+
+// GetItems returns the value of Items.
+func (s *ConsolidatedStatement) GetItems() []ConsolidatedStatementRow {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *ConsolidatedStatement) GetTotals() ConsolidatedStatementTotals {
+	return s.Totals
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ConsolidatedStatement) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetRunID sets the value of RunID.
+func (s *ConsolidatedStatement) SetRunID(val uuid.UUID) {
+	s.RunID = val
+}
+
+// SetGroupCode sets the value of GroupCode.
+func (s *ConsolidatedStatement) SetGroupCode(val string) {
+	s.GroupCode = val
+}
+
+// SetGroupName sets the value of GroupName.
+func (s *ConsolidatedStatement) SetGroupName(val string) {
+	s.GroupName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ConsolidatedStatement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *ConsolidatedStatement) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetPeriodEnd sets the value of PeriodEnd.
+func (s *ConsolidatedStatement) SetPeriodEnd(val time.Time) {
+	s.PeriodEnd = val
+}
+
+// SetRunStatus sets the value of RunStatus.
+func (s *ConsolidatedStatement) SetRunStatus(val string) {
+	s.RunStatus = val
+}
+
+// SetStatement sets the value of Statement.
+func (s *ConsolidatedStatement) SetStatement(val string) {
+	s.Statement = val
+}
+
+// SetGroupCurrency sets the value of GroupCurrency.
+func (s *ConsolidatedStatement) SetGroupCurrency(val string) {
+	s.GroupCurrency = val
+}
+
+// SetItems sets the value of Items.
+func (s *ConsolidatedStatement) SetItems(val []ConsolidatedStatementRow) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ConsolidatedStatement) SetTotals(val ConsolidatedStatementTotals) {
+	s.Totals = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ConsolidatedStatement) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ConsolidatedStatement) getConsolidatedStatementRes() {}
+
+// A row of a consolidated statement: an account of the group chart, in the configuration version the
+// run read, with its figures in the group currency, debit positive.
+// Ref: #/components/schemas/ConsolidatedStatementRow
+type ConsolidatedStatementRow struct {
+	// The group account's number.
+	Number string `json:"number"`
+	// The group account's name.
+	Name string `json:"name"`
+	// The group account's type. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Type string `json:"type"`
+	// The role a consolidation run gives the account, if any (`GroupAccount.role`). Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Role OptString `json:"role"`
+	// The companies' translated figures on the account summed (ADR-0059 §7).
+	Reported Money `json:"reported"`
+	// The run's eliminations on the account (ADR-0059 §8, §9); zero until they are built (T68f, T68h).
+	Eliminations Money `json:"eliminations"`
+	// The reported figure and the eliminations summed: the group's consolidated figure.
+	Consolidated Money `json:"consolidated"`
+}
+
+// GetNumber returns the value of Number.
+func (s *ConsolidatedStatementRow) GetNumber() string {
+	return s.Number
+}
+
+// GetName returns the value of Name.
+func (s *ConsolidatedStatementRow) GetName() string {
+	return s.Name
+}
+
+// GetType returns the value of Type.
+func (s *ConsolidatedStatementRow) GetType() string {
+	return s.Type
+}
+
+// GetRole returns the value of Role.
+func (s *ConsolidatedStatementRow) GetRole() OptString {
+	return s.Role
+}
+
+// GetReported returns the value of Reported.
+func (s *ConsolidatedStatementRow) GetReported() Money {
+	return s.Reported
+}
+
+// GetEliminations returns the value of Eliminations.
+func (s *ConsolidatedStatementRow) GetEliminations() Money {
+	return s.Eliminations
+}
+
+// GetConsolidated returns the value of Consolidated.
+func (s *ConsolidatedStatementRow) GetConsolidated() Money {
+	return s.Consolidated
+}
+
+// SetNumber sets the value of Number.
+func (s *ConsolidatedStatementRow) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetName sets the value of Name.
+func (s *ConsolidatedStatementRow) SetName(val string) {
+	s.Name = val
+}
+
+// SetType sets the value of Type.
+func (s *ConsolidatedStatementRow) SetType(val string) {
+	s.Type = val
+}
+
+// SetRole sets the value of Role.
+func (s *ConsolidatedStatementRow) SetRole(val OptString) {
+	s.Role = val
+}
+
+// SetReported sets the value of Reported.
+func (s *ConsolidatedStatementRow) SetReported(val Money) {
+	s.Reported = val
+}
+
+// SetEliminations sets the value of Eliminations.
+func (s *ConsolidatedStatementRow) SetEliminations(val Money) {
+	s.Eliminations = val
+}
+
+// SetConsolidated sets the value of Consolidated.
+func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
+	s.Consolidated = val
+}
+
+// The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`,
+// `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`
+// and `profit`.
+// Ref: #/components/schemas/ConsolidatedStatementTotals
+type ConsolidatedStatementTotals struct {
+	// The balance sheet's asset accounts summed; absent on the profit and loss.
+	Assets OptConsolidatedFigures `json:"assets"`
+	// The balance sheet's liability accounts summed; absent on the profit and loss.
+	Liabilities OptConsolidatedFigures `json:"liabilities"`
+	// The balance sheet's equity accounts summed, the `cta`, `retained_earnings` and `nci` accounts
+	// included; absent on the profit and loss.
+	Equity OptConsolidatedFigures `json:"equity"`
+	// The profit and loss's revenue accounts summed; absent on the balance sheet.
+	Revenue OptConsolidatedFigures `json:"revenue"`
+	// The profit and loss's expense accounts summed; absent on the balance sheet.
+	Expenses OptConsolidatedFigures `json:"expenses"`
+	// The fiscal year's profit through the period: the revenue and expense accounts summed, debit
+	// positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement:
+	// assets, liabilities, equity and profit sum to zero.
+	Profit ConsolidatedFigures `json:"profit"`
+}
+
+// GetAssets returns the value of Assets.
+func (s *ConsolidatedStatementTotals) GetAssets() OptConsolidatedFigures {
+	return s.Assets
+}
+
+// GetLiabilities returns the value of Liabilities.
+func (s *ConsolidatedStatementTotals) GetLiabilities() OptConsolidatedFigures {
+	return s.Liabilities
+}
+
+// GetEquity returns the value of Equity.
+func (s *ConsolidatedStatementTotals) GetEquity() OptConsolidatedFigures {
+	return s.Equity
+}
+
+// GetRevenue returns the value of Revenue.
+func (s *ConsolidatedStatementTotals) GetRevenue() OptConsolidatedFigures {
+	return s.Revenue
+}
+
+// GetExpenses returns the value of Expenses.
+func (s *ConsolidatedStatementTotals) GetExpenses() OptConsolidatedFigures {
+	return s.Expenses
+}
+
+// GetProfit returns the value of Profit.
+func (s *ConsolidatedStatementTotals) GetProfit() ConsolidatedFigures {
+	return s.Profit
+}
+
+// SetAssets sets the value of Assets.
+func (s *ConsolidatedStatementTotals) SetAssets(val OptConsolidatedFigures) {
+	s.Assets = val
+}
+
+// SetLiabilities sets the value of Liabilities.
+func (s *ConsolidatedStatementTotals) SetLiabilities(val OptConsolidatedFigures) {
+	s.Liabilities = val
+}
+
+// SetEquity sets the value of Equity.
+func (s *ConsolidatedStatementTotals) SetEquity(val OptConsolidatedFigures) {
+	s.Equity = val
+}
+
+// SetRevenue sets the value of Revenue.
+func (s *ConsolidatedStatementTotals) SetRevenue(val OptConsolidatedFigures) {
+	s.Revenue = val
+}
+
+// SetExpenses sets the value of Expenses.
+func (s *ConsolidatedStatementTotals) SetExpenses(val OptConsolidatedFigures) {
+	s.Expenses = val
+}
+
+// SetProfit sets the value of Profit.
+func (s *ConsolidatedStatementTotals) SetProfit(val ConsolidatedFigures) {
+	s.Profit = val
 }
 
 // A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a
@@ -30932,6 +31303,18 @@ func (s *GetConnectorOKHeaders) SetResponse(val Connector) {
 }
 
 func (*GetConnectorOKHeaders) getConnectorRes() {}
+
+type GetConsolidatedStatementBadRequest Problem
+
+func (*GetConsolidatedStatementBadRequest) getConsolidatedStatementRes() {}
+
+type GetConsolidatedStatementForbidden Problem
+
+func (*GetConsolidatedStatementForbidden) getConsolidatedStatementRes() {}
+
+type GetConsolidatedStatementNotFound Problem
+
+func (*GetConsolidatedStatementNotFound) getConsolidatedStatementRes() {}
 
 type GetConsolidationGroupBadRequest Problem
 
@@ -45751,6 +46134,52 @@ func (o OptConnectorUpdateSettings) Get() (v ConnectorUpdateSettings, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptConnectorUpdateSettings) Or(d ConnectorUpdateSettings) ConnectorUpdateSettings {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptConsolidatedFigures returns new OptConsolidatedFigures with value set to v.
+func NewOptConsolidatedFigures(v ConsolidatedFigures) OptConsolidatedFigures {
+	return OptConsolidatedFigures{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptConsolidatedFigures is optional ConsolidatedFigures.
+type OptConsolidatedFigures struct {
+	Value ConsolidatedFigures
+	Set   bool
+}
+
+// IsSet returns true if OptConsolidatedFigures was set.
+func (o OptConsolidatedFigures) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptConsolidatedFigures) Reset() {
+	var v ConsolidatedFigures
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptConsolidatedFigures) SetTo(v ConsolidatedFigures) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptConsolidatedFigures) Get() (v ConsolidatedFigures, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptConsolidatedFigures) Or(d ConsolidatedFigures) ConsolidatedFigures {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -66204,6 +66633,7 @@ func (*TooManyRequestsHeaders) getCloseCalendarRes()                      {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                      {}
 func (*TooManyRequestsHeaders) getConnectorRes()                          {}
+func (*TooManyRequestsHeaders) getConsolidatedStatementRes()              {}
 func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
@@ -66690,6 +67120,7 @@ func (*UnauthorizedHeaders) getCloseCalendarRes()                      {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                      {}
 func (*UnauthorizedHeaders) getConnectorRes()                          {}
+func (*UnauthorizedHeaders) getConsolidatedStatementRes()              {}
 func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
