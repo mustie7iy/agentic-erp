@@ -31,7 +31,8 @@ const (
 // assigns it to, as a company code belongs to exactly one (the SAP
 // specialist, po:2026-11-09, A8), else, for an extract without TKA02 (an
 // OData one), the areas of its cost centers (CSKS) and of the profit
-// centers assigned to it (CEPC_BUKRS).
+// centers assigned to it (CEPC_BUKRS). TKA02 wins over the areas the
+// centers give, which SAP cannot make disagree with it.
 func areasOf(e *sap.Extract) map[string][]string {
 	out := map[string][]string{}
 	add := func(company, area string) {

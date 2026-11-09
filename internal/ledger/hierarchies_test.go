@@ -356,6 +356,14 @@ func TestCentersCreatedInTheStandardHierarchy(t *testing.T) {
 	if got := c.paths(t, cc["id"].(string)); fmt.Sprint(got) != "[STANDARD:STANDARD/LEAF]" {
 		t.Errorf("paths of a center at a node with children: got %v, want [STANDARD:STANDARD/LEAF]", got)
 	}
+	// The node is removed before the create is approved: the approval is
+	// refused, as the center could not sit there.
+	gone := std.add(t, tr["root_node_id"], "GONE")
+	removed, _ := c.Must(201, "POST", "/v1/cost-centers", body("3000", gone), "")
+	std.apply(t, fmt.Sprintf("/nodes/%s:remove", gone), `{"reason": "r"}`)
+	if code := c.approveRefused(t, removed["pending_change_id"]); code != "unknown" {
+		t.Errorf("the approval of a center at a removed node: got %s, want unknown", code)
+	}
 	// A tenant without a standard hierarchy cannot create centers yet.
 	e := setup(t)
 	p := e.Problem(422, "ledger.hierarchy_change_invalid", "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC", "name": "P", "responsible": "J",

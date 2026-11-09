@@ -355,8 +355,8 @@ type TKA01 struct {
 // (the SAP specialist, po:2026-11-09, A8 [H]). Read by the configuration
 // draft (delivery/sapconfig), which takes a company code's area from it
 // rather than from its centers, so a company code without centers has
-// one, and by FilterScope, which keeps that area's cost elements and
-// groups. There is no released OData API for it (file extract only).
+// one, and by FilterScope, which keeps that area's cost elements. There
+// is no released OData API for it (file extract only).
 type TKA02 struct {
 	BUKRS string `json:"BUKRS"`
 	KOKRS string `json:"KOKRS"`

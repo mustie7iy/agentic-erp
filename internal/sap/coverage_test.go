@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -235,7 +236,7 @@ func TestFilterScopeKeepsTheScopesCenters(t *testing.T) {
 	if n := len(de.CSKS) + len(de.CEPC) + len(de.FAGL_SEGM) + len(de.SETHEADER); n != 0 {
 		t.Errorf("controlling rows of company 2000: got %d, want none", n)
 	}
-	if fmt.Sprint(de.TKA02) != "[{2000 2000}]" {
+	if !slices.Equal(de.TKA02, []TKA02{{BUKRS: "2000", KOKRS: mockAreaOther}}) {
 		t.Errorf("TKA02 of company 2000: got %v, want its own row alone", de.TKA02)
 	}
 }
@@ -249,7 +250,7 @@ func TestFilterScopeKeepsTheAssignedAreasCostElements(t *testing.T) {
 	all.CSKB = append(all.CSKB, CSKB{KOKRS: mockAreaOther, KSTAR: "0000510000", DATBI: openEnded, KATYP: "01"})
 	all.SETHEADER = append(all.SETHEADER, SETHEADER{SETCLASS: SetClassCostCenters, SUBCLASS: mockAreaOther, SETNAME: "EU"})
 	us := FilterScope(all, Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
-	if fmt.Sprint(us.CSKB) != "[{2000 0000510000 99991231 01}]" {
+	if len(us.CSKB) != 1 || us.CSKB[0].KOKRS != mockAreaOther || us.CSKB[0].KSTAR != "0000510000" {
 		t.Errorf("cost elements of company 1000: got %v, want area 2000's", us.CSKB)
 	}
 	if len(us.SETHEADER) != 0 {

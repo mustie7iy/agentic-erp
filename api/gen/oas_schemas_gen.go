@@ -36870,7 +36870,7 @@ func (*HierarchyPage) listHierarchiesRes() {}
 type HierarchyPlace struct {
 	// Cost or profit center, of the hierarchy's kind.
 	CenterID uuid.UUID `json:"center_id"`
-	// Leaf node to place it at; null: out of this alternative hierarchy.
+	// Node to place it at, which may have child nodes; null: out of this alternative hierarchy.
 	NodeID NilUUID `json:"node_id"`
 	// Why; shown to the approver and recorded in the audit trail.
 	Reason string `json:"reason"`

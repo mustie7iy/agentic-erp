@@ -218,7 +218,7 @@ func (l *loader) costCenter(ctx context.Context, cc sapCostCenter, texts map[str
 }
 
 // createdCenter notes a center the run created, by set class/area/code,
-// and counts its place at a standard leaf of SAP's groups.
+// and counts its place at a standard group of SAP's.
 func (l *loader) createdCenter(key string, id uuid.UUID, standardNode *uuid.UUID) {
 	l.created[key] = id
 	if standardNode != nil {

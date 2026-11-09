@@ -86,7 +86,7 @@ func (CenterMigration) AddNodes(ctx context.Context, hierarchy uuid.UUID, nodes 
 	return nil
 }
 
-// PlaceCenters places centers the run created at leaves of an alternative
+// PlaceCenters places centers the run created at nodes of an alternative
 // hierarchy. A center a run created is not yet seen by any other
 // transaction, so it is not locked before the hierarchy, as the API locks
 // a center it places (lockPlaced); a run places no center an earlier run

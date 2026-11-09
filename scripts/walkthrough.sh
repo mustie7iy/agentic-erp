@@ -688,9 +688,10 @@ step_tenant() {
   grep "\[error\] companies\[$CC\]\.time_zone: time zone is required" "$WORK/generate.out" | sed 's/^ */     /'
   say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
   say "America/Toronto, given as the draft is generated (T72n1)."
-  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -out config.yaml
+  say "The cutover date (-cutover) picks each account's cost element from SAP's CSKB slice valid then (A12(d))."
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -cutover "$YEAR-01-01" -out config.yaml
   if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
-    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
+    -cutover "$YEAR-01-01" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
     fail "a draft with a USD house bank whose account is not revalued validated"
   fi
   say "SAP's house banks (T012K) are Canadian: no IBAN, each account by institution, transit and account number,"

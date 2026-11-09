@@ -29488,7 +29488,7 @@ components:
             - string
             - "null"
           format: uuid
-          description: "Leaf node to place it at; null: out of this alternative hierarchy."
+          description: "Node to place it at, which may have child nodes; null: out of this alternative hierarchy."
         reason:
           type: string
           minLength: 1
