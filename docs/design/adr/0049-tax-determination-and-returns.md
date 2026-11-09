@@ -1900,10 +1900,12 @@ rewritten.
   letters, ISO codes and mapping of `packs/ae/TAX-PENDING-T61k.md` (§11 As
   built, T61k: Signed off), in 2026.4 with the pack's. With the UAE pack's
   and the VAT 201's sign-offs, the UAE items of "Still pending" under
-  T62h's note above are confirmed as written but these: the scope of the
-  five-year limit and the FTA's side of the amended return, which stay open
-  as questions (the threshold's measure was answered and built apart, C11,
-  §11 As built).
+  T62h's note above are confirmed as written but these: whether the
+  threshold's measure holds after the 2026 procedures amendments (C11
+  answered the measure under Decree-Law No. 28 of 2022 and Cabinet
+  Decision No. 74 of 2023, built apart, §11 As built, without naming the
+  amendments), the scope of the five-year limit and the FTA's side of the
+  amended return, which stay open as questions.
 - **Confirmed as written (GST34, T61j, 2026-11-09):** the lines, sums and
   mapping of `packs/ca/TAX-PENDING-T61j.md` (§11 As built, T61j: Signed
   off), in Canada pack 2026.7. The FPZ-500's lines (P4) wait for the
