@@ -282,27 +282,9 @@ func acquisitionsShown(ctx context.Context, tx pgx.Tx, rs []Run, ms map[uuid.UUI
 			local[memberKey{run, m.LegalEntityID}] = m
 		}
 	}
-	// The run that froze a member's acquisition: the one a run read it
-	// from, or the run itself once its finalization froze what it measured.
-	rows, _ := tx.Query(ctx, `SELECT a.run_id, a.legal_entity_id, a.net_assets_lc, a.closing_rate::text, a.rate_valid_from, a.net_assets_gc, a.investment_gc,
-			a.goodwill_gc, a.nci_gc, a.frozen, CASE WHEN a.frozen OR q.run_id = a.run_id THEN q.run_id END
-		FROM consolidation.run_acquisition a JOIN consolidation.run r ON r.tenant_id = a.tenant_id AND r.id = a.run_id
-		LEFT JOIN consolidation.acquisition q ON q.tenant_id = a.tenant_id AND q.group_code = r.group_code AND q.legal_entity_id = a.legal_entity_id
-		WHERE a.run_id = ANY($1)`, ids)
-	type stored struct {
-		k                               memberKey
-		lc, gc, invested, goodwill, nci money.Minor
-		rate                            string
-		from                            *time.Time
-		frozen                          bool
-		by                              *uuid.UUID
-	}
-	all, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (stored, error) {
-		var s stored
-		return s, row.Scan(&s.k.run, &s.k.company, &s.lc, &s.rate, &s.from, &s.gc, &s.invested, &s.goodwill, &s.nci, &s.frozen, &s.by)
-	})
+	all, err := storedAcquisitions(ctx, tx, ids)
 	if err != nil {
-		return nil, fmt.Errorf("consolidation: acquisitions of %d runs: %w", len(rs), err)
+		return nil, err
 	}
 	exps := map[string]int{}
 	shown := func(m money.Minor, code string) (gen.Money, error) {
@@ -339,4 +321,31 @@ func acquisitionsShown(ctx context.Context, tx pgx.Tx, rs []Run, ms map[uuid.UUI
 		out[s.k] = a
 	}
 	return out, nil
+}
+
+// storedAcquisition is a run's member's acquisition as stored, with the
+// run that froze it.
+type storedAcquisition struct {
+	k                               memberKey
+	lc, gc, invested, goodwill, nci money.Minor
+	rate                            string
+	from                            *time.Time
+	frozen                          bool
+	by                              *uuid.UUID
+}
+
+// storedAcquisitions reads the runs' members' acquisitions. The run that
+// froze one is the run it was read from, or the run itself once its
+// finalization froze what it measured.
+func storedAcquisitions(ctx context.Context, tx pgx.Tx, ids []uuid.UUID) ([]storedAcquisition, error) {
+	rows, _ := tx.Query(ctx, `SELECT a.run_id, a.legal_entity_id, a.net_assets_lc, a.closing_rate::text, a.rate_valid_from, a.net_assets_gc, a.investment_gc,
+			a.goodwill_gc, a.nci_gc, a.frozen, CASE WHEN a.frozen OR q.run_id = a.run_id THEN q.run_id END
+		FROM consolidation.run_acquisition a JOIN consolidation.run r ON r.tenant_id = a.tenant_id AND r.id = a.run_id
+		LEFT JOIN consolidation.acquisition q ON q.tenant_id = a.tenant_id AND q.group_code = r.group_code AND q.legal_entity_id = a.legal_entity_id
+		WHERE a.run_id = ANY($1)`, ids)
+	all, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (storedAcquisition, error) {
+		var s storedAcquisition
+		return s, row.Scan(&s.k.run, &s.k.company, &s.lc, &s.rate, &s.from, &s.gc, &s.invested, &s.goodwill, &s.nci, &s.frozen, &s.by)
+	})
+	return all, errs.Wrapf(err, "consolidation: acquisitions of %d runs", len(ids))
 }
