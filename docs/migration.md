@@ -679,7 +679,7 @@ po:2026-11-09; ⚠ marks a default that could do harm if wrong):
   (or SAP Data Services) for ACDOCA and other large tables; CSV in UTF-8,
   separator `;`, a header row of technical field names, dates `YYYYMMDD`,
   decimal point `.`, no thousands separators; amounts in SAP's **internal**
-  format, not external, so the extract also takes TCURX to convert the
+  format, not external, so the extract is also to take TCURX (to build: tracker leaf; until then the bullet above holds) to convert the
   amounts of currencies with other than two decimals (the bullet above on
   JPY and KWD assumes the external format).
 - D12: SAP's standard cost center categories E (development), F

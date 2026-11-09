@@ -1203,8 +1203,8 @@ pending the SAP specialist, docs/migration.md):
   than guessed.
 
 Answered by the SAP specialist (product owner, po:2026-11-09; questions
-A8-A12 of docs/migration.md "What to check on a real SAP system", which
-records each answer in full; [H] high, [M] medium and to verify on the
+A8-A12; docs/migration.md "What to check on a real SAP system" records
+A8 and A10-A12 in full, A9 is recorded here only; [H] high, [M] medium and to verify on the
 pilot system, [L] low and to verify in SE11). What changes the built load
 is a tracker leaf under the T56h leaves:
 - **Master data (A8, [H])**: the tables, fields and meanings §10 and T56h1
@@ -1220,8 +1220,10 @@ is a tracker leaf under the T56h leaves:
   CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it
   or the profit center's segment changed after posting [M]. ACDOCA also
   carries KOKRS [H], blank for a company code without CO active. So T56h4
-  is to reconcile against the derivation valid at each line's posting date
-  and to read ACDOCA-KOKRS (leaf).
+  is to check a line's profit center against the cost center period valid
+  at its posting date and to read ACDOCA-KOKRS (leaf); a segment differing
+  from its profit center's is loaded or refused as its own leaf decides,
+  amending §5 if loading needs time-dependent segments (leaf).
 - **Groups (A10, A11)**: TKA01-KHINR [H]; the profit centers' standard
   hierarchy is TKA01-PHINR [L], and the CEPC-KHINR derivation above stays
   the fallback until it is verified; the set tables as read [H]. A node may
