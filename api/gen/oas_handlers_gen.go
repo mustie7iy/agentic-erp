@@ -26478,13 +26478,20 @@ func (s *Server) handleGetConnectorRequest(args [1]string, argsEscaped bool, w h
 // without figures has a row of zeros. With totals over the whole statement, each with the same three
 // columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
 // through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
-// revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on
-// the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
-// which leave no balance between the run's companies on an elimination's accounts and put each pair's
-// difference on the elimination's difference account; the investment's elimination follows with T68h.
-// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-// never changes; `stale` says whether a company's period changed since the run read its figures
-// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
+// revenue, the expenses and the profit with its attribution, and, below the profit, other
+// comprehensive income (`other_comprehensive_income`: the fiscal year's translation differences
+// through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive
+// income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B),
+// with the translation reserve per company (`translation_reserve`: its opening, the year's difference,
+// its closing and the difference's two shares; IAS 21.52(b)). The reserve opens at what the group's
+// final run of the previous fiscal year's last period showed when this run started (`opening_run_id`),
+// at zero without one. The eliminations are the run's elimination entries' lines on the account summed
+// (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance
+// between the run's companies on an elimination's accounts and put each pair's difference on the
+// elimination's difference account; the investment's elimination follows with T68h. The statement is
+// read from the run's stored rows alone, so a computed, final or superseded run's never changes;
+// `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10,
+// T68g). Refused for a run that is queued, running, failed or discarded (409
 // `consolidation.run_not_computed`) and for a statement other than these two (404
 // `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 // (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not

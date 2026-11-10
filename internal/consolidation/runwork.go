@@ -145,7 +145,8 @@ func (e *Endpoints) PrepareConsolidationRun(ctx context.Context, id uuid.UUID) (
 	return ids, errs.Wrapf(err, "consolidation: companies of run %s", id)
 }
 
-// prepare sets a queued run running with its companies.
+// prepare sets a queued run running with its companies and the run its
+// translation reserve opens from (openingRun).
 func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
 	doc, err := e.version(ctx, r.ConfigVersion)
 	if err != nil {
@@ -155,7 +156,11 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 	if err != nil {
 		return err
 	}
-	if _, err := setStatus(ctx, tx, p, r, RunRunning, ""); err != nil {
+	opening, err := openingRun(ctx, tx, r)
+	if err != nil {
+		return err
+	}
+	if _, err := setStatus(ctx, tx, p, r, RunRunning, ", opening_run_id = $5", opening); err != nil {
 		return err
 	}
 	for _, c := range t.included {

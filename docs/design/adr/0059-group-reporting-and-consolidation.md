@@ -685,7 +685,11 @@ together sum to zero; for
 the profit and loss, revenue, expenses, the profit, its share
 attributable to non-controlling interests (the sum of the `nci` entries'
 profit components) and to the owners of the parent; each with the
-reported, eliminations and consolidated columns. Drill-down is the
+reported, eliminations and consolidated columns; and, below the profit,
+other comprehensive income (the fiscal year's translation differences
+through the period), total comprehensive income and its attribution, with
+the translation reserve per company (the accounting specialist's B3; As
+built: other comprehensive income). Drill-down is the
 balances, entries and differences lists filtered by group account (§7,
 §8). The statement's presentation beyond the group chart (reporting lines,
 notes, comparatives) is out of scope (§1).
@@ -1909,3 +1913,113 @@ Built in `internal/consolidation/investment.go` and migration 000246:
   final run freezes the share capital alone. The fixture's investment is
   its member's share capital (400.00 EUR); the statements keep its
   results before November on retained earnings and its whole reserve.
+
+**Other comprehensive income (the accounting specialist's B3; the tracker
+leaf of po:2026-11-09).** The specialist confirmed §7's translation
+reserve per subsidiary with two additions (po:2026-11-09, B3): the
+difference is recognised in other comprehensive income (IAS 21.39(c),
+21.41) and accumulated in a separate component of equity (IAS 21.52(b)),
+"so the statement of comprehensive income must show it, not only the
+balance sheet"; and the part attributable to the non-controlling interest
+goes to it, not to the group's reserve (IAS 21.41), the reserve staying
+per subsidiary for its reclassification on a disposal (IAS 21.48); B9:
+profit and total comprehensive income are each attributed to the owners
+of the parent and to the interest (IAS 1.81B). Built in
+`internal/consolidation/comprehensive.go` and migration 000247. Profit or
+loss never carried the difference (§7 puts it on the `cta` account, an
+equity account, and the profit is the revenue and expense accounts
+alone), and the balance sheet is unchanged: it keeps the accumulated
+reserve and still sums to zero. Decided by default, for the product owner
+to overrule:
+- **Where it is shown.** On the profit and loss (`profit_and_loss`),
+  below the profit, rather than as a third statement: its totals gain
+  `other_comprehensive_income`, `total_comprehensive_income` (the profit
+  and it) and the latter's attribution,
+  `comprehensive_income_non_controlling_interests` and
+  `comprehensive_income_owners_of_the_parent`, each with the three
+  columns, and the response `translation_reserve`, one row per company
+  of the run by company code (its `opening`, `difference` and `closing`
+  and the difference's two shares), on every page. Additions only; the
+  balance sheet has none of them.
+- **The period.** The fiscal year through the run's period, the span of
+  the statement's profit (§11): a company's difference is its `cta` row
+  of the run (the reserve, cumulative, §7) less its opening.
+- **The opening.** The company's `cta` row in the group's final run of
+  the previous fiscal year's period 12, which the run names when it
+  starts running (`run.opening_run_id`, set by `PrepareConsolidationRun`
+  with the status, so preparing twice names it once; read FOR SHARE, so
+  it is final when named) and the statement shows (`opening_run_id`).
+  Recorded rather than looked up at each read, so a run's statement never
+  changes when that period is finalized again or its final run
+  superseded: the statement reads stored rows alone (§11, §14). Without
+  such a run the reserve opens at zero and the year's difference is the
+  whole reserve: the first fiscal year a group is consolidated in, as the
+  product owner decided for go-live (po:2026-11-05, question 4: the
+  reserve starts at zero). A group whose previous year's period 12 was
+  never finalized (finalized only through an earlier period, say) opens
+  at zero too and shows its whole reserve as the year's; nothing settles
+  another opening for it, and the response says which run it opened from,
+  or none. A company the opening run did not include opens at zero; one
+  it included that the run does not has no row (disposals are out of
+  scope, §1).
+- **A run started before this change** has no opening run recorded: its
+  profit and loss shows its whole reserve as the year's other
+  comprehensive income, as a first year's does, and the same reserve on
+  the balance sheet as before. No group has a final run of an earlier
+  fiscal year yet (consolidation starts at go-live), so no statement of
+  such a run differs from what the rule gives.
+- **Eliminations.** The column holds the year's change of the run's
+  elimination lines on the `cta` account (the run's less the opening
+  run's, each by its own configuration version's account), the `nci`
+  entries' lines left out since they attribute the reserve and do not
+  change it: an elimination's difference account may be the `cta`
+  account (§3, §8), and an acquired member's reserve at acquisition is
+  reversed there (§9). The consolidated figure is then the year's change
+  of the group's reserve: the balance sheet's `cta` row, consolidated, is
+  the opening run's and it.
+- **The non-controlling interest's share (ADR-0005).** Per member, the
+  difference times (100 - ownership) / 100, in exact rational arithmetic,
+  rounded once to the group currency's minor unit, half away from zero
+  (`money.ConvertAt`); the owners of the parent have the difference less
+  it, so the two shares sum to the difference and the rounding remainder
+  is the owners'. The parent has none. Group-level eliminations on the
+  reserve are the owners'. `TestInterestShare` has the rounding cases,
+  `TestComprehensiveTotals` a member at 80%.
+- **What it waits for.** A run still refuses a member held below 100%
+  (`consolidation.structure_unsupported`, As built T68h), so every share
+  a run shows today is zero. The step that writes the `nci` entries (the
+  leaf split from T68h) admits such a member and moves the interest's
+  accumulated share from the `cta` account to the `nci` account on the
+  balance sheet (§9's translation share, rounded on the accumulated
+  difference since acquisition, which can differ from the year's shares
+  summed by a minor unit); it then reads the statement's share from its
+  entries, as the profit's share is read. B3 as the leaf states it is
+  built in the statements; the equity side of the split is that entry.
+  B4's two corrections (a group-currency revaluation's translation part,
+  a net investment's exchange differences) are their own leaves: until
+  them the profit holds those amounts as booked (§7) and other
+  comprehensive income is the `cta` rows' change alone.
+- **Database.** `run.opening_run_id`, nullable, no foreign key (as
+  `superseded_by`: a run is never deleted, and an import restores runs in
+  any order); the trigger `run_opening` lets it be named only as the run
+  goes from queued to running, once, and only the group's final run of
+  the previous fiscal year's period 12 (`run_opening_fixed`,
+  `run_opening_final`), an import excepted (000230's
+  `platform.importing`); `TestConsolidationRunOpeningRules`.
+- **Walkthrough.** In step 40, `consolidation_comprehensive_income`
+  reads the run's profit and loss through the public API: no opening run
+  (MAPLE's first year), Acme Corp US's difference its whole reserve and
+  not zero, each reserve's opening and difference its closing, the two
+  shares the difference, other comprehensive income the companies'
+  differences, the balance sheet's reserve the opening and it, total
+  comprehensive income the profit and it in each column, all of it the
+  owners'. A later year's opening is `TestOtherComprehensiveIncome`'s (a
+  final December 2025 run, November 2026 opening from it in another
+  configuration version, the opening run then superseded), since the
+  walkthrough's group has one fiscal year.
+- **For the specialist** (not built, stated here only as open): whether
+  the single statement suffices for the pilots' reporting or a separate
+  statement of comprehensive income is wanted (a presentation choice;
+  the standard's paragraph on it is not cited here, from memory only),
+  and the opening of a group consolidated here from a year after its
+  members' first, should one arise.

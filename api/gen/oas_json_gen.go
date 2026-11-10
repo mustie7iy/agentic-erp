@@ -50778,6 +50778,22 @@ func (s *ConsolidatedStatement) encodeFields(e *jx.Encoder) {
 		s.Totals.Encode(e)
 	}
 	{
+		if s.OpeningRunID.Set {
+			e.FieldStart("opening_run_id")
+			s.OpeningRunID.Encode(e)
+		}
+	}
+	{
+		if s.TranslationReserve != nil {
+			e.FieldStart("translation_reserve")
+			e.ArrStart()
+			for _, elem := range s.TranslationReserve {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.NextPageToken.Set {
 			e.FieldStart("next_page_token")
 			s.NextPageToken.Encode(e)
@@ -50785,7 +50801,7 @@ func (s *ConsolidatedStatement) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidatedStatement = [13]string{
+var jsonFieldsNameOfConsolidatedStatement = [15]string{
 	0:  "run_id",
 	1:  "group_code",
 	2:  "group_name",
@@ -50798,7 +50814,9 @@ var jsonFieldsNameOfConsolidatedStatement = [13]string{
 	9:  "group_currency",
 	10: "items",
 	11: "totals",
-	12: "next_page_token",
+	12: "opening_run_id",
+	13: "translation_reserve",
+	14: "next_page_token",
 }
 
 // Decode decodes ConsolidatedStatement from json.
@@ -50957,6 +50975,33 @@ func (s *ConsolidatedStatement) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"totals\"")
+			}
+		case "opening_run_id":
+			if err := func() error {
+				s.OpeningRunID.Reset()
+				if err := s.OpeningRunID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening_run_id\"")
+			}
+		case "translation_reserve":
+			if err := func() error {
+				s.TranslationReserve = make([]ConsolidatedTranslationReserve, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ConsolidatedTranslationReserve
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.TranslationReserve = append(s.TranslationReserve, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"translation_reserve\"")
 			}
 		case "next_page_token":
 			if err := func() error {
@@ -51272,17 +51317,45 @@ func (s *ConsolidatedStatementTotals) encodeFields(e *jx.Encoder) {
 			s.OwnersOfTheParent.Encode(e)
 		}
 	}
+	{
+		if s.OtherComprehensiveIncome.Set {
+			e.FieldStart("other_comprehensive_income")
+			s.OtherComprehensiveIncome.Encode(e)
+		}
+	}
+	{
+		if s.TotalComprehensiveIncome.Set {
+			e.FieldStart("total_comprehensive_income")
+			s.TotalComprehensiveIncome.Encode(e)
+		}
+	}
+	{
+		if s.ComprehensiveIncomeNonControllingInterests.Set {
+			e.FieldStart("comprehensive_income_non_controlling_interests")
+			s.ComprehensiveIncomeNonControllingInterests.Encode(e)
+		}
+	}
+	{
+		if s.ComprehensiveIncomeOwnersOfTheParent.Set {
+			e.FieldStart("comprehensive_income_owners_of_the_parent")
+			s.ComprehensiveIncomeOwnersOfTheParent.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsolidatedStatementTotals = [8]string{
-	0: "assets",
-	1: "liabilities",
-	2: "equity",
-	3: "revenue",
-	4: "expenses",
-	5: "profit",
-	6: "non_controlling_interests",
-	7: "owners_of_the_parent",
+var jsonFieldsNameOfConsolidatedStatementTotals = [12]string{
+	0:  "assets",
+	1:  "liabilities",
+	2:  "equity",
+	3:  "revenue",
+	4:  "expenses",
+	5:  "profit",
+	6:  "non_controlling_interests",
+	7:  "owners_of_the_parent",
+	8:  "other_comprehensive_income",
+	9:  "total_comprehensive_income",
+	10: "comprehensive_income_non_controlling_interests",
+	11: "comprehensive_income_owners_of_the_parent",
 }
 
 // Decode decodes ConsolidatedStatementTotals from json.
@@ -51290,7 +51363,7 @@ func (s *ConsolidatedStatementTotals) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ConsolidatedStatementTotals to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -51374,6 +51447,46 @@ func (s *ConsolidatedStatementTotals) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"owners_of_the_parent\"")
 			}
+		case "other_comprehensive_income":
+			if err := func() error {
+				s.OtherComprehensiveIncome.Reset()
+				if err := s.OtherComprehensiveIncome.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"other_comprehensive_income\"")
+			}
+		case "total_comprehensive_income":
+			if err := func() error {
+				s.TotalComprehensiveIncome.Reset()
+				if err := s.TotalComprehensiveIncome.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"total_comprehensive_income\"")
+			}
+		case "comprehensive_income_non_controlling_interests":
+			if err := func() error {
+				s.ComprehensiveIncomeNonControllingInterests.Reset()
+				if err := s.ComprehensiveIncomeNonControllingInterests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"comprehensive_income_non_controlling_interests\"")
+			}
+		case "comprehensive_income_owners_of_the_parent":
+			if err := func() error {
+				s.ComprehensiveIncomeOwnersOfTheParent.Reset()
+				if err := s.ComprehensiveIncomeOwnersOfTheParent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"comprehensive_income_owners_of_the_parent\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -51383,8 +51496,9 @@ func (s *ConsolidatedStatementTotals) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00100000,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -51426,6 +51540,246 @@ func (s *ConsolidatedStatementTotals) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ConsolidatedStatementTotals) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidatedTranslationReserve) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidatedTranslationReserve) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		e.FieldStart("company_name")
+		e.Str(s.CompanyName)
+	}
+	{
+		e.FieldStart("role")
+		e.Str(s.Role)
+	}
+	{
+		if s.OwnershipPercent.Set {
+			e.FieldStart("ownership_percent")
+			s.OwnershipPercent.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("opening")
+		s.Opening.Encode(e)
+	}
+	{
+		e.FieldStart("difference")
+		s.Difference.Encode(e)
+	}
+	{
+		e.FieldStart("closing")
+		s.Closing.Encode(e)
+	}
+	{
+		e.FieldStart("non_controlling_interests")
+		s.NonControllingInterests.Encode(e)
+	}
+	{
+		e.FieldStart("owners_of_the_parent")
+		s.OwnersOfTheParent.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfConsolidatedTranslationReserve = [10]string{
+	0: "legal_entity_id",
+	1: "company_code",
+	2: "company_name",
+	3: "role",
+	4: "ownership_percent",
+	5: "opening",
+	6: "difference",
+	7: "closing",
+	8: "non_controlling_interests",
+	9: "owners_of_the_parent",
+}
+
+// Decode decodes ConsolidatedTranslationReserve from json.
+func (s *ConsolidatedTranslationReserve) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidatedTranslationReserve to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "company_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_name\"")
+			}
+		case "role":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.Role = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"role\"")
+			}
+		case "ownership_percent":
+			if err := func() error {
+				s.OwnershipPercent.Reset()
+				if err := s.OwnershipPercent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ownership_percent\"")
+			}
+		case "opening":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				if err := s.Opening.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"opening\"")
+			}
+		case "difference":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				if err := s.Difference.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"difference\"")
+			}
+		case "closing":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				if err := s.Closing.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing\"")
+			}
+		case "non_controlling_interests":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.NonControllingInterests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"non_controlling_interests\"")
+			}
+		case "owners_of_the_parent":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.OwnersOfTheParent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"owners_of_the_parent\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidatedTranslationReserve")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11101111,
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidatedTranslationReserve) {
+					name = jsonFieldsNameOfConsolidatedTranslationReserve[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidatedTranslationReserve) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidatedTranslationReserve) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

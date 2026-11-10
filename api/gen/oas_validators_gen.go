@@ -17205,6 +17205,31 @@ func (s *ConsolidatedStatement) Validate() error {
 		})
 	}
 	if err := func() error {
+		var failures []validate.FieldError
+		for i, elem := range s.TranslationReserve {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "translation_reserve",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if value, ok := s.NextPageToken.Get(); ok {
 			if err := func() error {
 				if err := (validate.String{
@@ -17420,6 +17445,145 @@ func (s *ConsolidatedStatementTotals) Validate() error {
 			}(); err != nil {
 				return err
 			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "owners_of_the_parent",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.OtherComprehensiveIncome.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "other_comprehensive_income",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.TotalComprehensiveIncome.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "total_comprehensive_income",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.ComprehensiveIncomeNonControllingInterests.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "comprehensive_income_non_controlling_interests",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.ComprehensiveIncomeOwnersOfTheParent.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "comprehensive_income_owners_of_the_parent",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ConsolidatedTranslationReserve) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Opening.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "opening",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Difference.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "difference",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Closing.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "closing",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.NonControllingInterests.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "non_controlling_interests",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.OwnersOfTheParent.Validate(); err != nil {
+			return err
 		}
 		return nil
 	}(); err != nil {

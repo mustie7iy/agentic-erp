@@ -3726,7 +3726,13 @@ permissions `consolidation.difference.accept` and
 `run`'s columns and one-final index of 000224); migration 000243 adds
 the tables marked T68h below and `run_entry_line.component` (T68h, As
 built T68h); migration 000246 holds an incorporated member's goodwill at
-zero and an acquired member's to the residual (T68h2, As built T68h2).
+zero and an acquired member's to the residual (T68h2, As built T68h2);
+migration 000247 adds `run.opening_run_id`, the group's final run of the
+previous fiscal year's period 12 when the run started running, which its
+translation reserve opens from for other comprehensive income (no
+foreign key, as `superseded_by`; named once, as the run starts, and then
+that final run, by the trigger `run_opening`, but by an import; As built:
+other comprehensive income).
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as

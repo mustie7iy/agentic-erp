@@ -78,7 +78,10 @@ func statementTotals(page map[string]any, names ...string) string {
 // totals: the balance sheet's assets,
 // liabilities, equity and the year's profit summing to zero, the profit
 // and loss's revenue, expenses, profit and its attribution, all of it to
-// the owners of the parent. Each row's reported figure is
+// the owners of the parent, and the group's first year's other
+// comprehensive income, 1000's whole reserve, with total comprehensive
+// income (TestOtherComprehensiveIncome has a later year's). Each row's
+// reported figure is
 // the balances list's total of its group account; the balance sheet pages
 // by number; a final run reads alike; a caller who may not act in every
 // company of the group finds no run (ADR-0059 §12).
@@ -121,9 +124,11 @@ func TestConsolidatedStatements(t *testing.T) {
 	if got, w := strings.Join(statementRows(pl), "\n"), strings.Join(want, "\n"); got != w {
 		t.Errorf("the profit and loss: got\n%s\nwant\n%s", got, w)
 	}
-	if got, w := statementTotals(pl, "revenue", "expenses", "profit", "non_controlling_interests", "owners_of_the_parent"), "revenue -355.00 EUR / "+
+	if got, w := statementTotals(pl, comprehensiveNames...), "revenue -355.00 EUR / "+
 		"0.00 EUR / -355.00 EUR, expenses 0.00 EUR / 0.00 EUR / 0.00 EUR, profit -355.00 EUR / 0.00 EUR / -355.00 EUR, non_controlling_interests "+
-		"0.00 EUR / 0.00 EUR / 0.00 EUR, owners_of_the_parent -355.00 EUR / 0.00 EUR / -355.00 EUR"; got != w {
+		"0.00 EUR / 0.00 EUR / 0.00 EUR, owners_of_the_parent -355.00 EUR / 0.00 EUR / -355.00 EUR, other_comprehensive_income -155.00 EUR / 0.00 EUR / "+
+		"-155.00 EUR, total_comprehensive_income -510.00 EUR / 0.00 EUR / -510.00 EUR, comprehensive_income_non_controlling_interests 0.00 EUR / "+
+		"0.00 EUR / 0.00 EUR, comprehensive_income_owners_of_the_parent -510.00 EUR / 0.00 EUR / -510.00 EUR"; got != w {
 		t.Errorf("the profit and loss's totals: got %s, want %s", got, w)
 	}
 	for _, page := range []map[string]any{bs, pl} {

@@ -67,8 +67,12 @@ type Run struct {
 	ComputedAt                *time.Time
 	FinalizedBy, SupersededBy *uuid.UUID
 	FinalizedAt               *time.Time
-	Version                   int32
-	CreatedAt, UpdatedAt      time.Time
+	// OpeningRunID is the group's final run of the previous fiscal year's
+	// last period when the run started, which its translation reserve
+	// opens from (ADR-0059 §11); none before it runs or without one.
+	OpeningRunID         *uuid.UUID
+	Version              int32
+	CreatedAt, UpdatedAt time.Time
 }
 
 // RunProblem is what failed a run: its problem's code and detail.
@@ -82,7 +86,8 @@ func runPath(id uuid.UUID) string { return "/v1/consolidation-runs/" + id.String
 
 // runSelect reads runs.
 const runSelect = `SELECT id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start, period_end, config_version, group_currency,
-		rate_type, status, problem, operation_id, computed_at, finalized_by, finalized_at, superseded_by, version, created_at, updated_at
+		rate_type, status, problem, operation_id, computed_at, finalized_by, finalized_at, superseded_by, version, created_at, updated_at,
+		opening_run_id
 	FROM consolidation.run`
 
 func scanRun(r pgx.Row) (Run, error) {
@@ -90,7 +95,7 @@ func scanRun(r pgx.Row) (Run, error) {
 	var failure []byte
 	err := r.Scan(&x.ID, &x.GroupCode, &x.ParentID, &x.Companies, &x.FiscalYear, &x.Period, &x.PeriodStart, &x.PeriodEnd, &x.ConfigVersion,
 		&x.GroupCurrency, &x.RateType, &x.Status, &failure, &x.OperationID, &x.ComputedAt, &x.FinalizedBy, &x.FinalizedAt, &x.SupersededBy, &x.Version,
-		&x.CreatedAt, &x.UpdatedAt)
+		&x.CreatedAt, &x.UpdatedAt, &x.OpeningRunID)
 	if err == nil && failure != nil {
 		x.Problem = &RunProblem{}
 		// The run wrote it from a RunProblem (FailConsolidationRun); a

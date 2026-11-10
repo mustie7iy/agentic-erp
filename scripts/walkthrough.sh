@@ -3981,6 +3981,7 @@ consolidation_statements() {
   expect "revenue and expenses make the profit" "$(field "[.totals.revenue, .totals.expenses | .reported | $cents] | add")" "$(field ".totals.profit.reported | $cents")"
   say "The profit is the owners' of the parent: Maple holds the whole of Acme Corp US, so no part of it is a non-controlling interest's:"
   expect "the profit's attribution" "$(field '"\(.totals.non_controlling_interests.consolidated.amount) \(.totals.owners_of_the_parent.consolidated.amount == .totals.profit.consolidated.amount)"')" "0.00 true"
+  consolidation_comprehensive_income
   expect "the intercompany results and their difference" \
     "$(field '[.items[] | select(.number | IN("G4250", "G5250", "G6950")) | "\(.number) \(.eliminations.amount) \(.consolidated.amount)"] | join(", ")')" \
     "G4250 2700.00 0.00, G5250 -2700.00 0.00, G6950 -100.00 -100.00"
@@ -5879,6 +5880,48 @@ close_sign_off() {
   say "A manual entry dated in the period is refused: the period is locked."
   refused 409 ledger.period_not_open postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"A late courier charge\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"40.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-40.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+}
+
+# consolidation_comprehensive_income is other comprehensive income on the
+# profit and loss consolidation_statements just read (the accounting
+# specialist's B3, po:2026-11-09; ADR-0059 §11, As built: other
+# comprehensive income): below the profit, the fiscal year's translation
+# differences (IAS 21.39(c), 21.41) with the translation reserve of each
+# company (IAS 21.52(b)), and total comprehensive income attributed to
+# non-controlling interests and to the owners of the parent (IAS 1.81B).
+# MAPLE has no final run of an earlier fiscal year, so the reserve opens
+# at zero and the year's difference is Acme Corp US's whole reserve, the
+# one the balance sheet carries; Maple holds it whole, so all of it is the
+# owners'. It reads $WORK/profit-and-loss.json and $WORK/balance-sheet.json.
+consolidation_comprehensive_income() {
+  local column cents='(.amount | tonumber * 100 | round)' pl="$WORK/profit-and-loss.json"
+  say "Below the profit, the statement shows other comprehensive income (B3): the year's translation differences are not"
+  say "part of the profit; they accumulate in the translation reserve, kept per company. The reserve opens at what the"
+  say "group's final run of the previous fiscal year's last period showed; MAPLE has none, so it opens at zero:"
+  jq -r '"  opening run: \(.opening_run_id // "none")",
+    (.translation_reserve[] | "  \(.company_code) \(.company_name) (\(.role)\(if .ownership_percent then ", held at \(.ownership_percent)%" else "" end)): opening \(.opening.amount), difference \(.difference.amount), closing \(.closing.amount) \(.closing.currency); non-controlling interests \(.non_controlling_interests.amount), owners of the parent \(.owners_of_the_parent.amount)"),
+    (.totals | to_entries[] | select(.key | test("comprehensive")) | "  total \(.key): reported \(.value.reported.amount), eliminations \(.value.eliminations.amount), consolidated \(.value.consolidated.amount)")' "$pl"
+  expect "the opening run" "$(jq -r '.opening_run_id // "none"' "$pl")" none
+  expect "the companies with a reserve row" "$(jq -r '[.translation_reserve[] | "\(.company_code) \(.role)"] | join(", ")' "$pl")" "1000 member, 3000 parent"
+  expect "each reserve's opening and difference make its closing" \
+    "$(jq -r "[.translation_reserve[] | (.opening | $cents) + (.difference | $cents) == (.closing | $cents)] | all" "$pl")" true
+  expect "each difference's two shares make it" \
+    "$(jq -r "[.translation_reserve[] | (.non_controlling_interests | $cents) + (.owners_of_the_parent | $cents) == (.difference | $cents)] | all" "$pl")" true
+  expect "other comprehensive income is the companies' differences" "$(jq -r ".totals.other_comprehensive_income.reported | $cents" "$pl")" \
+    "$(jq -r "[.translation_reserve[].difference | $cents] | add" "$pl")"
+  expect "Acme Corp US has a translation difference" "$(jq -r '.translation_reserve[] | select(.company_code == "1000") | .difference.amount != "0.00"' "$pl")" true
+  expect "the reserve on the balance sheet is its opening and other comprehensive income, consolidated" \
+    "$(jq -r ".items[] | select(.role == \"cta\") | .consolidated | $cents" "$WORK/balance-sheet.json")" \
+    "$(jq -r "([.translation_reserve[].opening | $cents] | add) + (.totals.other_comprehensive_income.consolidated | $cents)" "$pl")"
+  for column in reported eliminations consolidated; do
+    expect "total comprehensive income is the profit and other comprehensive income, $column" \
+      "$(jq -r ".totals.total_comprehensive_income.$column | $cents" "$pl")" \
+      "$(jq -r "(.totals.profit.$column | $cents) + (.totals.other_comprehensive_income.$column | $cents)" "$pl")"
+  done
+  say "Maple holds the whole of Acme Corp US, so total comprehensive income is the owners' of the parent too:"
+  expect "total comprehensive income's attribution" \
+    "$(jq -r '"\(.totals.comprehensive_income_non_controlling_interests.consolidated.amount) \(.totals.comprehensive_income_owners_of_the_parent.consolidated.amount == .totals.total_comprehensive_income.consolidated.amount)"' "$pl")" \
+    "0.00 true"
 }
 
 # close_consolidation is finalizing the group's consolidation (T68g,

@@ -153,8 +153,11 @@ func (f figures) value(r *row) error {
 
 // role is the group chart's account with the role; validation keeps each
 // role on one account once a group exists.
-func (f figures) role(role string) string {
-	for _, a := range f.chart.Accounts {
+func (f figures) role(role string) string { return roleAccount(f.chart, role) }
+
+// roleAccount is a group chart's account with the role.
+func roleAccount(chart config.Consolidation, role string) string {
+	for _, a := range chart.Accounts {
 		if a.Role == role {
 			return a.Number
 		}
