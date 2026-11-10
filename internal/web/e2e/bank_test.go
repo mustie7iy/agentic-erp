@@ -202,6 +202,11 @@ func TestLineSearchInTheBrowser(t *testing.T) {
 		if kept, err := chromedp.Run(ctx, chromedp.Evaluate[bool](`window.notReloaded === true`)); err != nil || !kept {
 			t.Errorf("the filter reloaded the page rather than its results (%v)", err)
 		}
+		// htmx replaced the results without loading the page, so where the
+		// next Tab lands depends on the browser: Chrome 157 no longer
+		// starts at the skip link here (ci-local, 2026-11-10), as on the
+		// invoice form's pages that use fromTheTop.
+		fromTheTop(t, ctx)
 		audit(t, ctx, src, "en", "ltr", width)
 		for _, e := range c.errors() {
 			t.Errorf("browser: %s", e)
