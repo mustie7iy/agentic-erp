@@ -320,3 +320,58 @@ document in a foreign currency):
   pass unchanged. Tested on real PostgreSQL by `TestSourceRatePosting`
   (a rate of 0.92 and of 1 in EUR, with and without local amounts kept)
   and `TestGRIRTakeOverRefusals` (a take-over in local currency).
+
+## As built: SAP amounts in internal form, converted with TCURX (po:2026-11-09)
+The pilot customer questionnaire's D10 planning default (to be confirmed
+by the customer before go-live) has SAP's tables exported in SAP's
+internal amount form, with TCURX taken so that the platform converts. This
+ADR's rule that an amount is integer minor units of its currency decides
+the rest by default:
+- **One conversion.** SAP's storage rule, TCURX's fields and that a
+  currency TCURX does not list has two decimals are stated from memory,
+  for the SAP specialist to confirm (docs/migration.md, "What to check on
+  a real SAP system"). The conversion is `sap.FromInternal` with
+  `sap.CurrencyDecimals` (internal/sap/amounts.go). Every SAP amount a
+  migration run reads goes through
+  `target.amount` (internal/integration/amounts.go): in external form it
+  is read with the currency's ISO digits, as before; in internal form with
+  two decimals, then shifted to the currency's TCURX-CURRDEC and read with
+  its ISO digits (`10.00` JPY of CURRDEC 0 is JPY 1,000; `12.34` KWD of
+  CURRDEC 3 is KWD 1.234). A currency TCURX does not list has two
+  decimals, which the run relies on only for a currency of two ISO
+  decimals. The load, the quality gate and the reconciliation share it, so
+  SAP's side of a check is the real amount, not the stored one.
+- **The form is the connector's.** A `sap_file` connector's
+  `amount_format` is `internal` (the default, D10) or `external` (an
+  export asked for in external form); a `sap_odata` connector's amounts
+  are external, as OData delivers them, and it refuses the setting. It is
+  a connector setting rather than a run's scope because it describes how
+  the source writes its files, as `path` and `system` do; the contract's
+  `MigrationScope` is unchanged.
+- **Never a guess.** The quality gate refuses an extract in internal form
+  that has no TCURX, or whose TCURX does not list a currency of other than
+  two ISO decimals it holds amounts in, naming those currencies once
+  (table `TCURX`) beside each amount's own refusal; an amount with more
+  significant decimals than its form allows, or than its currency's minor
+  unit holds once converted; and a TCURX row the conversion cannot use (a
+  CURRDEC that is no digit from 0 to 9, a currency listed with two
+  different decimals). The run's `extract` counts do not count TCURX, as
+  they do not count the other tables only a check reads (T042*, CSKB).
+- **Tests.** On real PostgreSQL, `TestAmountForms` loads open items in
+  JPY, KWD, CAD and AED of a EUR company from an extract in internal form
+  (by default and named) and in external form, and reconciles each
+  currency's total with SAP's (`-100000 JPY`, `-1.234 KWD`);
+  `TestAmountFormRefusals` refuses a missing TCURX, a currency it does not
+  list, a yen amount with decimals in either form and unusable TCURX rows,
+  loading nothing; `TestODataAmountsAreExternal` (internal/sap) maps an
+  OData yen invoice unshifted. The walkthrough's step 3 rehearses the mock
+  extract with a yen invoice in internal form, reconciled as JPY 100,000,
+  and refused without TCURX.
+- **The configuration draft too** (review round 1). `erp config
+  generate` converts the price tolerance T169G-WERTO and the T042E payment
+  limits its notes quote with the same helpers: internal for a file
+  extract unless `-amount-format external`, external for OData
+  (`sapconfig.Options.ExternalAmounts`). A tolerance it cannot convert
+  keeps the 5.00 default with a note, never the raw stored figure;
+  `TestDraftAmountForms` covers a JPY and a KWD company with and without
+  TCURX and in external form.

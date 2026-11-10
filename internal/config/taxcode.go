@@ -44,6 +44,13 @@ type TaxComponent struct {
 	// each line with the code names (CA-ON, AE-DU), its Jurisdiction the
 	// country (T61f): one output code for every province or emirate.
 	JurisdictionOnLine bool `yaml:"jurisdiction_on_line,omitempty" json:"jurisdiction_on_line,omitempty"`
+	// Subdivisions are those a component levying its lines' subdivision
+	// accepts (AE-AZ ... AE-FU, the emirates): a line naming another is
+	// refused, so a mistyped one cannot leave its tax off the return's
+	// boxes by subdivision (ADR-0049 §7 As built, the emirate guard). None
+	// accepts any subdivision of its country, as a code configured before
+	// the guard, or a released pack version holding none, does.
+	Subdivisions []string `yaml:"subdivisions,omitempty" json:"subdivisions,omitempty"`
 	// AccountKey says where the tax posts (SAP MWS, VST, NVV, ESA/ESE).
 	AccountKey string `yaml:"account_key" json:"account_key"`
 	// RecoverablePercent is the share of input tax that is recoverable: 100
@@ -261,6 +268,7 @@ func (v *validator) components(tp string, t TaxCode, account func(string) string
 		if c.JurisdictionOnLine && (t.DirectionOrInput() != TaxOutput || !countryRe.MatchString(c.Jurisdiction)) {
 			v.err(cp+".jurisdiction_on_line", "a component of an output code whose jurisdiction is a country (CA, AE) levies its lines' subdivisions")
 		}
+		v.subdivisions(cp, c)
 	}
 	selfAssessed := kind == TaxReverseCharge || kind == TaxImport
 	switch {
@@ -270,6 +278,26 @@ func (v *validator) components(tp string, t TaxCode, account func(string) string
 		v.err(tp+".components", "self_output and self_input components come in pairs")
 	case kind == TaxReverseCharge && pairs[KeySelfOutput] == 0:
 		v.err(tp+".components", "a reverse_charge code needs self_output and self_input components")
+	}
+}
+
+// subdivisions checks the subdivisions a component accepts: only on one
+// levying its lines' subdivision, each a subdivision of its country
+// (ISO 3166-2), listed once.
+func (v *validator) subdivisions(cp string, c TaxComponent) {
+	if len(c.Subdivisions) == 0 {
+		return
+	}
+	if !c.JurisdictionOnLine {
+		v.err(cp+".subdivisions", "only a component that levies its lines' subdivision lists the subdivisions it accepts")
+		return
+	}
+	seen := map[string]bool{}
+	for _, s := range c.Subdivisions {
+		if seen[s] || !jurisdictionRe.MatchString(s) || !strings.HasPrefix(s, c.Jurisdiction+"-") {
+			v.err(cp+".subdivisions", "each a subdivision of %s (ISO 3166-2, %s-…), listed once: got %q", c.Jurisdiction, c.Jurisdiction, s)
+		}
+		seen[s] = true
 	}
 }
 

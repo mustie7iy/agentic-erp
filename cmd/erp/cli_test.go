@@ -23,6 +23,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/buildinfo"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/sap"
 )
 
 // reply is a canned API answer; status 0 aborts the connection instead.
@@ -199,6 +200,8 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "127.0.0.1", "config", "generate", "-source", "odata:http://127.0.0.1:1")
 	fails(t, "not a directory", "config", "generate", "-source", "file:extract.json", "-out", "file/draft.yaml")
 	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000")
+	fails(t, "invalid -amount-format", "config", "generate", "-source", "file:extract.json", "-amount-format", "shifted")
+	fails(t, "invalid -amount-format", "config", "generate", "-source", "odata:http://127.0.0.1:1", "-amount-format", "internal")
 	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000=")
 	// SAP's extract has no time zone for a company code: without one given,
 	// the draft names the company and key to set (product owner 2026-10-31).
@@ -956,5 +959,35 @@ func TestAgentsUseTheGateway(t *testing.T) {
 	t.Setenv("ERP_AGENT_MODEL", "erp-default")
 	if a := defaultAgent(c); a.Model != "erp-default" {
 		t.Errorf("analytics with ERP_AGENT_MODEL: got %s, want erp-default", a.Model)
+	}
+}
+
+// TestExternalAmounts: a file extract's amounts are in SAP's internal form
+// unless -amount-format says external; an OData source's are external and
+// cannot be internal.
+func TestExternalAmounts(t *testing.T) {
+	file, odata := sap.FileSource{Path: "x.json"}, &sap.ODataSource{BaseURL: "https://x"}
+	for name, c := range map[string]struct {
+		src     sap.Source
+		form    string
+		want    bool
+		wantErr bool
+	}{
+		"file":           {file, "", false, false},
+		"file internal":  {file, "internal", false, false},
+		"file external":  {file, "external", true, false},
+		"OData":          {odata, "", true, false},
+		"OData external": {odata, "external", true, false},
+		"OData internal": {odata, "internal", false, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := externalAmounts(c.src, c.form)
+			if (err != nil) != c.wantErr {
+				t.Fatalf("externalAmounts(%s): got error %v, want one: %v", c.form, err, c.wantErr)
+			}
+			if got != c.want {
+				t.Errorf("externalAmounts(%s): got %v, want %v", c.form, got, c.want)
+			}
+		})
 	}
 }

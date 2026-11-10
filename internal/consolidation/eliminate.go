@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -79,18 +80,23 @@ type difference struct {
 }
 
 // entryLine is an elimination entry's line: a reversed row's, with its
-// company's code and line for the order, or a difference's, of no
-// company.
+// company's code and line for the order, a difference's, of no company,
+// or an acquisition equity's, of the member and no line; with its
+// component on an investment entry.
 type entryLine struct {
 	group                     string
 	company, account, partner *uuid.UUID
 	companyCode               string
 	line                      int32
 	amount                    money.Minor
+	component                 string
 }
 
-// entry is an intercompany entry of a pair.
+// entry is an elimination entry: an intercompany entry of an elimination
+// and a pair, or a member's investment entry (no elimination, partner
+// uuid.Nil).
 type entry struct {
+	kind             string
 	elimination      string
 	company, partner uuid.UUID
 	lines            []entryLine
@@ -178,7 +184,7 @@ func statusOf(diff, tolerance money.Minor) string {
 // its difference on the elimination's difference account, lines of zero
 // left out; none when no line is left.
 func (m matching) entryOf(d difference) (entry, bool) {
-	en := entry{elimination: d.elimination, company: d.company, partner: *d.partner}
+	en := entry{kind: EntryIntercompany, elimination: d.elimination, company: d.company, partner: *d.partner}
 	for _, r := range d.rows {
 		if r.gc != 0 {
 			en.lines = append(en.lines, entryLine{group: r.group, company: &r.company, account: r.account, partner: r.partner,
@@ -237,7 +243,7 @@ func (e *Endpoints) EliminateConsolidationRun(ctx context.Context, id uuid.UUID)
 	var done bool
 	var pending int
 	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM consolidation.run_difference WHERE run_id = $1)
-			OR EXISTS (SELECT FROM consolidation.run_entry WHERE run_id = $1),
+			OR EXISTS (SELECT FROM consolidation.run_entry WHERE run_id = $1) OR EXISTS (SELECT FROM consolidation.run_acquisition WHERE run_id = $1),
 			(SELECT count(*) FROM consolidation.run_member WHERE run_id = $1 AND translated_at IS NULL)`, id).Scan(&done, &pending); err != nil {
 		return fmt.Errorf("consolidation: eliminations of run %s: %w", id, err)
 	}
@@ -247,7 +253,11 @@ func (e *Endpoints) EliminateConsolidationRun(ctx context.Context, id uuid.UUID)
 	case pending > 0:
 		return fmt.Errorf("consolidation: %d of the companies of run %s are not translated yet; it is eliminated after them", pending, id)
 	}
-	m, accounts, err := e.matchingOf(ctx, tx, r)
+	doc, err := e.version(ctx, r.ConfigVersion)
+	if err != nil {
+		return fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
+	}
+	m, accounts, err := e.matchingOf(ctx, tx, r, doc)
 	if err != nil {
 		return err
 	}
@@ -261,19 +271,22 @@ func (e *Endpoints) EliminateConsolidationRun(ctx context.Context, id uuid.UUID)
 		return fmt.Errorf("consolidation: intercompany rows of run %s: %w", id, err)
 	}
 	diffs, entries := m.match(ic)
+	investments, acqs, err := e.investments(ctx, tx, r, doc)
+	if err != nil {
+		return err
+	}
 	if err := writeDifferences(ctx, tx, p, id, diffs); err != nil {
 		return err
 	}
-	return writeEntries(ctx, tx, p, id, entries)
+	if err := writeEntries(ctx, tx, p, id, append(entries, investments...)); err != nil {
+		return err
+	}
+	return writeAcquisitions(ctx, tx, p, id, acqs)
 }
 
 // matchingOf reads what a run's matching needs, and the group accounts of
 // its eliminations.
-func (e *Endpoints) matchingOf(ctx context.Context, tx pgx.Tx, r Run) (matching, []string, error) {
-	doc, err := e.version(ctx, r.ConfigVersion)
-	if err != nil {
-		return matching{}, nil, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
-	}
+func (e *Endpoints) matchingOf(ctx context.Context, tx pgx.Tx, r Run, doc *config.Config) (matching, []string, error) {
 	m := matching{codes: map[uuid.UUID]string{}, partners: map[uuid.UUID]string{}, eliminationOf: map[string]string{},
 		tolerance: map[string]money.Minor{}, differenceTo: map[string]string{}}
 	exp, err := currency.Exponent(ctx, tx, r.GroupCurrency, nil)
@@ -345,32 +358,39 @@ func optUUID(id *uuid.UUID) pgtype.UUID {
 	return pgtype.UUID{Bytes: *id, Valid: true}
 }
 
-// writeEntries writes a run's intercompany entries, numbered in their
-// order, and their lines, each in one statement.
+// optText is a text or NULL for "".
+func optText(s string) pgtype.Text { return pgtype.Text{String: s, Valid: s != ""} }
+
+// writeEntries writes a run's elimination entries, numbered in their
+// order (the intercompany ones first, then the investment ones), and
+// their lines, each in one statement.
 func writeEntries(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run uuid.UUID, entries []entry) error {
 	var nos, lineEntries, lineNos []int32
-	var elims, groups []string
-	var companies, partners []uuid.UUID
-	var lineCompanies, accounts, tradingPartners []pgtype.UUID
+	var kinds, groups []string
+	var elims, components []pgtype.Text
+	var companies []uuid.UUID
+	var partners, lineCompanies, accounts, tradingPartners []pgtype.UUID
 	var amounts []int64
 	for i, en := range entries {
 		no := int32(i + 1)
-		nos, elims, companies, partners = append(nos, no), append(elims, en.elimination), append(companies, en.company), append(partners, en.partner)
+		nos, kinds, elims, companies = append(nos, no), append(kinds, en.kind), append(elims, optText(en.elimination)), append(companies, en.company)
+		partners = append(partners, pgtype.UUID{Bytes: en.partner, Valid: en.partner != uuid.Nil})
 		for j, l := range en.lines {
 			lineEntries, lineNos, groups, amounts = append(lineEntries, no), append(lineNos, int32(j+1)), append(groups, l.group), append(amounts, int64(l.amount))
 			lineCompanies, accounts, tradingPartners = append(lineCompanies, optUUID(l.company)), append(accounts, optUUID(l.account)),
 				append(tradingPartners, optUUID(l.partner))
+			components = append(components, optText(l.component))
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO consolidation.run_entry (tenant_id, run_id, entry_no, kind, legal_entity_id, partner_id, elimination_code)
-		SELECT $1, $2, x.n, 'intercompany', x.c, x.p, x.e FROM unnest($3::int[], $4::uuid[], $5::uuid[], $6::text[]) AS x(n, c, p, e)`,
-		p.TenantID, run, nos, companies, partners, elims); err != nil {
+		SELECT $1, $2, x.n, x.k, x.c, x.p, x.e FROM unnest($3::int[], $4::text[], $5::uuid[], $6::uuid[], $7::text[]) AS x(n, k, c, p, e)`,
+		p.TenantID, run, nos, kinds, companies, partners, elims); err != nil {
 		return fmt.Errorf("consolidation: elimination entries of run %s: %w", run, err)
 	}
 	_, err := tx.Exec(ctx, `INSERT INTO consolidation.run_entry_line (tenant_id, run_id, entry_no, line_no, group_account, legal_entity_id, account_id,
-			trading_partner_id, amount_gc)
-		SELECT $1, $2, x.e, x.n, x.g, x.c, x.a, x.t, x.m
-		FROM unnest($3::int[], $4::int[], $5::text[], $6::uuid[], $7::uuid[], $8::uuid[], $9::bigint[]) AS x(e, n, g, c, a, t, m)`,
-		p.TenantID, run, lineEntries, lineNos, groups, lineCompanies, accounts, tradingPartners, amounts)
+			trading_partner_id, component, amount_gc)
+		SELECT $1, $2, x.e, x.n, x.g, x.c, x.a, x.t, x.k, x.m
+		FROM unnest($3::int[], $4::int[], $5::text[], $6::uuid[], $7::uuid[], $8::uuid[], $9::text[], $10::bigint[]) AS x(e, n, g, c, a, t, k, m)`,
+		p.TenantID, run, lineEntries, lineNos, groups, lineCompanies, accounts, tradingPartners, components, amounts)
 	return errs.Wrapf(err, "consolidation: elimination entry lines of run %s", run)
 }

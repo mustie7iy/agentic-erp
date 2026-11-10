@@ -186,8 +186,7 @@ func TestUAEPack(t *testing.T) {
 // is 2026.1's byte for byte and returns.yaml is new; the manifest is
 // 2026.1's but for its version and the VAT 201 sources' titles (its
 // header comment aside), with no sign-off, as the tax specialist has not
-// confirmed the return. It is the latest UAE pack and defines the return
-// type VAT201.
+// confirmed the return. It defines the return type VAT201.
 func TestUAEPack2026_2(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -199,9 +198,6 @@ func TestUAEPack2026_2(t *testing.T) {
 	}
 	if ae.SignedOff() {
 		t.Error("SignedOff: got true, want false until the tax specialist confirms the return")
-	}
-	if got := lib.Latest("AE"); got != ae {
-		t.Errorf("Latest(AE): got %s, want ae/2026.2", got.Dir())
 	}
 	if ae.Return("VAT201") == nil || len(prev.Returns.Returns) != 0 {
 		t.Errorf("returns: got %d in 2026.1 and VAT201 %v in 2026.2, want none and the return", len(prev.Returns.Returns), ae.Return("VAT201") != nil)
@@ -220,22 +216,129 @@ func TestUAEPack2026_2(t *testing.T) {
 	if len(ae.Manifest.Sources) != len(prev.Manifest.Sources) || !reflect.DeepEqual(&same, prev) {
 		t.Error("2026.2 without its version, its sources' titles and the return: got other than 2026.1, want it unchanged")
 	}
-	files, err := fs.ReadDir(packs.FS, "ae/2026.2")
+	sameFiles(t, "ae/2026.1", "ae/2026.2", "pack.yaml", "returns.yaml")
+}
+
+// emirates are the ISO 3166-2 codes of the seven emirates, in the order of
+// boxes 1a-1g, as the tax specialist confirmed them (product owner,
+// 2026-11-09).
+var emirates = []string{"AE-AZ", "AE-DU", "AE-SH", "AE-AJ", "AE-UQ", "AE-RK", "AE-FU"}
+
+// UAE 2026.3 is 2026.2 with the emirate guard (ADR-0049 §7 As built): S5's
+// component levying the line's emirate lists the seven emirates, the
+// emirates boxes 1a-1g select, and nothing else differs: every file but
+// pack.yaml and tax.yaml is 2026.2's byte for byte, and the manifest is
+// 2026.2's but for its version (its header comment aside), with no
+// sign-off (2026.4 has it).
+func TestUAEPack2026_3(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
 	if err != nil {
-		t.Fatalf("ReadDir(ae/2026.2): %v", err)
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ae := lib.Get("AE", "2026.2"), lib.Get("AE", "2026.3")
+	if prev == nil || ae == nil {
+		t.Fatalf("Get(AE, 2026.2) and Get(AE, 2026.3): got %v and %v, want both", prev, ae)
+	}
+	if ae.SignedOff() {
+		t.Error("SignedOff: got true, want false: the sign-off is a later version")
+	}
+	i := slices.IndexFunc(ae.Tax.TaxCodes, func(c config.TaxCode) bool { return c.Code == "S5" })
+	if i < 0 || len(ae.Tax.TaxCodes[i].Components) != 1 {
+		t.Fatalf("S5: got %v, want the code with its one component", ae.Tax.TaxCodes)
+	}
+	if got := ae.Tax.TaxCodes[i].Components[0].Subdivisions; !reflect.DeepEqual(got, emirates) {
+		t.Errorf("S5's subdivisions: got %v, want the seven emirates %v", got, emirates)
+	}
+	var boxed []string
+	for _, b := range ae.Return("VAT201").Boxes {
+		if b.Select != nil && b.Select.Direction == config.TaxOutput && slices.Contains(b.Select.Kinds, config.TaxStandard) {
+			boxed = append(boxed, b.Select.Jurisdictions...)
+		}
+	}
+	// Each emirate's boxes are adjacent (amount, VAT), so compacting them
+	// leaves the emirates in the boxes' order, a repeat apart showing.
+	if boxed = slices.Compact(boxed); !reflect.DeepEqual(boxed, emirates) {
+		t.Errorf("the emirates of boxes 1a-1g: got %v, want S5's %v", boxed, emirates)
+	}
+	same := *ae
+	same.Manifest.Version = prev.Manifest.Version
+	same.Tax.TaxCodes = slices.Clone(ae.Tax.TaxCodes)
+	s5 := same.Tax.TaxCodes[i]
+	s5.Components = []config.TaxComponent{s5.Components[0]}
+	s5.Components[0].Subdivisions = nil
+	same.Tax.TaxCodes[i] = s5
+	if !reflect.DeepEqual(&same, prev) {
+		t.Error("2026.3 without its version and S5's subdivisions: got other than 2026.2, want it unchanged")
+	}
+	sameFiles(t, "ae/2026.2", "ae/2026.3", "pack.yaml", "tax.yaml")
+}
+
+// UAE 2026.4 is 2026.3 signed off (T62f's and T61k's sign-off leaves, one
+// version): the tax specialist's sign-off as the product owner reported it
+// on 2026-11-09, the documentary tier no longer pending, and nothing else:
+// every file but pack.yaml and tax.yaml is 2026.3's byte for byte, and the
+// manifest differs only in its version and sign-off (its header comment
+// aside). It is the latest UAE pack, and applies without the note that no
+// tax specialist signed it off.
+func TestUAEPack2026_4(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	prev, ae := lib.Get("AE", "2026.3"), lib.Get("AE", "2026.4")
+	if prev == nil || ae == nil {
+		t.Fatalf("Get(AE, 2026.3) and Get(AE, 2026.4): got %v and %v, want both", prev, ae)
+	}
+	if got, want := ae.Manifest.SignOff, (&SignOff{TaxSpecialist: "Musto Ibrahim", Date: "2026-11-09"}); !reflect.DeepEqual(got, want) {
+		t.Errorf("sign-off: got %+v, want %+v", got, want)
+	}
+	if !ae.SignedOff() {
+		t.Error("SignedOff: got false, want true")
+	}
+	tiers := ae.Tax.Settings.DocumentaryRequirements
+	if len(tiers) != 1 || tiers[0].PendingSignOff {
+		t.Fatalf("documentary tiers: got %+v, want the one tier, not pending", tiers)
+	}
+	same := *ae
+	same.Manifest.Version, same.Manifest.SignOff = prev.Manifest.Version, nil
+	same.Tax.Settings.DocumentaryRequirements = []config.DocumentaryRequirement{tiers[0]}
+	same.Tax.Settings.DocumentaryRequirements[0].PendingSignOff = true
+	if !reflect.DeepEqual(&same, prev) {
+		t.Error("2026.4 without its version, sign-off and the tier's pending flag: got other than 2026.3, want it unchanged")
+	}
+	if got := lib.Latest("AE"); got != ae {
+		t.Errorf("Latest(AE): got %s, want ae/2026.4", got.Dir())
+	}
+	sameFiles(t, "ae/2026.3", "ae/2026.4", "pack.yaml", "tax.yaml")
+	_, notes, err := Apply(companyIn(t, "AE", "AED"), ae, lib, Options{Company: "1000", On: time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), FiscalYear: 2026})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if hasNote(notes, "packs[1000]", "no tax specialist has signed this pack off") {
+		t.Errorf("notes: got %v, want none saying the pack is not signed off", notes)
+	}
+}
+
+// sameFiles fails unless every file of dir but those excepted has the
+// bytes of the same file in prev.
+func sameFiles(t *testing.T, prev, dir string, except ...string) {
+	t.Helper()
+	files, err := fs.ReadDir(packs.FS, dir)
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", dir, err)
 	}
 	for _, f := range files {
-		if f.Name() == "pack.yaml" || f.Name() == "returns.yaml" {
+		if slices.Contains(except, f.Name()) {
 			continue
 		}
 		t.Run(f.Name(), func(t *testing.T) {
-			was, errWas := fs.ReadFile(packs.FS, "ae/2026.1/"+f.Name())
-			is, errIs := fs.ReadFile(packs.FS, "ae/2026.2/"+f.Name())
+			was, errWas := fs.ReadFile(packs.FS, prev+"/"+f.Name())
+			is, errIs := fs.ReadFile(packs.FS, dir+"/"+f.Name())
 			if errWas != nil || errIs != nil {
 				t.Fatalf("read: got %v and %v, want the file in both versions", errWas, errIs)
 			}
 			if string(was) != string(is) {
-				t.Error("got other bytes than 2026.1's, want the same file")
+				t.Errorf("got other bytes than %s's, want the same file", prev)
 			}
 		})
 	}
@@ -318,5 +421,26 @@ func TestUAEPackVAT201(t *testing.T) {
 		if !strings.Contains(string(b), u) || !slices.ContainsFunc(ae.Manifest.Sources, func(s Source) bool { return s.URL == u }) {
 			t.Errorf("source %s: got it missing from the pending file or the manifest, want both", u)
 		}
+	}
+}
+
+// TestUAEPackVAT201SignedOff: the VAT 201 the tax specialist signed off
+// (T61k's sign-off leaf, product owner 2026-11-09) is 2026.2's, box for box,
+// in UAE 2026.4, the version signed off: the sign-off froze the return as
+// TestUAEPackVAT201 holds it to packs/ae/TAX-PENDING-T61k.md.
+func TestUAEPackVAT201SignedOff(t *testing.T) {
+	lib, err := LoadAll(packs.FS)
+	if err != nil {
+		t.Fatalf("LoadAll(packs.FS): %v", err)
+	}
+	was, signed := lib.Get("AE", "2026.2"), lib.Get("AE", "2026.4")
+	if was == nil || signed == nil || signed.Return("VAT201") == nil {
+		t.Fatalf("Get(AE, 2026.2) and Get(AE, 2026.4).Return(VAT201): got %v and %v, want both with the return", was, signed)
+	}
+	if !reflect.DeepEqual(signed.Return("VAT201"), was.Return("VAT201")) {
+		t.Error("2026.4's VAT 201: got other than 2026.2's, want the return unchanged")
+	}
+	if !signed.SignedOff() {
+		t.Error("2026.4 SignedOff: got false, want true")
 	}
 }

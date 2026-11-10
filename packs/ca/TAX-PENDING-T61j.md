@@ -86,3 +86,10 @@ Not built, waiting for the specialist and the pilot:
 
 Source (in `2026.6/pack.yaml`):
 - CRA, Instructions for preparing a GST/HST return: https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/calculate-prepare-report/instructions-preparing-return.html
+
+Signed off (`2026.7/pack.yaml`): the tax specialist, Musto Ibrahim,
+confirmed the lines, the sums written from memory and the mapping above,
+items 1-7, as written on 2026-11-09 (reported by the product owner).
+2026.7's `returns.yaml` is 2026.6's byte for byte, its labels' "from
+memory" markers included (ADR-0049 §11 As built, T61j: Signed off). Item
+8, the FPZ-500, is not part of it and stays its own tracker leaf.

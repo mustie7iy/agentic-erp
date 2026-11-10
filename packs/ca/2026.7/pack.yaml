@@ -1,0 +1,46 @@
+# Canada (ADR-0048, T62e). 2026.7 is 2026.6 signed off: the tax
+# specialist, Musto Ibrahim, confirmed on 2026-11-09 (reported by the
+# product owner) the GST/HST return's lines of returns.yaml (T61j), the
+# sums of 112, 113A, 113B, 113C, 114 and 115 written from memory, and how
+# the tenant's codes map to the lines, the items of ../TAX-PENDING-T61j.md.
+# Every file but this one is 2026.6's, unchanged; the remarks and labels
+# calling items pending the tax specialist or from memory describe
+# 2026.6's state, as the sign-off freezes the content as it is. The
+# FPZ-500 for a Quebec registrant is not in the pack (its own tracker
+# leaf).
+country: CA
+version: "2026.7"
+name: Canada
+valid_from: 2026-01-01
+sources:
+  - title: "Canada Revenue Agency: Instructions for preparing a GST/HST return (the lines 101 to 115, 205 and 405), as ADR-0049 cites it from its proposal of 2026-10-20; not fetched again in T61j"
+    url: https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/calculate-prepare-report/instructions-preparing-return.html
+    retrieved: 2026-10-20
+  - title: "Input Tax Credit Information (GST/HST) Regulations, SOR/91-45, s. 3: the information a document must show, by its total (under $100; $100 to under $500; $500 or more)"
+    url: https://laws-lois.justice.gc.ca/eng/regulations/SOR-91-45/section-3.html
+    retrieved: 2026-11-01
+  - title: "IFRS Foundation: IAS 7 Statement of Cash Flows (cash flows classified into operating, investing and financing activities)"
+    url: https://www.ifrs.org/issued-standards/list-of-standards/ias-7-statement-of-cash-flows/
+    retrieved: 2026-10-21
+  - title: "Canada Revenue Agency: GST/HST calculator (and rates), current and previous periods"
+    url: https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate/calculator.html
+    retrieved: 2026-10-20
+  - title: "Canada Revenue Agency: GST/HST Info Sheet GI-190, New Brunswick and Newfoundland and Labrador HST rate increases (July 1, 2016)"
+    url: https://www.canada.ca/en/revenue-agency/services/forms-publications/publications/gi-190/new-brunswick-newfoundland-labrador-hst-rate-increases-sales-rentals-new-housing.html
+    retrieved: 2026-10-20
+  - title: "Government of British Columbia: B.C. provincial sales tax (PST), general rate 7%"
+    url: https://www2.gov.bc.ca/gov/content/taxes/sales-taxes/pst
+    retrieved: 2026-10-20
+  - title: "Manitoba Finance: Retail Sales Tax, general rate 7%"
+    url: https://gov.mb.ca/finance/taxation/taxes/retail.html
+    retrieved: 2026-10-20
+  - title: "Government of Saskatchewan: Provincial Sales Tax, 6%"
+    url: https://sets.saskatchewan.ca/rptp/portal/footer/taxinformation/provincial-sales-tax/
+    retrieved: 2026-10-20
+  - title: "Revenu Québec: Calculating the Taxes (GST 5%, QST 9.975%)"
+    url: https://www.revenuquebec.ca/en/businesses/consumption-taxes/gsthst-and-qst/collecting-gst-and-qst/calculating-the-taxes/
+    retrieved: 2026-10-20
+  - title: "Canada Labour Code, R.S.C. 1985, c. L-2, s. 166: general holidays"
+    url: https://laws-lois.justice.gc.ca/eng/acts/L-2/section-166.html
+    retrieved: 2026-10-20
+sign_off: {tax_specialist: "Musto Ibrahim", date: 2026-11-09}

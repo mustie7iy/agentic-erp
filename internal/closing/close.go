@@ -247,7 +247,7 @@ func (e *Endpoints) closeOut(ctx context.Context, tx pgx.Tx, c closeRow) (gen.Pe
 	if err != nil {
 		return gen.PeriodClose{}, err
 	}
-	offs, err := signOffsOf(ctx, tx, c.ID)
+	offs, err := signOffsOf(ctx, tx, periodCloses, c.ID)
 	if err != nil {
 		return gen.PeriodClose{}, err
 	}

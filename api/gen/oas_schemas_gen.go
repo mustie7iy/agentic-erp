@@ -21123,6 +21123,7 @@ func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
+func (*ConflictHeaders) signOffYearCloseRes()                      {}
 func (*ConflictHeaders) simulateChangeRequestRes()                 {}
 func (*ConflictHeaders) startAgentSessionRes()                     {}
 func (*ConflictHeaders) startDepreciationRunRes()                  {}
@@ -21186,25 +21187,29 @@ type Connector struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-	// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
-	// (absolute) and, for a bank that leaves statements there, `statements_directory` and
-	// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
-	// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
-	// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
-	// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
-	// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-	// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
-	// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
-	// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
-	// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-	// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
-	// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
-	// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
-	// company's participant identifier at the provider, by company code: at least one, each identifier
-	// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
-	// refused in production: creating or enabling one there answers 422
-	// `integration.adapter_not_certified`.
+	// Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the
+	// extract file, relative to the server's extract directory), optionally `system` (the source system's
+	// code in external references) and `amount_format`: `internal` (the default, SAP's stored form as
+	// table exports write it, which a migration run converts with the extract's TCURX) or `external` (the
+	// amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers
+	// amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`,
+	// `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a
+	// bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both
+	// or neither, not the same: statements are fetched from the first and moved to the second once
+	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+	// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+	// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+	// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+	// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+	// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+	// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+	// answers 422 `integration.adapter_not_certified`.
 	Settings ConnectorSettings `json:"settings"`
 	// Vault path of the credentials.
 	SecretRef OptString `json:"secret_ref"`
@@ -21331,14 +21336,19 @@ type ConnectorCreate struct {
 	Kind string `json:"kind"`
 	// Name, unique per tenant.
 	Name string `json:"name"`
-	// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-	// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
-	// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
-	// both or neither, not the same: statements are fetched from the first and moved to the second once
-	// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-	// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-	// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-	// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+	// Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative
+	// to the server's extract directory), optionally `system` (the source system's code in external
+	// references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write
+	// it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP
+	// displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in
+	// external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the
+	// server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves
+	// statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not
+	// the same: statements are fetched from the first and moved to the second once imported, ADR-0047);
+	// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+	// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+	// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+	// with a bank: creating or enabling a `bank_ebics` connector there answers 422
 	// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
 	// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 	// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
@@ -21394,14 +21404,19 @@ func (s *ConnectorCreate) SetSecretRef(val OptString) {
 	s.SecretRef = val
 }
 
-// Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22),
-// `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and,
-// for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute,
-// both or neither, not the same: statements are fetched from the first and moved to the second once
-// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
-// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
-// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
-// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative
+// to the server's extract directory), optionally `system` (the source system's code in external
+// references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write
+// it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP
+// displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in
+// external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the
+// server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves
+// statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not
+// the same: statements are fetched from the first and moved to the second once imported, ADR-0047);
+// its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics`
+// connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS
+// 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified
+// with a bank: creating or enabling a `bank_ebics` connector there answers 422
 // `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
 // server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
 // statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
@@ -21517,25 +21532,29 @@ func (s *ConnectorPage) SetTotalEstimate(val OptInt64) {
 
 func (*ConnectorPage) listConnectorsRes() {}
 
-// Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port`
-// (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory`
-// (absolute) and, for a bank that leaves statements there, `statements_directory` and
-// `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first
-// and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there
-// are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https),
-// `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys.
-// EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics`
-// connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector
-// (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a
-// `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or
-// `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the
-// liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An
-// `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in,
-// the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each
-// company's participant identifier at the provider, by company code: at least one, each identifier
-// once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is
-// refused in production: creating or enabling one there answers 422
-// `integration.adapter_not_certified`.
+// Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the
+// extract file, relative to the server's extract directory), optionally `system` (the source system's
+// code in external references) and `amount_format`: `internal` (the default, SAP's stored form as
+// table exports write it, which a migration run converts with the extract's TCURX) or `external` (the
+// amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers
+// amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`,
+// `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a
+// bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both
+// or neither, not the same: statements are fetched from the first and moved to the second once
+// imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A
+// `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and
+// `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production
+// until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422
+// `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP
+// server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without
+// statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and
+// `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one);
+// its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes
+// `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url`
+// (the provider's, https), `participants` (each company's participant identifier at the provider, by
+// company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names
+// the provider's credentials. The stand-in is refused in production: creating or enabling one there
+// answers 422 `integration.adapter_not_certified`.
 type ConnectorSettings map[string]jx.Raw
 
 func (s *ConnectorSettings) init() ConnectorSettings {
@@ -21937,8 +21956,8 @@ func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
 }
 
 // The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`,
-// `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`
-// and `profit`.
+// `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`,
+// `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`.
 // Ref: #/components/schemas/ConsolidatedStatementTotals
 type ConsolidatedStatementTotals struct {
 	// The balance sheet's asset accounts summed; absent on the profit and loss.
@@ -21956,6 +21975,14 @@ type ConsolidatedStatementTotals struct {
 	// positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement:
 	// assets, liabilities, equity and profit sum to zero.
 	Profit ConsolidatedFigures `json:"profit"`
+	// The profit and loss's: the profit's share attributable to non-controlling interests (IAS 1.81B),
+	// read from the run's non-controlling interest entries, so zero reported; zero while a run
+	// consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance
+	// sheet.
+	NonControllingInterests OptConsolidatedFigures `json:"non_controlling_interests"`
+	// The profit and loss's: the profit's share attributable to the owners of the parent, the profit less
+	// `non_controlling_interests` in each column. Absent on the balance sheet.
+	OwnersOfTheParent OptConsolidatedFigures `json:"owners_of_the_parent"`
 }
 
 // GetAssets returns the value of Assets.
@@ -21988,6 +22015,16 @@ func (s *ConsolidatedStatementTotals) GetProfit() ConsolidatedFigures {
 	return s.Profit
 }
 
+// GetNonControllingInterests returns the value of NonControllingInterests.
+func (s *ConsolidatedStatementTotals) GetNonControllingInterests() OptConsolidatedFigures {
+	return s.NonControllingInterests
+}
+
+// GetOwnersOfTheParent returns the value of OwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) GetOwnersOfTheParent() OptConsolidatedFigures {
+	return s.OwnersOfTheParent
+}
+
 // SetAssets sets the value of Assets.
 func (s *ConsolidatedStatementTotals) SetAssets(val OptConsolidatedFigures) {
 	s.Assets = val
@@ -22016,6 +22053,165 @@ func (s *ConsolidatedStatementTotals) SetExpenses(val OptConsolidatedFigures) {
 // SetProfit sets the value of Profit.
 func (s *ConsolidatedStatementTotals) SetProfit(val ConsolidatedFigures) {
 	s.Profit = val
+}
+
+// SetNonControllingInterests sets the value of NonControllingInterests.
+func (s *ConsolidatedStatementTotals) SetNonControllingInterests(val OptConsolidatedFigures) {
+	s.NonControllingInterests = val
+}
+
+// SetOwnersOfTheParent sets the value of OwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) SetOwnersOfTheParent(val OptConsolidatedFigures) {
+	s.OwnersOfTheParent = val
+}
+
+// A member's acquisition figures as the run eliminated its investment with them (ADR-0059 §9):
+// measured at the period before its first, or read from those the group's first final run including it
+// froze (`frozen`). Absent for the parent, and for a member until the run's companies are eliminated.
+// Goodwill and the non-controlling interest are zero: a run consolidates only a member the parent
+// incorporated and holds whole, whose investment equals its share capital as booked through the run's
+// period and is eliminated against it alone, its earlier results and translation reserve staying the
+// group's (ADR-0059 As built T68h2).
+// Ref: #/components/schemas/ConsolidationAcquisition
+type ConsolidationAcquisition struct {
+	// The fiscal year of the period its acquisition is measured at, the one before its first.
+	FiscalYear int32 `json:"fiscal_year"`
+	// That period.
+	Period int32 `json:"period"`
+	// That period's closing rate from its local currency into the group currency, a plain decimal of up to
+	// 12 decimals; 1 in the group currency.
+	ClosingRate string `json:"closing_rate"`
+	// The date that rate is valid from; absent in the group currency.
+	RateValidFrom OptDate `json:"rate_valid_from"`
+	// Its assets and liabilities through that period, in its local currency, debit positive.
+	NetAssets Money `json:"net_assets"`
+	// Those translated at that period's closing rate, each balance rounded once, in the group currency.
+	// The investment entry reverses its share capital, not these.
+	NetAssetsGroup Money `json:"net_assets_group"`
+	// The parent's balance on its investment account through the run's period, in the group currency: the
+	// member's share capital, which the investment entry eliminates it against.
+	Investment Money `json:"investment"`
+	// Zero: a member the parent incorporated has no goodwill (B5(a)).
+	Goodwill Money `json:"goodwill"`
+	// The non-controlling interest at acquisition: zero.
+	NonControllingInterest Money `json:"non_controlling_interest"`
+	// Whether the run read these figures from the acquisition an earlier final run froze rather than
+	// measuring them; a final run including a member for the first time freezes them (`:finalize`).
+	Frozen bool `json:"frozen"`
+	// The final run that froze the member's acquisition (`GET /v1/consolidation-runs/{id}`): the one this
+	// run read it from, or this run once its finalization froze the figures it measured; absent while none
+	// has.
+	FrozenByRunID OptUUID `json:"frozen_by_run_id"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *ConsolidationAcquisition) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetPeriod returns the value of Period.
+func (s *ConsolidationAcquisition) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetClosingRate returns the value of ClosingRate.
+func (s *ConsolidationAcquisition) GetClosingRate() string {
+	return s.ClosingRate
+}
+
+// GetRateValidFrom returns the value of RateValidFrom.
+func (s *ConsolidationAcquisition) GetRateValidFrom() OptDate {
+	return s.RateValidFrom
+}
+
+// GetNetAssets returns the value of NetAssets.
+func (s *ConsolidationAcquisition) GetNetAssets() Money {
+	return s.NetAssets
+}
+
+// GetNetAssetsGroup returns the value of NetAssetsGroup.
+func (s *ConsolidationAcquisition) GetNetAssetsGroup() Money {
+	return s.NetAssetsGroup
+}
+
+// GetInvestment returns the value of Investment.
+func (s *ConsolidationAcquisition) GetInvestment() Money {
+	return s.Investment
+}
+
+// GetGoodwill returns the value of Goodwill.
+func (s *ConsolidationAcquisition) GetGoodwill() Money {
+	return s.Goodwill
+}
+
+// GetNonControllingInterest returns the value of NonControllingInterest.
+func (s *ConsolidationAcquisition) GetNonControllingInterest() Money {
+	return s.NonControllingInterest
+}
+
+// GetFrozen returns the value of Frozen.
+func (s *ConsolidationAcquisition) GetFrozen() bool {
+	return s.Frozen
+}
+
+// GetFrozenByRunID returns the value of FrozenByRunID.
+func (s *ConsolidationAcquisition) GetFrozenByRunID() OptUUID {
+	return s.FrozenByRunID
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *ConsolidationAcquisition) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *ConsolidationAcquisition) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetClosingRate sets the value of ClosingRate.
+func (s *ConsolidationAcquisition) SetClosingRate(val string) {
+	s.ClosingRate = val
+}
+
+// SetRateValidFrom sets the value of RateValidFrom.
+func (s *ConsolidationAcquisition) SetRateValidFrom(val OptDate) {
+	s.RateValidFrom = val
+}
+
+// SetNetAssets sets the value of NetAssets.
+func (s *ConsolidationAcquisition) SetNetAssets(val Money) {
+	s.NetAssets = val
+}
+
+// SetNetAssetsGroup sets the value of NetAssetsGroup.
+func (s *ConsolidationAcquisition) SetNetAssetsGroup(val Money) {
+	s.NetAssetsGroup = val
+}
+
+// SetInvestment sets the value of Investment.
+func (s *ConsolidationAcquisition) SetInvestment(val Money) {
+	s.Investment = val
+}
+
+// SetGoodwill sets the value of Goodwill.
+func (s *ConsolidationAcquisition) SetGoodwill(val Money) {
+	s.Goodwill = val
+}
+
+// SetNonControllingInterest sets the value of NonControllingInterest.
+func (s *ConsolidationAcquisition) SetNonControllingInterest(val Money) {
+	s.NonControllingInterest = val
+}
+
+// SetFrozen sets the value of Frozen.
+func (s *ConsolidationAcquisition) SetFrozen(val bool) {
+	s.Frozen = val
+}
+
+// SetFrozenByRunID sets the value of FrozenByRunID.
+func (s *ConsolidationAcquisition) SetFrozenByRunID(val OptUUID) {
+	s.FrozenByRunID = val
 }
 
 // A translated balance of a consolidation run (ADR-0059 §7): a company account's balance with a
@@ -22482,6 +22678,11 @@ type ConsolidationEntryLine struct {
 	AccountID      OptUUID            `json:"account_id"`
 	Account        OptAssetAccountRef `json:"account"`
 	TradingPartner OptTradingPartner  `json:"trading_partner"`
+	// An investment entry's line (ADR-0059 §9): `acquisition_equity`, the member's share capital on a
+	// group account reversed, of the member and no company account; `investment`, the parent's investment
+	// reversed, of its investment account. Absent on an intercompany entry's line. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	Component OptString `json:"component"`
 	// The amount in the group currency, debit positive.
 	Amount Money `json:"amount"`
 }
@@ -22524,6 +22725,11 @@ func (s *ConsolidationEntryLine) GetAccount() OptAssetAccountRef {
 // GetTradingPartner returns the value of TradingPartner.
 func (s *ConsolidationEntryLine) GetTradingPartner() OptTradingPartner {
 	return s.TradingPartner
+}
+
+// GetComponent returns the value of Component.
+func (s *ConsolidationEntryLine) GetComponent() OptString {
+	return s.Component
 }
 
 // GetAmount returns the value of Amount.
@@ -22569,6 +22775,11 @@ func (s *ConsolidationEntryLine) SetAccount(val OptAssetAccountRef) {
 // SetTradingPartner sets the value of TradingPartner.
 func (s *ConsolidationEntryLine) SetTradingPartner(val OptTradingPartner) {
 	s.TradingPartner = val
+}
+
+// SetComponent sets the value of Component.
+func (s *ConsolidationEntryLine) SetComponent(val OptString) {
+	s.Component = val
 }
 
 // SetAmount sets the value of Amount.
@@ -22761,8 +22972,9 @@ func (s *ConsolidationGroupPage) SetNextPageToken(val OptString) {
 
 func (*ConsolidationGroupPage) listConsolidationGroupsRes() {}
 
-// A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the
-// period it is first consolidated in and the parent's account holding the investment in it.
+// A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, how
+// the parent came to hold it, the period it is first consolidated in and the parent's account holding
+// the investment in it.
 // Ref: #/components/schemas/ConsolidationMember
 type ConsolidationMember struct {
 	// The subsidiary's legal entity.
@@ -22776,6 +22988,13 @@ type ConsolidationMember struct {
 	// The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals,
 	// as configured.
 	OwnershipPercent string `json:"ownership_percent"`
+	// How the parent came to hold the subsidiary, as configured: `incorporated` (it founded it, so the
+	// investment is eliminated against the subsidiary's equity and there is no goodwill) or `acquired` (a
+	// business combination). A run consolidates only a subsidiary the parent incorporated and holds whole
+	// (ADR-0059 As built T68h; others are refused with `consolidation.structure_unsupported`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Origin string `json:"origin"`
 	// The fiscal year of the period the subsidiary is first consolidated in.
 	FirstFiscalYear int32 `json:"first_fiscal_year"`
 	// The regular period (1-12) from whose first day the subsidiary is consolidated.
@@ -22806,6 +23025,11 @@ func (s *ConsolidationMember) GetLocalCurrency() string {
 // GetOwnershipPercent returns the value of OwnershipPercent.
 func (s *ConsolidationMember) GetOwnershipPercent() string {
 	return s.OwnershipPercent
+}
+
+// GetOrigin returns the value of Origin.
+func (s *ConsolidationMember) GetOrigin() string {
+	return s.Origin
 }
 
 // GetFirstFiscalYear returns the value of FirstFiscalYear.
@@ -22846,6 +23070,11 @@ func (s *ConsolidationMember) SetLocalCurrency(val string) {
 // SetOwnershipPercent sets the value of OwnershipPercent.
 func (s *ConsolidationMember) SetOwnershipPercent(val string) {
 	s.OwnershipPercent = val
+}
+
+// SetOrigin sets the value of Origin.
+func (s *ConsolidationMember) SetOrigin(val string) {
+	s.Origin = val
 }
 
 // SetFirstFiscalYear sets the value of FirstFiscalYear.
@@ -23247,7 +23476,8 @@ type ConsolidationRunMember struct {
 	// That period's version when the run read its figures; absent until translated.
 	PeriodVersion OptInt32 `json:"period_version"`
 	// When its figures were read and translated; absent before.
-	TranslatedAt OptDateTime `json:"translated_at"`
+	TranslatedAt OptDateTime                 `json:"translated_at"`
+	Acquisition  OptConsolidationAcquisition `json:"acquisition"`
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -23315,6 +23545,11 @@ func (s *ConsolidationRunMember) GetTranslatedAt() OptDateTime {
 	return s.TranslatedAt
 }
 
+// GetAcquisition returns the value of Acquisition.
+func (s *ConsolidationRunMember) GetAcquisition() OptConsolidationAcquisition {
+	return s.Acquisition
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *ConsolidationRunMember) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -23380,6 +23615,11 @@ func (s *ConsolidationRunMember) SetTranslatedAt(val OptDateTime) {
 	s.TranslatedAt = val
 }
 
+// SetAcquisition sets the value of Acquisition.
+func (s *ConsolidationRunMember) SetAcquisition(val OptConsolidationAcquisition) {
+	s.Acquisition = val
+}
+
 // One page of consolidation runs, newest first.
 // Ref: #/components/schemas/ConsolidationRunPage
 type ConsolidationRunPage struct {
@@ -23414,7 +23654,9 @@ func (*ConsolidationRunPage) listConsolidationRunsRes() {}
 // The problem that failed a run: its code and detail, as its Operation's error gives them;
 // `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an
 // error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned
-// since, and `platform.internal` when a step's error outlasted its retries.
+// since, `consolidation.investment_mismatch`, `consolidation.acquisition_changed` or
+// `consolidation.investment_changed` when a member's investment could not be eliminated
+// (`createConsolidationRun`), and `platform.internal` when a step's error outlasted its retries.
 // Ref: #/components/schemas/ConsolidationRunProblem
 type ConsolidationRunProblem struct {
 	// The problem's code, such as `consolidation.rate_stale`.
@@ -38660,8 +38902,9 @@ type JournalLineInput struct {
 	// The province or emirate the line's tax is levied in (ISO 3166-2, `CA-ON`, `AE-DU`; ADR-0049 §7):
 	// required on every line, base and tax, of a code whose component levies its lines' subdivision
 	// (`jurisdiction_on_line`; 422 `ledger.jurisdiction_required`), a subdivision of that component's
-	// country, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items are per
-	// jurisdiction.
+	// country and, where the component lists the subdivisions it accepts (`subdivisions`, the emirate
+	// guard), one of them, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items
+	// are per jurisdiction.
 	TaxJurisdiction OptString `json:"tax_jurisdiction"`
 	// Declared tax base of a tax line of an `import` code (ADR-0049 §9): the import's tax posted from the
 	// customs declaration, as tax lines alone, on the declared value no line of the entry carries. Only on
@@ -45650,8 +45893,9 @@ type MigrationRunReport struct {
 	// SAP documents of the scope not on the platform (`documents` mode), the first 100; absent when there
 	// are none.
 	MissingDocuments []string `json:"missing_documents"`
-	// SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of
-	// an amount; absent when there are none. Any one fails the reconciliation.
+	// SAP values the reconciliation could not use: amounts that do not parse, sums out of the range of an
+	// amount, or journal lines of other ledgers than the leading one (ACDOCA RLDNR; then no control is
+	// computed); absent when there are none. Any one fails the reconciliation.
 	Issues []MigrationIssue `json:"issues"`
 	// Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
 	Passed OptBool `json:"passed"`
@@ -48247,6 +48491,52 @@ func (o OptConsolidatedFigures) Get() (v ConsolidatedFigures, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptConsolidatedFigures) Or(d ConsolidatedFigures) ConsolidatedFigures {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptConsolidationAcquisition returns new OptConsolidationAcquisition with value set to v.
+func NewOptConsolidationAcquisition(v ConsolidationAcquisition) OptConsolidationAcquisition {
+	return OptConsolidationAcquisition{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptConsolidationAcquisition is optional ConsolidationAcquisition.
+type OptConsolidationAcquisition struct {
+	Value ConsolidationAcquisition
+	Set   bool
+}
+
+// IsSet returns true if OptConsolidationAcquisition was set.
+func (o OptConsolidationAcquisition) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptConsolidationAcquisition) Reset() {
+	var v ConsolidationAcquisition
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptConsolidationAcquisition) SetTo(v ConsolidationAcquisition) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptConsolidationAcquisition) Get() (v ConsolidationAcquisition, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptConsolidationAcquisition) Or(d ConsolidationAcquisition) ConsolidationAcquisition {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -54974,7 +55264,7 @@ func (s *PeriodCloseSignOffHeaders) SetResponse(val PeriodCloseSignOff) {
 
 func (*PeriodCloseSignOffHeaders) signOffPeriodCloseRes() {}
 
-// A period close's sign-off.
+// A close's sign-off: a period close's (`signOffPeriodClose`) or a year close's (`signOffYearClose`).
 // Ref: #/components/schemas/PeriodCloseSignOffInput
 type PeriodCloseSignOffInput struct {
 	// What the signer wants kept with the sign-off; kept on it and in the audit trail.
@@ -64426,6 +64716,7 @@ func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
+func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()                 {}
 func (*ServiceUnavailableHeaders) startAgentSessionRes()                     {}
 func (*ServiceUnavailableHeaders) startDepreciationRunRes()                  {}
@@ -64549,6 +64840,30 @@ func (*SignOffPeriodClosePreconditionRequired) signOffPeriodCloseRes() {}
 type SignOffPeriodCloseUnprocessableEntity Problem
 
 func (*SignOffPeriodCloseUnprocessableEntity) signOffPeriodCloseRes() {}
+
+type SignOffYearCloseBadRequest Problem
+
+func (*SignOffYearCloseBadRequest) signOffYearCloseRes() {}
+
+type SignOffYearCloseForbidden Problem
+
+func (*SignOffYearCloseForbidden) signOffYearCloseRes() {}
+
+type SignOffYearCloseNotFound Problem
+
+func (*SignOffYearCloseNotFound) signOffYearCloseRes() {}
+
+type SignOffYearClosePreconditionFailed Problem
+
+func (*SignOffYearClosePreconditionFailed) signOffYearCloseRes() {}
+
+type SignOffYearClosePreconditionRequired Problem
+
+func (*SignOffYearClosePreconditionRequired) signOffYearCloseRes() {}
+
+type SignOffYearCloseUnprocessableEntity Problem
+
+func (*SignOffYearCloseUnprocessableEntity) signOffYearCloseRes() {}
 
 type SimulateChangeRequestBadRequest Problem
 
@@ -67857,9 +68172,11 @@ type TaxReturnDraftPriorPeriod struct {
 	Tax Money `json:"tax"`
 	// The country pack's threshold; absent when the pack sets none (always the next return).
 	Threshold OptMoney `json:"threshold"`
-	// Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold
-	// in magnitude: provisional and conservative, so that a person reviews; which measure the threshold
-	// applies to (net or gross, per period or pooled, per error) is open (ADR-0049 §11).
+	// Whether the items of any one earlier period, all together, make a net shortfall of payable tax above
+	// the threshold: their output tax less their recovered input tax; over-declared tax never raises it,
+	// and periods are not pooled (ADR-0049 §11). Under the UAE's tax procedures a voluntary disclosure of
+	// that period is then due within 20 business days of discovery (Cabinet Decision No. 74 of 2023, Art.
+	// 10).
 	AboveThreshold bool `json:"above_threshold"`
 }
 
@@ -68448,8 +68765,9 @@ type TaxReturnPriorPeriod struct {
 	Tax Money `json:"tax"`
 	// The country pack's threshold; absent when the pack sets none.
 	Threshold OptMoney `json:"threshold"`
-	// Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold
-	// in magnitude (provisional, ADR-0049 §11).
+	// Whether the items of any one earlier period, all together, made a net shortfall of payable tax above
+	// the threshold when it was prepared (ADR-0049 §11); in the UAE a voluntary disclosure is due within
+	// 20 business days of discovery.
 	AboveThreshold bool `json:"above_threshold"`
 }
 
@@ -69003,6 +69321,7 @@ func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
+func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) startAgentSessionRes()                     {}
 func (*TooManyRequestsHeaders) startDepreciationRunRes()                  {}
@@ -69507,6 +69826,7 @@ func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
+func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) startAgentSessionRes()                     {}
 func (*UnauthorizedHeaders) startDepreciationRunRes()                  {}
@@ -72904,9 +73224,16 @@ type YearClose struct {
 	YearEnd time.Time `json:"year_end"`
 	// The configuration version whose year tasks the checklist was copied from.
 	ConfigVersion int32 `json:"config_version"`
-	// `open` until it is signed off (T64m6). Open enumeration: clients must accept and preserve values not
-	// listed here; values may be added within /v1.
+	// `open` until it is signed off (`signOffYearClose`, T64m6), and again after a covered period was
+	// unlocked and the close written to (ADR-0060 §8, ADR-0058 §7). Open enumeration: clients must
+	// accept and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// When it was last signed off (`:signOff`, T64m6); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which `overdue` is judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in (UTC when its company sets none).
@@ -72923,6 +73250,9 @@ type YearClose struct {
 	Ledgers []YearCloseLedger `json:"ledgers"`
 	// Its tasks, in the template's order.
 	Tasks []YearCloseTask `json:"tasks"`
+	// Its sign-offs, oldest first (T64m6): one per `:signOff`, a second after a period of the year was
+	// unlocked and the close signed off again; empty until it is signed off.
+	SignOffs []YearCloseSignOff `json:"sign_offs"`
 	// Optimistic-lock version, the ETag; moved by every change to the close or its tasks.
 	Version int32 `json:"version"`
 	// Creation time.
@@ -72975,6 +73305,21 @@ func (s *YearClose) GetStatus() string {
 	return s.Status
 }
 
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *YearClose) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *YearClose) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *YearClose) GetSignedOffByName() OptString {
+	return s.SignedOffByName
+}
+
 // GetReadDate returns the value of ReadDate.
 func (s *YearClose) GetReadDate() time.Time {
 	return s.ReadDate
@@ -73013,6 +73358,11 @@ func (s *YearClose) GetLedgers() []YearCloseLedger {
 // GetTasks returns the value of Tasks.
 func (s *YearClose) GetTasks() []YearCloseTask {
 	return s.Tasks
+}
+
+// GetSignOffs returns the value of SignOffs.
+func (s *YearClose) GetSignOffs() []YearCloseSignOff {
+	return s.SignOffs
 }
 
 // GetVersion returns the value of Version.
@@ -73080,6 +73430,21 @@ func (s *YearClose) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *YearClose) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *YearClose) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *YearClose) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
+}
+
 // SetReadDate sets the value of ReadDate.
 func (s *YearClose) SetReadDate(val time.Time) {
 	s.ReadDate = val
@@ -73118,6 +73483,11 @@ func (s *YearClose) SetLedgers(val []YearCloseLedger) {
 // SetTasks sets the value of Tasks.
 func (s *YearClose) SetTasks(val []YearCloseTask) {
 	s.Tasks = val
+}
+
+// SetSignOffs sets the value of SignOffs.
+func (s *YearClose) SetSignOffs(val []YearCloseSignOff) {
+	s.SignOffs = val
 }
 
 // SetVersion sets the value of Version.
@@ -73256,6 +73626,12 @@ type YearCloseItem struct {
 	// Year close status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// When it was last signed off (`:signOff`, T64m6); absent while it is open.
+	SignedOffAt OptDateTime `json:"signed_off_at"`
+	// Who signed it off; absent while it is open.
+	SignedOffBy OptUUID `json:"signed_off_by"`
+	// Their name; absent while it is open.
+	SignedOffByName OptString `json:"signed_off_by_name"`
 	// The company's date at the read in its time zone, on which overdue tasks are judged.
 	ReadDate time.Time `json:"read_date"`
 	// The IANA time zone `read_date` is the company's date in.
@@ -73318,6 +73694,21 @@ func (s *YearCloseItem) GetConfigVersion() int32 {
 // GetStatus returns the value of Status.
 func (s *YearCloseItem) GetStatus() string {
 	return s.Status
+}
+
+// GetSignedOffAt returns the value of SignedOffAt.
+func (s *YearCloseItem) GetSignedOffAt() OptDateTime {
+	return s.SignedOffAt
+}
+
+// GetSignedOffBy returns the value of SignedOffBy.
+func (s *YearCloseItem) GetSignedOffBy() OptUUID {
+	return s.SignedOffBy
+}
+
+// GetSignedOffByName returns the value of SignedOffByName.
+func (s *YearCloseItem) GetSignedOffByName() OptString {
+	return s.SignedOffByName
 }
 
 // GetReadDate returns the value of ReadDate.
@@ -73413,6 +73804,21 @@ func (s *YearCloseItem) SetConfigVersion(val int32) {
 // SetStatus sets the value of Status.
 func (s *YearCloseItem) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetSignedOffAt sets the value of SignedOffAt.
+func (s *YearCloseItem) SetSignedOffAt(val OptDateTime) {
+	s.SignedOffAt = val
+}
+
+// SetSignedOffBy sets the value of SignedOffBy.
+func (s *YearCloseItem) SetSignedOffBy(val OptUUID) {
+	s.SignedOffBy = val
+}
+
+// SetSignedOffByName sets the value of SignedOffByName.
+func (s *YearCloseItem) SetSignedOffByName(val OptString) {
+	s.SignedOffByName = val
 }
 
 // SetReadDate sets the value of ReadDate.
@@ -73618,6 +74024,292 @@ func (s *YearClosePeriod) SetIsSpecial(val bool) {
 // SetStatus sets the value of Status.
 func (s *YearClosePeriod) SetStatus(val string) {
 	s.Status = val
+}
+
+// A sign-off of a year close (ADR-0060 §8, T64m6): who signed it off, with their name as it was then,
+// when, and per covered ledger its special periods and whether this sign-off locked each; every
+// regular period was locked already. Recorded once, never changed; a year close signed off again after
+// an unlock has a second.
+// Ref: #/components/schemas/YearCloseSignOff
+type YearCloseSignOff struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The year close (`GET /v1/year-closes/{id}`).
+	CloseID uuid.UUID `json:"close_id"`
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// Fiscal year.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The person who signed it off.
+	SignedBy uuid.UUID `json:"signed_by"`
+	// Their name, as it was at the sign-off.
+	SignedByName string `json:"signed_by_name"`
+	// When.
+	SignedAt time.Time `json:"signed_at"`
+	// The note given with it; absent without one.
+	Note OptString `json:"note"`
+	// The covered ledgers, the leading one first, then by code.
+	Ledgers []YearCloseSignOffLedger `json:"ledgers"`
+}
+
+// GetID returns the value of ID.
+func (s *YearCloseSignOff) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetCloseID returns the value of CloseID.
+func (s *YearCloseSignOff) GetCloseID() uuid.UUID {
+	return s.CloseID
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *YearCloseSignOff) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *YearCloseSignOff) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *YearCloseSignOff) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *YearCloseSignOff) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetSignedBy returns the value of SignedBy.
+func (s *YearCloseSignOff) GetSignedBy() uuid.UUID {
+	return s.SignedBy
+}
+
+// GetSignedByName returns the value of SignedByName.
+func (s *YearCloseSignOff) GetSignedByName() string {
+	return s.SignedByName
+}
+
+// GetSignedAt returns the value of SignedAt.
+func (s *YearCloseSignOff) GetSignedAt() time.Time {
+	return s.SignedAt
+}
+
+// GetNote returns the value of Note.
+func (s *YearCloseSignOff) GetNote() OptString {
+	return s.Note
+}
+
+// GetLedgers returns the value of Ledgers.
+func (s *YearCloseSignOff) GetLedgers() []YearCloseSignOffLedger {
+	return s.Ledgers
+}
+
+// SetID sets the value of ID.
+func (s *YearCloseSignOff) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetCloseID sets the value of CloseID.
+func (s *YearCloseSignOff) SetCloseID(val uuid.UUID) {
+	s.CloseID = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *YearCloseSignOff) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *YearCloseSignOff) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *YearCloseSignOff) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *YearCloseSignOff) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetSignedBy sets the value of SignedBy.
+func (s *YearCloseSignOff) SetSignedBy(val uuid.UUID) {
+	s.SignedBy = val
+}
+
+// SetSignedByName sets the value of SignedByName.
+func (s *YearCloseSignOff) SetSignedByName(val string) {
+	s.SignedByName = val
+}
+
+// SetSignedAt sets the value of SignedAt.
+func (s *YearCloseSignOff) SetSignedAt(val time.Time) {
+	s.SignedAt = val
+}
+
+// SetNote sets the value of Note.
+func (s *YearCloseSignOff) SetNote(val OptString) {
+	s.Note = val
+}
+
+// SetLedgers sets the value of Ledgers.
+func (s *YearCloseSignOff) SetLedgers(val []YearCloseSignOffLedger) {
+	s.Ledgers = val
+}
+
+// YearCloseSignOffHeaders wraps YearCloseSignOff with response headers.
+type YearCloseSignOffHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           YearCloseSignOff
+}
+
+// GetETag returns the value of ETag.
+func (s *YearCloseSignOffHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *YearCloseSignOffHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *YearCloseSignOffHeaders) GetResponse() YearCloseSignOff {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *YearCloseSignOffHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *YearCloseSignOffHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *YearCloseSignOffHeaders) SetResponse(val YearCloseSignOff) {
+	s.Response = val
+}
+
+func (*YearCloseSignOffHeaders) signOffYearCloseRes() {}
+
+// A covered ledger as a year close's sign-off found it: its special periods of the year, and whether
+// this sign-off locked each.
+// Ref: #/components/schemas/YearCloseSignOffLedger
+type YearCloseSignOffLedger struct {
+	// The ledger.
+	LedgerID uuid.UUID `json:"ledger_id"`
+	// The ledger's code, as it was at the sign-off.
+	LedgerCode string `json:"ledger_code"`
+	// The ledger's name, as it was at the sign-off.
+	LedgerName string `json:"ledger_name"`
+	// Whether it is the leading ledger.
+	IsLeading bool `json:"is_leading"`
+	// Its special periods of the year, by period; none when its calendar has none.
+	Periods []YearCloseSignOffPeriod `json:"periods"`
+}
+
+// GetLedgerID returns the value of LedgerID.
+func (s *YearCloseSignOffLedger) GetLedgerID() uuid.UUID {
+	return s.LedgerID
+}
+
+// GetLedgerCode returns the value of LedgerCode.
+func (s *YearCloseSignOffLedger) GetLedgerCode() string {
+	return s.LedgerCode
+}
+
+// GetLedgerName returns the value of LedgerName.
+func (s *YearCloseSignOffLedger) GetLedgerName() string {
+	return s.LedgerName
+}
+
+// GetIsLeading returns the value of IsLeading.
+func (s *YearCloseSignOffLedger) GetIsLeading() bool {
+	return s.IsLeading
+}
+
+// GetPeriods returns the value of Periods.
+func (s *YearCloseSignOffLedger) GetPeriods() []YearCloseSignOffPeriod {
+	return s.Periods
+}
+
+// SetLedgerID sets the value of LedgerID.
+func (s *YearCloseSignOffLedger) SetLedgerID(val uuid.UUID) {
+	s.LedgerID = val
+}
+
+// SetLedgerCode sets the value of LedgerCode.
+func (s *YearCloseSignOffLedger) SetLedgerCode(val string) {
+	s.LedgerCode = val
+}
+
+// SetLedgerName sets the value of LedgerName.
+func (s *YearCloseSignOffLedger) SetLedgerName(val string) {
+	s.LedgerName = val
+}
+
+// SetIsLeading sets the value of IsLeading.
+func (s *YearCloseSignOffLedger) SetIsLeading(val bool) {
+	s.IsLeading = val
+}
+
+// SetPeriods sets the value of Periods.
+func (s *YearCloseSignOffLedger) SetPeriods(val []YearCloseSignOffPeriod) {
+	s.Periods = val
+}
+
+// A special period as a year close's sign-off found it.
+// Ref: #/components/schemas/YearCloseSignOffPeriod
+type YearCloseSignOffPeriod struct {
+	// The posting period (`GET /v1/fiscal-periods/{id}`).
+	FiscalPeriodID uuid.UUID `json:"fiscal_period_id"`
+	// The special period.
+	Period int32 `json:"period"`
+	// Whether this sign-off locked it: false when it was locked already.
+	Locked bool `json:"locked"`
+}
+
+// GetFiscalPeriodID returns the value of FiscalPeriodID.
+func (s *YearCloseSignOffPeriod) GetFiscalPeriodID() uuid.UUID {
+	return s.FiscalPeriodID
+}
+
+// GetPeriod returns the value of Period.
+func (s *YearCloseSignOffPeriod) GetPeriod() int32 {
+	return s.Period
+}
+
+// GetLocked returns the value of Locked.
+func (s *YearCloseSignOffPeriod) GetLocked() bool {
+	return s.Locked
+}
+
+// SetFiscalPeriodID sets the value of FiscalPeriodID.
+func (s *YearCloseSignOffPeriod) SetFiscalPeriodID(val uuid.UUID) {
+	s.FiscalPeriodID = val
+}
+
+// SetPeriod sets the value of Period.
+func (s *YearCloseSignOffPeriod) SetPeriod(val int32) {
+	s.Period = val
+}
+
+// SetLocked sets the value of Locked.
+func (s *YearCloseSignOffPeriod) SetLocked(val bool) {
+	s.Locked = val
 }
 
 // A task of a year close (ADR-0060 §8), with its close and company.

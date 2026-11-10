@@ -423,9 +423,9 @@ type Invoker interface {
 	// `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
 	// `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
 	// Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year
-	// close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it
-	// (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open
-	// again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+	// close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
+	// `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again
+	// first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 	//
 	// POST /v1/year-closes/{id}/tasks/{code}:check
 	CheckYearCloseTask(ctx context.Context, params CheckYearCloseTaskParams) (CheckYearCloseTaskRes, error)
@@ -479,11 +479,10 @@ type Invoker interface {
 	// `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and
 	// for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is
 	// the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and
-	// published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's)
-	// whose covered ledgers' periods of the year are all locked refuses it (409
-	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
-	// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
-	// (ADR-0060 §8, ADR-0058 §7).
+	// published as YearCloseChanged (`task_completed`). A signed-off year close (`signOffYearClose`) whose
+	// covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`);
+	// once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close
+	// open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 	//
 	// POST /v1/year-closes/{id}/tasks/{code}:complete
 	CompleteYearCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error)
@@ -712,21 +711,35 @@ type Invoker interface {
 	// expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member
 	// in the fiscal year of its first period those of the periods before it, as one row on the group
 	// chart's `retained_earnings` account; and the translation difference, which makes each company's
-	// translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an
-	// accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft
-	// shows the figures as they stand. Refused when the group is unknown to the caller (404
-	// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
-	// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
-	// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
-	// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
-	// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
-	// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
-	// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and
-	// while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose
-	// detail and `Location` name it). A business problem while the run is carried out (a rate recorded
-	// since, a company account with a balance and no group account, `consolidation.account_unmapped`, a
-	// member's period gone, its requester blocked since) fails the run and its Operation with the problem.
-	// Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
+	// translated rows sum to zero, as one row on its `cta` account. Each member's investment is then
+	// eliminated against its share capital (§9): its rows on its equity accounts other than its retained
+	// earnings account through the run's period, as booked, or those the group's first final run including
+	// it froze (the member's `acquisition`, measured at the period before its first, and its `investment`
+	// entry); its earlier results and translation reserve stay the group's. A run consolidates only a
+	// member the parent incorporated and holds whole, with no goodwill and no non-controlling interest
+	// (ADR-0059 As built T68h and T68h2; the accounting specialist's B5(a), B3 and B8, po:2026-11-09). A
+	// run may be made for any period, open or not: a draft shows the figures as they stand. Refused when
+	// the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or
+	// whose parent or a member the caller may not act in), for a special period (422
+	// `consolidation.special_period`), a period the parent's leading ledger does not have (422
+	// `consolidation.period_unknown`), a member included on another fiscal calendar (422
+	// `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group
+	// currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the
+	// period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422
+	// `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and likewise for
+	// the period before the first of a member whose acquisition is not frozen yet, or a member without
+	// that period (422 `consolidation.period_unknown`); a member held at less than 100% or acquired rather
+	// than incorporated, which needs goodwill or a non-controlling interest, not built (422
+	// `consolidation.structure_unsupported`, naming it); and while another run of the group is queued or
+	// running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business
+	// problem while the run is carried out (a rate recorded since, a company account with a balance and no
+	// group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked
+	// since; a member whose investment differs from its share capital, which an incorporated subsidiary
+	// without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose ownership,
+	// origin, first period or investment account differs from its frozen acquisition's,
+	// `consolidation.acquisition_changed`, or whose parent's investment balance does,
+	// `consolidation.investment_changed`) fails the run and its Operation with the problem. Cancelling the
+	// Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
 	// `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the
 	// machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each
 	// change of the run's status is published as ConsolidationRunChanged and audited. Human-only.
@@ -1233,13 +1246,17 @@ type Invoker interface {
 	// `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
 	// sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
 	// `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
-	// moved since the run read its figures, so run the group again). Finalizations of one group and period
-	// wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the
-	// run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that
-	// changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a
-	// member the caller may not act in is not found (404), as a run that does not exist. Besides
-	// `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures
-	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+	// moved since the run read its figures, so run the group again). The first final run including a
+	// member freezes its acquisition figures (its `acquisition`), which every later run of the group reads
+	// instead of measuring them; finalizing a run whose figures for a member differ from those another
+	// final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the
+	// group again). Finalizations of one group and period wait for each other, so the second sees the
+	// first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch`
+	// when it or its differences moved since). Each run that changes is published as
+	// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
+	// act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the
+	// caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Human-only.
 	//
 	// POST /v1/consolidation-runs/{id}:finalize
 	FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (FinalizeConsolidationRunRes, error)
@@ -4175,10 +4192,10 @@ type Invoker interface {
 	// the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing
 	// else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task,
 	// with the close's new ETag. People only. Audited, and published as YearCloseChanged
-	// (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods
-	// of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was
-	// unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first,
-	// published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+	// (`task_reopened`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of
+	// the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked
+	// (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as
+	// YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 	//
 	// POST /v1/year-closes/{id}/tasks/{code}:reopen
 	ReopenYearCloseTask(ctx context.Context, request *ReasonInput, params ReopenYearCloseTaskParams) (ReopenYearCloseTaskRes, error)
@@ -4440,6 +4457,37 @@ type Invoker interface {
 	//
 	// POST /v1/period-closes/{id}:signOff
 	SignOffPeriodClose(ctx context.Context, request OptPeriodCloseSignOffInput, params SignOffPeriodCloseParams) (SignOffPeriodCloseRes, error)
+	// SignOffYearClose invokes signOffYearClose operation.
+	//
+	// Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as
+	// `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first
+	// every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE`
+	// in one statement, by period, then the leading ledger first, then by ledger code (the order postings
+	// lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close
+	// already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then
+	// refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's
+	// check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
+	// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept;
+	// when all pass each result is recorded on its task. Every regular period of each covered ledger must
+	// be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked:
+	// the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed`
+	// or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a
+	// sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod`
+	// locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is
+	// left as it is. After it every period of the year is locked in the covered ledgers, and a posting
+	// into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and
+	// their name, when, the note and, per covered ledger, its special periods and whether this sign-off
+	// locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved
+	// `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No
+	// separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060
+	// §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People
+	// only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
+	// periods, and `ledger.entry.read`, since its refusal names what the checks found
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+	// YearCloseSignedOff.
+	//
+	// POST /v1/year-closes/{id}:signOff
+	SignOffYearClose(ctx context.Context, request OptPeriodCloseSignOffInput, params SignOffYearCloseParams) (SignOffYearCloseRes, error)
 	// SimulateChangeRequest invokes simulateChangeRequest operation.
 	//
 	// Replays recent business transactions against the proposed configuration and records the result as
@@ -4838,7 +4886,7 @@ type Invoker interface {
 	// a person without access to the close's company). `If-Match` is the close's ETag, so a change made on
 	// a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag.
 	// People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close
-	// (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409
+	// (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
 	// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
 	// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
 	// (ADR-0060 §8, ADR-0058 §7).
@@ -10231,9 +10279,9 @@ func (c *Client) sendCheckCloseTask(ctx context.Context, params CheckCloseTaskPa
 // `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`).
 // `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only.
 // Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year
-// close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it
-// (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open
-// again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+// close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
+// `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again
+// first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:check
 func (c *Client) CheckYearCloseTask(ctx context.Context, params CheckYearCloseTaskParams) (CheckYearCloseTaskRes, error) {
@@ -11086,11 +11134,10 @@ func (c *Client) sendCompleteCloseTask(ctx context.Context, request OptCloseTask
 // `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and
 // for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is
 // the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and
-// published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's)
-// whose covered ledgers' periods of the year are all locked refuses it (409
-// `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
-// request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
-// (ADR-0060 §8, ADR-0058 §7).
+// published as YearCloseChanged (`task_completed`). A signed-off year close (`signOffYearClose`) whose
+// covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`);
+// once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close
+// open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:complete
 func (c *Client) CompleteYearCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error) {
@@ -12751,21 +12798,35 @@ func (c *Client) sendCreateConnector(ctx context.Context, request *ConnectorCrea
 // expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member
 // in the fiscal year of its first period those of the periods before it, as one row on the group
 // chart's `retained_earnings` account; and the translation difference, which makes each company's
-// translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an
-// accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft
-// shows the figures as they stand. Refused when the group is unknown to the caller (404
-// `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may
-// not act in), for a special period (422 `consolidation.special_period`), a period the parent's
-// leading ledger does not have (422 `consolidation.period_unknown`), a member included on another
-// fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is
-// not the group currency (422 `consolidation.parent_currency`), a company currency without a closing
-// rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's
-// first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and
-// while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose
-// detail and `Location` name it). A business problem while the run is carried out (a rate recorded
-// since, a company account with a balance and no group account, `consolidation.account_unmapped`, a
-// member's period gone, its requester blocked since) fails the run and its Operation with the problem.
-// Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
+// translated rows sum to zero, as one row on its `cta` account. Each member's investment is then
+// eliminated against its share capital (§9): its rows on its equity accounts other than its retained
+// earnings account through the run's period, as booked, or those the group's first final run including
+// it froze (the member's `acquisition`, measured at the period before its first, and its `investment`
+// entry); its earlier results and translation reserve stay the group's. A run consolidates only a
+// member the parent incorporated and holds whole, with no goodwill and no non-controlling interest
+// (ADR-0059 As built T68h and T68h2; the accounting specialist's B5(a), B3 and B8, po:2026-11-09). A
+// run may be made for any period, open or not: a draft shows the figures as they stand. Refused when
+// the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or
+// whose parent or a member the caller may not act in), for a special period (422
+// `consolidation.special_period`), a period the parent's leading ledger does not have (422
+// `consolidation.period_unknown`), a member included on another fiscal calendar (422
+// `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group
+// currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the
+// period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422
+// `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and likewise for
+// the period before the first of a member whose acquisition is not frozen yet, or a member without
+// that period (422 `consolidation.period_unknown`); a member held at less than 100% or acquired rather
+// than incorporated, which needs goodwill or a non-controlling interest, not built (422
+// `consolidation.structure_unsupported`, naming it); and while another run of the group is queued or
+// running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business
+// problem while the run is carried out (a rate recorded since, a company account with a balance and no
+// group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked
+// since; a member whose investment differs from its share capital, which an incorporated subsidiary
+// without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose ownership,
+// origin, first period or investment account differs from its frozen acquisition's,
+// `consolidation.acquisition_changed`, or whose parent's investment balance does,
+// `consolidation.investment_changed`) fails the run and its Operation with the problem. Cancelling the
+// Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with
 // `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the
 // machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each
 // change of the run's status is published as ConsolidationRunChanged and audited. Human-only.
@@ -19400,13 +19461,17 @@ func (c *Client) sendFileTaxReturn(ctx context.Context, request *TaxReturnFile, 
 // `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
 // sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
 // `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
-// moved since the run read its figures, so run the group again). Finalizations of one group and period
-// wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the
-// run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that
-// changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a
-// member the caller may not act in is not found (404), as a run that does not exist. Besides
-// `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures
-// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
+// moved since the run read its figures, so run the group again). The first final run including a
+// member freezes its acquisition figures (its `acquisition`), which every later run of the group reads
+// instead of measuring them; finalizing a run whose figures for a member differ from those another
+// final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the
+// group again). Finalizations of one group and period wait for each other, so the second sees the
+// first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch`
+// when it or its differences moved since). Each run that changes is published as
+// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
+// act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the
+// caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Human-only.
 //
 // POST /v1/consolidation-runs/{id}:finalize
 func (c *Client) FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (FinalizeConsolidationRunRes, error) {
@@ -67469,10 +67534,10 @@ func (c *Client) sendReopenCloseTask(ctx context.Context, request *ReasonInput, 
 // the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing
 // else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task,
 // with the close's new ETag. People only. Audited, and published as YearCloseChanged
-// (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods
-// of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was
-// unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first,
-// published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
+// (`task_reopened`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of
+// the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked
+// (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as
+// YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7).
 //
 // POST /v1/year-closes/{id}/tasks/{code}:reopen
 func (c *Client) ReopenYearCloseTask(ctx context.Context, request *ReasonInput, params ReopenYearCloseTaskParams) (ReopenYearCloseTaskRes, error) {
@@ -70303,6 +70368,191 @@ func (c *Client) sendSignOffPeriodClose(ctx context.Context, request OptPeriodCl
 
 	stage = "DecodeResponse"
 	result, err := decodeSignOffPeriodCloseResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// SignOffYearClose invokes signOffYearClose operation.
+//
+// Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as
+// `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first
+// every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE`
+// in one statement, by period, then the leading ledger first, then by ledger code (the order postings
+// lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close
+// already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then
+// refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's
+// check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the
+// problem's `failing_checks` naming each failing task with what its check found) and nothing is kept;
+// when all pass each result is recorded on its task. Every regular period of each covered ledger must
+// be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked:
+// the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed`
+// or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a
+// sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod`
+// locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is
+// left as it is. After it every period of the year is locked in the covered ledgers, and a posting
+// into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and
+// their name, when, the note and, per covered ledger, its special periods and whether this sign-off
+// locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved
+// `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No
+// separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060
+// §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People
+// only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks
+// periods, and `ledger.entry.read`, since its refusal names what the checks found
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as
+// YearCloseSignedOff.
+//
+// POST /v1/year-closes/{id}:signOff
+func (c *Client) SignOffYearClose(ctx context.Context, request OptPeriodCloseSignOffInput, params SignOffYearCloseParams) (SignOffYearCloseRes, error) {
+	res, err := c.sendSignOffYearClose(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendSignOffYearClose(ctx context.Context, request OptPeriodCloseSignOffInput, params SignOffYearCloseParams) (res SignOffYearCloseRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("signOffYearClose"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/year-closes/{id}:signOff"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SignOffYearCloseOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/year-closes/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":signOff"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeSignOffYearCloseRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SignOffYearCloseOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSignOffYearCloseResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -76304,7 +76554,7 @@ func (c *Client) sendUpdateWebhookSubscription(ctx context.Context, request *Web
 // a person without access to the close's company). `If-Match` is the close's ETag, so a change made on
 // a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag.
 // People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close
-// (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409
+// (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409
 // `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod`
 // request), the change sets the close open again first, published as YearCloseChanged (`reopened`)
 // (ADR-0060 §8, ADR-0058 §7).

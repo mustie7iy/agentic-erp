@@ -42,7 +42,12 @@ type target struct {
 	terms     map[string]bool
 	ranges    map[string]bool // company/document type/fiscal year
 	exponents map[string]int
-	taxes     map[string]map[string]config.TaxCode // by company code, then tax code
+	// internal says the extract's amounts are in SAP's internal form, and
+	// decimals are the decimals its TCURX gives the currencies it lists
+	// (amounts.go).
+	internal bool
+	decimals map[string]int
+	taxes    map[string]map[string]config.TaxCode // by company code, then tax code
 	// methods are the payment methods of each company code's configuration
 	// (ADR-0038), which its vendors' LFB1-ZWELS must name.
 	methods map[string]map[string]bool
@@ -69,17 +74,6 @@ func sapDate(d string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("invalid SAP date %q", d)
 	}
 	return t, nil
-}
-
-// amount parses an external-format SAP amount (as OData delivers it) in
-// minor units of the currency.
-func (t target) amount(s, currency string) (money.Minor, error) {
-	exp, ok := t.exponents[currency]
-	if !ok {
-		return 0, fmt.Errorf("currency %q is not known", currency)
-	}
-	m, err := money.ParseDecimal(s, exp)
-	return m, err
 }
 
 // normalizeRef is platform.normalize_ref: duplicate supplier references
@@ -123,6 +117,7 @@ func duplicateInvoices(e *sap.Extract) map[string]string {
 func checkQuality(e *sap.Extract, t target) []Issue {
 	q := &qualityCheck{e: e, t: t}
 	q.foreign, q.conflicts = foreignDocuments(e, t)
+	q.amountForm()
 	q.companies()
 	q.accounts()
 	q.centers()
@@ -131,6 +126,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.vendorBanks()
 	q.purchaseOrders()
 	q.movements()
+	q.ledgers()
 	q.journal()
 	q.lineCenters()
 	q.downPayments()
@@ -328,6 +324,14 @@ func (q *qualityCheck) movements() {
 		if m.BWART != "101" {
 			q.add(SevWarning, "MSEG", m.MBLNR+"/"+m.MJAHR+"/"+m.ZEILE, "movement type %s is not migrated; received quantities count receipts (101) only", m.BWART)
 		}
+	}
+}
+
+// ledgers refuses an extract holding journal lines of other ledgers than
+// the leading one (ledgerIssue).
+func (q *qualityCheck) ledgers() {
+	if issue, ok := ledgerIssue(q.e); ok {
+		q.out = append(q.out, issue)
 	}
 }
 

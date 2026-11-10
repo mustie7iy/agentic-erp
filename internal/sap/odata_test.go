@@ -187,6 +187,34 @@ func TestODataInvoicesHaveNoKindIndicator(t *testing.T) {
 	}
 }
 
+// OData delivers an amount as it is, in external form (po:2026-11-09, D10):
+// a yen invoice of JPY 100,000 and its tax of 10,000 map unshifted, as
+// "100000" and "10000", and the extract holds no TCURX, which only a table
+// export's internal form needs.
+func TestODataAmountsAreExternal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		row := map[string]any{"SupplierInvoice": "5100000001", "FiscalYear": "2026", "CompanyCode": "1000", "DocumentCurrency": "JPY",
+			"InvoiceGrossAmount": "100000", "TaxAmount": json.Number("10000")}
+		// A failed write reaches the source as a broken answer, which the test asserts on.
+		_ = json.NewEncoder(w).Encode(map[string]any{"d": map[string]any{"results": []map[string]any{row}}})
+	}))
+	defer srv.Close()
+	src := &ODataSource{BaseURL: srv.URL, Entities: []EntityMapping{entity(t, "RBKP")}}
+	e, err := src.Extract(context.Background(), Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(e.RBKP) != 1 {
+		t.Fatalf("invoices: got %d, want 1", len(e.RBKP))
+	}
+	if got := e.RBKP[0].WAERS + " " + e.RBKP[0].RMWWR + " " + e.RBKP[0].WMWST1; got != "JPY 100000 10000" {
+		t.Errorf("the invoice's currency, gross and tax: got %s, want JPY 100000 10000", got)
+	}
+	if e.TCURX != nil {
+		t.Errorf("TCURX: got %v, want none", e.TCURX)
+	}
+}
+
 // Scope values are OData string literals: a quote inside one is doubled, so
 // it cannot end the literal and change the filter.
 func TestODataFilterEscapesQuotes(t *testing.T) {

@@ -1,0 +1,181 @@
+# The VAT 201 (ADR-0049 §11, T61k), computed from the tax items of the
+# companies a UAE registration (or tax group) covers. Not signed off:
+# ../TAX-PENDING-T61k.md lists every box with its basis and what the tax
+# specialist confirms, and a test (internal/countrypack, TestUAEPackVAT201)
+# holds this file to that table.
+#
+# What a box means is ADR-0049's record (Context, "VAT 201 boxes") of the
+# FTA's VAT return user guide (v. 2021, before EmaraTax) through the
+# secondary summaries pack.yaml cites (Zoho, ClearTax): 1a-1g standard-rated
+# supplies by emirate of the registrant's fixed establishment (Abu Dhabi,
+# Dubai, Sharjah, Ajman, Umm Al Quwain, Ras Al Khaimah, Fujairah), each
+# with its amount, VAT and adjustment; 2 tourist refunds; 3 supplies
+# subject to the reverse charge; 4 zero-rated supplies; 5 exempt supplies;
+# 6 goods imported into the UAE; 7 adjustments to goods imported; 8
+# totals; 9 standard-rated expenses, with amount, recoverable VAT and
+# adjustment; 10 supplies subject to the reverse charge, recoverable VAT;
+# 11 totals; 12 total due tax; 13 total recoverable tax; 14 payable (or
+# refundable) tax, 12 less 13 (§11). The live EmaraTax labels are not
+# checked (the guide predates EmaraTax).
+#
+# What the ADR does not record, and is marked in the box's label: the
+# columns of boxes 2-7 (which of amount and VAT each has), and the sums of
+# the totals 8, 11, 12 and 13, written from memory. The letters a-g follow
+# the order in which ADR-0049 lists the emirates; their ISO 3166-2 codes,
+# which the sales lines name (ADR-0049 §7 As built), are written from
+# memory (the ledger's tests already used AE-DU and AE-AZ), and each
+# box 1 label says the code is pending.
+#
+# Which items a box sums is the pack's mapping (decided by default in
+# ADR-0049 §11 As built, T61k), for the tax specialist to confirm:
+# - The emirate of a standard-rated supply is the jurisdiction its S5 line
+#   names (ADR-0049 §7 As built): the emirate of the fixed establishment
+#   that makes the supply, which whoever posts the sale states.
+# - A self-assessed tax's owed part is the component vat_due
+#   (self_output) and its claim vat (self_input), as tax.yaml keys RC5,
+#   DR5 and IM5. Box 3 takes the reverse charge's (RC5, and DR5, the
+#   domestic reverse charge, as ADR-0049 §9 As built reports it), box 6 an
+#   import's (IM5, from a customs declaration's entry), box 10 the part
+#   either claim recovers (Context: imported services and goods, "Box 3/6
+#   output, Box 10 input"). A customs entry reversed later is a negative
+#   box 6 item, not box 7; box 7 takes a manual adjustment code.
+# - Adjustments are manual entries of a code of kind adjustment (§11, as
+#   T61j built them), which the tenant adds: an output code of component
+#   vat levying the line's emirate (box 1's adjustment column), an input
+#   code of component vat (box 9's), and output codes of components
+#   tourist_refund (box 2) and import_adjustment (box 7).
+# - Out-of-scope supplies (OS) are on no box.
+#
+# The prior-period threshold is P7's AED 10,000 of tax (product owner,
+# 2026-10-20), its measure open (ADR-0049 §11 As built, T61h).
+returns:
+  - type: VAT201
+    name: VAT return (VAT 201 boxes)
+    prior_period_threshold: "10000"
+    boxes:
+      - code: "1a_amount"
+        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): amount (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AZ], account_keys: [output], measure: base, negate: true}
+      - code: "1a_vat"
+        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): VAT (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AZ], account_keys: [output], measure: tax, negate: true}
+      - code: "1a_adjustment"
+        label: "1a Standard-rated supplies in Abu Dhabi (AE-AZ): adjustment (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-AZ], measure: tax, negate: true}
+      - code: "1b_amount"
+        label: "1b Standard-rated supplies in Dubai (AE-DU): amount (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-DU], account_keys: [output], measure: base, negate: true}
+      - code: "1b_vat"
+        label: "1b Standard-rated supplies in Dubai (AE-DU): VAT (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-DU], account_keys: [output], measure: tax, negate: true}
+      - code: "1b_adjustment"
+        label: "1b Standard-rated supplies in Dubai (AE-DU): adjustment (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-DU], measure: tax, negate: true}
+      - code: "1c_amount"
+        label: "1c Standard-rated supplies in Sharjah (AE-SH): amount (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-SH], account_keys: [output], measure: base, negate: true}
+      - code: "1c_vat"
+        label: "1c Standard-rated supplies in Sharjah (AE-SH): VAT (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-SH], account_keys: [output], measure: tax, negate: true}
+      - code: "1c_adjustment"
+        label: "1c Standard-rated supplies in Sharjah (AE-SH): adjustment (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-SH], measure: tax, negate: true}
+      - code: "1d_amount"
+        label: "1d Standard-rated supplies in Ajman (AE-AJ): amount (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AJ], account_keys: [output], measure: base, negate: true}
+      - code: "1d_vat"
+        label: "1d Standard-rated supplies in Ajman (AE-AJ): VAT (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-AJ], account_keys: [output], measure: tax, negate: true}
+      - code: "1d_adjustment"
+        label: "1d Standard-rated supplies in Ajman (AE-AJ): adjustment (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-AJ], measure: tax, negate: true}
+      - code: "1e_amount"
+        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): amount (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-UQ], account_keys: [output], measure: base, negate: true}
+      - code: "1e_vat"
+        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): VAT (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-UQ], account_keys: [output], measure: tax, negate: true}
+      - code: "1e_adjustment"
+        label: "1e Standard-rated supplies in Umm Al Quwain (AE-UQ): adjustment (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-UQ], measure: tax, negate: true}
+      - code: "1f_amount"
+        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): amount (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-RK], account_keys: [output], measure: base, negate: true}
+      - code: "1f_vat"
+        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): VAT (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-RK], account_keys: [output], measure: tax, negate: true}
+      - code: "1f_adjustment"
+        label: "1f Standard-rated supplies in Ras Al Khaimah (AE-RK): adjustment (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-RK], measure: tax, negate: true}
+      - code: "1g_amount"
+        label: "1g Standard-rated supplies in Fujairah (AE-FU): amount (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-FU], account_keys: [output], measure: base, negate: true}
+      - code: "1g_vat"
+        label: "1g Standard-rated supplies in Fujairah (AE-FU): VAT (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [standard], components: [vat], jurisdictions: [AE-FU], account_keys: [output], measure: tax, negate: true}
+      - code: "1g_adjustment"
+        label: "1g Standard-rated supplies in Fujairah (AE-FU): adjustment (its ISO code pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [vat], jurisdictions: [AE-FU], measure: tax, negate: true}
+      - code: "2_vat"
+        label: "2 Tourist refunds: VAT (column pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [tourist_refund], measure: tax, negate: true}
+      - code: "3_amount"
+        label: "3 Supplies subject to the reverse charge: amount (column pending the tax specialist)"
+        select: {direction: input, kinds: [reverse_charge], components: [vat_due], account_keys: [self_output], measure: base}
+      - code: "3_vat"
+        label: "3 Supplies subject to the reverse charge: VAT (column pending the tax specialist)"
+        select: {direction: input, kinds: [reverse_charge], components: [vat_due], account_keys: [self_output], measure: tax, negate: true}
+      - code: "4_amount"
+        label: "4 Zero-rated supplies: amount (column pending the tax specialist)"
+        select: {direction: output, kinds: [zero], components: [vat], measure: base, negate: true}
+      - code: "5_amount"
+        label: "5 Exempt supplies: amount (column pending the tax specialist)"
+        select: {direction: output, kinds: [exempt], components: [vat], measure: base, negate: true}
+      - code: "6_amount"
+        label: "6 Goods imported into the UAE: amount (column pending the tax specialist)"
+        select: {direction: input, kinds: [import], components: [vat_due], account_keys: [self_output], measure: base}
+      - code: "6_vat"
+        label: "6 Goods imported into the UAE: VAT (column pending the tax specialist)"
+        select: {direction: input, kinds: [import], components: [vat_due], account_keys: [self_output], measure: tax, negate: true}
+      - code: "7_vat"
+        label: "7 Adjustments to goods imported into the UAE: VAT (column pending the tax specialist)"
+        select: {direction: output, kinds: [adjustment], components: [import_adjustment], measure: tax, negate: true}
+      - code: "8_amount"
+        label: "8 Totals: amount, boxes 1a-1g, 3, 4, 5 and 6 (from memory, pending the tax specialist)"
+        expression: box_1a_amount + box_1b_amount + box_1c_amount + box_1d_amount + box_1e_amount + box_1f_amount + box_1g_amount + box_3_amount + box_4_amount + box_5_amount + box_6_amount
+      - code: "8_vat"
+        label: "8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7 (from memory, pending the tax specialist)"
+        expression: box_1a_vat + box_1b_vat + box_1c_vat + box_1d_vat + box_1e_vat + box_1f_vat + box_1g_vat + box_2_vat + box_3_vat + box_6_vat + box_7_vat
+      - code: "8_adjustment"
+        label: "8 Totals: adjustment, boxes 1a-1g (from memory, pending the tax specialist)"
+        expression: box_1a_adjustment + box_1b_adjustment + box_1c_adjustment + box_1d_adjustment + box_1e_adjustment + box_1f_adjustment + box_1g_adjustment
+      - code: "9_amount"
+        label: "9 Standard-rated expenses: amount"
+        select: {direction: input, kinds: [standard], components: [vat], account_keys: [input], measure: base}
+      - code: "9_vat"
+        label: "9 Standard-rated expenses: recoverable VAT"
+        select: {direction: input, kinds: [standard], components: [vat], account_keys: [input], measure: recoverable}
+      - code: "9_adjustment"
+        label: "9 Standard-rated expenses: adjustment"
+        select: {direction: input, kinds: [adjustment], components: [vat], measure: tax}
+      - code: "10_vat"
+        label: "10 Supplies subject to the reverse charge: recoverable VAT"
+        select: {direction: input, kinds: [reverse_charge, import], components: [vat], account_keys: [self_input], measure: recoverable}
+      - code: "11_amount"
+        label: "11 Totals: amount, box 9 (from memory, pending the tax specialist)"
+        expression: box_9_amount
+      - code: "11_vat"
+        label: "11 Totals: recoverable VAT, boxes 9 and 10 (from memory, pending the tax specialist)"
+        expression: box_9_vat + box_10_vat
+      - code: "11_adjustment"
+        label: "11 Totals: adjustment, box 9 (from memory, pending the tax specialist)"
+        expression: box_9_adjustment
+      - code: "12"
+        label: "12 Total value of due tax for the period: box 8, VAT and adjustment (from memory, pending the tax specialist)"
+        expression: box_8_vat + box_8_adjustment
+      - code: "13"
+        label: "13 Total value of recoverable tax for the period: box 11, VAT and adjustment (from memory, pending the tax specialist)"
+        expression: box_11_vat + box_11_adjustment
+      - code: "14"
+        label: "14 Payable tax for the period: box 12 less box 13 (negative: refundable)"
+        expression: box_12 - box_13

@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
+	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -129,11 +130,30 @@ func (e *Endpoints) statementOf(ctx context.Context, tx pgx.Tx, r Run) (statemen
 	if err != nil {
 		return statement{}, false, err
 	}
+	nci, err := nciProfit(ctx, tx, r)
+	if err != nil {
+		return statement{}, false, err
+	}
 	exp, err := currency.Exponent(ctx, tx, r.GroupCurrency, nil)
 	if err != nil {
 		return statement{}, false, fmt.Errorf("consolidation: currency %s: %w", r.GroupCurrency, err)
 	}
-	return statement{chart: doc.Consolidation, sums: sums, group: r.GroupCurrency, exp: exp}, stale, nil
+	return statement{chart: doc.Consolidation, sums: sums, nci: nci, group: r.GroupCurrency, exp: exp}, stale, nil
+}
+
+// nciProfit is the profit's share attributable to non-controlling
+// interests (ADR-0059 §9, §11), debit positive as the profit: minus the
+// profit components of the run's nci entries, which debit retained
+// earnings with the interest's share of a profit. A run consolidates only
+// members held whole (As built T68h), so it writes no nci entry, and
+// 000243 allows no profit component yet: the share is zero until the
+// step that computes the interest widens the check and writes them.
+func nciProfit(ctx context.Context, tx pgx.Tx, r Run) (money.Minor, error) {
+	var share money.Minor
+	err := tx.QueryRow(ctx, `SELECT coalesce(-sum(l.amount_gc), 0)::bigint FROM consolidation.run_entry en
+		JOIN consolidation.run_entry_line l ON l.tenant_id = en.tenant_id AND l.run_id = en.run_id AND l.entry_no = en.entry_no
+		WHERE en.run_id = $1 AND en.kind = 'nci' AND l.component = 'profit'`, r.ID).Scan(&share)
+	return share, errs.Wrapf(err, "consolidation: the non-controlling interests' profit of run %s", r.ID)
 }
 
 // accountSums are a run's translated rows and its elimination entries'
@@ -162,6 +182,7 @@ func accountSums(ctx context.Context, tx pgx.Tx, r Run) (map[string]columns, err
 type statement struct {
 	chart config.Consolidation
 	sums  map[string]columns
+	nci   money.Minor // the profit's share of non-controlling interests, an elimination
 	group string
 	exp   int
 }
@@ -210,7 +231,9 @@ func (s statement) row(a config.GroupAccount) gen.ConsolidatedStatementRow {
 
 // totals are the statement's totals over every group account: the
 // balance sheet's assets, liabilities and equity, the profit and loss's
-// revenue and expenses, and on both the fiscal year's profit through the
+// revenue, expenses and the profit's attribution to non-controlling
+// interests (the run's nci entries, an elimination) and to the owners of
+// the parent (the rest), and on both the fiscal year's profit through the
 // period, which closes the balance sheet to zero.
 func (s statement) totals(statement string) gen.ConsolidatedStatementTotals {
 	out := gen.ConsolidatedStatementTotals{Profit: s.figuresAPI(s.sum(config.Revenue, config.Expense))}
@@ -222,5 +245,9 @@ func (s statement) totals(statement string) gen.ConsolidatedStatementTotals {
 	}
 	out.Revenue = gen.NewOptConsolidatedFigures(s.figuresAPI(s.sum(config.Revenue)))
 	out.Expenses = gen.NewOptConsolidatedFigures(s.figuresAPI(s.sum(config.Expense)))
+	nci := columns{eliminations: s.nci}
+	profit := s.sum(config.Revenue, config.Expense)
+	out.NonControllingInterests = gen.NewOptConsolidatedFigures(s.figuresAPI(nci))
+	out.OwnersOfTheParent = gen.NewOptConsolidatedFigures(s.figuresAPI(columns{reported: profit.reported, eliminations: profit.eliminations - nci.eliminations}))
 	return out
 }

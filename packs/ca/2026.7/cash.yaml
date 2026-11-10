@@ -1,0 +1,9 @@
+# The top of the tenant's liquidity items (ADR-0051 §4, T53b): the
+# activities a cash flow statement classifies cash flows into (IAS 7.10;
+# ASPE section 1540 uses the same three), each for both directions, so the
+# tenant hangs its own items under them. Suggested, not required: applying
+# the pack merges them into the tenant's items by code.
+liquidity_items:
+  - {code: OPERATING, name: Operating activities, direction: both}
+  - {code: INVESTING, name: Investing activities, direction: both}
+  - {code: FINANCING, name: Financing activities, direction: both}

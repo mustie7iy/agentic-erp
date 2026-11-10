@@ -14098,7 +14098,7 @@ paths:
       tags:
         - consolidation
       summary: Start a consolidation run
-      description: "Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's consolidation monitor): the run is written `queued` with the active configuration's version and its Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in process in a cell without a workflow engine. It includes the parent and every member whose first period is on or before the run's, reads each one's leading-ledger balances through the period (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per account and trading partner) and translates them into the group currency (§7): assets and liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from the company's local currency into the group currency valid on the period's last day; income, expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member in the fiscal year of its first period those of the periods before it, as one row on the group chart's `retained_earnings` account; and the translation difference, which makes each company's translated rows sum to zero, as one row on its `cta` account. The method is to be confirmed by an accounting specialist (ADR-0059, question 1). A run may be made for any period, open or not: a draft shows the figures as they stand. Refused when the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may not act in), for a special period (422 `consolidation.special_period`), a period the parent's leading ledger does not have (422 `consolidation.period_unknown`), a member included on another fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date; and while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business problem while the run is carried out (a rate recorded since, a company account with a balance and no group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked since) fails the run and its Operation with the problem. Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each change of the run's status is published as ConsolidationRunChanged and audited. Human-only."
+      description: "Starts the consolidation run of a group for a regular period (ADR-0059 §6, T68d; SAP's consolidation monitor): the run is written `queued` with the active configuration's version and its Operation (kind `consolidation.run`, its `resource` the run), and carried out as a workflow, or in process in a cell without a workflow engine. It includes the parent and every member whose first period is on or before the run's, reads each one's leading-ledger balances through the period (balance sheet accounts over every fiscal year, profit and loss accounts per fiscal year, per account and trading partner) and translates them into the group currency (§7): assets and liabilities at the closing rate, the latest of the configuration's `consolidation.rate_type` from the company's local currency into the group currency valid on the period's last day; income, expenses and equity at their booked group amounts; earlier fiscal years' results, and for a member in the fiscal year of its first period those of the periods before it, as one row on the group chart's `retained_earnings` account; and the translation difference, which makes each company's translated rows sum to zero, as one row on its `cta` account. Each member's investment is then eliminated against its share capital (§9): its rows on its equity accounts other than its retained earnings account through the run's period, as booked, or those the group's first final run including it froze (the member's `acquisition`, measured at the period before its first, and its `investment` entry); its earlier results and translation reserve stay the group's. A run consolidates only a member the parent incorporated and holds whole, with no goodwill and no non-controlling interest (ADR-0059 As built T68h and T68h2; the accounting specialist's B5(a), B3 and B8, po:2026-11-09). A run may be made for any period, open or not: a draft shows the figures as they stand. Refused when the group is unknown to the caller (404 `consolidation.group_unknown`: one that does not exist, or whose parent or a member the caller may not act in), for a special period (422 `consolidation.special_period`), a period the parent's leading ledger does not have (422 `consolidation.period_unknown`), a member included on another fiscal calendar (422 `consolidation.calendar_mismatch`, naming it), a parent whose local currency is not the group currency (422 `consolidation.parent_currency`), a company currency without a closing rate of the period (422 `consolidation.rate_missing`) or with one valid from before the period's first day (422 `consolidation.rate_stale`, ADR-0042's rule), each naming the pair and the date, and likewise for the period before the first of a member whose acquisition is not frozen yet, or a member without that period (422 `consolidation.period_unknown`); a member held at less than 100% or acquired rather than incorporated, which needs goodwill or a non-controlling interest, not built (422 `consolidation.structure_unsupported`, naming it); and while another run of the group is queued or running (409 `consolidation.run_in_progress`, whose detail and `Location` name it). A business problem while the run is carried out (a rate recorded since, a company account with a balance and no group account, `consolidation.account_unmapped`, a member's period gone, its requester blocked since; a member whose investment differs from its share capital, which an incorporated subsidiary without goodwill cannot explain, `consolidation.investment_mismatch`; a member whose ownership, origin, first period or investment account differs from its frozen acquisition's, `consolidation.acquisition_changed`, or whose parent's investment balance does, `consolidation.investment_changed`) fails the run and its Operation with the problem. Cancelling the Operation (`POST /v1/operations/{id}:cancel`) fails the run at its next step with `consolidation.run_cancelled`, the Operation staying `cancelled`. A step failing on an error of the machinery is tried five times; one that outlasts them fails the run with `platform.internal`. Each change of the run's status is published as ConsolidationRunChanged and audited. Human-only."
       x-permission: consolidation.run.manage
       x-agent: false
       x-problem-codes:
@@ -14112,6 +14112,7 @@ paths:
         - consolidation.rate_stale
         - consolidation.run_in_progress
         - consolidation.special_period
+        - consolidation.structure_unsupported
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -14315,13 +14316,14 @@ paths:
       tags:
         - consolidation
       summary: Finalize a consolidation run
-      description: "Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10, T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it), so the history of what was finalized, by whom and on which figures stays readable (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`, or have the companies correct their postings and run the group again); when a company's leading-ledger period was not locked when the run read its figures or is not locked now (409 `consolidation.period_not_locked`, naming the companies: lock them, through each company's close sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409 `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version moved since the run read its figures, so run the group again). Finalizations of one group and period wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
+      description: "Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10, T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it), so the history of what was finalized, by whom and on which figures stays readable (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`, or have the companies correct their postings and run the group again); when a company's leading-ledger period was not locked when the run read its figures or is not locked now (409 `consolidation.period_not_locked`, naming the companies: lock them, through each company's close sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409 `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version moved since the run read its figures, so run the group again). The first final run including a member freezes its acquisition figures (its `acquisition`), which every later run of the group reads instead of measuring them; finalizing a run whose figures for a member differ from those another final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the group again). Finalizations of one group and period wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
       x-permission: consolidation.run.finalize
       x-also-permissions:
         - ledger.entry.read
       x-agent: false
       x-problem-codes:
         - config.unknown_version
+        - consolidation.acquisition_changed
         - consolidation.differences_open
         - consolidation.final_exists
         - consolidation.period_not_locked
@@ -15086,7 +15088,6 @@ paths:
       x-agent: false
       x-problem-codes:
         - closing.checks_failing
-        - closing.close_exists
         - closing.close_signed_off
         - closing.period_not_closed
         - closing.tasks_open
@@ -15584,7 +15585,7 @@ paths:
       tags:
         - closing
       summary: Assign a year close task
-      description: "Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or a person without access to the close's company). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Sets or clears (null) the person a task of a year close is assigned to (ADR-0060 §8, T64m4), as `updateCloseTask` does a period close's: an active person of the tenant who may act in the close's company (422 `closing.assignee_invalid` for an agent, a service, a blocked or unknown principal, or a person without access to the close's company). `If-Match` is the close's ETag, so a change made on a stale view of the checklist is refused (412); the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_assigned`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15644,7 +15645,7 @@ paths:
       tags:
         - closing
       summary: Complete a year close task
-      description: "Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as `completeCloseTask` does a period close's: refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_completed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Marks an open manual task of a year close done, with an optional note (ADR-0060 §8, T64m4), as `completeCloseTask` does a period close's: refused while a task it depends on is open (409 `closing.task_blocked`, naming them), for a task already done (409 `closing.task_already_done`) and for a check task, which is done by its check passing (409 `closing.task_is_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_completed`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15706,7 +15707,7 @@ paths:
       tags:
         - closing
       summary: Reopen a year close task
-      description: "Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_reopened`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Returns a done task of a year close to open, with a reason (409 `closing.task_not_done` for an open one) (ADR-0060 §8, T64m4), as `reopenCloseTask` does a period close's: who completed it, when, and the note are cleared, and the reason is kept in the audit trail and the event. It reopens nothing else: a task that depends on it stays done. `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_reopened`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked (an approved `unlockFiscalPeriod` request), the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15766,7 +15767,7 @@ paths:
       tags:
         - closing
       summary: Run a year close task's check
-      description: "Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8, T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who ran it and what it found; the task is set done when it passed and open when it did not. The checks read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes when no parked entry of the company dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day) is `parked` or `pending_approval`, those parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the year's last day (its last regular period's), and names each ledger with its run; `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year, `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning), and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`); `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its run, or without one, and with the periods opened since that make it stale. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year close (its sign-off is T64m6's) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
+      description: "Runs a check task's check of a year close now and records its result on the task (ADR-0060 §8, T64m5), as `checkCloseTask` does a period close's: `check_result` says whether it passed, when, who ran it and what it found; the task is set done when it passed and open when it did not. The checks read the covered ledgers' periods of the fiscal year as they are now. `no_parked_entries` passes when no parked entry of the company dated in the fiscal year (the leading ledger's first regular period's first day to its last regular period's last day) is `parked` or `pending_approval`, those parked for a special period included (ADR-0060 §3), and names the first 20 with who parked them; `revaluation_posted` passes when each covered ledger has a posted revaluation run keyed on the year's last day (its last regular period's), and names each ledger with its run; `depreciation_year_posted` passes when, for each covered ledger and each regular period of the year, `depreciation_posted` would pass (a posted depreciation run of the period, no asset a run of it would select, or a posted run of a later period, each asset then a `depreciation_catch_up` warning), and names each ledger and period that fails (`ledger_periods_count`, the first 20 in `ledgers`); `carry_forward_current` passes when each covered ledger has a current balance carry-forward from the fiscal year (`GET /v1/balance-carry-forwards`) that is not stale, and names each ledger with its run, or without one, and with the periods opened since that make it stale. A check is a statement about the moment it ran: run it again to refresh it. Refused while a task it depends on is open (409 `closing.task_blocked`, naming them) and for a manual task (409 `closing.task_not_check`). `If-Match` is the close's ETag; the answer is the task, with the close's new ETag. People only. Audited, and published as YearCloseChanged (`task_checked`, with `check_passed`). A signed-off year close (`signOffYearClose`) whose covered ledgers' periods of the year are all locked refuses it (409 `closing.close_signed_off`); once one of them was unlocked, the change sets the close open again first, published as YearCloseChanged (`reopened`) (ADR-0060 §8, ADR-0058 §7)."
       x-permission: closing.close.manage
       x-also-permissions:
         - ledger.entry.read
@@ -15794,6 +15795,70 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/YearCloseTask"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/year-closes/{id}:signOff":
+    post:
+      operationId: signOffYearClose
+      tags:
+        - closing
+      summary: Sign off a year close
+      description: "Signs off a year close and locks the fiscal year in its covered ledgers (ADR-0060 §8, T64m6), as `signOffPeriodClose` signs off a period close, in one transaction under a lock on the close: first every posting period of the year of every covered ledger, regular and special, is read `FOR UPDATE` in one statement, by period, then the leading ledger first, then by ledger code (the order postings lock periods in), so that no period is opened or unlocked until the sign-off commits. A year close already signed off whose periods are all locked is refused (409 `closing.close_signed_off`). Then refused while a manual task is open (409 `closing.tasks_open`, naming them); every check task's check runs again, and if any fails the sign-off is refused (409 `closing.checks_failing`, the problem's `failing_checks` naming each failing task with what its check found) and nothing is kept; when all pass each result is recorded on its task. Every regular period of each covered ledger must be `locked` (409 `closing.year_periods_not_locked`, naming each ledger with its periods not locked: the period closes' sign-offs, or `lockFiscalPeriod`, lock them), and every special period `closed` or `locked` (409 `closing.period_not_closed`, naming each period with the ledgers it is open in): a sign-off never closes a period. Each `closed` special period is then locked as `lockFiscalPeriod` locks it (the ledger's audit record and PeriodLocked), in the order read; a period already locked is left as it is. After it every period of the year is locked in the covered ledgers, and a posting into one is refused (409 `ledger.period_not_open`). The sign-off is recorded with who signed off and their name, when, the note and, per covered ledger, its special periods and whether this sign-off locked each, and the close is `signed_off`. After a period of the year was unlocked (an approved `unlockFiscalPeriod` request) the year close is signed off again, adding a second sign-off. No separation of duties for the pilot: who signed is recorded (product owner 2026-11-04, ADR-0060 §12). `If-Match` is the close's ETag; the answer is the sign-off, with the close's new ETag. People only. Besides `closing.close.sign_off` the caller needs `ledger.period.lock`, since it locks periods, and `ledger.entry.read`, since its refusal names what the checks found (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Audited, and published as YearCloseSignedOff."
+      x-permission: closing.close.sign_off
+      x-also-permissions:
+        - ledger.period.lock
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - closing.checks_failing
+        - closing.close_signed_off
+        - closing.period_not_closed
+        - closing.tasks_open
+        - closing.year_periods_not_locked
+        - config.not_bootstrapped
+        - ledger.invalid_period_status
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of signOffYearClose.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PeriodCloseSignOffInput"
+      responses:
+        "200":
+          description: "The sign-off, with the special periods it locked, and the close's new ETag."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/YearCloseSignOff"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -30325,7 +30390,7 @@ components:
           pattern: "^[A-Z0-9]{1,4}$"
         tax_jurisdiction:
           type: string
-          description: "The province or emirate the line's tax is levied in (ISO 3166-2, `CA-ON`, `AE-DU`; ADR-0049 §7): required on every line, base and tax, of a code whose component levies its lines' subdivision (`jurisdiction_on_line`; 422 `ledger.jurisdiction_required`), a subdivision of that component's country, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items are per jurisdiction."
+          description: "The province or emirate the line's tax is levied in (ISO 3166-2, `CA-ON`, `AE-DU`; ADR-0049 §7): required on every line, base and tax, of a code whose component levies its lines' subdivision (`jurisdiction_on_line`; 422 `ledger.jurisdiction_required`), a subdivision of that component's country and, where the component lists the subdivisions it accepts (`subdivisions`, the emirate guard), one of them, and on no other line (422 `ledger.jurisdiction_not_levied`). The code's items are per jurisdiction."
           pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$"
         tax_base:
           $ref: "#/components/schemas/Money"
@@ -37935,7 +38000,7 @@ components:
             item_count: {type: integer, format: int64, description: "The prior-period items some selection box selects."}
             tax: {$ref: "#/components/schemas/Money", description: "Their tax, signed like the journal (debit positive: input tax positive, output tax negative)."}
             threshold: {$ref: "#/components/schemas/Money", description: "The country pack's threshold; absent when the pack sets none (always the next return)."}
-            above_threshold: {type: boolean, description: "Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold in magnitude: provisional and conservative, so that a person reviews; which measure the threshold applies to (net or gross, per period or pooled, per error) is open (ADR-0049 §11)."}
+            above_threshold: {type: boolean, description: "Whether the items of any one earlier period, all together, make a net shortfall of payable tax above the threshold: their output tax less their recovered input tax; over-declared tax never raises it, and periods are not pooled (ADR-0049 §11). Under the UAE's tax procedures a voluntary disclosure of that period is then due within 20 business days of discovery (Cabinet Decision No. 74 of 2023, Art. 10)."}
         boxes:
           type: array
           description: "The return's boxes in the definition's order."
@@ -38083,7 +38148,7 @@ components:
                 item_count: {type: integer, format: int64, description: "The prior-period items claimed."}
                 tax: {$ref: "#/components/schemas/Money", description: "Their tax, signed like the journal (debit positive)."}
                 threshold: {$ref: "#/components/schemas/Money", description: "The country pack's threshold; absent when the pack sets none."}
-                above_threshold: {type: boolean, description: "Whether, of any one earlier period, the input or the output tax of its items exceeds the threshold in magnitude (provisional, ADR-0049 §11)."}
+                above_threshold: {type: boolean, description: "Whether the items of any one earlier period, all together, made a net shortfall of payable tax above the threshold when it was prepared (ADR-0049 §11); in the UAE a voluntary disclosure is due within 20 business days of discovery."}
             boxes:
               type: array
               description: "The return's boxes in the definition's order."
@@ -39418,6 +39483,7 @@ components:
         - tasks_overdue
         - ledgers
         - tasks
+        - sign_offs
         - version
         - created_at
         - created_by
@@ -39459,8 +39525,22 @@ components:
           readOnly: true
         status:
           type: string
-          description: "`open` until it is signed off (T64m6). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "`open` until it is signed off (`signOffYearClose`, T64m6), and again after a covered period was unlocked and the close written to (ADR-0060 §8, ADR-0058 §7). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [open, signed_off]
+          readOnly: true
+        signed_off_at:
+          type: string
+          format: date-time
+          description: "When it was last signed off (`:signOff`, T64m6); absent while it is open."
+          readOnly: true
+        signed_off_by:
+          type: string
+          format: uuid
+          description: "Who signed it off; absent while it is open."
+          readOnly: true
+        signed_off_by_name:
+          type: string
+          description: "Their name; absent while it is open."
           readOnly: true
         read_date:
           type: string
@@ -39508,6 +39588,13 @@ components:
           items:
             $ref: "#/components/schemas/YearCloseTask"
           description: "Its tasks, in the template's order."
+          readOnly: true
+        sign_offs:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: "#/components/schemas/YearCloseSignOff"
+          description: "Its sign-offs, oldest first (T64m6): one per `:signOff`, a second after a period of the year was unlocked and the close signed off again; empty until it is signed off."
           readOnly: true
         version:
           type: integer
@@ -39574,6 +39661,7 @@ components:
               status: open
               overdue: false
               read_date: "2026-01-05"
+          sign_offs: []
           version: 1
           created_at: "2026-01-05T14:00:00Z"
           created_by: 0192a000-0000-7000-8000-000000000101
@@ -39640,6 +39728,20 @@ components:
           type: string
           description: "Year close status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum: [open, signed_off]
+          readOnly: true
+        signed_off_at:
+          type: string
+          format: date-time
+          description: "When it was last signed off (`:signOff`, T64m6); absent while it is open."
+          readOnly: true
+        signed_off_by:
+          type: string
+          format: uuid
+          description: "Who signed it off; absent while it is open."
+          readOnly: true
+        signed_off_by_name:
+          type: string
+          description: "Their name; absent while it is open."
           readOnly: true
         read_date:
           type: string
@@ -39940,7 +40042,7 @@ components:
           note: The auditors' three adjustments posted into period 13.
     PeriodCloseSignOffInput:
       type: object
-      description: "A period close's sign-off."
+      description: "A close's sign-off: a period close's (`signOffPeriodClose`) or a year close's (`signOffYearClose`)."
       properties:
         note: {type: string, minLength: 1, maxLength: 2000, description: "What the signer wants kept with the sign-off; kept on it and in the audit trail."}
       additionalProperties: false
@@ -40072,6 +40174,151 @@ components:
         locked:
           type: boolean
           description: "Whether this sign-off locked the period: false when it was locked already."
+          readOnly: true
+    YearCloseSignOff:
+      type: object
+      description: "A sign-off of a year close (ADR-0060 §8, T64m6): who signed it off, with their name as it was then, when, and per covered ledger its special periods and whether this sign-off locked each; every regular period was locked already. Recorded once, never changed; a year close signed off again after an unlock has a second."
+      required:
+        - id
+        - close_id
+        - legal_entity_id
+        - company_code
+        - company_name
+        - fiscal_year
+        - signed_by
+        - signed_by_name
+        - signed_at
+        - ledgers
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identifier (UUIDv7).
+          readOnly: true
+        close_id:
+          type: string
+          format: uuid
+          description: "The year close (`GET /v1/year-closes/{id}`)."
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The company's legal entity.
+          readOnly: true
+        company_code:
+          type: string
+          description: The company code.
+          readOnly: true
+        company_name:
+          type: string
+          description: The company's name.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year.
+          readOnly: true
+        signed_by:
+          type: string
+          format: uuid
+          description: The person who signed it off.
+          readOnly: true
+        signed_by_name:
+          type: string
+          description: "Their name, as it was at the sign-off."
+          readOnly: true
+        signed_at:
+          type: string
+          format: date-time
+          description: When.
+          readOnly: true
+        note:
+          type: string
+          description: "The note given with it; absent without one."
+          readOnly: true
+        ledgers:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/YearCloseSignOffLedger"
+          description: "The covered ledgers, the leading one first, then by code."
+          readOnly: true
+      examples:
+        - id: 0192a000-0000-7000-8000-000000000f71
+          close_id: 0192a000-0000-7000-8000-000000000f61
+          legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2025
+          signed_by: 0192a000-0000-7000-8000-000000000101
+          signed_by_name: Carla Controller
+          signed_at: "2026-02-20T16:00:00Z"
+          note: 2025 closed; the auditors' adjustments are in period 13.
+          ledgers:
+            - ledger_id: 0192a000-0000-7000-8000-000000000a01
+              ledger_code: 0L
+              ledger_name: Leading ledger
+              is_leading: true
+              periods:
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4d, period: 13, locked: true}
+                - {fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4e, period: 14, locked: true}
+    YearCloseSignOffLedger:
+      type: object
+      description: "A covered ledger as a year close's sign-off found it: its special periods of the year, and whether this sign-off locked each."
+      required:
+        - ledger_id
+        - ledger_code
+        - ledger_name
+        - is_leading
+        - periods
+      properties:
+        ledger_id:
+          type: string
+          format: uuid
+          description: The ledger.
+          readOnly: true
+        ledger_code:
+          type: string
+          description: "The ledger's code, as it was at the sign-off."
+          readOnly: true
+        ledger_name:
+          type: string
+          description: "The ledger's name, as it was at the sign-off."
+          readOnly: true
+        is_leading:
+          type: boolean
+          description: Whether it is the leading ledger.
+          readOnly: true
+        periods:
+          type: array
+          maxItems: 4
+          items:
+            $ref: "#/components/schemas/YearCloseSignOffPeriod"
+          description: "Its special periods of the year, by period; none when its calendar has none."
+          readOnly: true
+    YearCloseSignOffPeriod:
+      type: object
+      description: "A special period as a year close's sign-off found it."
+      required:
+        - fiscal_period_id
+        - period
+        - locked
+      properties:
+        fiscal_period_id:
+          type: string
+          format: uuid
+          description: "The posting period (`GET /v1/fiscal-periods/{id}`)."
+          readOnly: true
+        period:
+          type: integer
+          format: int32
+          minimum: 13
+          maximum: 16
+          description: The special period.
+          readOnly: true
+        locked:
+          type: boolean
+          description: "Whether this sign-off locked it: false when it was locked already."
           readOnly: true
     FailingCheck:
       type: object
@@ -41370,7 +41617,8 @@ components:
               company_code: "1000"
               company_name: Acme Corp US
               local_currency: USD
-              ownership_percent: "80"
+              ownership_percent: "100"
+              origin: incorporated
               first_fiscal_year: 2026
               first_fiscal_period: 11
               investment_account: {number: "1700", name: Investment in Acme Corp US}
@@ -41403,13 +41651,14 @@ components:
           readOnly: true
     ConsolidationMember:
       type: object
-      description: "A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, the period it is first consolidated in and the parent's account holding the investment in it."
+      description: "A subsidiary of a consolidation group (ADR-0059 §3): its company, the parent's ownership of it, how the parent came to hold it, the period it is first consolidated in and the parent's account holding the investment in it."
       required:
         - legal_entity_id
         - company_code
         - company_name
         - local_currency
         - ownership_percent
+        - origin
         - first_fiscal_year
         - first_fiscal_period
         - investment_account
@@ -41435,6 +41684,11 @@ components:
         ownership_percent:
           type: string
           description: "The parent's ownership in percent, a plain decimal above 0 and at most 100 with up to four decimals, as configured."
+          readOnly: true
+        origin:
+          type: string
+          x-extensible-enum: [incorporated, acquired]
+          description: "How the parent came to hold the subsidiary, as configured: `incorporated` (it founded it, so the investment is eliminated against the subsidiary's equity and there is no goodwill) or `acquired` (a business combination). A run consolidates only a subsidiary the parent incorporated and holds whole (ADR-0059 As built T68h; others are refused with `consolidation.structure_unsupported`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
         first_fiscal_year:
           type: integer
@@ -41566,7 +41820,7 @@ components:
           operation_id: 0192a000-0000-7000-8000-000000000c02
           members:
             - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b, company_code: "3000", company_name: Maple Industries Canada, local_currency: CAD, role: parent, closing_rate: "1", period_status: open, period_version: 3, translated_at: "2026-11-20T10:00:01Z"}
-            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "80", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z"}
+            - {legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c, company_code: "1000", company_name: Acme Corp US, local_currency: USD, role: member, ownership_percent: "100", first_fiscal_year: 2026, first_fiscal_period: 11, closing_rate: "1.4", rate_valid_from: "2026-11-30", period_status: open, period_version: 2, translated_at: "2026-11-20T10:00:01Z", acquisition: {fiscal_year: 2026, period: 10, closing_rate: "1.35", rate_valid_from: "2026-10-31", net_assets: {amount: "5000.00", currency: USD}, net_assets_group: {amount: "6750.00", currency: CAD}, investment: {amount: "6750.00", currency: CAD}, goodwill: {amount: "0.00", currency: CAD}, non_controlling_interest: {amount: "0.00", currency: CAD}, frozen: false}}
           computed_at: "2026-11-20T10:00:02Z"
           difference_counts:
             - {status: matched, count: 1}
@@ -41577,7 +41831,7 @@ components:
           updated_at: "2026-11-20T10:00:02Z"
     ConsolidationRunProblem:
       type: object
-      description: "The problem that failed a run: its code and detail, as its Operation's error gives them; `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned since, and `platform.internal` when a step's error outlasted its retries."
+      description: "The problem that failed a run: its code and detail, as its Operation's error gives them; `consolidation.run_cancelled` when its Operation was cancelled, which stays `cancelled` without an error, `identity.principal_blocked` when the person who started it was blocked or deprovisioned since, `consolidation.investment_mismatch`, `consolidation.acquisition_changed` or `consolidation.investment_changed` when a member's investment could not be eliminated (`createConsolidationRun`), and `platform.internal` when a step's error outlasted its retries."
       required: [code, detail]
       properties:
         code: {type: string, description: "The problem's code, such as `consolidation.rate_stale`.", readOnly: true}
@@ -41608,6 +41862,23 @@ components:
           readOnly: true
         period_version: {type: integer, format: int32, description: "That period's version when the run read its figures; absent until translated.", readOnly: true}
         translated_at: {type: string, format: date-time, description: "When its figures were read and translated; absent before.", readOnly: true}
+        acquisition: {$ref: "#/components/schemas/ConsolidationAcquisition"}
+    ConsolidationAcquisition:
+      type: object
+      description: "A member's acquisition figures as the run eliminated its investment with them (ADR-0059 §9): measured at the period before its first, or read from those the group's first final run including it froze (`frozen`). Absent for the parent, and for a member until the run's companies are eliminated. Goodwill and the non-controlling interest are zero: a run consolidates only a member the parent incorporated and holds whole, whose investment equals its share capital as booked through the run's period and is eliminated against it alone, its earlier results and translation reserve staying the group's (ADR-0059 As built T68h2)."
+      required: [fiscal_year, period, closing_rate, net_assets, net_assets_group, investment, goodwill, non_controlling_interest, frozen]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the period its acquisition is measured at, the one before its first.", readOnly: true}
+        period: {type: integer, format: int32, minimum: 1, maximum: 12, description: "That period.", readOnly: true}
+        closing_rate: {type: string, description: "That period's closing rate from its local currency into the group currency, a plain decimal of up to 12 decimals; 1 in the group currency.", readOnly: true}
+        rate_valid_from: {type: string, format: date, description: "The date that rate is valid from; absent in the group currency.", readOnly: true}
+        net_assets: {$ref: "#/components/schemas/Money", description: "Its assets and liabilities through that period, in its local currency, debit positive."}
+        net_assets_group: {$ref: "#/components/schemas/Money", description: "Those translated at that period's closing rate, each balance rounded once, in the group currency. The investment entry reverses its share capital, not these."}
+        investment: {$ref: "#/components/schemas/Money", description: "The parent's balance on its investment account through the run's period, in the group currency: the member's share capital, which the investment entry eliminates it against."}
+        goodwill: {$ref: "#/components/schemas/Money", description: "Zero: a member the parent incorporated has no goodwill (B5(a))."}
+        non_controlling_interest: {$ref: "#/components/schemas/Money", description: "The non-controlling interest at acquisition: zero."}
+        frozen: {type: boolean, description: "Whether the run read these figures from the acquisition an earlier final run froze rather than measuring them; a final run including a member for the first time freezes them (`:finalize`).", readOnly: true}
+        frozen_by_run_id: {type: string, format: uuid, description: "The final run that froze the member's acquisition (`GET /v1/consolidation-runs/{id}`): the one this run read it from, or this run once its finalization froze the figures it measured; absent while none has.", readOnly: true}
     ConsolidationBalancePage:
       type: object
       description: "One page of a consolidation run's translated balances, with the totals over the filter."
@@ -41795,6 +42066,11 @@ components:
         account_id: {type: string, format: uuid, description: "The company account of the row it reverses.", readOnly: true}
         account: {$ref: "#/components/schemas/AssetAccountRef"}
         trading_partner: {$ref: "#/components/schemas/TradingPartner"}
+        component:
+          type: string
+          x-extensible-enum: [acquisition_equity, investment]
+          description: "An investment entry's line (ADR-0059 §9): `acquisition_equity`, the member's share capital on a group account reversed, of the member and no company account; `investment`, the parent's investment reversed, of its investment account. Absent on an intercompany entry's line. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
         amount: {$ref: "#/components/schemas/Money", description: "The amount in the group currency, debit positive."}
       examples:
         - line_no: 1
@@ -41906,7 +42182,7 @@ components:
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
     ConsolidatedStatementTotals:
       type: object
-      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses` and `profit`."
+      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`, `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`."
       required: [profit]
       properties:
         assets: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's asset accounts summed; absent on the profit and loss."}
@@ -41915,6 +42191,8 @@ components:
         revenue: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's revenue accounts summed; absent on the balance sheet."}
         expenses: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's expense accounts summed; absent on the balance sheet."}
         profit: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The fiscal year's profit through the period: the revenue and expense accounts summed, debit positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement: assets, liabilities, equity and profit sum to zero."}
+        non_controlling_interests: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to non-controlling interests (IAS 1.81B), read from the run's non-controlling interest entries, so zero reported; zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance sheet."}
+        owners_of_the_parent: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to the owners of the parent, the profit less `non_controlling_interests` in each column. Absent on the balance sheet."}
     GroupAccountRef:
       type: object
       description: "An account of the group chart, by number and name, in the configuration version a run read."
@@ -46734,7 +47012,7 @@ components:
             settings:
               type: object
               additionalProperties: true
-              description: "Connector settings (endpoints, formats); never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+              description: "Connector settings (endpoints, formats); never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
             secret_ref:
               type: string
               description: Vault path of the credentials.
@@ -46786,7 +47064,7 @@ components:
         settings:
           type: object
           additionalProperties: true
-          description: "Connector settings; never secrets. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
+          description: "Connector settings; never secrets. A `sap_file` connector takes `path` (the extract file, relative to the server's extract directory), optionally `system` (the source system's code in external references) and `amount_format`: `internal` (the default, SAP's stored form as table exports write it, which a migration run converts with the extract's TCURX) or `external` (the amounts as SAP displays them); a `sap_odata` connector takes no `amount_format`, as OData delivers amounts in external form. A `bank_sftp` connector takes `host`, `port` (default 22), `user`, `host_key` (the server's key in authorized_keys form, pinned), `directory` (absolute) and, for a bank that leaves statements there, `statements_directory` and `statements_archive` (absolute, both or neither, not the same: statements are fetched from the first and moved to the second once imported, ADR-0047); its `secret_ref` names the private key, as there are no passwords (ADR-0038). A `bank_ebics` connector takes `url` (the bank's EBICS URL, https), `host_id`, `partner_id` and `user_id` (EBICS 3.0); its `secret_ref` names the subscriber's keys. EBICS is refused in production until certified with a bank: creating or enabling a `bank_ebics` connector there answers 422 `integration.ebics_not_certified`. A `treasury_export` connector (ADR-0051 §14) takes the SFTP server's `host`, `port`, `user`, `host_key` and `directory` as a `bank_sftp` connector does, without statement directories, the `format` of its files (`jsonl` or `csv`, the cash export schema v1) and `companies`, the company codes whose snapshots of the liquidity forecast it is sent (at least one); its `secret_ref` names the private key. An `einvoice_provider` connector (ADR-0061 §3) takes `adapter` (`standin`, the provider's stand-in, the only one until a provider is chosen), `base_url` (the provider's, https), `participants` (each company's participant identifier at the provider, by company code: at least one, each identifier once) and `format` (`pint_ae`); its `secret_ref` names the provider's credentials. The stand-in is refused in production: creating or enabling one there answers 422 `integration.adapter_not_certified`."
         secret_ref:
           type: string
           description: Vault path of the credentials.
@@ -47000,7 +47278,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/MigrationIssue"
-          description: "SAP values the reconciliation could not use: amounts that do not parse, or sums out of the range of an amount; absent when there are none. Any one fails the reconciliation."
+          description: "SAP values the reconciliation could not use: amounts that do not parse, sums out of the range of an amount, or journal lines of other ledgers than the leading one (ACDOCA RLDNR; then no control is computed); absent when there are none. Any one fails the reconciliation."
         passed:
           type: boolean
           description: Whether every check passed and the reconciliation had no issue; the run is then `reconciled`.
