@@ -126,8 +126,7 @@ func netInvestments(cs config.Consolidation, r Run, company string, accounts map
 func included(g config.ConsolidationGroup, company string, year, period int16) bool {
 	for _, m := range g.Members {
 		if m.Company == company {
-			y, p, _ := m.First() // validated: well formed
-			return y < int(year) || (y == int(year) && p <= int(period))
+			return m.ConsolidatedIn(int(year), int(period))
 		}
 	}
 	return company == g.Parent

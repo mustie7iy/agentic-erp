@@ -2258,12 +2258,14 @@ or to any member's ledger, which a run only reads. Built in
   group amount). A valuation and its reset therefore cancel exactly, and
   a period run before its own valuation moves the previous one's reset
   out of its profit.
-- **From the period the run consolidates the trading partner in.** A
-  designation counts in a run only when its trading partner is a company
-  the run includes (the parent, or a member whose first period has come,
-  §6): before that the consolidated statements hold no foreign operation
-  the item could be an investment in, and the difference stays in the
-  profit as any other.
+- **In a run that includes the trading partner.** A designation counts
+  in a run only when its trading partner is a company the run includes
+  (the parent, or a member whose first period has come, §6): a run of an
+  earlier period consolidates no foreign operation the item could be an
+  investment in, and the difference stays in its profit as any other.
+  Once a run includes the partner the designation applies to every line
+  it reads, those of the year's earlier periods and of earlier years
+  (off `prior_results`) among them (review round 1).
 - **What the statements show.** `run_member.net_investment_gc` (000249)
   records, with the company's translation, the year's amount through the
   period, debit positive, beside `revaluation_translation_gc` and

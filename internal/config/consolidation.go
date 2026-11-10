@@ -191,6 +191,14 @@ func (c Consolidation) GroupOf(company string) string {
 	return ""
 }
 
+// ConsolidatedIn reports whether a run of the fiscal year's period
+// consolidates the member: from its first period on. A first period that
+// is not well formed (validation refuses one) is in every period.
+func (m GroupMember) ConsolidatedIn(year, period int) bool {
+	y, p, _ := m.First()
+	return y < year || (y == year && p <= period)
+}
+
 // Companies are the codes of the group's companies: its parent, then its
 // members.
 func (g ConsolidationGroup) Companies() []string {

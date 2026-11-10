@@ -23432,9 +23432,10 @@ func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
 // consolidation run takes the exchange differences the company's revaluation runs book on the
 // account's balance with the partner (ADR-0042) out of the consolidated profit and into the company's
 // translation reserve, in other comprehensive income
-// (`ConsolidatedTranslationReserve.net_investment`), from the period the run consolidates the partner
-// in; the company's own ledger and reports are unchanged. The counterparty's exchange differences on
-// the same item move only when its own account with this company is designated too.
+// (`ConsolidatedTranslationReserve.net_investment`), in every run that includes the partner (a run of
+// a period before a member's first does not); the company's own ledger and reports are unchanged. The
+// counterparty's exchange differences on the same item move only when its own account with this
+// company is designated too.
 // Ref: #/components/schemas/ConsolidationNetInvestment
 type ConsolidationNetInvestment struct {
 	// The company whose ledger carries the item and its exchange differences: the group's parent or a

@@ -288,6 +288,14 @@ func TestConsolidationReads(t *testing.T) {
 		t.Errorf("first period: got %d-%d %v, want 2026-11 true", y, p, ok)
 	}
 	for _, c := range []struct {
+		year, period int
+		want         bool
+	}{{2026, 10, false}, {2026, 11, true}, {2026, 12, true}, {2025, 12, false}, {2027, 1, true}} {
+		if got := cs.Groups[0].Members[0].ConsolidatedIn(c.year, c.period); got != c.want {
+			t.Errorf("a member from 2026-11 consolidated in %d-%d: got %v, want %v", c.year, c.period, got, c.want)
+		}
+	}
+	for _, c := range []struct {
 		ownership string
 		want      bool
 	}{{"80", false}, {"100", true}, {"100.0000", true}, {"99.9999", false}, {"a hundred", false}} {

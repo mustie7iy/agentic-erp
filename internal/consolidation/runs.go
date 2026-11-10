@@ -227,10 +227,10 @@ func (e *Endpoints) include(ctx context.Context, tx pgx.Tx, t *target) error {
 	t.included = []includedCompany{{co: parent}}
 	for i := range members {
 		m := &members[i]
-		year, per, _ := m.First() // validated: well formed
-		if year > int(t.year) || (year == int(t.year) && per > int(t.per)) {
+		if !m.ConsolidatedIn(int(t.year), int(t.per)) {
 			continue
 		}
+		year, per, _ := m.First() // validated: well formed
 		co := t.companies[m.Company]
 		if co.FiscalCalendarID != parent.FiscalCalendarID {
 			return problem.Unprocessable("consolidation.calendar_mismatch", fmt.Sprintf("Company %s, a member of group %s, keeps another fiscal "+
