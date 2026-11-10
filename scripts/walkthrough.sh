@@ -4301,20 +4301,21 @@ uae_year_end_adjustment() {
     api 200 '"  period \(.fiscal_year)/\(.period) (special: \(.is_special)): \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
   done
   lines="{\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-105.00\", \"currency\": \"AED\"}}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"100.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}, {\"account_id\": \"$vat\", \"amount\": {\"amount\": \"5.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}"
-  # uae_adjustment [TAX DOCUMENT] is the adjustment's entry, dated the
-  # year's last day into period 13, resting on the tax document or none.
+  # uae_adjustment FIELDS is the adjustment's entry, dated the year's last
+  # day into period 13, with the fields that date its tax.
   uae_adjustment() {
     printf '{"legal_entity_id": "%s", "document_date": "%s-12-31", "posting_date": "%s-12-31", "fiscal_period": 13, %s"currency": "AED", "header_text": "Year-end adjustment: Dubai sales credited", "lines": [%s]}' \
-      "$ae" "$PREV" "$PREV" "${1:+\"tax_document\": $1, }" "$lines"
+      "$ae" "$PREV" "$PREV" "$1, " "$lines"
   }
   say "A year-end adjustment carries VAT only when it rests on a tax invoice or tax credit note (the UAE tax"
-  say "specialist, 2026-11-09): accruals, provisions and reclassifications carry none. Without one it is refused:"
-  refused 422 ledger.special_period_tax_code postJournalEntry -body "$(uae_adjustment)"
+  say "specialist, 2026-11-09): accruals, provisions and reclassifications carry none. Without one it is refused,"
+  say "whatever tax date it names:"
+  refused 422 ledger.special_period_tax_code postJournalEntry -body "$(uae_adjustment "\"tax_date\": \"$end\"")"
   expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "lines[1].tax_code"
   say "Carla names the tax credit note issued to the customer on $end. Its date is the entry's tax date: the VAT"
   say "belongs to the return of the period the credit note is dated in, not to December $PREV:"
   api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period), tax date \(.tax_date), \(.tax_document.kind) \(.tax_document.number) of \(.tax_document.date): \(.header_text)"' \
-    postJournalEntry -body "$(uae_adjustment "{\"kind\": \"tax_credit_note\", \"number\": \"TCN-$PREV-0042\", \"date\": \"$end\"}")"
+    postJournalEntry -body "$(uae_adjustment "\"tax_document\": {\"kind\": \"tax_credit_note\", \"number\": \"TCN-$PREV-0042\", \"date\": \"$end\"}")"
   expect "the adjustment's period, tax date and tax document" "$(field '"\(.fiscal_year)/\(.fiscal_period) \(.tax_date) \(.tax_document.kind) \(.tax_document.number) \(.tax_document.date)"')" \
     "$PREV/13 $end tax_credit_note TCN-$PREV-0042 $end"
   QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$ae" -p "fiscal_year=$PREV" -p page_size=100
