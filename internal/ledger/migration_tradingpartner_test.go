@@ -55,3 +55,28 @@ func TestOpenPayablesByTradingPartner(t *testing.T) {
 		t.Errorf("open payables by trading partner of another year: got %v, want none", other)
 	}
 }
+
+// TestCollectiveEntryGivesItsOtherLinesNoTradingPartner: an entry that
+// gathers unrelated lines (Posting.Collective, a migration's opening
+// entry) gives each partner line its partner's trading partner and its
+// other lines none, even when every partner line names the same company;
+// the same posting without it gives them that company, as an invoice's
+// expense line takes its supplier line's (ADR-0059 §4 and As built).
+func TestCollectiveEntryGivesItsOtherLinesNoTradingPartner(t *testing.T) {
+	d := derivedSetup(t)
+	bank, ap := uuid.MustParse(d.account(t, "2000", "100000")), uuid.MustParse(d.account(t, "2000", "211000"))
+	for name, c := range map[string]struct {
+		collective bool
+		want       string
+	}{"collective": {true, "- us us"}, "one document": {false, "us us us"}} {
+		t.Run(name, func(t *testing.T) {
+			entry := d.post(t, ledger.Posting{LegalEntityID: d.de, DocumentType: "SA", DocumentDate: date("2026-03-01"), PostingDate: date("2026-03-01"),
+				Currency: "EUR", SourceContext: "integration", SourceDocumentID: uuid.New(), Collective: c.collective,
+				Lines: []ledger.PostingLine{{AccountID: bank, Amount: 900}, {AccountID: ap, Amount: -500, PartnerID: &d.supplier},
+					{AccountID: ap, Amount: -400, PartnerID: &d.supplier}}})
+			if got := d.of(entry.Lines); got != c.want {
+				t.Errorf("the lines' trading partners: got %s, want %s", got, c.want)
+			}
+		})
+	}
+}

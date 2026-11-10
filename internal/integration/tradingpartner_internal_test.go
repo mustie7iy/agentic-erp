@@ -99,7 +99,10 @@ func tradingPartnerFindings(t *testing.T, e *sap.Extract, tg target) []string {
 // trading partner names no legal entity, vendor lines whose own trading
 // partner (ACDOCA-RASSC) is not the vendor's master's, per company and
 // vendor, and lines carrying one in documents without a vendor line, per
-// company. A vendor line carrying its master's, and other lines of its
+// company, and other lines carrying another one than their document's
+// vendor lines give them (a different one, any where the vendors name
+// different ones, or any in an opening entry, whose balances take none),
+// per company. A vendor line carrying its master's, and other lines of its
 // document carrying none or the same, are what the load gives them and are
 // not reported; nor is anything when no line carries a trading partner,
 // as an extract without the field has it.
@@ -107,24 +110,52 @@ func TestTradingPartnersReported(t *testing.T) {
 	linked := map[string]groupCompany{"1000": {code: "1000", id: uuid.New()}}
 	unknown := map[string]groupCompany{"1000": {code: "1000", why: "is company code 1000, which is no legal entity of the tenant"}}
 	const derived = "They load with the master's: the platform derives a line's trading partner from its business partner"
+	both := map[string]groupCompany{"1000": linked["1000"], "3000": {code: "3000", id: uuid.New()}}
+	const others = "They load with the trading partner the document's vendors share, or without one where those name different ones, none or a " +
+		"company that is no legal entity"
+	second := func(e *sap.Extract, _ *target) {
+		e.LFA1 = append(e.LFA1, sap.LFA1{LIFNR: "0000000002", NAME1: "Other GmbH", STCD1: "DE2", VBUND: "003000"})
+		e.LFB1 = append(e.LFB1, sap.LFB1{LIFNR: "0000000002", BUKRS: "2000", AKONT: "0000211000", ZTERM: "NT30"})
+	}
 	for _, c := range []struct {
 		name     string
 		vbund    string
 		partners map[string]groupCompany
 		lines    []sap.ACDOCA
 		want     []string
+		change   func(e *sap.Extract, tg *target)
 	}{
-		{"none anywhere", "", nil, []sap.ACDOCA{tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", ""),
-			tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}, nil},
-		{"the vendor's on its line, none or the same on the others", "001000", linked, []sap.ACDOCA{
+		{name: "other lines with another one than their document's vendor line", vbund: "001000", partners: linked, lines: []sap.ACDOCA{
 			tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", "001000"),
-			tpLine("0100000050", "000002", "0000100000", "6.00", "", ""), tpLine("0100000050", "000003", "0000140000", "4.00", "", "1000")}, nil},
-		{"a master without lines' trading partners in the extract", "001000", linked, []sap.ACDOCA{
-			tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", ""), tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}, nil},
-		{"a trading partner that is no legal entity", "001000", unknown, nil, []string{
+			tpLine("0100000050", "000002", "0000100000", "6.00", "", "003000"), tpLine("0100000050", "000003", "0000140000", "4.00", "", "001000"),
+			tpLine("0100000051", "000001", "0000211000", "-5.00", "0000000001", "001000"),
+			tpLine("0100000051", "000002", "0000100000", "5.00", "0000000001", "003000")}, want: []string{
+			"ACDOCA 2000: journal lines of company 2000 that carry another trading partner (ACDOCA-RASSC) than their document's vendor lines give " +
+				"them: lines 2, documents 2. " + others}},
+		{name: "other lines of a document whose vendors name different ones", vbund: "001000", partners: both, change: second, lines: []sap.ACDOCA{
+			tpLine("0100000050", "000001", "0000211000", "-6.00", "0000000001", "001000"),
+			tpLine("0100000050", "000002", "0000211000", "-4.00", "0000000002", "003000"),
+			tpLine("0100000050", "000003", "0000211000", "-1.00", "0000000001", "001000"),
+			tpLine("0100000050", "000004", "0000100000", "11.00", "", "001000")}, want: []string{
+			"ACDOCA 2000: journal lines of company 2000 that carry another trading partner (ACDOCA-RASSC) than their document's vendor lines give " +
+				"them: lines 1, documents 1. " + others}},
+		{name: "other lines of a document in an opening entry", vbund: "001000", partners: linked,
+			change: func(_ *sap.Extract, tg *target) { tg.balances = true }, lines: []sap.ACDOCA{
+				tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", "001000"),
+				tpLine("0100000050", "000002", "0000100000", "10.00", "", "001000")}, want: []string{
+				"ACDOCA 2000: journal lines of company 2000 that carry another trading partner (ACDOCA-RASSC) than their document's vendor lines give " +
+					"them: lines 1, documents 1. " + others}},
+		{name: "none anywhere", lines: []sap.ACDOCA{tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", ""),
+			tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}},
+		{name: "the vendor's on its line, none or the same on the others", vbund: "001000", partners: linked, lines: []sap.ACDOCA{
+			tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", "001000"),
+			tpLine("0100000050", "000002", "0000100000", "6.00", "", ""), tpLine("0100000050", "000003", "0000140000", "4.00", "", "1000")}},
+		{name: "a master without lines' trading partners in the extract", vbund: "001000", partners: linked, lines: []sap.ACDOCA{
+			tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", ""), tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}},
+		{name: "a trading partner that is no legal entity", vbund: "001000", partners: unknown, want: []string{
 			`LFA1 0000000001: vendor "Tiny GmbH" names trading partner 001000 (LFA1-VBUND), which is company code 1000, which is no legal entity of ` +
 				"the tenant: the supplier loads linked to no company of the group and its documents without a trading partner"}},
-		{"vendor lines with another one than the master's", "001000", linked, []sap.ACDOCA{
+		{name: "vendor lines with another one than the master's", vbund: "001000", partners: linked, lines: []sap.ACDOCA{
 			tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", "003000"),
 			tpLine("0100000050", "000002", "0000100000", "10.00", "", ""),
 			tpLine("0100000051", "000001", "0000211000", "-5.00", "0000000001", ""),
@@ -132,17 +163,17 @@ func TestTradingPartnersReported(t *testing.T) {
 			tpLine("0100000052", "000001", "0000211000", "-5.00", "0000000001", "003000"),
 			tpLine("0100000052", "000002", "0000100000", "5.00", "", ""),
 			tpLine("0100000053", "000001", "0000211000", "-5.00", "0000000001", "001000"),
-			tpLine("0100000053", "000002", "0000100000", "5.00", "", "")}, []string{
+			tpLine("0100000053", "000002", "0000100000", "5.00", "", "")}, want: []string{
 			`ACDOCA 2000/0000000001: vendor lines of vendor 0000000001 "Tiny GmbH" in company 2000 carry another trading partner (ACDOCA-RASSC) ` +
 				"than the vendor's master (LFA1-VBUND 001000): lines 3 (none on 1, 003000 on 2). " + derived}},
-		{"vendor lines with one where the master has none", "", nil, []sap.ACDOCA{
+		{name: "vendor lines with one where the master has none", lines: []sap.ACDOCA{
 			tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", "001000"),
-			tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}, []string{
+			tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}, want: []string{
 			`ACDOCA 2000/0000000001: vendor lines of vendor 0000000001 "Tiny GmbH" in company 2000 carry another trading partner (ACDOCA-RASSC) ` +
 				"than the vendor's master (LFA1-VBUND none): lines 1 (001000 on 1). " + derived}},
-		{"lines of documents without a vendor line", "", nil, []sap.ACDOCA{
+		{name: "lines of documents without a vendor line", lines: []sap.ACDOCA{
 			tpLine("0100000050", "000001", "0000170000", "-10.00", "", "001000"), tpLine("0100000050", "000002", "0000100000", "10.00", "", "001000"),
-			tpLine("0100000051", "000001", "0000170000", "-5.00", "", "001000"), tpLine("0100000051", "000002", "0000100000", "5.00", "", "")}, []string{
+			tpLine("0100000051", "000001", "0000170000", "-5.00", "", "001000"), tpLine("0100000051", "000002", "0000100000", "5.00", "", "")}, want: []string{
 			"ACDOCA 2000: journal lines of company 2000 that carry a trading partner (ACDOCA-RASSC) in documents without a vendor line load without " +
 				"one: lines 3, documents 2. The load derives a document's trading partner from its vendor line, so a consolidation run lists their " +
 				"balances as no_trading_partner until they are reposted with one"}},
@@ -150,6 +181,9 @@ func TestTradingPartnersReported(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			e, tg := dpExtract(), dpTarget()
 			e.LFA1[0].VBUND, e.ACDOCA, tg.partners = c.vbund, c.lines, c.partners
+			if c.change != nil {
+				c.change(e, &tg)
+			}
 			if got := tradingPartnerFindings(t, e, tg); strings.Join(got, "\n") != strings.Join(c.want, "\n") {
 				t.Errorf("trading partners reported:\ngot  %s\nwant %s", strings.Join(got, "\n"), strings.Join(c.want, "\n"))
 			}

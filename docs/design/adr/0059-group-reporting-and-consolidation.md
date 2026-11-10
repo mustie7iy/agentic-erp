@@ -1919,8 +1919,8 @@ Built in `internal/consolidation/investment.go` and migration 000246:
 leaf of question 4; the SAP specialist's A2, po:2026-11-09).** Built in
 `internal/sap` (the fields), `internal/integration/tradingpartner.go` (the
 link, the quality gate and the reconciliation) and
-`ledger.Reports.OpenPayablesByTradingPartner`; no migration and no change
-to the ledger's posting path.
+`ledger.Reports.OpenPayablesByTradingPartner`; no migration. The ledger's
+posting port gains one option, `Posting.Collective` (below).
 - **What is read.** LFA1-VBUND, the vendor's trading partner [H], and
   ACDOCA-RASSC, the line's [H], as the answer names them. Customers are
   not migrated, so KNA1-VBUND is not read. One field is not in the answer
@@ -1935,10 +1935,19 @@ to the ledger's posting path.
   for every posting: each line naming the supplier takes the company,
   and when a document's vendor lines all name the same one its other
   lines take it too (an invoice's expense and tax lines, a payment's bank
-  line); a clearing's lines keep their items'. RASSC is not posted. In
-  balances mode the open vendor items carry it; the opening entry's
-  account balances carry none, its vendors naming different trading
-  partners.
+  line); a clearing's lines keep their items'. RASSC is not posted.
+- **The opening entry is collective (review, round 1).** In balances mode
+  the open vendor items carry their supplier's trading partner and the
+  account balances none. §4's propagation would have given every balance
+  of the entry (bank, equity, results) the one company its open vendor
+  items name whenever they all name the same, making a whole balance
+  sheet intercompany. The posting port therefore takes
+  `Posting.Collective`: an entry that gathers lines of unrelated
+  documents derives each partner line's trading partner and gives its
+  other lines none. Only the migration's opening entry sets it; a
+  document that posts on its own in balances mode (a down payment's, an
+  item in a foreign currency) is one document and propagates as in
+  documents mode.
 - **How a VBUND names a legal entity, decided by default.** By the one
   company code T001 assigns to that company ID (RCOMP, compared without
   leading zeros and blanks, read from every company code of the extract
@@ -1965,8 +1974,13 @@ to the ledger's posting path.
   partner's (`ledger.trading_partner_conflict`); the gate counts them per
   company and vendor. Lines carrying RASSC in documents without a vendor
   line load without a trading partner, as §4 said they would; the gate
-  counts them per company. An extract whose lines carry no RASSC at all
-  reports neither.
+  counts them per company. So it does the other lines of a document with
+  vendor lines that carry another trading partner than the load gives
+  them: the one its vendor lines' suppliers share, or none where they
+  name different ones, none, a company that is no legal entity, or in an
+  opening entry. A line SAP left without one is not reported: giving it
+  its document's is the purpose. An extract whose lines carry no RASSC at
+  all reports none of these.
 - **An earlier run's supplier, decided by default.** It keeps the group
   company it has: a later run does not link it, since a supplier's group
   company changes through a partner change with its approval (T68c) and
@@ -2001,6 +2015,8 @@ to the ledger's posting path.
   reconciliation agrees, a consolidation run matches the migrated
   payable with the other company's receivable and eliminates both, the
   same extract again changes nothing), `TestTradingPartnerInBalancesMode`,
+  `TestTradingPartnerInAnOpeningEntryOfIntercompanyItemsAlone`,
+  `TestCollectiveEntryGivesItsOtherLinesNoTradingPartner` (ledger),
   `TestTradingPartnerNotOnThePlatform`,
   `TestTradingPartnerOfAnEarlierRunsSupplier`, the gate's and the
   reconciliation's cases in `tradingpartner_internal_test.go`, and

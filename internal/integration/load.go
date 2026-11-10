@@ -663,8 +663,11 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 	}
 	date, _ := sapDate(last) // the latest of the lines' dates, each checked by the quality gate
 	text := "Opening balances from SAP " + strconv.Itoa(int(l.t.year))
+	// Collective: the account balances are no part of the open vendor
+	// items' documents, so they take no trading partner from them
+	// (ADR-0059 As built).
 	in := ledger.Posting{LegalEntityID: l.t.entities[c.BUKRS].ID, DocumentType: "OB", DocumentDate: date, PostingDate: date, Currency: c.WAERS,
-		HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID, Lines: lines}
+		HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID, Lines: lines, Collective: true}
 	done, err := l.step(ctx, "ACDOCA", key, func() error {
 		entry, err := l.e.Postings.Post(ctx, in)
 		if err != nil {

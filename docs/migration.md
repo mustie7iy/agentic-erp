@@ -132,7 +132,8 @@ other company only has to exist, not to be migrated or configured. In
 `documents` mode an intercompany invoice's expense and tax lines carry
 the trading partner with its vendor line, and its payment's lines keep
 it; in `balances` mode the open vendor items carry it and the account
-balances none, an opening entry holding many vendors. The quality gate
+balances none, whatever the open items name: an opening entry gathers
+lines that belong to no one document. The quality gate
 warns and never refuses, a group having companies that are not on the
 platform:
 
@@ -150,6 +151,11 @@ platform:
 - lines carrying a trading partner in documents without a vendor line
   (an intercompany loan or recharge posted between G/L accounts), keyed
   by the company code with their number: they load without one.
+- other lines of a document with vendor lines that carry another trading
+  partner than the load gives them, keyed by the company code with their
+  number: they load with the one the document's vendors share, or with
+  none where those name different ones, none or a company that is no
+  legal entity, and with none in a `balances` run's opening entry.
 - once, keyed `VBUND`, an extract that cannot carry trading partners: the
   OData mapping reads neither field, so an OData run links no supplier.
 

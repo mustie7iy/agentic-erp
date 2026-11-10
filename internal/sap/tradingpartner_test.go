@@ -33,7 +33,7 @@ func TestFilterScopeKeepsEveryCompanyID(t *testing.T) {
 }
 
 // TestMockTradingPartner: the mock's company codes each have a company ID,
-// and company 3000's vendor Cabot Components names company 2000's as its
+// and company 3000's vendor Muskoka Office Supply names company 2000's as its
 // trading partner; its vendor lines carry it and no other line does, as
 // SAP leaves the lines invoice verification posts (po:2026-11-09, A2).
 func TestMockTradingPartner(t *testing.T) {

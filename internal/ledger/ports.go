@@ -105,6 +105,13 @@ type Posting struct {
 	// GRIR moves purchase order items' GR/IR positions (T33): the ledger
 	// books each item's GR/IR line and its counter line next to Lines.
 	GRIR []GRIRItem
+	// Collective says the entry gathers lines of documents that have
+	// nothing to do with each other, as a migration's opening entry does
+	// (balances of accounts beside open vendor items): each partner line
+	// still takes its partner's trading partner, but none is given to the
+	// entry's other lines, which would make every balance intercompany
+	// when its vendors happen to name one company (ADR-0059 As built).
+	Collective bool
 	// Terms are the payment terms of the entry's supplier open items, kept
 	// with them (ledger.open_item_terms, T36b); nil for none.
 	Terms *ItemTerms
@@ -402,7 +409,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	entry := NewEntry{LegalEntityID: in.LegalEntityID, DocumentType: in.DocumentType, DocumentDate: in.DocumentDate, PostingDate: in.PostingDate,
 		TaxDate: in.TaxDate, Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems, rate: in.Rate,
-		taxDateChosen: in.TaxDateChosen, LedgerID: in.LedgerID}
+		taxDateChosen: in.TaxDateChosen, LedgerID: in.LedgerID, collective: in.Collective}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC, gc: l.GC,

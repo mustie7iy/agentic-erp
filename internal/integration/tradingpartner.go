@@ -127,47 +127,112 @@ type partnerLines struct {
 // load gives the line: per company code and vendor, the vendor lines
 // carrying another one than the vendor's master, which load with the
 // master's (a vendor linked, relinked or unlinked since the posting); and
-// per company code, the lines carrying one in documents without a vendor
-// line, which load with none. An extract whose lines carry none at all
-// (it may not hold the field) reports nothing.
+// per company code, the other lines carrying one their document does not
+// give them (otherLines). An extract whose lines carry none at all (it
+// may not hold the field) reports nothing.
 func (q *qualityCheck) lineTradingPartners() {
 	if !slices.ContainsFunc(q.e.ACDOCA, func(l sap.ACDOCA) bool { return sap.CompanyID(l.RASSC) != "" }) {
 		return
 	}
 	differing := map[string]*partnerLines{}
-	withVendor, lines, documents := map[string]bool{}, map[string]int{}, map[string]map[string]bool{}
 	for _, l := range q.e.ACDOCA {
-		if l.LIFNR != "" {
-			withVendor[documentKey(l)] = true
+		if !q.vendorLine(l) || sap.CompanyID(l.RASSC) == sap.CompanyID(q.vendor[l.LIFNR].VBUND) {
+			continue
 		}
-	}
-	for _, l := range q.e.ACDOCA {
-		own := sap.CompanyID(l.RASSC)
-		switch {
-		case l.LIFNR != "":
-			if own != sap.CompanyID(q.vendor[l.LIFNR].VBUND) {
-				key := l.RBUKRS + "/" + l.LIFNR
-				if differing[key] == nil {
-					differing[key] = &partnerLines{company: l.RBUKRS, vendor: l.LIFNR, others: map[string]int{}}
-				}
-				differing[key].others[strings.TrimSpace(l.RASSC)]++
-			}
-		case own != "" && !withVendor[documentKey(l)]:
-			if documents[l.RBUKRS] == nil {
-				documents[l.RBUKRS] = map[string]bool{}
-			}
-			lines[l.RBUKRS]++
-			documents[l.RBUKRS][documentKey(l)] = true
+		key := l.RBUKRS + "/" + l.LIFNR
+		if differing[key] == nil {
+			differing[key] = &partnerLines{company: l.RBUKRS, vendor: l.LIFNR, others: map[string]int{}}
 		}
+		differing[key].others[strings.TrimSpace(l.RASSC)]++
 	}
 	for _, key := range sortedKeys(differing) {
 		q.differingVendorLines(*differing[key])
 	}
-	for _, cc := range sortedKeys(lines) {
+	q.otherLines()
+}
+
+// vendorLine reports whether the load posts the line with its vendor's
+// supplier: a line naming a vendor on a supplier reconciliation account
+// (journalPosting, openingLines). A vendor named on another line is not
+// posted, so the line takes its trading partner as a line without one.
+func (q *qualityCheck) vendorLine(l sap.ACDOCA) bool {
+	return l.LIFNR != "" && q.t.charts[l.RBUKRS][sap.Alpha(l.RACCT)].ReconciliationKind == "supplier"
+}
+
+// lineCount counts lines and the documents they are in.
+type lineCount struct {
+	lines     int
+	documents map[string]bool
+}
+
+func (c *lineCount) add(document string) {
+	if c.documents == nil {
+		c.documents = map[string]bool{}
+	}
+	c.lines++
+	c.documents[document] = true
+}
+
+// otherLines warns, per company code, of the lines naming no vendor that
+// carry a trading partner in SAP which the load does not give them: in a
+// document without a vendor line they load with none; in one with vendor
+// lines they load with the trading partner those lines share (derived),
+// or with none where the vendors name different ones, none or one that
+// is no legal entity. A line SAP left without one is not reported: that
+// the load gives it its document's is the purpose (A2).
+func (q *qualityCheck) otherLines() {
+	derived, withVendor := q.derivedPartners()
+	alone, differing := map[string]*lineCount{}, map[string]*lineCount{}
+	for _, l := range q.e.ACDOCA {
+		own, key := sap.CompanyID(l.RASSC), documentKey(l)
+		if q.vendorLine(l) || own == "" || own == derived[key] {
+			continue
+		}
+		counts := differing
+		if !withVendor[key] {
+			counts = alone
+		}
+		if counts[l.RBUKRS] == nil {
+			counts[l.RBUKRS] = &lineCount{}
+		}
+		counts[l.RBUKRS].add(key)
+	}
+	for _, cc := range sortedKeys(alone) {
 		q.add(SevWarning, "ACDOCA", cc, "journal lines of company %s that carry a trading partner (ACDOCA-RASSC) in documents without a vendor line "+
 			"load without one: lines %d, documents %d. The load derives a document's trading partner from its vendor line, so a consolidation run "+
-			"lists their balances as no_trading_partner until they are reposted with one", cc, lines[cc], len(documents[cc]))
+			"lists their balances as no_trading_partner until they are reposted with one", cc, alone[cc].lines, len(alone[cc].documents))
 	}
+	for _, cc := range sortedKeys(differing) {
+		q.add(SevWarning, "ACDOCA", cc, "journal lines of company %s that carry another trading partner (ACDOCA-RASSC) than their document's vendor "+
+			"lines give them: lines %d, documents %d. They load with the trading partner the document's vendors share, or without one where "+
+			"those name different ones, none or a company that is no legal entity", cc, differing[cc].lines, len(differing[cc].documents))
+	}
+}
+
+// derivedPartners are, per document, the company ID of the trading
+// partner the ledger gives the lines naming no vendor, "" for none, and
+// whether the document has a vendor line: the one every vendor line's
+// supplier is linked to, another company than the document's (the
+// ledger's rule, deriveTradingPartners). In balances mode only a document
+// that posts as an entry of its own gives its other lines one: the
+// opening entry's balances take none (ledger.Posting.Collective).
+func (q *qualityCheck) derivedPartners() (derived map[string]string, withVendor map[string]bool) {
+	derived, withVendor = map[string]string{}, map[string]bool{}
+	own := downPaymentDocs(q.e)
+	for _, l := range q.e.ACDOCA {
+		if !q.vendorLine(l) {
+			continue
+		}
+		key, id := documentKey(l), sap.CompanyID(q.vendor[l.LIFNR].VBUND)
+		if gc, ok := q.t.partners[id]; !ok || gc.why != "" || gc.id == q.t.entities[l.RBUKRS].ID || q.t.balances && own[key] == nil && q.foreign[key] == "" {
+			id = ""
+		}
+		if seen := withVendor[key]; seen && derived[key] != id {
+			id = ""
+		}
+		derived[key], withVendor[key] = id, true
+	}
+	return derived, withVendor
 }
 
 // differingVendorLines warns of one vendor's lines in a company code whose

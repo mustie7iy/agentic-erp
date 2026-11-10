@@ -293,6 +293,31 @@ func TestTradingPartnerInBalancesMode(t *testing.T) {
 	}
 }
 
+// TestTradingPartnerInAnOpeningEntryOfIntercompanyItemsAlone: when the
+// only open vendor items at cutover are the intercompany vendor's, every
+// partner line of the opening entry names the same company. The entry
+// gathers unrelated lines (ledger.Posting.Collective), so its account
+// balances still take no trading partner: bank, expenses and tax are no
+// balances with the other company.
+func TestTradingPartnerInAnOpeningEntryOfIntercompanyItemsAlone(t *testing.T) {
+	e := intercompanySetup(t)
+	x := intercompany()
+	x.ACDOCA = x.ACDOCA[:7] // without the ordinary vendor's open invoice
+	write(t, e.dir, "ic.json", x)
+	_, got := e.act(t, e.run(t, e.connector(t, "ic.json"), "balances", false, e.DE.String()), "start")
+	if got["status"] != "loaded" {
+		t.Fatalf("load: got %v, want loaded: %v", got["status"], got["report"])
+	}
+	var lines string
+	pgtest.Scan(t, `SELECT string_agg(a.number || ' ' || l.amount_lc || ' ' || coalesce(le.code, '-'), ', ' ORDER BY l.line_no)
+		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+		LEFT JOIN tenancy.legal_entity le ON le.tenant_id = l.tenant_id AND le.id = l.trading_partner_id
+		WHERE l.tenant_id = $1`, []any{e.Tenant.ID}, &lines)
+	if want := "100000 -4000 -, 140000 1500 -, 520000 11500 -, 225000 -9000 1000"; lines != want {
+		t.Errorf("the opening entry's lines: got %s, want %s", lines, want)
+	}
+}
+
 // TestTradingPartnerNotOnThePlatform: a vendor whose trading partner is a
 // company that is no legal entity of the tenant (or its own company) does
 // not stop the run. The gate warns of the first, the supplier loads linked
