@@ -1352,6 +1352,44 @@ type Handler interface {
 	//
 	// GET /v1/asset-history-sheet
 	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
+	// GetAssetOrderExpenses implements getAssetOrderExpenses operation.
+	//
+	// The materiality report of a company and fiscal year on asset purchases through purchase orders
+	// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
+	// the price differences that supplier invoices and credit memos expensed on the company's price
+	// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
+	// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
+	// so an auditor can judge whether it is material. An order item is an asset's when its account is an
+	// asset clearing account of the company in the active configuration
+	// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
+	// the item's account as the order has it now decides, removed items included. Only orders valued
+	// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
+	// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
+	// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+	// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
+	// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
+	// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
+	// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
+	// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
+	// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
+	// ledger records beside each price difference line since that record exists. `totals` sums every row,
+	// on every page. `unattributed` states what the rows cannot show: the amount on the company's current
+	// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
+	// touch at least one asset order item, on lines that have no such record (postings made before the
+	// record existed, and the rounding residue a reversal clears). Its split between tax and price
+	// difference is unknown, and where such an entry also invoices other order items it includes their
+	// price differences, so it is an upper bound of what those entries expensed on assets; `entries`
+	// counts them. It is zero when every such posting is recorded. Not in the report: GR/IR clearings of
+	// asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+	// difference account (whether they count as expensed is not decided); an item whose price difference
+	// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
+	// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
+	// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
+	// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
+	// the caller cannot act in is 404. Reads only.
+	//
+	// GET /v1/asset-order-expenses
+	GetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (GetAssetOrderExpensesRes, error)
 	// GetAssetRetirement implements getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One

@@ -15,6 +15,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
+	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
@@ -24,7 +25,7 @@ import (
 // none of them.
 func Assets(cfg Config) *assets.Endpoints {
 	return &assets.Endpoints{Settings: configuration.Settings{}, Companies: assetCompanies{}, Ledger: assetLedger{}, Centers: assetCenters{},
-		Numbers: configuration.Numbers{}, Runs: runOperations{kind: assets.KindDepreciate}, Invoices: assetInvoices{}, Pages: cfg.Pages, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Runs: runOperations{kind: assets.KindDepreciate}, Invoices: assetInvoices{}, Purchases: assetPurchases{}, Pages: cfg.Pages, Now: cfg.Now}
 }
 
 // assetCompanies gives the assets context a legal entity by company code
@@ -204,6 +205,42 @@ func (assetInvoices) Sources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 	for id, s := range srcs {
 		out[id] = assets.InvoiceSource{DocumentNumber: s.DocumentNumber, SupplierReference: s.SupplierReference, SupplierID: s.SupplierID,
 			SupplierName: names[s.SupplierID].Name}
+	}
+	return out, err
+}
+
+// assetPurchases gives the assets context what order items expensed on
+// the price difference account (ledger) and the order items themselves
+// (procurement), for its report on asset purchase orders (B10).
+type assetPurchases struct{}
+
+func (assetPurchases) Recorded(ctx context.Context, legalEntity uuid.UUID, year int16) ([]assets.OrderItemExpense, error) {
+	rows, err := ledger.AssetReads{}.OrderItemExpenses(ctx, legalEntity, year)
+	out := make([]assets.OrderItemExpense, len(rows))
+	for i, r := range rows {
+		out[i] = assets.OrderItemExpense{OrderItemKey: assets.OrderItemKey{OrderID: r.PurchaseOrderID, ItemNo: r.POItemNo}, Amount: r.Amount, TaxBorne: r.TaxBorne}
+	}
+	return out, err
+}
+
+func (assetPurchases) Unrecorded(ctx context.Context, legalEntity uuid.UUID, year int16) ([]assets.UnrecordedExpense, error) {
+	rows, err := ledger.AssetReads{}.UnrecordedExpenses(ctx, legalEntity, year)
+	out := make([]assets.UnrecordedExpense, len(rows))
+	for i, r := range rows {
+		out[i].Amount = r.Amount
+		for _, it := range r.Items {
+			out[i].Items = append(out[i].Items, assets.OrderItemKey{OrderID: it.PurchaseOrderID, ItemNo: it.POItemNo})
+		}
+	}
+	return out, err
+}
+
+func (assetPurchases) Items(ctx context.Context, orders []uuid.UUID) ([]assets.OrderItem, error) {
+	rows, err := procurement.Orders{}.ItemAccounts(ctx, orders)
+	out := make([]assets.OrderItem, len(rows))
+	for i, r := range rows {
+		out[i] = assets.OrderItem{OrderItemKey: assets.OrderItemKey{OrderID: r.PurchaseOrderID, ItemNo: r.ItemNo}, OrderNumber: r.DocumentNumber,
+			Description: r.Description, AccountID: r.AccountID}
 	}
 	return out, err
 }

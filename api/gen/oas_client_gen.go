@@ -1373,6 +1373,44 @@ type Invoker interface {
 	//
 	// GET /v1/asset-history-sheet
 	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
+	// GetAssetOrderExpenses invokes getAssetOrderExpenses operation.
+	//
+	// The materiality report of a company and fiscal year on asset purchases through purchase orders
+	// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
+	// the price differences that supplier invoices and credit memos expensed on the company's price
+	// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
+	// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
+	// so an auditor can judge whether it is material. An order item is an asset's when its account is an
+	// asset clearing account of the company in the active configuration
+	// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
+	// the item's account as the order has it now decides, removed items included. Only orders valued
+	// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
+	// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
+	// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+	// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
+	// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
+	// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
+	// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
+	// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
+	// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
+	// ledger records beside each price difference line since that record exists. `totals` sums every row,
+	// on every page. `unattributed` states what the rows cannot show: the amount on the company's current
+	// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
+	// touch at least one asset order item, on lines that have no such record (postings made before the
+	// record existed, and the rounding residue a reversal clears). Its split between tax and price
+	// difference is unknown, and where such an entry also invoices other order items it includes their
+	// price differences, so it is an upper bound of what those entries expensed on assets; `entries`
+	// counts them. It is zero when every such posting is recorded. Not in the report: GR/IR clearings of
+	// asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+	// difference account (whether they count as expensed is not decided); an item whose price difference
+	// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
+	// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
+	// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
+	// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
+	// the caller cannot act in is 404. Reads only.
+	//
+	// GET /v1/asset-order-expenses
+	GetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (GetAssetOrderExpensesRes, error)
 	// GetAssetRetirement invokes getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
@@ -21094,6 +21132,217 @@ func (c *Client) sendGetAssetHistorySheet(ctx context.Context, params GetAssetHi
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAssetHistorySheetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAssetOrderExpenses invokes getAssetOrderExpenses operation.
+//
+// The materiality report of a company and fiscal year on asset purchases through purchase orders
+// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
+// the price differences that supplier invoices and credit memos expensed on the company's price
+// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
+// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
+// so an auditor can judge whether it is material. An order item is an asset's when its account is an
+// asset clearing account of the company in the active configuration
+// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
+// the item's account as the order has it now decides, removed items included. Only orders valued
+// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
+// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
+// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
+// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
+// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
+// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
+// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
+// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
+// ledger records beside each price difference line since that record exists. `totals` sums every row,
+// on every page. `unattributed` states what the rows cannot show: the amount on the company's current
+// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
+// touch at least one asset order item, on lines that have no such record (postings made before the
+// record existed, and the rounding residue a reversal clears). Its split between tax and price
+// difference is unknown, and where such an entry also invoices other order items it includes their
+// price differences, so it is an upper bound of what those entries expensed on assets; `entries`
+// counts them. It is zero when every such posting is recorded. Not in the report: GR/IR clearings of
+// asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+// difference account (whether they count as expensed is not decided); an item whose price difference
+// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
+// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
+// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
+// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
+// the caller cannot act in is 404. Reads only.
+//
+// GET /v1/asset-order-expenses
+func (c *Client) GetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (GetAssetOrderExpensesRes, error) {
+	res, err := c.sendGetAssetOrderExpenses(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (res GetAssetOrderExpensesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetOrderExpenses"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-order-expenses"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetOrderExpensesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-order-expenses"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetOrderExpensesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetOrderExpensesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

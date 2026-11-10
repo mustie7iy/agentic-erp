@@ -18389,6 +18389,59 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-order-expenses:
+    get:
+      operationId: getAssetOrderExpenses
+      x-slo-class: report
+      x-snapshot: true
+      tags:
+        - assets
+      summary: Report what was expensed on asset purchase order items
+      description: "The materiality report of a company and fiscal year on asset purchases through purchase orders (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and the price differences that supplier invoices and credit memos expensed on the company's price difference account for purchase order items that are assets, which IAS 16 counts in the asset's cost. The assets themselves are capitalised at the order price; this report shows what was left out, so an auditor can judge whether it is material. An order item is an asset's when its account is an asset clearing account of the company in the active configuration (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on; the item's account as the order has it now decides, removed items included. Only orders valued through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own line and is capitalised with it. `items` has one row per such order item with a recorded posting in the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item bore: a non-deductible component's tax and the part of a component's tax not recovered, with the share of a difference to the supplier's stated tax that is a cost, which goes on its code's first item), `price_difference` (what the invoiced amount differed from the order price of the invoiced quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price difference account. Credit memos, subsequent credits and reversals count negative; a posting counts in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the ledger records beside each price difference line since that record exists. `totals` sums every row, on every page. `unattributed` states what the rows cannot show: the amount on the company's current price difference account, in the year, of invoice and credit memo entries (and their reversals) that touch at least one asset order item, on lines that have no such record (postings made before the record existed, and the rounding residue a reversal clears). Its split between tax and price difference is unknown, and where such an entry also invoices other order items it includes their price differences, so it is an upper bound of what those entries expensed on assets; `entries` counts them. It is zero when every such posting is recorded. Not in the report: GR/IR clearings of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price difference account (whether they count as expensed is not decided); an item whose price difference and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company's legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year the postings were made in.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the asset order items with what was expensed on them, the totals of all of them, and what is unattributed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetOrderExpenses"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/cash-position:
     get:
       operationId: getCashPosition
@@ -44349,6 +44402,84 @@ components:
         closing_accumulated: {$ref: "#/components/schemas/Money"}
         opening_net_book_value: {$ref: "#/components/schemas/Money"}
         closing_net_book_value: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpenses:
+      type: object
+      description: "What supplier invoices and credit memos expensed on a company's asset purchase order items in a fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered and the price difference, exact as posted, with their totals, and the amount whose order item and split were not recorded. In the company's local currency."
+      required: [legal_entity_id, company_code, company_name, fiscal_year, start_date, end_date, currency, items, totals, unattributed]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The company., readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year the postings were made in., readOnly: true}
+        start_date: {type: string, format: date, description: "The fiscal year's first day.", readOnly: true}
+        end_date: {type: string, format: date, description: "The fiscal year's last day.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        items:
+          type: array
+          description: "This page's asset order items with a recorded posting in the year, by order number and item number."
+          items: {$ref: "#/components/schemas/AssetOrderExpenseItem"}
+        totals: {$ref: "#/components/schemas/AssetOrderExpenseAmounts"}
+        unattributed: {$ref: "#/components/schemas/AssetOrderExpensesUnattributed"}
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page of order items; absent on the last page."
+          maxLength: 2048
+      examples:
+        - legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2026
+          start_date: "2026-01-01"
+          end_date: "2026-12-31"
+          currency: CAD
+          items:
+            - purchase_order_id: 0192a000-0000-7000-8000-000000000501
+              purchase_order_number: "4500000012"
+              po_item_no: 1
+              description: CNC lathe
+              account_id: 0192a000-0000-7000-8000-000000000611
+              account_number: "159000"
+              account_name: Asset clearing
+              tax_not_recovered: {amount: "840.00", currency: CAD}
+              price_difference: {amount: "150.00", currency: CAD}
+              expensed: {amount: "990.00", currency: CAD}
+          totals:
+            tax_not_recovered: {amount: "840.00", currency: CAD}
+            price_difference: {amount: "150.00", currency: CAD}
+            expensed: {amount: "990.00", currency: CAD}
+          unattributed:
+            expensed: {amount: "0.00", currency: CAD}
+            entries: 0
+    AssetOrderExpenseItem:
+      type: object
+      description: "What was expensed on one asset purchase order item in the year, as recorded at posting."
+      required: [purchase_order_id, purchase_order_number, po_item_no, description, account_id, account_number, account_name, tax_not_recovered, price_difference, expensed]
+      properties:
+        purchase_order_id: {type: string, format: uuid, description: The purchase order., readOnly: true}
+        purchase_order_number: {type: string, description: "The purchase order's document number.", readOnly: true}
+        po_item_no: {type: integer, format: int32, description: "The order item's number.", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The order item's account: an asset clearing account of the company.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name.", readOnly: true}
+        tax_not_recovered: {$ref: "#/components/schemas/Money"}
+        price_difference: {$ref: "#/components/schemas/Money"}
+        expensed: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpenseAmounts:
+      type: object
+      description: "Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` + `price_difference`."
+      required: [tax_not_recovered, price_difference, expensed]
+      properties:
+        tax_not_recovered: {$ref: "#/components/schemas/Money"}
+        price_difference: {$ref: "#/components/schemas/Money"}
+        expensed: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpensesUnattributed:
+      type: object
+      description: "What the rows cannot show: the amount on the company's current price difference account, in the year, of invoice and credit memo entries that touch at least one asset order item, on lines without a recorded order item (posted before the record existed, or a reversal's rounding residue). Its split between tax and price difference is unknown, and it includes the price differences of other order items on the same entries: an upper bound, zero when everything is recorded."
+      required: [expensed, entries]
+      properties:
+        expensed: {$ref: "#/components/schemas/Money"}
+        entries: {type: integer, format: int32, description: "How many journal entries the amount comes from.", readOnly: true}
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."

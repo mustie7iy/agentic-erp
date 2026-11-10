@@ -5111,6 +5111,57 @@ step_asset_held_for_sale() {
   passed
 }
 
+# step_asset_order_expenses is the materiality report on asset purchase
+# orders (accounting specialist B10, po:2026-11-10; ADR-0057 §6; IAS
+# 16.16(a), IAS 8.8): a machine ordered on the asset clearing account is
+# invoiced above the order price with British Columbia PST, which is not
+# recovered; both are expensed on the price difference account, and the
+# report shows them apart, exact as recorded at posting.
+step_asset_order_expenses() {
+  heading "Step 46 — What was expensed on asset purchase orders: the tax not recovered and the price difference of a machine bought on an order"
+  as ben
+  local item po invoice
+  item="{\"description\": \"Band saw\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"8000.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 1690)\", \"tax_code\": \"PBC\"}"
+  say "Ben orders a band saw from Tyrell at CAD 8,000.00 on the asset clearing account 1690, with British Columbia PST"
+  say "(PBC, 7%, not recoverable), and receives it: the receipt debits 1690 at the order price (ADR-0057 §6)."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), \(.tax_code)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [$item]}"
+  po=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted band saw"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "order status" "$(field .status)" released
+  expect "valued through GR/IR" "$(field .valuation)" gr_ir
+  api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  as alex
+  say "Tyrell invoices CAD 8,100.00, 100.00 above the order, plus 567.00 PST. The invoice clears GR/IR at the order price;"
+  say "the 100.00 and the 567.00 post as one line on the price difference account, an expense, not on the asset:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-SAW-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"8667.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"567.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"8100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"PBC\"}]}"
+  invoice=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  expect "invoice status" "$(field .status)" posted
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "one line for both, beside the GR/IR line and the supplier's" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-8667.00 667.00 8000.00"
+  as carla
+  say "IAS 16 counts both in the asset's cost. Until they are capitalised, the auditor judges whether what was expensed"
+  say "is material; Carla reads the year's report, which tells the tax from the price difference, as recorded at posting:"
+  api 200 '(.items[] | "  order \(.purchase_order_number) item \(.po_item_no) \(.description) on \(.account_number) \(.account_name): tax not recovered \(.tax_not_recovered.amount), price difference \(.price_difference.amount), expensed \(.expensed.amount) \(.expensed.currency)"),
+    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency)",
+    "  unattributed (earlier postings, split unknown): \(.unattributed.expensed.amount) \(.unattributed.expensed.currency) in \(.unattributed.entries) entries"' \
+    getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "the band saw's row" "$(field "[.items[] | select(.purchase_order_id == \"$po\") | \"\(.po_item_no) \(.description) \(.account_number) \(.tax_not_recovered.amount) \(.price_difference.amount) \(.expensed.amount) \(.expensed.currency)\"] | join(\"; \")")" \
+    "1 Band saw 1690 567.00 100.00 667.00 CAD"
+  expect "the totals" "$(field '"\(.totals.tax_not_recovered.amount) \(.totals.price_difference.amount) \(.totals.expensed.amount) \(.currency)"')" "567.00 100.00 667.00 CAD"
+  expect "nothing unattributed: every posting is recorded" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.entries)"')" "0.00 0"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7032,7 +7083,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_close'
 
 main() {
   stop_unseen

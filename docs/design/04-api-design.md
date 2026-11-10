@@ -330,6 +330,17 @@ profit center or a node of a profit center hierarchy), its actual as `GET
 /v1/profit-center-balances` reads it: profit and loss accounts only, the
 segments summed, paged by profit center and account.
 
+The report on asset purchase orders (ADR-0057 §6, As built B10; accounting
+specialist B10, po:2026-11-10), `GET /v1/asset-order-expenses`
+(`assets.asset.read`, `x-slo-class: report`), shows for a company and
+fiscal year what invoices and credit memos expensed on the price
+difference account for order items on an asset clearing account: per
+order item the tax not recovered, the price difference and their sum, in
+local currency, exact as recorded at posting, paged by order number and
+item, with `totals` of every row on every page and `unattributed`, the
+amount of earlier postings whose order item and split were not recorded
+(an upper bound). GR/IR clearings are left out (not decided).
+
 The asset history sheet (ADR-0057 §9, T57i), `GET /v1/asset-history-sheet`
 (`assets.asset.read`, `x-slo-class: report`), reconciles a company's asset
 values over one fiscal year in one ledger (the leading one by default):

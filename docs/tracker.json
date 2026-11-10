@@ -1255,15 +1255,15 @@
        },
        {
         "s": "D",
-        "t": "The order item and the tax borne recorded on price difference lines (accounting specialist B10, po:2026-11-09; product owner 2026-11-10, option B): the materiality report could not be exact, since an invoiced order item's price difference and the input tax it bears post as one line on price_difference that names no order item; from now on the ledger records, beside each such line of an invoice or credit memo on an order valued through GR/IR, the order item and the tax borne (transaction and local currency, signed as the line), a reversal recording its original's negated; nothing posts differently; lines posted before stay unknown, never backfilled",
+        "t": "The order item and the tax borne recorded on price difference lines (accounting specialist B10, po:2026-11-09; product owner 2026-11-10, option B): the materiality report could not be exact, since an invoiced order item's price difference and the input tax it bears post as one line on price_difference that names no order item; from now on the ledger records, beside each such line of an invoice or credit memo on an order valued through GR/IR, the order item and the tax borne (transaction and local currency, debit positive as the document), a reversal recording its original's negated; nothing posts differently; lines posted before stay unknown, never backfilled",
         "r": "migration 000249 (ledger.price_difference_item, insert-only: the line's foreign key, a GR/IR line refused, price_difference_item_tax_sign) · internal/ledger/pricedifference.go (keepPriceDifferences, reversePriceDifferences), GRIRItem.TaxBorne · internal/payables/post.go (invoiceLines) · TestPriceDifferencesRecorded, TestPriceDifferencesReversed, TestGRIRDatabaseFailures, TestTaxBorneRecordedOnPriceDifferences, TestPriceDifferenceItems · ADR-0057 As built (B10, step 1) · ADR-0049 §8 · 03-data-model §3.7",
         "src": "po:2026-11-10 · po:2026-11-09",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The B10 materiality report (accounting specialist B10, po:2026-11-09; product owner 2026-11-10, option B; IAS 16.16(a), IAS 8.8): per company and fiscal year, the non-recovered tax and the price differences expensed on order items that are assets, exact for postings recorded with their order item and stating how much comes from earlier postings whose split is unknown, so the auditor can judge materiality; GR/IR clearings (T72e) left out until the product owner decides whether they count as expensed",
-        "r": "ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 1)",
+        "r": "GET /v1/asset-order-expenses (getAssetOrderExpenses, AssetOrderExpenses, x-slo-class report, x-snapshot) · internal/assets/orderexpenses.go (port assets.Purchases) · ledger.AssetReads.OrderItemExpenses, UnrecordedExpenses · procurement.Orders.ItemAccounts · TestAssetOrderExpenses, TestAssetOrderExpensesRefused, TestAssetOrderExpensesFailures · walkthrough step_asset_order_expenses (step 46) · ADR-0057 §2, §10, Questions for the product owner (answered), As built (B10, step 2) · 04-api-design",
         "src": "po:2026-11-10 · po:2026-11-09",
         "c": []
        },

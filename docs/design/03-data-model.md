@@ -1020,8 +1020,8 @@ Rules enforced in the database:
   item's line on `price_difference`, the order item it belongs to
   (`purchase_order_id`, `po_item_no`; the line itself names none, since a
   line's order item marks a GR/IR line) and the input tax borne in it
-  (`tax_borne_tc`, `tax_borne_lc` at the entry's rate, signed as the
-  line): the line's amount less the tax is the price difference. Keyed as
+  (`tax_borne_tc`, `tax_borne_lc` at the entry's rate, debit positive as
+  the document, whatever the line's sign): the line's amount less the tax is the price difference. Keyed as
   the line, with a foreign key to it; a GR/IR line is refused, and the
   tax has one sign in both currencies. A reversal's lines record their
   originals' with the tax negated. Lines posted before the migration, a

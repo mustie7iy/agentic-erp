@@ -21982,6 +21982,237 @@ func (s *Server) handleGetAssetHistorySheetRequest(args [0]string, argsEscaped b
 	}
 }
 
+// handleGetAssetOrderExpensesRequest handles getAssetOrderExpenses operation.
+//
+// The materiality report of a company and fiscal year on asset purchases through purchase orders
+// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
+// the price differences that supplier invoices and credit memos expensed on the company's price
+// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
+// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
+// so an auditor can judge whether it is material. An order item is an asset's when its account is an
+// asset clearing account of the company in the active configuration
+// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
+// the item's account as the order has it now decides, removed items included. Only orders valued
+// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
+// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
+// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
+// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
+// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
+// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
+// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
+// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
+// ledger records beside each price difference line since that record exists. `totals` sums every row,
+// on every page. `unattributed` states what the rows cannot show: the amount on the company's current
+// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
+// touch at least one asset order item, on lines that have no such record (postings made before the
+// record existed, and the rounding residue a reversal clears). Its split between tax and price
+// difference is unknown, and where such an entry also invoices other order items it includes their
+// price differences, so it is an upper bound of what those entries expensed on assets; `entries`
+// counts them. It is zero when every such posting is recorded. Not in the report: GR/IR clearings of
+// asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+// difference account (whether they count as expensed is not decided); an item whose price difference
+// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
+// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
+// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
+// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
+// the caller cannot act in is 404. Reads only.
+//
+// GET /v1/asset-order-expenses
+func (s *Server) handleGetAssetOrderExpensesRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetOrderExpenses"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/asset-order-expenses"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetAssetOrderExpensesOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetAssetOrderExpensesOperation,
+			ID:   "getAssetOrderExpenses",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetAssetOrderExpensesOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetAssetOrderExpensesParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetAssetOrderExpensesRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetAssetOrderExpensesOperation,
+			OperationSummary: "Report what was expensed on asset purchase order items",
+			OperationID:      "getAssetOrderExpenses",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "fiscal_year",
+					In:   "query",
+				}: params.FiscalYear,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetAssetOrderExpensesParams
+			Response = GetAssetOrderExpensesRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetAssetOrderExpensesParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetAssetOrderExpenses(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetAssetOrderExpenses(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetAssetOrderExpensesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetAssetRetirementRequest handles getAssetRetirement operation.
 //
 // One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One

@@ -7151,6 +7151,339 @@ func (s *AssetOffsetAccount) SetName(val string) {
 	s.Name = val
 }
 
+// Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` +
+// `price_difference`.
+// Ref: #/components/schemas/AssetOrderExpenseAmounts
+type AssetOrderExpenseAmounts struct {
+	TaxNotRecovered Money `json:"tax_not_recovered"`
+	PriceDifference Money `json:"price_difference"`
+	Expensed        Money `json:"expensed"`
+}
+
+// GetTaxNotRecovered returns the value of TaxNotRecovered.
+func (s *AssetOrderExpenseAmounts) GetTaxNotRecovered() Money {
+	return s.TaxNotRecovered
+}
+
+// GetPriceDifference returns the value of PriceDifference.
+func (s *AssetOrderExpenseAmounts) GetPriceDifference() Money {
+	return s.PriceDifference
+}
+
+// GetExpensed returns the value of Expensed.
+func (s *AssetOrderExpenseAmounts) GetExpensed() Money {
+	return s.Expensed
+}
+
+// SetTaxNotRecovered sets the value of TaxNotRecovered.
+func (s *AssetOrderExpenseAmounts) SetTaxNotRecovered(val Money) {
+	s.TaxNotRecovered = val
+}
+
+// SetPriceDifference sets the value of PriceDifference.
+func (s *AssetOrderExpenseAmounts) SetPriceDifference(val Money) {
+	s.PriceDifference = val
+}
+
+// SetExpensed sets the value of Expensed.
+func (s *AssetOrderExpenseAmounts) SetExpensed(val Money) {
+	s.Expensed = val
+}
+
+// What was expensed on one asset purchase order item in the year, as recorded at posting.
+// Ref: #/components/schemas/AssetOrderExpenseItem
+type AssetOrderExpenseItem struct {
+	// The purchase order.
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The purchase order's document number.
+	PurchaseOrderNumber string `json:"purchase_order_number"`
+	// The order item's number.
+	PoItemNo int32 `json:"po_item_no"`
+	// The order item's description.
+	Description string `json:"description"`
+	// The order item's account: an asset clearing account of the company.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName     string `json:"account_name"`
+	TaxNotRecovered Money  `json:"tax_not_recovered"`
+	PriceDifference Money  `json:"price_difference"`
+	Expensed        Money  `json:"expensed"`
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *AssetOrderExpenseItem) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *AssetOrderExpenseItem) GetPurchaseOrderNumber() string {
+	return s.PurchaseOrderNumber
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *AssetOrderExpenseItem) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetDescription returns the value of Description.
+func (s *AssetOrderExpenseItem) GetDescription() string {
+	return s.Description
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *AssetOrderExpenseItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *AssetOrderExpenseItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *AssetOrderExpenseItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetTaxNotRecovered returns the value of TaxNotRecovered.
+func (s *AssetOrderExpenseItem) GetTaxNotRecovered() Money {
+	return s.TaxNotRecovered
+}
+
+// GetPriceDifference returns the value of PriceDifference.
+func (s *AssetOrderExpenseItem) GetPriceDifference() Money {
+	return s.PriceDifference
+}
+
+// GetExpensed returns the value of Expensed.
+func (s *AssetOrderExpenseItem) GetExpensed() Money {
+	return s.Expensed
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *AssetOrderExpenseItem) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *AssetOrderExpenseItem) SetPurchaseOrderNumber(val string) {
+	s.PurchaseOrderNumber = val
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *AssetOrderExpenseItem) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AssetOrderExpenseItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *AssetOrderExpenseItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *AssetOrderExpenseItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *AssetOrderExpenseItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetTaxNotRecovered sets the value of TaxNotRecovered.
+func (s *AssetOrderExpenseItem) SetTaxNotRecovered(val Money) {
+	s.TaxNotRecovered = val
+}
+
+// SetPriceDifference sets the value of PriceDifference.
+func (s *AssetOrderExpenseItem) SetPriceDifference(val Money) {
+	s.PriceDifference = val
+}
+
+// SetExpensed sets the value of Expensed.
+func (s *AssetOrderExpenseItem) SetExpensed(val Money) {
+	s.Expensed = val
+}
+
+// What supplier invoices and credit memos expensed on a company's asset purchase order items in a
+// fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered
+// and the price difference, exact as posted, with their totals, and the amount whose order item and
+// split were not recorded. In the company's local currency.
+// Ref: #/components/schemas/AssetOrderExpenses
+type AssetOrderExpenses struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The fiscal year the postings were made in.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year's first day.
+	StartDate time.Time `json:"start_date"`
+	// The fiscal year's last day.
+	EndDate time.Time `json:"end_date"`
+	// The company's local currency, every amount's.
+	Currency string `json:"currency"`
+	// This page's asset order items with a recorded posting in the year, by order number and item number.
+	Items        []AssetOrderExpenseItem        `json:"items"`
+	Totals       AssetOrderExpenseAmounts       `json:"totals"`
+	Unattributed AssetOrderExpensesUnattributed `json:"unattributed"`
+	// Opaque cursor for the next page of order items; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetOrderExpenses) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetOrderExpenses) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *AssetOrderExpenses) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetOrderExpenses) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *AssetOrderExpenses) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *AssetOrderExpenses) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AssetOrderExpenses) GetCurrency() string {
+	return s.Currency
+}
+
+// GetItems returns the value of Items.
+func (s *AssetOrderExpenses) GetItems() []AssetOrderExpenseItem {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *AssetOrderExpenses) GetTotals() AssetOrderExpenseAmounts {
+	return s.Totals
+}
+
+// GetUnattributed returns the value of Unattributed.
+func (s *AssetOrderExpenses) GetUnattributed() AssetOrderExpensesUnattributed {
+	return s.Unattributed
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetOrderExpenses) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetOrderExpenses) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetOrderExpenses) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *AssetOrderExpenses) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetOrderExpenses) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *AssetOrderExpenses) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *AssetOrderExpenses) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AssetOrderExpenses) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetItems sets the value of Items.
+func (s *AssetOrderExpenses) SetItems(val []AssetOrderExpenseItem) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *AssetOrderExpenses) SetTotals(val AssetOrderExpenseAmounts) {
+	s.Totals = val
+}
+
+// SetUnattributed sets the value of Unattributed.
+func (s *AssetOrderExpenses) SetUnattributed(val AssetOrderExpensesUnattributed) {
+	s.Unattributed = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetOrderExpenses) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetOrderExpenses) getAssetOrderExpensesRes() {}
+
+// What the rows cannot show: the amount on the company's current price difference account, in the
+// year, of invoice and credit memo entries that touch at least one asset order item, on lines without
+// a recorded order item (posted before the record existed, or a reversal's rounding residue). Its
+// split between tax and price difference is unknown, and it includes the price differences of other
+// order items on the same entries: an upper bound, zero when everything is recorded.
+// Ref: #/components/schemas/AssetOrderExpensesUnattributed
+type AssetOrderExpensesUnattributed struct {
+	Expensed Money `json:"expensed"`
+	// How many journal entries the amount comes from.
+	Entries int32 `json:"entries"`
+}
+
+// GetExpensed returns the value of Expensed.
+func (s *AssetOrderExpensesUnattributed) GetExpensed() Money {
+	return s.Expensed
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetOrderExpensesUnattributed) GetEntries() int32 {
+	return s.Entries
+}
+
+// SetExpensed sets the value of Expensed.
+func (s *AssetOrderExpensesUnattributed) SetExpensed(val Money) {
+	s.Expensed = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetOrderExpensesUnattributed) SetEntries(val int32) {
+	s.Entries = val
+}
+
 // One page of assets.
 // Ref: #/components/schemas/AssetPage
 type AssetPage struct {
@@ -32765,6 +33098,22 @@ func (s *GetAssetOKHeaders) SetResponse(val Asset) {
 }
 
 func (*GetAssetOKHeaders) getAssetRes() {}
+
+type GetAssetOrderExpensesBadRequest Problem
+
+func (*GetAssetOrderExpensesBadRequest) getAssetOrderExpensesRes() {}
+
+type GetAssetOrderExpensesForbidden Problem
+
+func (*GetAssetOrderExpensesForbidden) getAssetOrderExpensesRes() {}
+
+type GetAssetOrderExpensesNotFound Problem
+
+func (*GetAssetOrderExpensesNotFound) getAssetOrderExpensesRes() {}
+
+type GetAssetOrderExpensesUnprocessableEntity Problem
+
+func (*GetAssetOrderExpensesUnprocessableEntity) getAssetOrderExpensesRes() {}
 
 type GetAssetRetirementBadRequest Problem
 
@@ -69484,6 +69833,7 @@ func (*TooManyRequestsHeaders) getAnalyticsModelRes()                     {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()                    {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                   {}
 func (*TooManyRequestsHeaders) getAssetHistorySheetRes()                  {}
+func (*TooManyRequestsHeaders) getAssetOrderExpensesRes()                 {}
 func (*TooManyRequestsHeaders) getAssetRes()                              {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()                    {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                      {}
@@ -69989,6 +70339,7 @@ func (*UnauthorizedHeaders) getAnalyticsModelRes()                     {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()                    {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                   {}
 func (*UnauthorizedHeaders) getAssetHistorySheetRes()                  {}
+func (*UnauthorizedHeaders) getAssetOrderExpensesRes()                 {}
 func (*UnauthorizedHeaders) getAssetRes()                              {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()                    {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                      {}

@@ -132,6 +132,11 @@ Its ports, each run in the request's (or activity's) transaction under RLS
   supplier invoice id, its document number, supplier reference and the
   supplier's id and name, so an acquisition shows what it came from
   (REVIEW.md: an identifier without the name its consumer needs).
+- **`assets.Purchases`** (adapter over the ledger's and procurement's
+  reads; B10, po:2026-11-10): what a company's recorded price difference
+  lines of a fiscal year expensed per order item, what its invoice entries
+  expensed without a recorded order item, and orders' items with their
+  accounts, for the report on asset purchase orders (As built, B10 step 2).
 - **`assets.Companies`** (adapter over tenancy): the legal entity's code,
   local currency and time zone.
 - **`assets.Centers`** (adapter over the ledger's center reads): a cost or
@@ -1060,6 +1065,7 @@ cursor-paged with filters, 04 §4.5):
 | create/list/get/reverse AssetTransfer | `/v1/asset-transfers` | `assets.asset.post` | `x-agent: false` |
 | startDepreciationRun, listDepreciationRuns, getDepreciationRun, previewDepreciationRun | `/v1/depreciation-runs`, `/preview` | `assets.depreciation.run`; reads `assets.asset.read` | preview and reads only |
 | getAssetHistorySheet | `GET /v1/asset-history-sheet` | `assets.asset.read` | read |
+| getAssetOrderExpenses | `GET /v1/asset-order-expenses` | `assets.asset.read` | read (B10, po:2026-11-10) |
 
 - Every operation is limited to the caller's companies (ADR-0010), as the
   ledger's are. Posting stays human-only (ADR-0036, ADR-0045 "agents keep
@@ -1425,6 +1431,12 @@ the `assets` schema), 04 §4.9 (T57d) and this ADR's "As built".
   (PST) on equipment. Recommended: fix before the first year end and, until
   then, a report of the amounts expensed on asset purchase orders, for the
   auditor to judge materiality. A tracker leaf (src po:2026-11-09).
+  **The product owner (2026-11-10):** the report first, exact, by
+  recording the order item and the tax borne at posting (option B; As
+  built, B10 steps 1 and 2); the capitalisation itself stays a later leaf.
+  **Open (product owner):** whether a GR/IR clearing (T72e) of an asset
+  order item counts as expensed; the report leaves clearings out until
+  then and says so.
 - **Tax depreciation (Canada's capital cost allowance)**: a tax schedule,
   not a ledger. Recommendation: not in T57; with the Canadian corporate
   income tax work if the pilot asks.
@@ -2773,7 +2785,8 @@ posting rather than report bounds:
   line of an invoice or credit memo on an order valued through GR/IR, a
   row of `ledger.price_difference_item` (insert-only): the order item and
   the tax borne in the entry's currency and in local currency at the
-  entry's rate, signed as the line. The line less the tax is the price
+  entry's rate, debit positive as the document (negative on a credit
+  memo), whatever the line's own sign. The line less the tax is the price
   difference. Lines, amounts, accounts and totals are as before
   (`TestPriceDifferencesRecorded`, the tax borne moves no amount).
 - **A side table, not columns on the line.** A journal line's
@@ -2798,4 +2811,44 @@ posting rather than report bounds:
 - **Audit and events unchanged.** The posting's audit record and
   `JournalEntryPosted` are as they were: the row is a record beside a
   line of an entry already audited, and it is insert-only (ADR-0011).
+
+**B10, step 2 (the materiality report, po:2026-11-10).** `GET
+/v1/asset-order-expenses` (`getAssetOrderExpenses`, `assets.asset.read`,
+`x-slo-class: report`, one snapshot): per company and fiscal year, what
+invoices and credit memos expensed on the price difference account for
+order items that are assets, the tax not recovered apart from the price
+difference, in local currency, with the totals of every row on every page
+(rows paged by order number and item). Walkthrough step 46
+(`step_asset_order_expenses`). Decided by default, for the product owner
+to overrule:
+- **Which order items are assets.** Those whose account is an asset
+  clearing account of the company in the active configuration
+  (`companies[].asset_accounts[].clearing`), §6's own rule: an asset
+  bought on an order is received on that account. No new classification
+  was added. The item's account as the order has it now decides, removed
+  items included (procurement keeps them); the class is not shown, since
+  classes may share a clearing account.
+- **Exact rows from the record.** The rows read
+  `ledger.price_difference_item` (step 1) joined to its lines in the
+  leading ledger: reversals net in the year they are posted in, credit
+  memos count negative. `ledger.AssetReads.OrderItemExpenses`,
+  `procurement.Orders.ItemAccounts`, through the port `assets.Purchases`.
+- **What is unknown is said, as one amount.** `unattributed` is the
+  amount on the company's current price difference account, in the year,
+  of payables entries of the leading ledger that have a GR/IR line of an
+  asset order item, on lines without a record
+  (`ledger.AssetReads.UnrecordedExpenses`): postings made before migration
+  000249 and the rounding residue a reversal clears. Such a line names no
+  order item, so the amount includes the price differences of the entry's
+  other items: an upper bound, never spread over the rows by guess. It
+  reads the account determination's current account: lines an earlier
+  price difference account took are not found.
+- **Left out, and said in the contract:** GR/IR clearings (T72e; the open
+  question above), manual entries, and an item whose price difference and
+  tax cancelled exactly (no line posted). Orders valued directly do not
+  appear: their tax not recovered posts on the item's own line and is
+  capitalised with it.
+- **No budget test.** The report reads one company's recorded lines of one
+  year and its order items; nothing in 01 §1.3 sizes it. A tenant with
+  very many asset order items a year would want the rows paged in SQL.
 
