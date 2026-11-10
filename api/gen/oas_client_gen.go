@@ -1394,14 +1394,19 @@ type Invoker interface {
 	// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
 	// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
 	// ledger records beside each price difference line since that record exists. `totals` sums every row,
-	// on every page. `unattributed` states what the rows cannot show: the amount on the company's current
+	// on every page. `unattributed` states what the rows cannot show: the amounts on the company's current
 	// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
-	// touch at least one asset order item, on lines that have no such record (postings made before the
-	// record existed, and the rounding residue a reversal clears). Its split between tax and price
-	// difference is unknown, and where such an entry also invoices other order items it includes their
-	// price differences, so it is an upper bound of what those entries expensed on assets; `entries`
-	// counts them. It is zero when every such posting is recorded. Not in the report: GR/IR clearings of
-	// asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+	// clear GR/IR for at least one asset order item, on lines that have no such record (postings made
+	// before the record existed, and the rounding residue a reversal clears). Such a line names no order
+	// item and its split between tax and price difference is unknown, so the amounts are not spread over
+	// the rows: where such an entry also invoices other order items, their price differences are in it
+	// too, of either sign. `expensed` is therefore the net of everything those lines posted and may
+	// overstate or understate what was expensed on assets; `debits` is the sum of the lines that are
+	// debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those
+	// that are credits (negative); `entries` counts the entries. All are zero when every such posting is
+	// recorded, and also when the company has no price difference account in its account determination
+	// now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings
+	// of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
 	// difference account (whether they count as expensed is not decided); an item whose price difference
 	// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
 	// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
@@ -21160,14 +21165,19 @@ func (c *Client) sendGetAssetHistorySheet(ctx context.Context, params GetAssetHi
 // difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
 // in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
 // ledger records beside each price difference line since that record exists. `totals` sums every row,
-// on every page. `unattributed` states what the rows cannot show: the amount on the company's current
+// on every page. `unattributed` states what the rows cannot show: the amounts on the company's current
 // price difference account, in the year, of invoice and credit memo entries (and their reversals) that
-// touch at least one asset order item, on lines that have no such record (postings made before the
-// record existed, and the rounding residue a reversal clears). Its split between tax and price
-// difference is unknown, and where such an entry also invoices other order items it includes their
-// price differences, so it is an upper bound of what those entries expensed on assets; `entries`
-// counts them. It is zero when every such posting is recorded. Not in the report: GR/IR clearings of
-// asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+// clear GR/IR for at least one asset order item, on lines that have no such record (postings made
+// before the record existed, and the rounding residue a reversal clears). Such a line names no order
+// item and its split between tax and price difference is unknown, so the amounts are not spread over
+// the rows: where such an entry also invoices other order items, their price differences are in it
+// too, of either sign. `expensed` is therefore the net of everything those lines posted and may
+// overstate or understate what was expensed on assets; `debits` is the sum of the lines that are
+// debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those
+// that are credits (negative); `entries` counts the entries. All are zero when every such posting is
+// recorded, and also when the company has no price difference account in its account determination
+// now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings
+// of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
 // difference account (whether they count as expensed is not decided); an item whose price difference
 // and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
 // company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A

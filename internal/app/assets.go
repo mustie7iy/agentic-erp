@@ -227,7 +227,7 @@ func (assetPurchases) Unrecorded(ctx context.Context, legalEntity uuid.UUID, yea
 	rows, err := ledger.AssetReads{}.UnrecordedExpenses(ctx, legalEntity, year)
 	out := make([]assets.UnrecordedExpense, len(rows))
 	for i, r := range rows {
-		out[i].Amount = r.Amount
+		out[i].Debits, out[i].Credits = r.Debits, r.Credits
 		for _, it := range r.Items {
 			out[i].Items = append(out[i].Items, assets.OrderItemKey{OrderID: it.PurchaseOrderID, ItemNo: it.POItemNo})
 		}

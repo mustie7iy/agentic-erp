@@ -17510,14 +17510,24 @@ func (s *AssetOrderExpensesUnattributed) encodeFields(e *jx.Encoder) {
 		s.Expensed.Encode(e)
 	}
 	{
+		e.FieldStart("debits")
+		s.Debits.Encode(e)
+	}
+	{
+		e.FieldStart("credits")
+		s.Credits.Encode(e)
+	}
+	{
 		e.FieldStart("entries")
 		e.Int32(s.Entries)
 	}
 }
 
-var jsonFieldsNameOfAssetOrderExpensesUnattributed = [2]string{
+var jsonFieldsNameOfAssetOrderExpensesUnattributed = [4]string{
 	0: "expensed",
-	1: "entries",
+	1: "debits",
+	2: "credits",
+	3: "entries",
 }
 
 // Decode decodes AssetOrderExpensesUnattributed from json.
@@ -17539,8 +17549,28 @@ func (s *AssetOrderExpensesUnattributed) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"expensed\"")
 			}
-		case "entries":
+		case "debits":
 			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				if err := s.Debits.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"debits\"")
+			}
+		case "credits":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.Credits.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credits\"")
+			}
+		case "entries":
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int32()
 				s.Entries = int32(v)
@@ -17561,7 +17591,7 @@ func (s *AssetOrderExpensesUnattributed) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000011,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

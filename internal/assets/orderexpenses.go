@@ -41,10 +41,18 @@ type OrderItemExpense struct {
 
 // UnrecordedExpense is what one invoice or credit memo entry put on the
 // price difference account without a recorded order item, in local
-// currency, and the order items the entry posts on.
+// currency, its debits and its credits (negative) apart, and the order
+// items the entry clears GR/IR for.
 type UnrecordedExpense struct {
-	Amount money.Minor
-	Items  []OrderItemKey
+	Debits, Credits money.Minor
+	Items           []OrderItemKey
+}
+
+// unattributedExpenses are the unrecorded amounts of the entries that
+// touch an asset order item, and how many those entries are.
+type unattributedExpenses struct {
+	debits, credits money.Minor
+	entries         int
 }
 
 // OrderItem is a purchase order item as the report shows it: its order's
@@ -111,7 +119,7 @@ func (e *Endpoints) GetAssetOrderExpenses(ctx context.Context, params gen.GetAss
 	if err != nil {
 		return nil, fmt.Errorf("assets: periods of %s in %d: %w", co.Code, params.FiscalYear, err)
 	}
-	rows, unattributed, entries, err := e.orderExpenses(ctx, co, int16(params.FiscalYear))
+	rows, un, err := e.orderExpenses(ctx, co, int16(params.FiscalYear))
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +134,9 @@ func (e *Endpoints) GetAssetOrderExpenses(ctx context.Context, params gen.GetAss
 	}
 	out := &gen.AssetOrderExpenses{LegalEntityID: co.ID, CompanyCode: co.Code, CompanyName: co.Name, FiscalYear: params.FiscalYear,
 		StartDate: periods[0].Start, EndDate: periods[len(periods)-1].End, Currency: co.Currency, Items: []gen.AssetOrderExpenseItem{},
-		Totals:       gen.AssetOrderExpenseAmounts{TaxNotRecovered: m(total.TaxBorne), PriceDifference: m(total.Amount - total.TaxBorne), Expensed: m(total.Amount)},
-		Unattributed: gen.AssetOrderExpensesUnattributed{Expensed: m(unattributed), Entries: int32(entries)}}
+		Totals: gen.AssetOrderExpenseAmounts{TaxNotRecovered: m(total.TaxBorne), PriceDifference: m(total.Amount - total.TaxBorne), Expensed: m(total.Amount)},
+		Unattributed: gen.AssetOrderExpensesUnattributed{Expensed: m(un.debits + un.credits), Debits: m(un.debits), Credits: m(un.credits),
+			Entries: int32(un.entries)}}
 	rows = rowsAfter(rows, after)
 	if len(rows) > size {
 		rows = rows[:size]
@@ -169,27 +178,27 @@ func rowsAfter(rows []orderExpenseRow, after *orderExpenseKey) []orderExpenseRow
 
 // orderExpenses reads the company's asset order items with a recorded
 // price difference line in the year, in the report's order, and what its
-// invoice entries touching an asset order item expensed without a
-// recorded order item, with the number of those entries. An order item
+// invoice entries clearing GR/IR for an asset order item expensed without
+// a recorded order item. An order item
 // is an asset's when its account is an asset clearing account of the
 // company in the active document (ADR-0057 §6): the account an asset
 // bought on an order is received on.
-func (e *Endpoints) orderExpenses(ctx context.Context, co Company, year int16) ([]orderExpenseRow, money.Minor, int, error) {
+func (e *Endpoints) orderExpenses(ctx context.Context, co Company, year int16) ([]orderExpenseRow, unattributedExpenses, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("assets: configuration: %w", err)
+		return nil, unattributedExpenses{}, fmt.Errorf("assets: configuration: %w", err)
 	}
 	clearing, err := e.clearingAccounts(ctx, doc, co)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, unattributedExpenses{}, err
 	}
 	recorded, err := e.Purchases.Recorded(ctx, co.ID, year)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("assets: recorded price differences of %s in %d: %w", co.Code, year, err)
+		return nil, unattributedExpenses{}, fmt.Errorf("assets: recorded price differences of %s in %d: %w", co.Code, year, err)
 	}
 	unrecorded, err := e.Purchases.Unrecorded(ctx, co.ID, year)
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("assets: unrecorded price differences of %s in %d: %w", co.Code, year, err)
+		return nil, unattributedExpenses{}, fmt.Errorf("assets: unrecorded price differences of %s in %d: %w", co.Code, year, err)
 	}
 	var orders []uuid.UUID
 	for _, r := range recorded {
@@ -203,7 +212,7 @@ func (e *Endpoints) orderExpenses(ctx context.Context, co Company, year int16) (
 	slices.SortFunc(orders, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
 	items, err := e.Purchases.Items(ctx, slices.Compact(orders))
 	if err != nil {
-		return nil, 0, 0, fmt.Errorf("assets: order items of %s: %w", co.Code, err)
+		return nil, unattributedExpenses{}, fmt.Errorf("assets: order items of %s: %w", co.Code, err)
 	}
 	// The asset order items: those on an asset clearing account.
 	assets := map[OrderItemKey]orderExpenseRow{}
@@ -220,13 +229,11 @@ func (e *Endpoints) orderExpenses(ctx context.Context, co Company, year int16) (
 		}
 	}
 	slices.SortFunc(rows, func(a, b orderExpenseRow) int { return compareOrderExpenseKeys(a.key(), b.key()) })
-	var unattributed money.Minor
-	entries := 0
+	var un unattributedExpenses
 	for _, u := range unrecorded {
 		if slices.ContainsFunc(u.Items, func(k OrderItemKey) bool { _, ok := assets[k]; return ok }) {
-			unattributed += u.Amount
-			entries++
+			un.debits, un.credits, un.entries = un.debits+u.Debits, un.credits+u.Credits, un.entries+1
 		}
 	}
-	return rows, unattributed, entries, nil
+	return rows, un, nil
 }

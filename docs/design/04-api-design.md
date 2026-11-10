@@ -337,9 +337,11 @@ fiscal year what invoices and credit memos expensed on the price
 difference account for order items on an asset clearing account: per
 order item the tax not recovered, the price difference and their sum, in
 local currency, exact as recorded at posting, paged by order number and
-item, with `totals` of every row on every page and `unattributed`, the
-amount of earlier postings whose order item and split were not recorded
-(an upper bound). GR/IR clearings are left out (not decided).
+item, with `totals` of every row on every page and `unattributed`, what
+earlier postings whose order item and split were not recorded put on the
+account (the net, with debits and credits apart: it includes the same
+entries' other order items, so the debits bound the assets' share).
+GR/IR clearings are left out (not decided).
 
 The asset history sheet (ADR-0057 §9, T57i), `GET /v1/asset-history-sheet`
 (`assets.asset.read`, `x-slo-class: report`), reconciles a company's asset

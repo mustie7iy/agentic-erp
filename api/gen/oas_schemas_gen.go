@@ -7314,7 +7314,7 @@ func (s *AssetOrderExpenseItem) SetExpensed(val Money) {
 
 // What supplier invoices and credit memos expensed on a company's asset purchase order items in a
 // fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered
-// and the price difference, exact as posted, with their totals, and the amount whose order item and
+// and the price difference, exact as posted, with their totals, and the amounts whose order item and
 // split were not recorded. In the company's local currency.
 // Ref: #/components/schemas/AssetOrderExpenses
 type AssetOrderExpenses struct {
@@ -7452,14 +7452,19 @@ func (s *AssetOrderExpenses) SetNextPageToken(val OptString) {
 
 func (*AssetOrderExpenses) getAssetOrderExpensesRes() {}
 
-// What the rows cannot show: the amount on the company's current price difference account, in the
-// year, of invoice and credit memo entries that touch at least one asset order item, on lines without
-// a recorded order item (posted before the record existed, or a reversal's rounding residue). Its
-// split between tax and price difference is unknown, and it includes the price differences of other
-// order items on the same entries: an upper bound, zero when everything is recorded.
+// What the rows cannot show: the amounts on the company's current price difference account, in the
+// year, of invoice and credit memo entries that clear GR/IR for at least one asset order item, on
+// lines without a recorded order item (posted before the record existed, or a reversal's rounding
+// residue). Their split between tax and price difference is unknown, and they include the price
+// differences of other order items on the same entries, of either sign: `expensed` is the net of those
+// lines (`debits` + `credits`) and may overstate or understate what was expensed on assets; `debits`,
+// the lines that are debits, is the most those entries can have expensed on assets. All zero when
+// everything is recorded, or when the company has no price difference account now.
 // Ref: #/components/schemas/AssetOrderExpensesUnattributed
 type AssetOrderExpensesUnattributed struct {
 	Expensed Money `json:"expensed"`
+	Debits   Money `json:"debits"`
+	Credits  Money `json:"credits"`
 	// How many journal entries the amount comes from.
 	Entries int32 `json:"entries"`
 }
@@ -7467,6 +7472,16 @@ type AssetOrderExpensesUnattributed struct {
 // GetExpensed returns the value of Expensed.
 func (s *AssetOrderExpensesUnattributed) GetExpensed() Money {
 	return s.Expensed
+}
+
+// GetDebits returns the value of Debits.
+func (s *AssetOrderExpensesUnattributed) GetDebits() Money {
+	return s.Debits
+}
+
+// GetCredits returns the value of Credits.
+func (s *AssetOrderExpensesUnattributed) GetCredits() Money {
+	return s.Credits
 }
 
 // GetEntries returns the value of Entries.
@@ -7477,6 +7492,16 @@ func (s *AssetOrderExpensesUnattributed) GetEntries() int32 {
 // SetExpensed sets the value of Expensed.
 func (s *AssetOrderExpensesUnattributed) SetExpensed(val Money) {
 	s.Expensed = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *AssetOrderExpensesUnattributed) SetDebits(val Money) {
+	s.Debits = val
+}
+
+// SetCredits sets the value of Credits.
+func (s *AssetOrderExpensesUnattributed) SetCredits(val Money) {
+	s.Credits = val
 }
 
 // SetEntries sets the value of Entries.

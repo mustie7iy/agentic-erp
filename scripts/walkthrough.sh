@@ -5153,12 +5153,13 @@ step_asset_order_expenses() {
   say "is material; Carla reads the year's report, which tells the tax from the price difference, as recorded at posting:"
   api 200 '(.items[] | "  order \(.purchase_order_number) item \(.po_item_no) \(.description) on \(.account_number) \(.account_name): tax not recovered \(.tax_not_recovered.amount), price difference \(.price_difference.amount), expensed \(.expensed.amount) \(.expensed.currency)"),
     "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency)",
-    "  unattributed (earlier postings, split unknown): \(.unattributed.expensed.amount) \(.unattributed.expensed.currency) in \(.unattributed.entries) entries"' \
+    "  unattributed (earlier postings, split unknown): \(.unattributed.expensed.amount) \(.unattributed.expensed.currency) (debits \(.unattributed.debits.amount), credits \(.unattributed.credits.amount)) in \(.unattributed.entries) entries"' \
     getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   expect "the band saw's row" "$(field "[.items[] | select(.purchase_order_id == \"$po\") | \"\(.po_item_no) \(.description) \(.account_number) \(.tax_not_recovered.amount) \(.price_difference.amount) \(.expensed.amount) \(.expensed.currency)\"] | join(\"; \")")" \
     "1 Band saw 1690 567.00 100.00 667.00 CAD"
-  expect "the totals" "$(field '"\(.totals.tax_not_recovered.amount) \(.totals.price_difference.amount) \(.totals.expensed.amount) \(.currency)"')" "567.00 100.00 667.00 CAD"
-  expect "nothing unattributed: every posting is recorded" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.entries)"')" "0.00 0"
+  expect "the totals, the sums of the rows" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
+    [.totals.tax_not_recovered, .totals.price_difference, .totals.expensed | c] == [([.items[].tax_not_recovered | c] | add), ([.items[].price_difference | c] | add), ([.items[].expensed | c] | add)]')" true
+  expect "nothing unattributed: every posting is recorded" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.debits.amount) \(.unattributed.credits.amount) \(.unattributed.entries)"')" "0.00 0.00 0.00 0"
   passed
 }
 

@@ -92,13 +92,14 @@ type OrderItemExpense struct {
 
 // UnrecordedExpense is what an invoice or credit memo entry (or its
 // reversal) of the leading ledger put on the price difference account on
-// lines without a recorded order item: Amount in local currency, debit
-// positive, and the order items the entry's GR/IR lines name, any of
-// which the amount may belong to.
+// lines without a recorded order item, in local currency: Debits the sum
+// of those that are debits, Credits (negative) of those that are credits;
+// and the order items the entry's GR/IR lines name, any of which the
+// lines may belong to.
 type UnrecordedExpense struct {
-	EntryID uuid.UUID
-	Amount  money.Minor
-	Items   []OrderItemRef
+	EntryID         uuid.UUID
+	Debits, Credits money.Minor
+	Items           []OrderItemRef
 }
 
 // OrderItemRef names a purchase order item.
@@ -133,8 +134,9 @@ func (AssetReads) OrderItemExpenses(ctx context.Context, legalEntity uuid.UUID, 
 // UnrecordedExpenses reads, per entry, what the company's payables
 // entries of the fiscal year in the leading ledger put on its current
 // price difference account on lines without a recorded order item, for
-// the entries with a GR/IR line: postings made before the record existed
-// and a reversal's rounding residue. A company without a price
+// the entries with a line on the GR/IR account, whose order items it
+// names: postings made before the record existed and a reversal's
+// rounding residue. A company without a price
 // difference account has none. GR/IR clearings (procurement's entries)
 // and manual entries are not read.
 func (AssetReads) UnrecordedExpenses(ctx context.Context, legalEntity uuid.UUID, year int16) ([]UnrecordedExpense, error) {
@@ -146,7 +148,9 @@ func (AssetReads) UnrecordedExpenses(ctx context.Context, legalEntity uuid.UUID,
 	if err != nil || !ok {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `WITH u AS (SELECT l.tenant_id, l.journal_entry_id AS id, sum(l.amount_lc)::bigint AS amount
+	rows, _ := tx.Query(ctx, `WITH u AS (SELECT l.tenant_id, l.legal_entity_id, l.journal_entry_id AS id,
+				coalesce(sum(l.amount_lc) FILTER (WHERE l.amount_lc > 0), 0)::bigint AS debits,
+				coalesce(sum(l.amount_lc) FILTER (WHERE l.amount_lc < 0), 0)::bigint AS credits
 			FROM ledger.journal_line l
 			JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 			JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id
@@ -154,18 +158,20 @@ func (AssetReads) UnrecordedExpenses(ctx context.Context, legalEntity uuid.UUID,
 				AND l.purchase_order_id IS NULL
 				AND NOT EXISTS (SELECT FROM ledger.price_difference_item i WHERE i.tenant_id = l.tenant_id AND i.fiscal_year = l.fiscal_year
 					AND i.journal_entry_id = l.journal_entry_id AND i.line_no = l.line_no)
-			GROUP BY l.tenant_id, l.journal_entry_id)
-		SELECT u.id, u.amount, o.purchase_order_id, o.po_item_no FROM u
+			GROUP BY l.tenant_id, l.legal_entity_id, l.journal_entry_id)
+		SELECT u.id, u.debits, u.credits, o.purchase_order_id, o.po_item_no FROM u
 		JOIN LATERAL (SELECT DISTINCT x.purchase_order_id, x.po_item_no FROM ledger.journal_line x
+			JOIN ledger.account_determination d ON d.tenant_id = x.tenant_id AND d.legal_entity_id = u.legal_entity_id AND d.key = 'gr_ir'
+				AND d.account_id = x.account_id
 			WHERE x.tenant_id = u.tenant_id AND x.fiscal_year = $2 AND x.journal_entry_id = u.id AND x.purchase_order_id IS NOT NULL) o ON true
 		ORDER BY u.id, o.purchase_order_id, o.po_item_no`, legalEntity, year, account)
 	var out []UnrecordedExpense
 	var entry uuid.UUID
-	var amount money.Minor
+	var debits, credits money.Minor
 	var item OrderItemRef
-	_, err = pgx.ForEachRow(rows, []any{&entry, &amount, &item.PurchaseOrderID, &item.POItemNo}, func() error {
+	_, err = pgx.ForEachRow(rows, []any{&entry, &debits, &credits, &item.PurchaseOrderID, &item.POItemNo}, func() error {
 		if n := len(out); n == 0 || out[n-1].EntryID != entry {
-			out = append(out, UnrecordedExpense{EntryID: entry, Amount: amount})
+			out = append(out, UnrecordedExpense{EntryID: entry, Debits: debits, Credits: credits})
 		}
 		out[len(out)-1].Items = append(out[len(out)-1].Items, item)
 		return nil

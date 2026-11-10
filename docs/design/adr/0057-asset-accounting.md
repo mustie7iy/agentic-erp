@@ -2833,16 +2833,21 @@ to overrule:
   leading ledger: reversals net in the year they are posted in, credit
   memos count negative. `ledger.AssetReads.OrderItemExpenses`,
   `procurement.Orders.ItemAccounts`, through the port `assets.Purchases`.
-- **What is unknown is said, as one amount.** `unattributed` is the
-  amount on the company's current price difference account, in the year,
-  of payables entries of the leading ledger that have a GR/IR line of an
-  asset order item, on lines without a record
-  (`ledger.AssetReads.UnrecordedExpenses`): postings made before migration
-  000249 and the rounding residue a reversal clears. Such a line names no
-  order item, so the amount includes the price differences of the entry's
-  other items: an upper bound, never spread over the rows by guess. It
-  reads the account determination's current account: lines an earlier
-  price difference account took are not found.
+- **What is unknown is said, never spread over the rows by guess.**
+  `unattributed` is what payables entries of the leading ledger that have
+  a line on the GR/IR account for an asset order item put on the
+  company's current price difference account, in the year, on lines
+  without a record (`ledger.AssetReads.UnrecordedExpenses`): postings made
+  before migration 000249 and the rounding residue a reversal clears.
+  Such a line names no order item, so the amounts include the price
+  differences of the entry's other items, of either sign: `expensed`, the
+  net, may overstate or understate the assets' share (review round 1: an
+  entry 100 over on an asset item and 300 under on another nets to -200),
+  so `debits` and `credits` are given apart, the debits being the most
+  those entries can have expensed on assets. It reads the account
+  determination's current account: lines an earlier price difference
+  account took are not found, and a company without one now shows zero;
+  the contract says both.
 - **Left out, and said in the contract:** GR/IR clearings (T72e; the open
   question above), manual entries, and an item whose price difference and
   tax cancelled exactly (no line posted). Orders valued directly do not
