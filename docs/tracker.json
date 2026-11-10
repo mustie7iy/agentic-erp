@@ -1261,16 +1261,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Depreciation stopped at held-for-sale classification, and a transfer's receiving asset depreciating the transfer's month (accounting specialist, po:2026-11-09, B11; IAS 16.55, IFRS 5, IAS 8.8): the monthly convention is accepted; to add: classifying an asset as held for sale from a period, after which runs no longer depreciate it (depreciation ceases at the earlier of that classification and derecognition), and a test that the receiver of an asset transfer depreciates the month the sender gives up, so no month is lost",
-        "r": "ADR-0057 §7 Periods, §8 (answered)",
+        "r": "T57k · migration 000244 (asset_terms.held_for_sale_*, asset_terms_held_for_sale, asset_terms_held_for_sale_prospective) · internal/assets (Plan.Stop in the walk; estimate.go heldForSale, stopsProspectively, writeHeldForSale) · PATCH /v1/assets/{id} terms[].held_for_sale_from, AssetTerms.held_for_sale, AssetSchedule.held_for_sale · TestHeldForSale, TestTransferReceiverDepreciatesItsMonth, TestScheduleWalkWithChanges, TestAssetHeldForSaleRules · walkthrough step_asset_held_for_sale (step 45) · ADR-0057 §7 Periods, §8 (answered), As built (T57k) · 03-data-model §3.21",
         "src": "po:2026-11-09",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A change in estimate before the pilot's first year end (accounting specialist, po:2026-11-09, B13; IAS 16.51, 16.61, IAS 8.36-38): an asset's useful life, residual value and method changed prospectively from a chosen period after depreciation has started (refused today, assets.terms_in_use), so the year-end review's result is booked in the register rather than by a manual journal, which would leave the asset register wrong",
-        "r": "ADR-0057 §1, §7, Questions for the product owner (A change in estimate, answered)",
+        "r": "T57j · migration 000243 (assets.estimate_change, insert-only; asset_terms.estimate_changes; estimate_change_prospective; asset_terms_in_use lets a booked row change only to the latest change's terms) · internal/assets (estimate.go; schedule.go Plan.Changes, ResidualAt; the walk on the terms in force per period; a retirement's or transfer's residual share in force in its period) · PATCH /v1/assets/{id} terms[].effective_from, AssetTerms.estimate_changes, assets.change_not_prospective · TestChangeInEstimate, TestChangeInEstimateFailures, TestScheduleWalkWithChanges, TestAssetEstimateChangeRules · walkthrough step_asset_estimate (step 44) · ADR-0057 §1, §7, Questions for the product owner (A change in estimate, answered), As built (T57j) · 03-data-model §3.21",
         "src": "po:2026-11-09",
         "c": []
        },

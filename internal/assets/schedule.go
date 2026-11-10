@@ -22,13 +22,80 @@ func MonthOf(d time.Time) Month { return Month(d.Year()*12 + int(d.Month()) - 1)
 // walks them (ADR-0057 §7): the method, the useful life in periods, the
 // declining factor (a plain decimal; declining balance only), the terms'
 // residual value and the period depreciation starts in (nil: none yet,
-// a planned asset without a depreciation start).
+// a planned asset without a depreciation start), and its changes in
+// estimate in month order.
 type Plan struct {
 	Method   string
 	Life     int32
 	Factor   string
 	Residual money.Minor
 	Start    *Month
+	Changes  []Change
+	// Stop is the period the asset is classified as held for sale from
+	// (T57k; IAS 16.55, IFRS 5.25): from it on no period takes
+	// depreciation, its useful life still elapsing; nil: none.
+	Stop *Month
+	// seq is the asset's seq of the change in force (Plan.at), zero for
+	// none.
+	seq int32
+}
+
+// Change is a change in estimate (ADR-0057 §7, T57j; IAS 8.36-38): from
+// the start of its period on, its method, useful life (still counted from
+// the depreciation start), factor and residual value replace the plan's,
+// so the periods before keep what was planned for them, and each period
+// from it on depreciates the net book value then over the life left. Of
+// changes from one period, the last one given wins. Its residual value
+// is the asset's as it stood when the change was made (Seq, the asset's
+// posting order): from its period on, the residual value is it plus what
+// the moves posted after it brought or took, those posted before having
+// left or come already.
+type Change struct {
+	Month    Month
+	Seq      int32
+	Method   string
+	Life     int32
+	Factor   string
+	Residual money.Minor
+}
+
+// at is the plan with the changes from the period or before applied: the
+// terms in force in it.
+func (p Plan) at(m Month) Plan {
+	for _, c := range p.Changes {
+		if c.Month > m {
+			break
+		}
+		p.Method, p.Life, p.Factor, p.Residual, p.seq = c.Method, c.Life, c.Factor, c.Residual, c.Seq
+	}
+	return p
+}
+
+// residual is R_k, the residual value of the terms in force (the plan
+// at the period) with what the moves applied by then brought or took:
+// all of them on the plan's own terms, those posted after it on a
+// change's.
+func (p Plan) residual(applied []Move) money.Minor {
+	r := p.Residual
+	for _, mv := range applied {
+		if mv.Seq > p.seq {
+			r += mv.Residual
+		}
+	}
+	return r
+}
+
+// ResidualAt is the residual value in the period with the moves valued
+// by it (R_k): what a retirement or transfer valued in it takes its share
+// of (ADR-0057 §8).
+func (p Plan) ResidualAt(moves []Move, m Month) money.Minor {
+	var applied []Move
+	for _, mv := range moves {
+		if mv.Month <= m {
+			applied = append(applied, mv)
+		}
+	}
+	return p.at(m).residual(applied)
 }
 
 // Move is a movement the schedule applies at the start of the period of
@@ -39,6 +106,7 @@ type Plan struct {
 // are not moves: the walk computes depreciation, it does not read it.
 type Move struct {
 	Month                       Month
+	Seq                         int32 // the asset's posting order
 	Cost, Accumulated, Residual money.Minor
 }
 
@@ -90,17 +158,24 @@ func walk(p Plan, moves []Move, through Month, visit func(Step)) error {
 	if len(moves) > 0 {
 		first = min(first, moves[0].Month)
 	}
-	var cost, taken, depreciation money.Minor // taken: accumulated depreciation moves brought (negative) or took (positive)
-	residual, i := p.Residual, 0
+	// taken: accumulated depreciation moves brought (negative) or took
+	// (positive); moved: the residual value they brought or took.
+	var cost, taken, moved, depreciation money.Minor
+	i := 0
 	for m := first; m <= through; m++ {
 		for ; i < len(moves) && moves[i].Month <= m; i++ {
-			cost, taken, residual = cost+moves[i].Cost, taken+moves[i].Accumulated, residual+moves[i].Residual
+			cost, taken, moved = cost+moves[i].Cost, taken+moves[i].Accumulated, moved+moves[i].Residual
 		}
 		book := cost + taken - depreciation
 		var d money.Minor
-		if p.Start != nil && m >= *p.Start {
+		if p.Start != nil && m >= *p.Start && (p.Stop == nil || m < *p.Stop) {
+			in, residual := p, p.Residual+moved
+			if len(p.Changes) > 0 { // walked for changed terms alone: most assets have none
+				in = p.at(m)
+				residual = in.residual(moves[:i])
+			}
 			var err error
-			if d, err = p.period(int32(m-*p.Start)+1, book, residual); err != nil {
+			if d, err = in.period(int32(m-*p.Start)+1, book, residual); err != nil {
 				return err
 			}
 		}

@@ -174,6 +174,122 @@ func TestAssetTermsInUse(t *testing.T) {
 	})
 }
 
+// TestAssetEstimateChangeRules (T57j, migration 000243): a change in
+// estimate is from a period after the one its ledger is booked through
+// and not before the latest change's, takes the asset's seq and records
+// the terms as they stand; the terms then take exactly the latest
+// change's, counting it, their depreciation start unchanged, the count
+// growing one at a time; changes are insert-only.
+func TestAssetEstimateChangeRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	const changeSQL = `INSERT INTO assets.estimate_change (tenant_id, id, asset_id, ledger_id, seq, fiscal_year, fiscal_period, effective_from, method,
+			useful_life_months, residual_value, before_method, before_useful_life_months, before_residual_value, created_by)
+		VALUES ($1, $2, $3, $4, $5, 2026, $6::smallint, make_date(2026, $6::int, 1), 'straight_line', 60, 100, 'straight_line', $7, 0, $8)`
+	change := func(seq, period, before int) error {
+		return f.try(t, changeSQL, f.tenant, id(), f.planned, f.ledger, seq, period, before, f.actor)
+	}
+	failsWith(t, change(1, 7, 120), "is from a period after the one depreciation is booked through")
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE assets.asset_terms SET booked_through_year = 2026, booked_through_period = 6, version = version + 1 WHERE asset_id = $1`, f.planned)
+	})
+	for name, c := range map[string]struct {
+		seq, period, before int
+		want                string
+	}{
+		"a booked period":            {1, 6, 120, "is from a period after the one depreciation is booked through"},
+		"another seq than the asset": {2, 7, 120, "takes the asset's seq 1, not 2"},
+		"terms not as they stand":    {1, 7, 96, "records the terms as they stand"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, change(c.seq, c.period, c.before), c.want) })
+	}
+	terms := func(set string) error {
+		return f.try(t, `UPDATE assets.asset_terms SET `+set+`, version = version + 1 WHERE asset_id = $1`, f.planned)
+	}
+	failsWith(t, terms("useful_life_months = 60, estimate_changes = 1"), "take the latest change in estimate's")
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, changeSQL, f.tenant, id(), f.planned, f.ledger, 1, 8, 120, f.actor); err != nil {
+			return err
+		}
+		return exec(tx, `UPDATE assets.asset_terms SET useful_life_months = 60, residual_value = 100, estimate_changes = 1, version = version + 1
+			WHERE asset_id = $1`, f.planned)
+	})
+	for name, c := range map[string]struct{ set, want string }{
+		"without counting a change": {"useful_life_months = 48", "are fixed, depreciation having been posted"},
+		"another than the latest's": {"useful_life_months = 48, estimate_changes = 2", "take the latest change in estimate's"},
+		"a new depreciation start":  {"depreciation_start = '2026-09-01', estimate_changes = 2", "take the latest change in estimate's"},
+		"counting two at once":      {"estimate_changes = 3", "are counted one at a time"},
+		"counting back":             {"estimate_changes = 0", "are counted one at a time"},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, terms(c.set), c.want) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE assets.asset SET last_seq = 2, version = version + 1 WHERE id = $1`, f.planned)
+	})
+	failsWith(t, f.try(t, changeSQL, f.tenant, id(), f.planned, f.ledger, 2, 7, 60, f.actor), "follows the latest one, from 2026-08-01 on")
+	failsWith(t, f.try(t, `UPDATE assets.estimate_change SET useful_life_months = 48 WHERE asset_id = $1`, f.planned), "permission denied")
+	failsWith(t, f.try(t, `DELETE FROM assets.estimate_change WHERE asset_id = $1`, f.planned), "permission denied")
+	const checkSQL = `INSERT INTO assets.estimate_change (tenant_id, id, asset_id, ledger_id, seq, fiscal_year, fiscal_period, effective_from, method,
+			useful_life_months, declining_factor, residual_value, before_method, before_useful_life_months, before_declining_factor, before_residual_value,
+			created_by)
+		VALUES ($1, gen_random_uuid(), $2, $3, 2, 2026, 9, '2026-09-01', $4, 60, $5::numeric, $6, $7, 60, $8::numeric, 100, $9)`
+	for name, c := range map[string]struct {
+		method       string
+		factor       any
+		residual     int
+		before       string
+		beforeFactor any
+		want         string
+	}{
+		"straight-line with a factor":    {"straight_line", 2, 0, "straight_line", nil, "estimate_change_declining_factor"},
+		"declining balance without one":  {"declining_balance", nil, 0, "straight_line", nil, "estimate_change_declining_factor"},
+		"a factor of 1":                  {"declining_balance", 1, 0, "straight_line", nil, "estimate_change_declining_factor_check"},
+		"a factor above 10":              {"declining_balance", 11, 0, "straight_line", nil, "estimate_change_declining_factor_check"},
+		"a negative residual value":      {"straight_line", nil, -1, "straight_line", nil, "estimate_change_residual_value_check"},
+		"terms before not as they stand": {"straight_line", nil, 0, "declining_balance", 2, "records the terms as they stand"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, checkSQL, f.tenant, f.planned, f.ledger, c.method, c.factor, c.residual, c.before, c.beforeFactor, f.actor), c.want)
+		})
+	}
+}
+
+// TestAssetHeldForSaleRules (T57k, migration 000244): a classification
+// as held for sale is from a period after the one the ledger is booked
+// through, moves only while its period is not booked, and is never
+// cleared; its year, period and first day go together.
+func TestAssetHeldForSaleRules(t *testing.T) {
+	need(t)
+	f := newAssetFixture(t)
+	held := func(year, period any, from any) error {
+		return f.try(t, `UPDATE assets.asset_terms SET held_for_sale_year = $2, held_for_sale_period = $3, held_for_sale_from = $4::date,
+			version = version + 1 WHERE asset_id = $1`, f.planned, year, period, from)
+	}
+	failsWith(t, held(2026, 7, nil), "asset_terms_held_for_sale")
+	failsWith(t, held(2026, 13, "2026-12-01"), "asset_terms_held_for_sale_period_check")
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `UPDATE assets.asset_terms SET booked_through_year = 2026, booked_through_period = 6, held_for_sale_year = 2026,
+			held_for_sale_period = 8, held_for_sale_from = '2026-08-01', version = version + 1 WHERE asset_id = $1`, f.planned)
+	})
+	const refused = "is from a period after the one depreciation is booked through, and stays"
+	for name, c := range map[string]struct {
+		year, period, from any
+	}{
+		"a booked period": {2026, 6, "2026-06-01"},
+		"cleared":         {nil, nil, nil},
+	} {
+		t.Run(name, func(t *testing.T) { failsWith(t, held(c.year, c.period, c.from), refused) })
+	}
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `UPDATE assets.asset_terms SET held_for_sale_year = 2026, held_for_sale_period = 9, held_for_sale_from = '2026-09-01',
+			version = version + 1 WHERE asset_id = $1`, f.planned); err != nil {
+			return err
+		}
+		return exec(tx, `UPDATE assets.asset_terms SET booked_through_period = 9, version = version + 1 WHERE asset_id = $1`, f.planned)
+	})
+	failsWith(t, held(2026, 10, "2026-10-01"), refused)
+}
+
 // Asset acquisitions (T57c, migration 000192): what the database keeps of
 // acquisitions, the use of capitalised lines, movements and the entries of
 // assets documents (ADR-0057 §5, §6).

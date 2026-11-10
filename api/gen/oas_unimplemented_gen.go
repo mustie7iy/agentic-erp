@@ -5844,9 +5844,23 @@ func (UnimplementedHandler) UpdateAiPolicy(ctx context.Context, req *AiPolicyUpd
 // it has none in yet (a ledger assigned to the company after the asset was created; `method` and
 // `useful_life_months` then required), and a ledger the company does not keep is 422
 // `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor;
-// `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it
-// (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the
-// company's local currency. Audited, and published as AssetChanged (`changed`).
+// `declining_balance` needs one. Once depreciation has been posted in a ledger its terms change only
+// by a change in estimate (T57j; IAS 16.51, 16.61, IAS 8.36-38): a `terms` entry with
+// `effective_from`, a regular period (422 `assets.special_period` for a special one,
+// `ledger.no_fiscal_period` for one not set up) after the one the ledger is booked through and not
+// before the latest change's (422 `assets.change_not_prospective`), sets the method, useful life
+// (still counted from the depreciation start), declining factor and residual value from that period
+// on; the periods before keep the earlier terms, so their depreciation, planned and booked, stays, and
+// the next run depreciates the net book value then over the life left (prospectively, no catch-up). It
+// changes no depreciation start, and is listed in the terms' `estimate_changes`. A `terms` entry's
+// `held_for_sale_from` classifies the asset as held for sale in its ledger from a regular period
+// (T57k; IAS 16.55, IFRS 5.25): from that period on its runs depreciate it no more, the useful life
+// still elapsing; the period is after the one the ledger is booked through, and a classification
+// already made moves only while its period is not booked either (422 `assets.change_not_prospective`);
+// it is not removed. A change of terms in such a ledger without `effective_from` is 409
+// `assets.terms_in_use`, and `effective_from` in a ledger without posted depreciation is 422
+// `request.validation_failed` (change its terms directly). The residual value is in the company's
+// local currency. Audited, and published as AssetChanged (`changed`).
 //
 // PATCH /v1/assets/{id}
 func (UnimplementedHandler) UpdateAsset(ctx context.Context, req *AssetUpdate, params UpdateAssetParams) (r UpdateAssetRes, _ error) {

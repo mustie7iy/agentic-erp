@@ -16759,14 +16759,17 @@ paths:
       tags:
         - assets
       summary: Change an asset
-      description: "Changes an asset's description, its depreciation terms per ledger and its depreciation start (ADR-0057 §7, T57b); not a cancelled one (422 `assets.asset_cancelled`). JSON Merge Patch (RFC 7396) for `description` and `depreciation_start`, which sets (or with `null` clears) the depreciation start in every ledger the asset has terms in; each entry of `terms` changes the terms in its ledger, absent fields unchanged, or gives the asset terms in a ledger the company keeps that it has none in yet (a ledger assigned to the company after the asset was created; `method` and `useful_life_months` then required), and a ledger the company does not keep is 422 `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor; `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the company's local currency. Audited, and published as AssetChanged (`changed`)."
+      description: "Changes an asset's description, its depreciation terms per ledger and its depreciation start (ADR-0057 §7, T57b); not a cancelled one (422 `assets.asset_cancelled`). JSON Merge Patch (RFC 7396) for `description` and `depreciation_start`, which sets (or with `null` clears) the depreciation start in every ledger the asset has terms in; each entry of `terms` changes the terms in its ledger, absent fields unchanged, or gives the asset terms in a ledger the company keeps that it has none in yet (a ledger assigned to the company after the asset was created; `method` and `useful_life_months` then required), and a ledger the company does not keep is 422 `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor; `declining_balance` needs one. Once depreciation has been posted in a ledger its terms change only by a change in estimate (T57j; IAS 16.51, 16.61, IAS 8.36-38): a `terms` entry with `effective_from`, a regular period (422 `assets.special_period` for a special one, `ledger.no_fiscal_period` for one not set up) after the one the ledger is booked through and not before the latest change's (422 `assets.change_not_prospective`), sets the method, useful life (still counted from the depreciation start), declining factor and residual value from that period on; the periods before keep the earlier terms, so their depreciation, planned and booked, stays, and the next run depreciates the net book value then over the life left (prospectively, no catch-up). It changes no depreciation start, and is listed in the terms' `estimate_changes`. A `terms` entry's `held_for_sale_from` classifies the asset as held for sale in its ledger from a regular period (T57k; IAS 16.55, IFRS 5.25): from that period on its runs depreciate it no more, the useful life still elapsing; the period is after the one the ledger is booked through, and a classification already made moves only while its period is not booked either (422 `assets.change_not_prospective`); it is not removed. A change of terms in such a ledger without `effective_from` is 409 `assets.terms_in_use`, and `effective_from` in a ledger without posted depreciation is 422 `request.validation_failed` (change its terms directly). The residual value is in the company's local currency. Audited, and published as AssetChanged (`changed`)."
       x-permission: assets.asset.change
       x-agent: false
       x-problem-codes:
         - assets.asset_cancelled
+        - assets.change_not_prospective
+        - assets.special_period
         - assets.terms_in_use
         - config.not_bootstrapped
         - ledger.ledger_not_kept
+        - ledger.no_fiscal_period
         - request.invalid_amount
         - request.validation_failed
         - request.version_mismatch
@@ -42583,7 +42586,7 @@ components:
     AssetTerms:
       type: object
       description: "An asset's depreciation terms in one ledger (ADR-0057 §7): one depreciation area."
-      required: [ledger_id, ledger_code, ledger_name, method, useful_life_months, residual_value]
+      required: [ledger_id, ledger_code, ledger_name, method, useful_life_months, residual_value, estimate_changes]
       properties:
         ledger_id: {type: string, format: uuid, description: The ledger., readOnly: true}
         ledger_code: {type: string, description: "The ledger's code.", readOnly: true}
@@ -42599,6 +42602,12 @@ components:
         depreciation_start: {type: string, format: date, description: "The day depreciation starts from (its period counts in full); absent: the capitalisation date.", readOnly: true}
         booked_through_year: {type: integer, format: int32, description: "The fiscal year of the period depreciation is posted through in this ledger; absent until depreciation is first posted, after which the terms are fixed.", readOnly: true}
         booked_through_period: {type: integer, format: int32, description: "That period, with `booked_through_year`.", readOnly: true}
+        held_for_sale: {$ref: "#/components/schemas/AssetHeldForSale"}
+        estimate_changes:
+          type: array
+          items: {$ref: "#/components/schemas/AssetEstimateChange"}
+          description: "Its changes in estimate in this ledger, oldest first (T57j): the terms above are the latest one's, in force from its period; the periods before each change were planned on the terms before it. Empty while there is none."
+          readOnly: true
       examples:
         - ledger_id: 0192a000-0000-7000-8000-000000000302
           ledger_code: 2L
@@ -42607,6 +42616,61 @@ components:
           useful_life_months: 120
           declining_factor: "2"
           residual_value: {amount: "0.00", currency: CAD}
+    AssetEstimateChange:
+      type: object
+      description: "A change in estimate of an asset's terms in one ledger (ADR-0057 §7, T57j; IAS 8.36-38): from the start of its period on, its method, useful life, declining factor and residual value replace those before it."
+      required: [fiscal_year, period, effective_from, method, useful_life_months, residual_value, before, created_at, created_by]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the period it applies from.", readOnly: true}
+        period: {type: integer, format: int32, minimum: 1, maximum: 12, description: "The regular period it applies from.", readOnly: true}
+        effective_from: {type: string, format: date, description: "That period's first day.", readOnly: true}
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "The method from the period on. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        useful_life_months: {type: integer, format: int32, minimum: 1, maximum: 1200, description: "The useful life from the period on, in months from the depreciation start.", readOnly: true}
+        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "The declining balance factor; only with `declining_balance`.", readOnly: true}
+        residual_value: {$ref: "#/components/schemas/Money"}
+        before: {$ref: "#/components/schemas/AssetEstimate"}
+        created_at: {type: string, format: date-time, description: "When it was recorded.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "Who recorded it.", readOnly: true}
+      examples:
+        - fiscal_year: 2026
+          period: 12
+          effective_from: "2026-12-01"
+          method: straight_line
+          useful_life_months: 60
+          residual_value: {amount: "500.00", currency: CAD}
+          before: {method: straight_line, useful_life_months: 120, residual_value: {amount: "0.00", currency: CAD}}
+          created_at: "2026-11-30T16:00:00Z"
+          created_by: 0192a000-0000-7000-8000-000000000101
+    AssetHeldForSale:
+      type: object
+      description: "The asset's classification as held for sale in the ledger (T57k; IFRS 5.25, IAS 16.55): from the start of this period on it is depreciated no more. Absent while it is not so classified."
+      required: [fiscal_year, period, from]
+      properties:
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the period depreciation stops in.", readOnly: true}
+        period: {type: integer, format: int32, minimum: 1, maximum: 12, description: "That regular period.", readOnly: true}
+        from: {type: string, format: date, description: "That period's first day.", readOnly: true}
+      readOnly: true
+      examples:
+        - {fiscal_year: 2026, period: 12, from: "2026-12-01"}
+    AssetEstimate:
+      type: object
+      description: "An asset's terms in one ledger before a change in estimate: method, useful life, declining factor and residual value."
+      required: [method, useful_life_months, residual_value]
+      properties:
+        method:
+          type: string
+          x-extensible-enum: [straight_line, declining_balance]
+          description: "Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        useful_life_months: {type: integer, format: int32, minimum: 1, maximum: 1200, description: The useful life in months., readOnly: true}
+        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "The declining balance factor; only with `declining_balance`.", readOnly: true}
+        residual_value: {$ref: "#/components/schemas/Money"}
+      examples:
+        - {method: straight_line, useful_life_months: 120, residual_value: {amount: "0.00", currency: CAD}}
     AssetCreate:
       type: object
       description: "A new asset: its company, class, description and centers. Its terms come from the class."
@@ -42652,10 +42716,23 @@ components:
         useful_life_months: {type: integer, format: int32, minimum: 1, maximum: 1200, description: The useful life in months.}
         declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "Above 1 and at most 10; only with `declining_balance`."}
         residual_value: {$ref: "#/components/schemas/Money"}
-        depreciation_start: {type: [string, "null"], format: date, description: "The day depreciation starts from in this ledger; null: from the capitalisation date."}
+        depreciation_start: {type: [string, "null"], format: date, description: "The day depreciation starts from in this ledger; null: from the capitalisation date. Not with `effective_from`."}
+        effective_from: {$ref: "#/components/schemas/AssetEstimateFrom"}
+        held_for_sale_from: {$ref: "#/components/schemas/AssetEstimateFrom"}
       additionalProperties: false
       examples:
         - {ledger_id: 0192a000-0000-7000-8000-000000000302, method: declining_balance, useful_life_months: 120, declining_factor: "2.5"}
+        - {ledger_id: 0192a000-0000-7000-8000-000000000301, useful_life_months: 60, residual_value: {amount: "500.00", currency: CAD}, effective_from: {fiscal_year: 2026, period: 12}}
+    AssetEstimateFrom:
+      type: object
+      description: "A regular period of the company's fiscal year a change applies from, after the one the ledger's depreciation is booked through: as `effective_from`, the period changed terms apply from (a change in estimate, T57j; required once depreciation has been posted in the ledger, refused before); as `held_for_sale_from`, the period depreciation stops from (T57k)."
+      required: [fiscal_year, period]
+      properties:
+        fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
+        period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "A regular period, 1 to 12 (a special one is 422 `assets.special_period`)."}
+      additionalProperties: false
+      examples:
+        - {fiscal_year: 2026, period: 12}
     AssetPage:
       type: object
       description: One page of assets.
@@ -43200,7 +43277,7 @@ components:
     AssetSchedule:
       type: object
       description: "An asset's planned and booked depreciation per regular period of a fiscal year in one ledger (ADR-0057 §7), in the company's local currency."
-      required: [asset_id, asset_number, description, legal_entity_id, company_code, ledger_id, ledger_code, ledger_name, fiscal_year, currency, method, useful_life_months, residual_value, periods, totals]
+      required: [asset_id, asset_number, description, legal_entity_id, company_code, ledger_id, ledger_code, ledger_name, fiscal_year, currency, method, useful_life_months, residual_value, estimate_changes, periods, totals]
       properties:
         asset_id: {type: string, format: uuid, description: "The asset (`GET /v1/assets/{id}`).", readOnly: true}
         asset_number: {type: string, description: "The asset's number in its company.", readOnly: true}
@@ -43215,12 +43292,18 @@ components:
         method:
           type: string
           x-extensible-enum: [straight_line, declining_balance]
-          description: "The terms' method. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "The method of the terms in force in the year's last period (a change in estimate may change them from a period, `estimate_changes`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
-        useful_life_months: {type: integer, format: int32, description: The useful life in periods (months)., readOnly: true}
-        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "The declining balance factor; only with `declining_balance`.", readOnly: true}
+        useful_life_months: {type: integer, format: int32, description: "The useful life in periods (months) of the terms in force in the year's last period.", readOnly: true}
+        declining_factor: {type: string, pattern: "^[0-9]+(\\.[0-9]{1,4})?$", description: "The declining balance factor of those terms; only with `declining_balance`.", readOnly: true}
         residual_value: {$ref: "#/components/schemas/Money"}
         depreciation_start: {type: string, format: date, description: "The day depreciation starts from, its period counting in full: the terms' own, else the capitalisation date; absent while the asset has neither.", readOnly: true}
+        estimate_changes:
+          type: array
+          items: {$ref: "#/components/schemas/AssetEstimateChange"}
+          description: "The terms' changes in estimate in the ledger, oldest first (T57j): each period was planned on the terms in force in it, those before the first change its `before`. Empty while there is none."
+          readOnly: true
+        held_for_sale: {$ref: "#/components/schemas/AssetHeldForSale"}
         periods:
           type: array
           description: "The year's regular periods, in order."

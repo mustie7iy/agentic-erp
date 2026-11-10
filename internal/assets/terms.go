@@ -36,6 +36,12 @@ type TermsPatch struct {
 	DecliningFactor            *string
 	Residual, ResidualCurrency *string
 	DepreciationStart          **time.Time
+	// EffectiveFrom makes the entry a change in estimate from that
+	// period (T57j).
+	EffectiveFrom *EstimateFrom
+	// HeldForSaleFrom classifies the asset as held for sale in the
+	// ledger from that period (T57k).
+	HeldForSaleFrom *EstimateFrom
 }
 
 // changeAsset changes an asset that is not cancelled (422
@@ -62,27 +68,69 @@ func (e *Endpoints) changeAsset(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Asset{}, err
 	}
-	changed, err := changedTerms(a.Terms, terms)
+	c, err := e.planChange(ctx, a, ch, terms)
 	if err != nil {
 		return Asset{}, err
 	}
-	description := a.Description
-	if ch.Description != nil {
-		if err := problem.RequireText("description", *ch.Description); err != nil {
-			return Asset{}, err
-		}
-		description = *ch.Description
-	}
-	if description == a.Description && len(changed) == 0 {
+	if c.description == a.Description && len(c.direct) == 0 && len(c.changes) == 0 && len(c.held) == 0 {
 		return a, nil
 	}
-	if err := touch(ctx, tx, p, id, description); err != nil {
-		return Asset{}, err
-	}
-	if err := writeTerms(ctx, tx, p, id, changed); err != nil {
+	if err := c.write(ctx, tx, p, id); err != nil {
 		return Asset{}, err
 	}
 	return e.written(ctx, tx, id, "change", "changed")
+}
+
+// assetChange is what a patch writes: the description, the terms changed
+// directly, the changes in estimate and the classifications as held for
+// sale.
+type assetChange struct {
+	description string
+	direct      []Terms
+	changes     []EstimateChange
+	held        []heldForSaleChange
+}
+
+// planChange checks the patch's description, terms, changes in estimate
+// and classifications as held for sale against the asset.
+func (e *Endpoints) planChange(ctx context.Context, a Asset, ch Patch, terms []Terms) (assetChange, error) {
+	fields := estimatesOf(ch)
+	direct, estimated, err := changedTerms(a.Terms, terms, fields)
+	if err != nil {
+		return assetChange{}, err
+	}
+	c := assetChange{description: a.Description, direct: direct}
+	if c.changes, err = e.estimateChanges(ctx, a, estimated, fields); err != nil {
+		return assetChange{}, err
+	}
+	if c.held, err = e.heldForSale(ctx, a, ch, terms); err != nil {
+		return assetChange{}, err
+	}
+	if ch.Description != nil {
+		if err := problem.RequireText("description", *ch.Description); err != nil {
+			return assetChange{}, err
+		}
+		c.description = *ch.Description
+	}
+	return c, nil
+}
+
+// write writes the change: the description with the asset's version
+// (and its next seq, for changes in estimate), the changes in estimate,
+// the terms changed directly (a ledger's new terms among them) and the
+// classifications.
+func (c assetChange) write(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.UUID) error {
+	if len(c.changes) == 0 {
+		if err := touch(ctx, tx, p, id, c.description); err != nil {
+			return err
+		}
+	} else if err := writeChanges(ctx, tx, p, id, c.description, c.changes); err != nil {
+		return err
+	}
+	if err := writeTerms(ctx, tx, p, id, c.direct); err != nil {
+		return err
+	}
+	return writeHeldForSale(ctx, tx, p, id, c.held)
 }
 
 // termsFrame is what a terms entry is checked against: the ledgers the
@@ -251,24 +299,6 @@ func residualValue(field, amount, code string, f termsFrame) (money.Minor, error
 		return 0, validation(field+".residual_value.amount", "zero or more")
 	}
 	return m, nil
-}
-
-// changedTerms are the terms that differ from the asset's, refusing a
-// change in a ledger depreciation has been posted in (409
-// assets.terms_in_use; the database holds it too, asset_terms_in_use).
-func changedTerms(old, terms []Terms) ([]Terms, error) {
-	var out []Terms
-	for _, t := range terms {
-		i := slices.IndexFunc(old, func(o Terms) bool { return o.LedgerID == t.LedgerID })
-		if i >= 0 && sameTerms(old[i], t) {
-			continue
-		}
-		if i >= 0 && old[i].booked() {
-			return nil, termsInUse()
-		}
-		out = append(out, t)
-	}
-	return out, nil
 }
 
 // sameTerms reports whether two terms of a ledger are the same.
