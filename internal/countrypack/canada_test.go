@@ -305,8 +305,8 @@ func TestCanadaPack2026_6(t *testing.T) {
 // Canada 2026.7 is 2026.6 signed off (T61j's sign-off leaf): every file
 // is 2026.6's but pack.yaml, whose manifest differs only in its version
 // and the sign-off, the tax specialist's as the product owner reported it
-// on 2026-11-09 (its header comment aside). It is the latest Canada pack,
-// its GST/HST return 2026.6's, line for line.
+// on 2026-11-09 (its header comment aside). Its GST/HST return is
+// 2026.6's, line for line; 2026.8 relabels it (TestCanadaPack2026_8).
 func TestCanadaPack2026_7(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -326,9 +326,6 @@ func TestCanadaPack2026_7(t *testing.T) {
 	unsigned.Manifest.Version, unsigned.Manifest.SignOff = prev.Manifest.Version, nil
 	if !reflect.DeepEqual(&unsigned, prev) {
 		t.Error("2026.7 without its version and sign-off: got other than 2026.6, want it unchanged")
-	}
-	if got := lib.Latest("CA"); got != ca {
-		t.Errorf("Latest(CA): got %s, want ca/2026.7", got.Dir())
 	}
 	sameFiles(t, "ca/2026.6", "ca/2026.7", "pack.yaml")
 }
