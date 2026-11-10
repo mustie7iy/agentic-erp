@@ -13,8 +13,8 @@ import (
 // TestTaxBorneRecordedOnPriceDifferences: an invoice and a credit memo on
 // an order valued through GR/IR post the tax their item bears with its
 // price difference as one line, as before, and the ledger records beside
-// that line its order item and the tax, signed as the line; the
-// invoice's reversal records them negated (B10, po:2026-11-10).
+// that line its order item and the tax, in the document's direction; the
+// credit memo's reversal records them negated (B10, po:2026-11-10).
 func TestTaxBorneRecordedOnPriceDifferences(t *testing.T) {
 	f := fixture.New(t, append(perms, "procurement.receipt.post", "procurement.receipt.read")...)
 	e := env{Env: f, expense: f.Account(t, "2000", "520000"), tax: f.Account(t, "2000", "140000"), ap: f.Account(t, "2000", "211000")}

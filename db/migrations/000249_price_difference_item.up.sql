@@ -8,7 +8,8 @@
 -- GR/IR line, which the positions add up) and the tax in it is not kept.
 -- From now on the ledger records both beside the line: the order item it
 -- belongs to and the tax borne in it, in the entry's currency and in
--- local currency at the entry's rate, signed as the line (debit positive).
+-- local currency at the entry's rate, debit positive as the document (negative
+-- on a credit memo), whatever the line's own sign.
 -- The line's amount less the tax borne is the price difference. A
 -- reversal's lines record their originals' with the tax negated.
 --
@@ -29,8 +30,8 @@ CREATE TABLE ledger.price_difference_item (
   PRIMARY KEY (tenant_id, fiscal_year, journal_entry_id, line_no),
   FOREIGN KEY (tenant_id, fiscal_year, journal_entry_id, line_no)
     REFERENCES ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no),
-  -- Tax in both currencies or in neither, and of one sign: the local
-  -- amount is the transaction amount at the entry's rate.
+  -- Tax of one sign in both currencies: the local amount is the
+  -- transaction amount at the entry's rate (which may round to zero).
   CONSTRAINT price_difference_item_tax_sign CHECK (sign(tax_borne_tc) * sign(tax_borne_lc) >= 0)
 );
 
