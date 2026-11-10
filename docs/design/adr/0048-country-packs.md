@@ -209,6 +209,20 @@ settings cannot simply overwrite their document.
   stays released, unsigned. What was confirmed is in ADR-0049 §11 As
   built (T61j: Signed off). It is the newest Canada version, which the
   walkthrough's step 2 applies, without the note an unsigned pack brings.
+- **As built (labels resolved, po:2026-11-09): Canada 2026.8** is 2026.7
+  with the GST/HST return's line labels no longer marked: the product
+  owner approved on 2026-11-09 a labels-only version under the same
+  sign-off (Musto Ibrahim, 2026-11-09), which drops "its sum is from
+  memory, pending the tax specialist" from 112, 113A, 113B and 113C and
+  "(from memory, pending the tax specialist)" from 114 and 115. Only the
+  label strings of `returns.yaml` differ: every other line of it, and
+  every file but `pack.yaml` (its version and header comment), is
+  2026.7's byte for byte, and the parsed pack with the labels set aside is
+  2026.7's (`TestCanadaPack2026_8`, `labelsOnly`). The remarks in
+  `returns.yaml` and `tax.yaml` that call items pending stay as released,
+  describing the unsigned versions. It is the newest Canada version, which
+  the walkthrough's step 2 applies and step 11 shows line 112's label
+  without a marker; 2026.7 stays released.
 - **As built (T62f): the UAE pack, 2026.1** (`packs/ae/2026.1`): a starter
   chart with every account determination key (1300 VAT recoverable, 2300
   VAT payable), the Canada pack's number ranges and net payment terms (the
@@ -300,6 +314,25 @@ settings cannot simply overwrite their document.
   the marker is a later version, for the product owner); a tenant on an
   earlier version moves by applying 2026.4, an ordinary upgrade. The
   walkthrough's step 41 applies 2026.4: no note, the tier not pending.
+- **As built (labels resolved, po:2026-11-09): UAE 2026.5** is 2026.4
+  with the VAT 201's box labels no longer marked: the product owner
+  approved on 2026-11-09 a labels-only version under the same sign-off
+  (Musto Ibrahim, 2026-11-09), which drops "(its ISO code pending the tax
+  specialist)" from boxes 1a-1g, "(column pending the tax specialist)"
+  from 2-7 and "(from memory, pending the tax specialist)" from the totals
+  8, 11, 12 and 13. Each box 1 label already named the ISO 3166-2 code
+  of the emirate its box selects, the codes confirmed on 2026-11-09
+  (AE-AZ, AE-DU, AE-SH, AE-AJ, AE-UQ, AE-RK, AE-FU), so no label's code
+  changed; a test holds each label to its box's emirate. Only the label
+  strings of `returns.yaml` differ: every other line of it, and every file
+  but `pack.yaml` (its version and header comment), is 2026.4's byte for
+  byte, and the parsed pack with the labels set aside is 2026.4's
+  (`TestUAEPack2026_5`). The remarks in `returns.yaml` and `tax.yaml`
+  that call items pending stay as released. **Decided by default:** a
+  label-only change is a new version under the earlier sign-off, not a
+  new sign-off, as the specialist confirmed what the markers flagged. The
+  walkthrough's step 41 applies 2026.5 and shows boxes 1b and 8's VAT
+  labels without a marker; 2026.4 stays released.
 
 ## Consequences
 - A pack upgrade never silently overwrites a tenant's decision; reviewers

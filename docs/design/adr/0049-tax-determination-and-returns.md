@@ -1417,6 +1417,11 @@ companies (all in the tenant, under RLS). A registration change is financial
     the labels' "from memory, pending the tax specialist" markers stay, the
     sign-off freezing the content (dropping them is a later version, for
     the product owner). The FPZ-500 (item 8) is not part of it.
+  - **Labels resolved (po:2026-11-09).** The product owner approved a
+    labels-only version under the same sign-off: Canada 2026.8 is 2026.7
+    with the markers dropped from the labels of 112, 113A, 113B, 113C, 114
+    and 115, its lines, selections and sums unchanged
+    (`TestCanadaPack2026_8`; ADR-0048 As built, Canada 2026.8).
   - **The FPZ-500 is not built.** P4 (b) includes it only if the pilot
     company is registered in Quebec, which the pilot has not said, and
     the Context records none of its lines (Unsure list): nothing is
@@ -1529,12 +1534,20 @@ companies (all in the tenant, under RLS). A registration change is financial
     labels keep the markers ("column pending the tax specialist", "from
     memory, pending the tax specialist", "its ISO code pending") they had,
     since the sign-off froze the content and dropping them is a content
-    change (a later version, for the product owner). The threshold's
+    change (a later version, for the product owner; resolved in 2026.5
+    below). The threshold's
     measure (T61h above) was answered and built apart from the sign-off
     (C11, As built above). **Still open:** which declaration the FTA takes
     an amendment in, and the due dates (§10, not built), questions the
     approval of what exists does not answer.
-  - **Walkthrough.** Step 41 applies 2026.2 (2026.4 since the sign-off) to Maple Gulf Trading, whose
+  - **Labels resolved (po:2026-11-09).** The product owner approved a
+    labels-only version under the same sign-off: UAE 2026.5 is 2026.4
+    with the markers dropped from the labels of boxes 1a-1g, 2-7 and the
+    totals 8, 11, 12 and 13, its boxes, selections and sums unchanged
+    (`TestUAEPack2026_5`; ADR-0048 As built, UAE 2026.5). Every box 1
+    label already named its emirate's confirmed ISO code, so none was
+    corrected.
+  - **Walkthrough.** Step 41 applies 2026.2 (2026.4 since the sign-off, 2026.5 since the labels) to Maple Gulf Trading, whose
     proposed company carries its FTA registration (quarterly, from the
     latest quarter ended in Dubai); Carla posts the quarter's sales by
     emirate, an export, an exempt supply and a customs declaration's

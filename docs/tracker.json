@@ -2473,6 +2473,13 @@
        },
        {
         "s": "D",
+        "t": "Labels-only pack versions under the 2026-11-09 sign-off: UAE 2026.5 (2026.4 without the VAT 201's box-label markers \"its ISO code pending\", \"column pending\" and \"from memory, pending the tax specialist\"; each box 1 label naming its emirate's confirmed ISO code) and Canada 2026.8 (2026.7 without the GST34 line labels' \"from memory, pending the tax specialist\" markers); boxes, selections and sums byte for byte as released, only label strings changed",
+        "r": "packs/ae/2026.5 · packs/ca/2026.8 · packs/released.sha256 · TestUAEPack2026_5 · TestCanadaPack2026_8 (labelsOnly) · packs/ae/TAX-PENDING-T61k.md · packs/ca/TAX-PENDING-T61j.md · ADR-0048 As built (labels resolved) · ADR-0049 §11 As built (Labels resolved) · walkthrough steps 2, 11 and 41 · after the VAT 201's and GST34's sign-offs",
+        "src": "po:2026-11-09 · review:T61k",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Tax agent, drafts and explanations: for a registration's ended period it computes the draft return and records one explanation for a person (a recommendation on the registration, x-autonomy propose) of its figures and its variances against the last period's return and the tax accounts, citing the entries by document number; agent type tax; never prepares, approves, files or withdraws a return (x-agent false: no tool of them is built, the API refuses the agent); evaluation suite evals/tax replayed in CI",
         "r": "internal/taxagent · erp agent tax-draft · evals/tax · eval $contains · modelstub -script · autonomy.Types tax · ADR-0049 §13 As built (T61l1) · walkthrough step 11 · T61l · T61l1 (the proposals split to T61l2)",
         "src": "baseline",
