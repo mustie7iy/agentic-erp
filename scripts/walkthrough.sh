@@ -4111,14 +4111,15 @@ consolidation_revaluation() {
   say "Maple's other foreign-currency items, CAD $(amount $((differences - 10000))) in all, stay in the profit:"
   api 200 '(.translation_reserve[] | "  \(.company_code) \(.company_name): reserve \(.closing.amount), net investment differences moved out of the profit \(.net_investment.amount) \(.net_investment.currency)"),
     (.totals | "  total net_investment: reported \(.net_investment.reported.amount), eliminations \(.net_investment.eliminations.amount), consolidated \(.net_investment.consolidated.amount)",
-      "  total profit: consolidated \(.profit.consolidated.amount); other comprehensive income \(.other_comprehensive_income.consolidated.amount)")' \
+      "  total profit: reported \(.profit.reported.amount), consolidated \(.profit.consolidated.amount); other comprehensive income \(.other_comprehensive_income.consolidated.amount)")' \
     getConsolidatedStatement -p "id=$run" -p statement=profit_and_loss -p page_size=500
   expect "what each company's net investments moved out of its profit" "$(field '[.translation_reserve[] | "\(.company_code) \(.net_investment.amount)"] | join(", ")')" \
     "1000 0.00, $CC -100.00"
   expect "the total moved out of the profit" \
     "$(field '.totals.net_investment | "\(.reported.amount) \(.eliminations.amount) \(.consolidated.amount)"')" "-100.00 0.00 -100.00"
-  expect "the profit against the first run's: the revaluation's other differences, without the receivable's gain" \
-    "$(($(field ".totals.profit.consolidated | $cents") - $(jq -r ".totals.profit.consolidated | $cents" "$WORK/profit-and-loss.json")))" "$((10000 - differences))"
+  # Reported, not consolidated: the first run's eliminations held the pair's difference of CAD 100.00, now matched.
+  expect "the companies' profit against the first run's: the revaluation's other differences, without the receivable's gain" \
+    "$(($(field ".totals.profit.reported | $cents") - $(jq -r ".totals.profit.reported | $cents" "$WORK/profit-and-loss.json")))" "$((10000 - differences))"
   expect "other comprehensive income against the first run's: the receivable's gain" \
     "$(($(field ".totals.other_comprehensive_income.consolidated | $cents") - $(jq -r ".totals.other_comprehensive_income.consolidated | $cents" "$WORK/profit-and-loss.json")))" -10000
   QUIET=1 api 200 '' getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
