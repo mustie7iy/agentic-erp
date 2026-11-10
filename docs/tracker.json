@@ -9385,10 +9385,26 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Payment method order from the company, not from LFB1-ZWELS (SAP specialist, po:2026-11-09, A4(c) [M], to verify on the pilot system; first part of the leaf of that name): SAP's payment run tries the methods in the order of its own parameters per company code, restricted to those the vendor's ZWELS allows, where a proposal paid each supplier through the first method of its company data in ZWELS's letter order. A run without a house bank now tries the company's methods in the configuration's order (payment_methods[].order, else the order they are listed in), restricted to those the supplier may be paid by; existing tenants' methods take the order of the active configuration. Confirmed, unchanged: a lower RANGF ranks first [H]; a T042A row without a currency applies to every currency without a row of its own [M]",
+      "r": "ADR-0038 Decision (payment methods, amended), As built (the run order of payment methods) · config.PaymentMethod.Order, Company.MethodsInRunOrder, validation (order from 1, each once), tier 3 · migrations 000247 (payments.payment_method.run_order, backfilled from the active configuration), 000248 (check validated) · payments.PaymentMethods.Apply, rankedRouter, router.route (proposal and liquidity forecast) · delivery/sapconfig paymethods.go (note for a company with several methods) · api/openapi.yaml descriptions · TestMethodsInRunOrder, TestMethodOrderIsAChange, TestRouteByTheCompanysOrder, TestProposalMethodOrder, TestProposalPerBankAndMethod, TestPaymentMethods, TestPaymentMethodRunOrderBackfilled, TestPaymentMethodSchema · walkthrough step 7 (method_order) · docs/migration.md (check list: the order the pilot's runs enter)",
+      "src": "split:T45b · po:2026-11-09",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Payment method order from the payment run, not from LFB1-ZWELS (SAP specialist, po:2026-11-09, A4(c) [M], to verify on the pilot system): SAP's payment run tries the methods in the order of its own parameters per company code, restricted to those the vendor's ZWELS allows, and an item's fixed payment method (BSEG/ACDOCA-ZLSCH) wins over both, while ADR-0038 pays each supplier through the first method of its company data in ZWELS's letter order. To change: the order of methods tried comes from the run or the company's configuration, a supplier's methods only restrict it, and a migrated open item's fixed method is taken over and honoured; and T042I's account (HKTID, a T012K account) chooses a house bank's account per method and currency [H], where the configuration draft takes one account per house bank today; ADR-0038 amended in the step. Confirmed, unchanged: a lower RANGF ranks first [H]; a T042A row without a currency applies to every currency without a row of its own [M]",
-      "r": "ADR-0038 Decision (payment methods), As built (SAP payment methods, answered) · delivery/sapconfig paymethods.go · payments proposal · internal/integration (ZWELS, ZLSCH) · docs/migration.md",
-      "src": "po:2026-11-09",
+      "t": "An item's fixed payment method honoured over the run's order and the supplier's methods (SAP specialist, po:2026-11-09, A4, to verify on the pilot system; second part of the leaf on the payment method order): an item can fix its payment method (BSEG/ACDOCA-ZLSCH), which wins over both the run's order and the vendor's ZWELS. To build: an open item carries its fixed method, a migrated open item's ZLSCH is taken over, and a proposal without a house bank pays such an item by that method, the proposal showing the method per payment and why an item is excluded when no ranked bank pays by it",
+      "r": "ADR-0038 As built (the run order of payment methods, still open; SAP payment methods, answered) · payments proposal (propose.go, routing.go) · ledger open items (OpenItems.Payable) · internal/integration, internal/sap (ZLSCH on open items) · docs/migration.md",
+      "src": "split:T45b · po:2026-11-09",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "T042I's account chooses a house bank's account per method and currency (SAP specialist, po:2026-11-09, A4 [H]; third part of the leaf on the payment method order): T042I gives, per house bank, payment method and currency, the account (HKTID, a T012K account) the payment run pays from; without it the bank is known but not its account. The configuration draft takes one account per house bank (the first T012K row) today and does not read HKTID. To build: the extract's T012K carries HKTID, and the draft ranks for a method and currency the account T042I names",
+      "r": "ADR-0038 As built (SAP payment methods: no counterpart, noted; the run order of payment methods, still open) · delivery/sapconfig sapconfig.go (houseBanks), paymethods.go (ranking, subaccounts) · internal/sap T012K, T042I · docs/migration.md",
+      "src": "split:T45b · po:2026-11-09",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
      },

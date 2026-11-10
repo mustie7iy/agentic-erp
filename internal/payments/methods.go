@@ -16,7 +16,9 @@ import (
 // PaymentMethods is the configuration document's payment methods (SAP
 // T042Z) and, per method and currency, the house banks ranked to pay with
 // it (SAP T042E/T042I; ADR-0038), kept per legal entity in
-// payments.payment_method and payments.bank_ranking. A method or ranking
+// payments.payment_method and payments.bank_ranking, each method with its
+// place in the order a payment run tries them in (run_order, from
+// config.Company.MethodsInRunOrder). A method or ranking
 // the document no longer has becomes inactive, never deleted; the partner
 // context refuses taking away a method a supplier has
 // (partner.PaymentMethodCodes). The configuration's own validation keeps
@@ -49,7 +51,7 @@ func (m PaymentMethods) Apply(ctx context.Context, doc *config.Config) error {
 		if !ok { // checked on submission; legal entities are never deleted
 			return fmt.Errorf("payments: no legal entity %s", co.Code)
 		}
-		if err := applyMethods(ctx, tx, p, le.ID, co.PaymentMethods); err != nil {
+		if err := applyMethods(ctx, tx, p, le.ID, co.MethodsInRunOrder()); err != nil {
 			return fmt.Errorf("payments: payment methods of legal entity %s: %w", co.Code, err)
 		}
 	}
@@ -57,7 +59,8 @@ func (m PaymentMethods) Apply(ctx context.Context, doc *config.Config) error {
 }
 
 // applyMethods deactivates the methods and rankings not given, then
-// inserts, updates or reactivates the given ones.
+// inserts, updates or reactivates the given ones, which come in the
+// company's run order: each takes its place in it, from 1.
 func applyMethods(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UUID, methods []config.PaymentMethod) error {
 	var codes, descriptions, rankMethods, currencies, banks []string
 	for _, pm := range methods {
@@ -78,11 +81,11 @@ func applyMethods(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le uuid.UU
 		WHERE legal_entity_id = $1 AND is_active AND code <> ALL($2)`, le, codes, p.ID); err != nil {
 		return fmt.Errorf("deactivate methods: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_method AS m (tenant_id, legal_entity_id, code, description, created_by, updated_by)
-		SELECT $1, $2, code, description, $3, $3 FROM unnest($4::text[], $5::text[]) AS x(code, description)
-		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET description = EXCLUDED.description, is_active = true,
+	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_method AS m (tenant_id, legal_entity_id, code, description, run_order, created_by, updated_by)
+		SELECT $1, $2, code, description, n, $3, $3 FROM unnest($4::text[], $5::text[]) WITH ORDINALITY AS x(code, description, n)
+		ON CONFLICT (tenant_id, legal_entity_id, code) DO UPDATE SET description = EXCLUDED.description, run_order = EXCLUDED.run_order, is_active = true,
 			version = m.version + 1, updated_by = $3
-		WHERE (m.description, m.is_active) IS DISTINCT FROM (EXCLUDED.description, true)`,
+		WHERE (m.description, m.run_order, m.is_active) IS DISTINCT FROM (EXCLUDED.description, EXCLUDED.run_order, true)`,
 		p.TenantID, le, p.ID, codes, descriptions); err != nil {
 		return fmt.Errorf("write methods: %w", err)
 	}

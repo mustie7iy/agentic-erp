@@ -40,10 +40,10 @@ type CashPayable struct {
 	// Blocked is why no run pays its supplier (SupplierBlocked or
 	// PaymentBlocked), or "".
 	Blocked string
-	// HouseBankCode and Method are the house bank the first of its
-	// supplier's payment methods ranks for the item's currency and that
-	// method, as a run proposed without a house bank routes it; "" when
-	// none fits.
+	// HouseBankCode and Method are the house bank ranked, for the item's
+	// currency, for the first method of the company's run order that its
+	// supplier may be paid by, and that method, as a run proposed without
+	// a house bank routes it; "" when none fits.
 	HouseBankCode, Method string
 	// PlanningGroup is its supplier's planning group in the legal entity,
 	// "" for none (ADR-0051 §4, T53e3).

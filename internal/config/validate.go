@@ -599,15 +599,22 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 // paymentMethods checks the company's payment methods (ADR-0038): unique
 // one-character codes of an upper-case letter or digit, each described and
 // ranking house banks for at least one currency, each currency once, and
-// each ranking naming house banks of the company, each once.
+// each ranking naming house banks of the company, each once; a method's
+// place in the run order, where given, is a positive number no other
+// method of the company has, so the order methods are tried in is never
+// a tie (MethodsInRunOrder).
 func (v *validator) paymentMethods(p string, co *Company) {
 	banks := map[string]string{} // name → currency
 	for _, hb := range co.AllHouseBanks() {
 		banks[hb.Name] = co.HouseBankCurrency(hb)
 	}
-	codes := map[string]bool{}
+	codes, orders := map[string]bool{}, map[int]bool{}
 	for _, m := range co.PaymentMethods {
 		mp := fmt.Sprintf("%s.payment_methods[%s]", p, m.Code)
+		if m.Order < 0 || (m.Order != 0 && orders[m.Order]) {
+			v.err(mp+".order", "a method's place in the run order is a number from 1, each once in the company")
+		}
+		orders[m.Order] = true
 		if !methodRe.MatchString(m.Code) || codes[m.Code] {
 			v.err(mp, "a payment method's code is one upper-case letter or digit, unique in the company")
 		}

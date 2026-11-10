@@ -17,8 +17,9 @@ import (
 
 // methodSetup is downPaymentSetup with object storage, a second house bank
 // of company 2000, DB, on its bank clearing account 101000, and payment
-// methods (ADR-0038): T ranks DB before MAIN in EUR, S ranks MAIN in EUR,
-// C ranks DB only in USD, and X, inactive, ranks MAIN in EUR.
+// methods (ADR-0038), in the company's run order: T ranks DB before MAIN
+// in EUR, S ranks MAIN in EUR, C ranks DB only in USD, and X, inactive,
+// ranks MAIN in EUR.
 func methodSetup(t *testing.T) (env, uuid.UUID) {
 	t.Helper()
 	store := blobstore.Dir{Root: t.TempDir()}
@@ -28,12 +29,12 @@ func methodSetup(t *testing.T) (env, uuid.UUID) {
 	pgtest.Exec(t, `INSERT INTO payments.house_bank (tenant_id, id, legal_entity_id, code, name, iban_cipher, iban_last4, bic, currency, gl_account_id,
 		active_gl_account_id, status, created_by, updated_by) VALUES ($1, $2, $3, 'DB', 'DB', $4, '6300', 'DEUTDEFFXXX', 'EUR', $5, $5, 'active', $6, $6)`,
 		e.Tenant.ID, db, e.DE, apitest.Seal(t, e.Tenant.ID, "DE72500700100175526300"), e.Account(t, "2000", "101000"), e.Tenant.Human.ID)
-	for _, m := range []struct {
+	for i, m := range []struct {
 		code, currency, banks string
 		active                bool
 	}{{"T", "EUR", "{DB,MAIN}", true}, {"S", "EUR", "{MAIN}", true}, {"C", "USD", "{DB}", true}, {"X", "EUR", "{MAIN}", false}} {
-		pgtest.Exec(t, `INSERT INTO payments.payment_method (tenant_id, legal_entity_id, code, description, is_active, created_by, updated_by)
-			VALUES ($1, $2, $3, $3, $4, $5, $5)`, e.Tenant.ID, e.DE, m.code, m.active, e.Tenant.Human.ID)
+		pgtest.Exec(t, `INSERT INTO payments.payment_method (tenant_id, legal_entity_id, code, description, is_active, run_order, created_by, updated_by)
+			VALUES ($1, $2, $3, $3, $4, $5, $6, $6)`, e.Tenant.ID, e.DE, m.code, m.active, i+1, e.Tenant.Human.ID)
 		pgtest.Exec(t, `INSERT INTO payments.bank_ranking (tenant_id, legal_entity_id, method, currency, house_banks, created_by, updated_by)
 			VALUES ($1, $2, $3, $4, $5, $6, $6)`, e.Tenant.ID, e.DE, m.code, m.currency, m.banks, e.Tenant.Human.ID)
 	}
@@ -49,8 +50,10 @@ func (e env) methods(t *testing.T, supplier uuid.UUID, methods string) {
 
 // TestProposalPerBankAndMethod: a run proposed without a house bank pays
 // each supplier, its items and its down payment requests, through the first
-// of its payment methods that an active house bank ranked for the method
-// and the run currency pays with (ADR-0038); a supplier none can pay is
+// method of the company's run order that the supplier may be paid by and
+// that an active house bank ranked for the method and the run currency
+// pays with (ADR-0038), whatever the order of the supplier's own list (SAP
+// specialist 2026-11-09, A4(c)); a supplier none can pay is
 // excluded with no_house_bank. The release posts each payment to its
 // bank's account and writes one bank file per house bank and method, from
 // that bank's account.
@@ -64,7 +67,7 @@ func TestProposalPerBankAndMethod(t *testing.T) {
 		e.bankAccount(t, s.id, s.iban, s.name, "2026-01-01", "", "create")
 		e.invoice(t, s.id, "INV-"+s.name, "100.00", "2026-03-01")
 	}
-	e.methods(t, e.Supplier, "{C,X,T,S}") // C ranks no bank in EUR and X is inactive: T, through DB
+	e.methods(t, e.Supplier, "{C,X,S,T}") // C ranks no bank in EUR and X is inactive; the company tries T before S: T, through DB
 	e.methods(t, e.Vendor, "{S}")
 	e.methods(t, unpaid, "{C}")
 	request := e.request(t, e.Supplier, "50.00", "2026-03-15", "")
@@ -208,7 +211,8 @@ func TestFileWithoutPayments(t *testing.T) {
 
 // TestProposalSkipsBanksInOtherCurrencies: in a run without a house bank a
 // ranked bank whose account is in another currency than the run's cannot
-// pay, so the ranking's next bank does, or the supplier's next method; a
+// pay, so the ranking's next bank does, or the next method of the run
+// order that the supplier allows; a
 // supplier with no method left is excluded with no_house_bank (ADR-0038,
 // product owner 2026-10-19).
 func TestProposalSkipsBanksInOtherCurrencies(t *testing.T) {
@@ -252,4 +256,66 @@ func TestProposalSkipsBanksInOtherCurrencies(t *testing.T) {
 	if got := e.exclusions(t, run)[unpaid.String()]; got != "no_house_bank 100.00" {
 		t.Errorf("exclusion of %s: got %q, want no_house_bank 100.00", unpaid, got)
 	}
+}
+
+// TestProposalMethodOrder: the order a run tries methods in is the
+// company's, from its configuration (config.Company.MethodsInRunOrder),
+// and the supplier's list only restricts it: the same supplier is paid by
+// another method once the configuration orders the methods differently. A
+// method without a place in the order (a replica of the release before
+// 000247 wrote it) is tried after those with one, by code.
+func TestProposalMethodOrder(t *testing.T) {
+	e, db := methodSetup(t)
+	for _, code := range []string{"N", "M"} { // no run_order: after T and S, M before N
+		pgtest.Exec(t, `INSERT INTO payments.payment_method (tenant_id, legal_entity_id, code, description, is_active, created_by, updated_by)
+			VALUES ($1, $2, $3, $3, true, $4, $4)`, e.Tenant.ID, e.DE, code, e.Tenant.Human.ID)
+		pgtest.Exec(t, `INSERT INTO payments.bank_ranking (tenant_id, legal_entity_id, method, currency, house_banks, created_by, updated_by)
+			VALUES ($1, $2, $3, 'EUR', '{MAIN}', $4, $4)`, e.Tenant.ID, e.DE, code, e.Tenant.Human.ID)
+	}
+	third := e.NewSupplier(t, "BP90000007")
+	for _, s := range []struct {
+		id         uuid.UUID
+		iban, name string
+	}{{e.Supplier, "DE89370400440532013000", "Supplier"}, {e.Vendor, "DE02120300000000202051", "Vendor"}, {third, "DE75512108001245126199", "Third"}} {
+		e.bankAccount(t, s.id, s.iban, s.name, "2026-01-01", "", "create")
+	}
+	e.methods(t, e.Supplier, "{S,T}")
+	e.methods(t, e.Vendor, "{N,M,S}")
+	e.methods(t, third, "{N,M}")
+	main := e.bank.String()
+	paidBy := func(invoice string) map[uuid.UUID]string {
+		t.Helper()
+		for _, s := range []uuid.UUID{e.Supplier, e.Vendor, third} {
+			e.invoice(t, s, invoice+"-"+s.String()[30:], "100.00", "2026-03-01")
+		}
+		op, _ := e.Must(202, "POST", "/v1/payment-runs:propose", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "run_date": "2026-04-15",
+			"due_by": "2026-04-15"}`, e.DE), "")
+		work(t)
+		run, _ := e.Must(200, "GET", op["resource"].(string), "", "")
+		paid := map[uuid.UUID]string{}
+		for _, p := range e.payments(t, run) {
+			m := p.(map[string]any)
+			paid[uuidOf(m["supplier_id"].(string))] += fmt.Sprint(m["house_bank_id"], " ", m["payment_method"])
+		}
+		e.release(t, run, "")
+		return paid
+	}
+	check := func(step string, got map[uuid.UUID]string, want map[uuid.UUID]string) {
+		t.Helper()
+		for s, w := range want {
+			if got[s] != w {
+				t.Errorf("%s, payment of %s: got %q, want %q", step, s, got[s], w)
+			}
+		}
+		if len(got) != len(want) {
+			t.Errorf("%s, payments: got %v, want %v", step, got, want)
+		}
+	}
+	check("the company tries T, S, then M and N", paidBy("A"),
+		map[uuid.UUID]string{e.Supplier: db.String() + " T", e.Vendor: main + " S", third: main + " M"})
+
+	pgtest.Exec(t, `UPDATE payments.payment_method SET run_order = CASE code WHEN 'N' THEN 1 WHEN 'S' THEN 2 ELSE 3 END, version = version + 1
+		WHERE legal_entity_id = $1 AND code IN ('N', 'S', 'T')`, e.DE)
+	check("the company tries N, S, T, then M", paidBy("B"),
+		map[uuid.UUID]string{e.Supplier: main + " S", e.Vendor: main + " N", third: main + " N"})
 }

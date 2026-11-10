@@ -45,7 +45,11 @@ and France, by EBICS.
   company data (SAP LFB1-ZWELS), not from the run. The configuration ranks,
   per method and currency, the house banks that pay with it. A proposal
   takes no house bank: it pays each supplier through the first method of
-  its company data that a ranked bank can pay, and the release writes one
+  the company's run order that the supplier's company data allows and a
+  ranked bank can pay (amended 2026-11-10 on the SAP specialist's answer
+  A4(c): first this said "the first method of its company data", taking
+  ZWELS's letter order as the supplier's preference, which it is not; see
+  "As built: the run order of payment methods"), and the release writes one
   bank file per house bank and method. The run's `house_bank_id` becomes
   nullable in the API and in the schema (a breaking change, accepted in
   `api/breaking-accepted.txt`); a run proposed for one bank keeps it and
@@ -54,8 +58,8 @@ and France, by EBICS.
   names (`payments.currency_required` otherwise); a run proposed for one
   bank takes only that bank's currency (`payments.currency_mismatch`). In a
   run without a bank, a ranked bank whose account is in another currency
-  than the run's is skipped and the ranking's next bank, or the supplier's
-  next method, is tried; a supplier, or a down payment request, no ranked
+  than the run's is skipped and the ranking's next bank, or the next method
+  of the run order that the supplier allows, is tried; a supplier, or a down payment request, no ranked
   bank can pay is excluded with `no_house_bank`, not failed (product owner
   2026-10-19).
   The previous version reads a run without a bank as the zero id and
@@ -1009,8 +1013,9 @@ counterpart for is noted):
   to those ZWELS allows, and an item's fixed method (BSEG/ACDOCA-ZLSCH)
   wins over both; T042I's account (HKTID) tells which T012K account a bank
   pays from by method and currency. The Decision's "first method of its
-  company data" and the draft's one account per house bank are to change
-  (a tracker leaf; this ADR is amended in that step). The OData source maps it to
+  company data" is changed ("As built: the run order of payment methods",
+  below); an item's fixed method and the draft's one account per house
+  bank are to change (a tracker leaf each). The OData source maps it to
   `A_SupplierCompany`'s `PaymentMethodsList` (SAP Cloud SDK,
   https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html);
   the T042 tables, like T012K, come from file extracts.
@@ -1038,6 +1043,78 @@ counterpart for is noted):
   method, then the method's ranking in the active configuration through
   `listConfigVersions` (T: MAIN for CAD, MUSD for USD); step 3 shows the
   migrated supplier Laurentian Paper's methods through `getBusinessPartner`.
+
+
+## As built: the run order of payment methods (A4(c), first part, pilot)
+
+The SAP specialist answered (po:2026-11-09, A4(c), [M], to verify on the
+pilot system) that the letter order of LFB1-ZWELS is not the vendor's
+order of preference: the payment run (F110) tries the methods in the order
+entered in the run's parameters per company code, restricted to those
+ZWELS allows. The proposal took the first method of the supplier's own
+list. Decided by default, from that answer and the Decision above (the
+methods a supplier may be paid by come from its company data; the
+configuration holds what the company pays by):
+
+- **The order is the company's, in the configuration.** A company's
+  `payment_methods[]` each take an optional `order`, a number from 1, each
+  once in the company; a run tries the methods with an order first, lowest
+  first, then the others as the document lists them
+  (`config.Company.MethodsInRunOrder`). The order is a field, not only the
+  list's position, because the configuration's diff identifies methods by
+  code: a reordered list alone would be a change request without a change.
+  `order` is a posting-related change (tier 3), as a ranking is: it decides
+  which bank account pays. A run carries no order of its own: SAP enters
+  it per run, but nothing in the designs asks for a per-run choice, and a
+  run's parameters would let one person reorder what the approved
+  configuration set; a per-run order is new scope if the pilot wants it.
+- **Stored.** `payments.payment_method.run_order` (000247, checked from 1,
+  validated by 000248), the method's place in that order, written by
+  `payments.PaymentMethods` on every activation. It is nullable for good:
+  a replica of the release before writes none, and a method without one is
+  tried after those with one, by code, so the order is total at every read.
+- **The proposal.** A run without a house bank pays each supplier, and
+  each down payment request, by the first method of the company's order
+  that the supplier's `payment_methods` hold and that a house bank ranked
+  for the method and the run currency can pay; the supplier's list only
+  restricts, and its own order decides nothing (it is still stored and
+  returned as given). A supplier none of whose methods a ranked bank can
+  pay is excluded with `no_house_bank`, as before. The liquidity forecast
+  expects an item on the bank the same rule chooses. A run proposed for
+  one house bank is unchanged.
+- **Existing tenants: the default order.** 000247 gives each method its
+  position among its company's `payment_methods` in the active
+  configuration, which is what every later activation writes for a
+  document without an `order`: the default order is the order the active
+  configuration lists the methods in, and it does not move at the next
+  activation. A supplier with one method, or whose list was in that order,
+  is paid as before; a supplier whose list ranked a later method of the
+  company first is now paid by the company's earlier one. A replica of
+  the previous version keeps choosing by the supplier's list until the
+  upgrade completes (06 §6.4), as with the rollouts above, and an
+  activation whose document gives a method an `order` is refused while
+  such a replica runs (409 `config.replica_lacks_key`, the key
+  `companies[].payment_methods[].order`; As built, activation refused
+  while a replica lacks a key).
+- **The draft from SAP.** The run's parameters are not in the T042 tables
+  the extract carries (the specialist names the F110 parameters, no table;
+  where SAP stores them is not stated here and is on the pilot check list),
+  so the draft lists the methods in T042E's order as extracted and, for a
+  company with more than one, notes that the reviewer sets the order the
+  company's runs name. ZWELS still loads in its order as the supplier's
+  allowed methods.
+- **No contract change beyond descriptions.** A payment already names its
+  method and bank, an exclusion its reason, and the configuration document
+  is returned as stored; the descriptions of the supplier's
+  `payment_methods`, the run and the forecast's bank now state the rule.
+- **Walkthrough.** Step 2 gives the pilot company a wire method W with
+  order 1, before SAP's bank transfer T; step 7 gives Laurentian Paper the
+  methods T and W, in that order, proposes a run without a house bank and
+  shows it paid by W through RBC while the suppliers allowing T alone are
+  paid by T through MAIN; the run is rejected and the run from RBC follows.
+- **Still open** (tracker leaves, split from this one): an item's fixed
+  payment method (BSEG/ACDOCA-ZLSCH) honoured over both, and T042I's
+  account (HKTID) choosing the house bank's account.
 
 
 ## As built: activation refused while a replica lacks a key (T72m rollout, pilot)

@@ -595,7 +595,7 @@ erDiagram
     text payment_term_code
     bool is_posting_blocked
     bool is_payment_blocked
-    text_array payment_methods "in order; T45b"
+    text_array payment_methods "allowed methods; T45b"
     text planning_group "cash.planning_groups; T53b" }
   bank_account { uuid id PK
     uuid partner_id
@@ -2124,6 +2124,7 @@ erDiagram
   payment_method { uuid legal_entity_id PK
     text code PK "one character; T45b"
     text description
+    int run_order "place in the run order; ADR-0038"
     bool is_active }
   bank_ranking { text method PK
     char currency PK
@@ -2322,15 +2323,22 @@ twice and a refused or changed file is reported once.
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred
 (`payments.bank_ranking.house_banks`, codes of the company's house banks;
-SAP T042A, generated with the methods of T042E/T042Z: ADR-0038 As built). A supplier's company data lists the methods it may be
-paid by, in order (`partner.supplier_company.payment_methods`, SAP
-LFB1-ZWELS): active methods of its company, which the configuration cannot
+SAP T042A, generated with the methods of T042E/T042Z: ADR-0038 As built). Each method has its place in the order a payment run tries the
+company's methods in (`payment_method.run_order`, from the configuration's
+`order`, else the order it lists them in; null, tried last by code, for a
+method a replica of the release before 000247 wrote). A supplier's company
+data lists the methods it may be
+paid by (`partner.supplier_company.payment_methods`, SAP
+LFB1-ZWELS; its order decides nothing): active methods of its company, which the configuration cannot
 take away while a supplier, or a pending partner change, has them (T45b).
 
 A run is proposed for one house bank, which pays every supplier, or without
 one in a currency (T45c): then each supplier, its items and its down
-payment requests, is paid through the first of its methods whose ranking
-for the currency names an active house bank, the first such bank; a
+payment requests, is paid through the first method of the company's run
+order that the supplier may be paid by and whose ranking for the currency
+names an active house bank, the first such bank (SAP's payment run takes
+the order from its own parameters, not from LFB1-ZWELS: SAP specialist
+2026-11-09, A4(c), ADR-0038 As built); a
 supplier none can pay is excluded with `no_house_bank`. The payment names
 the bank and method (`payment.house_bank_id`, `payment_method`; null in a
 run proposed for one bank, whose bank pays), posts to that bank's account,
@@ -2842,7 +2850,7 @@ line or reservation. An agent's budget is identity's
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review) |
 | T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers (ADR-0038 As built) |
-| LFB1-ZWELS | `supplier_company.payment_methods`, in order; a method the company does not have stops the load (ADR-0038 As built) |
+| LFB1-ZWELS | `supplier_company.payment_methods`, the methods allowed (its letter order is not a preference: A4(c)); a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |

@@ -15,7 +15,10 @@ import (
 // paymentMethods are the company's payment methods (ADR-0038): each
 // method T042E sets up for the company code, named by T042Z in the
 // company's country and ranking, per currency, the house banks T042A
-// ranks for it. What the configuration has no counterpart for (T042E's
+// ranks for it, in T042E's order as extracted: the order a payment run
+// tries them in, which SAP keeps in each run's parameters and the extract
+// does not carry, so it is noted for the reviewer when there are several.
+// What the configuration has no counterpart for (T042E's
 // amount limits, T042I's bank subaccounts) is noted; a value SAP does not
 // give (a method's name, its ranking) is left empty with a note, which
 // validation refuses until a reviewer sets it.
@@ -37,6 +40,13 @@ func (g *gen) paymentMethods(p, country string, co *config.Company) []config.Pay
 			seen[a.ZLSCH] = true
 			g.note(p+".payment_methods", fmt.Sprintf("T042A ranks house banks for payment method %s, which T042E does not set up for the company: left out", a.ZLSCH))
 		}
+	}
+	if len(out) > 1 {
+		// SAP specialist, po:2026-11-09, A4(c) [M]: the run's parameters,
+		// not T042E or the vendor's ZWELS, order the methods.
+		g.note(p+".payment_methods", "a payment run tries the methods in the order listed here, T042E's as extracted; SAP's payment run (F110) takes the "+
+			"order from its own parameters per company code, which the extract does not carry: list the methods in the order the company's "+
+			"runs name them, or give each its order")
 	}
 	if len(out) == 0 {
 		g.note(p+".payment_methods", "T042E sets up no payment method for the company: a payment run then needs a house bank, and the migration refuses "+

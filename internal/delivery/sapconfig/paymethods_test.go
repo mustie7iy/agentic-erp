@@ -216,3 +216,32 @@ func TestPaymentMethodsNotSetUp(t *testing.T) {
 		t.Errorf("notes: got\n%s\nwant method T's T042A rows noted once", all)
 	}
 }
+
+// TestPaymentMethodsRunOrderNoted: a company paying by several methods is
+// drafted with them in T042E's order as extracted and a note that the
+// order is the reviewer's to set: SAP's payment run takes it from its own
+// parameters per company code, which the extract does not carry (SAP
+// specialist 2026-11-09, A4(c); ADR-0038). The draft gives no method an
+// order of its own, and one method needs no note
+// (TestPaymentMethodsFromT042).
+func TestPaymentMethodsRunOrderNoted(t *testing.T) {
+	e := sap.GenerateMock(42, "2026")
+	e.T042Z = append(e.T042Z, sap.T042Z{LAND1: "CA", ZLSCH: "C", TEXT1: "Cheque"})
+	e.T042E = append([]sap.T042E{{ZBUKR: "3000", ZLSCH: "C"}}, e.T042E...)
+	e.T042A = append(e.T042A, sap.T042A{ZBUKR: "3000", ZLSCH: "C", WAERS: "CAD", RANGF: "00001", HBKID: "MAIN"})
+	c, notes := Generate(e, zoned())
+	var got []string
+	for _, m := range c.Company("3000").MethodsInRunOrder() {
+		got = append(got, fmt.Sprint(m.Code, " ", m.Order))
+	}
+	if want := []string{"C 0", "T 0"}; !slices.Equal(got, want) {
+		t.Errorf("methods of 3000 in run order: got %v, want %v", got, want)
+	}
+	const want = "companies[3000].payment_methods: a payment run tries the methods in the order listed here, T042E's as extracted"
+	if all := notesText(notes); !strings.Contains(all, want) {
+		t.Errorf("notes: got none starting %q in:\n%s", want, all)
+	}
+	if all := notesText(notes); strings.Contains(all, "companies[1000].payment_methods: a payment run") {
+		t.Errorf("notes: got the run order noted for company 1000, which pays by one method:\n%s", all)
+	}
+}

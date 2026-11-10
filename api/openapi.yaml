@@ -27238,7 +27238,7 @@ components:
             pattern: "^[A-Z0-9]{1,4}$"
         payment_methods:
           type: array
-          description: "The methods the supplier may be paid by in this legal entity, in order of preference (SAP LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration."
+          description: "The methods the supplier may be paid by in this legal entity (SAP LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration. The list restricts the methods a payment run pays the supplier by; the order they are tried in is the company's, not this list's."
           maxItems: 10
           items:
             type: string
@@ -27284,7 +27284,7 @@ components:
             pattern: "^[A-Z0-9]{1,4}$"
         payment_methods:
           type: array
-          description: "The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038): active payment methods of the company's configuration, each once. A payment proposal pays the supplier through the first method a ranked house bank can pay. The list replaces the supplier's methods in the legal entity: leaving it out takes every method off the supplier there, as the other company data is replaced too."
+          description: "The methods the supplier may be paid by in this legal entity (ADR-0038): active payment methods of the company's configuration, each once. A payment proposal pays the supplier through the first method of the company's run order (the configuration's `payment_methods`, by their `order`, else as listed) that is in this list and that a ranked house bank can pay; the order of this list decides nothing. The list replaces the supplier's methods in the legal entity: leaving it out takes every method off the supplier there, as the other company data is replaced too."
           maxItems: 10
           items:
             type: string
@@ -36954,7 +36954,7 @@ components:
           description: When the release was approved.
           readOnly: true
     PaymentRun:
-      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks each supplier's payment methods rank (ADR-0038)."
+      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks the company's payment methods rank, each supplier by the first method of the company's run order that it may be paid by (ADR-0038)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -37071,7 +37071,7 @@ components:
         house_bank_id:
           type: string
           format: uuid
-          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first of its payment methods that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with `no_house_bank`."
+          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first payment method of the company's run order (the configuration's `payment_methods`, by their `order`, else as listed) that the supplier may be paid by and that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay by a method of theirs are excluded with `no_house_bank`."
         currency:
           type: string
           description: "The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house bank's currency."
@@ -42881,7 +42881,7 @@ components:
         flow_no: {type: integer, format: int32, minimum: 1, description: "The flow the line is of: the lines of one flow share it; a bucket's sum has its own.", readOnly: true}
         value_date: {type: string, format: date, description: "The day the flow was expected at the bank (a blocked supplier's on its due date); a bucket's sum: the first day it covers.", readOnly: true}
         bucket_end: {type: string, format: date, description: "The last day a bucket's sum covers; absent at document level.", readOnly: true}
-        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank its supplier's first payment method ranks).", readOnly: true}
+        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank ranked for the first payment method of the company's run order that its supplier may be paid by).", readOnly: true}
         house_bank_code: {type: string, description: "The house bank's code; present exactly when `house_bank_id` is.", readOnly: true}
         source:
           type: string

@@ -651,8 +651,8 @@ others record a confirmation.
   without a name or a ranking, or a ranked bank the company does not have or
   in another currency, is noted and refused by validation until a reviewer
   corrects it. T042E amount limits and T042I bank subaccounts have no
-  counterpart and are noted. Suppliers' methods come from LFB1-ZWELS, in
-  order: the quality gate refuses a method the company's configuration
+  counterpart and are noted. Suppliers' methods come from LFB1-ZWELS, the
+  methods allowed: the quality gate refuses a method the company's configuration
   lacks, or one listed twice (ADR-0038). Confirm the tables and fields in
   your release, that a lower RANGF ranks first, and that ZWELS's order is
   the order of preference. Answered (A4): the tables and fields are as
@@ -664,8 +664,19 @@ others record a confirmation.
   its own [M]. ZWELS's letter order is **not** the order of preference [M]:
   the payment run (F110) tries the methods in the order of its own
   parameters per company code, restricted to those ZWELS allows, and an
-  item's fixed method wins over both. The method order and T042I's account
-  are a tracker leaf; verify both on the pilot system.
+  item's fixed method wins over both. Built (ADR-0038 As built, the run
+  order of payment methods): a proposal tries the company's methods in the
+  configuration's order (`payment_methods[].order`, else the order they are
+  listed in) and a supplier's ZWELS only restricts them. The draft lists a
+  company's methods in T042E's order as extracted and notes, for a company
+  with several, that the order is the reviewer's to set. **Check on the
+  pilot system:** which order the company's payment runs (F110) enter their
+  methods in, per paying company code, and set `order` to match before the
+  first proposal without a house bank; that ZWELS's letter order is indeed
+  not used [M]; and where the pilot's release keeps a run's parameters, if
+  the order is to be extracted rather than read off a run (not stated by
+  the specialist, so not assumed here). An item's fixed method and T042I's
+  account are tracker leaves of their own; verify both on the pilot system.
 - Vendor addresses: the load first took the vendor's street with house
   number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
   REGIO (product owner 2026-11-04, ADR-0054 As built), field names written

@@ -6,7 +6,47 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 )
+
+// TestRouteByTheCompanysOrder: a supplier is paid by the first method of
+// the company's run order that it may be paid by, whatever the order its
+// own list has them in (SAP specialist 2026-11-09, A4(c): the supplier's
+// methods only restrict the run's); one no method of the order pays is
+// not routed, and a run for one house bank routes everyone through it.
+func TestRouteByTheCompanysOrder(t *testing.T) {
+	main, second := uuid.New(), uuid.New()
+	byMethod := router{byMethod: true, methods: []string{"T", "C"}, banks: map[string]uuid.UUID{"T": main, "C": second}}
+	for _, c := range []struct {
+		name    string
+		rt      router
+		allowed []string
+		method  string
+		bank    uuid.UUID
+		routed  bool
+	}{
+		{"the supplier's own order differs", byMethod, []string{"C", "T"}, "T", main, true},
+		{"only the second allowed", byMethod, []string{"C"}, "C", second, true},
+		{"a method the run does not pay by comes first", byMethod, []string{"X", "C"}, "C", second, true},
+		{"none allowed", byMethod, nil, "", uuid.Nil, false},
+		{"none the run pays by", byMethod, []string{"X"}, "", uuid.Nil, false},
+		{"a run for one house bank", router{}, []string{"C"}, "", uuid.Nil, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v, routed := c.rt.route(partner.Payee{PaymentMethods: c.allowed})
+			if routed != c.routed {
+				t.Fatalf("routed: got %v, want %v", routed, c.routed)
+			}
+			if got := methodOf(v.method); got != c.method {
+				t.Errorf("method: got %q, want %q", got, c.method)
+			}
+			if got := bankOf(Run{}, Payment{HouseBankID: v.bank}); (got == nil) != (c.bank == uuid.Nil) || (got != nil && *got != c.bank) {
+				t.Errorf("bank: got %v, want %v", got, c.bank)
+			}
+		})
+	}
+}
 
 // TestPayingBankOfNeither: a payment that names no house bank in a run
 // without one is broken data (a run proposed without a bank names one on

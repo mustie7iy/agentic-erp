@@ -1433,6 +1433,8 @@ PILOT_SETTINGS='
     | .tax_registrations = [{"code": "GSTHST", "authority": "CRA", "number": "123456789 RT 0001", "return_type": "GST34",
         "frequency": "quarterly", "first_period_start": "@TAXFIRST@"}]
     | .cash = {"payment_days": ["tue", "thu"]}
+    | .payment_methods += [{"code": "W", "description": "Wire transfer", "order": 1,
+        "ranking": [{"currency": "CAD", "house_banks": ["RBC"]}]}]
     | .release_dual_limit = "4000.00"
     | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
@@ -1791,8 +1793,66 @@ receipt_held() {
   expect "the chairs received after the refusal" "$(field '.items[0].received_quantity.value')" 10
 }
 
+# method_order shows which method a run without a house bank pays by
+# (ADR-0038 amendment; SAP specialist 2026-11-09, A4(c)): the company
+# tries wire W before bank transfer T (step 2 gave W order 1); Laurentian
+# Paper may be paid by T or W and lists T first, and is paid by W, the
+# run's first method it allows, while a supplier allowing T alone is paid
+# by T. Tara rejects the run, so its items are free for the run from RBC.
+method_order() {
+  local laurentian company change run etag
+  as ben
+  QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Laurentian
+  laurentian=$(field '.items[0].id')
+  if [ -z "$laurentian" ] || [ "$laurentian" = null ]; then fail "the migrated supplier Laurentian Paper is not there"; fi
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$laurentian"
+  company=$(jq -c --arg le "$LE" '[.supplier_companies[] | select(.legal_entity_id == $le)
+    | {legal_entity_id, reconciliation_account_id, payment_term_code, payment_methods: ["T", "W"]}
+      + (if .withholding_tax_codes then {withholding_tax_codes} else {} end) + (if .planning_group then {planning_group} else {} end)]' "$WORK/last.json")
+  say "Laurentian Paper also takes wires. Ben asks for both methods on its company data, bank transfer first;"
+  say "Carla approves. A supplier's list says which methods it may be paid by; its order decides nothing."
+  api 201 '"partner change \(.id): \(.status)"' createPartnerChange \
+    -body "{\"partner_id\": \"$laurentian\", \"kind\": \"update\", \"reason\": \"Laurentian Paper accepts wires\", \"payload\": {\"supplier_companies\": $company}}"
+  change=$(field .id)
+  approve carla "$(field .workflow_request_id)" "Confirmed with Laurentian Paper"
+  as ben
+  QUIET=1 api 200 '' getPartnerChange -p "id=$change"
+  expect "partner change status" "$(field .status)" applied
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$laurentian"
+  expect "Laurentian Paper's payment methods, in its own order" \
+    "$(field '.supplier_companies[] | select(.legal_entity_id == "'"$LE"'") | .payment_methods | join(" ")')" "T W"
+  as tom
+  say "The company's payment runs try wire W first, then bank transfer T (the configuration's order, step 2):"
+  api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .payment_methods | to_entries[] |
+    "payment method \(.value.code) \(.value.description): \(if .value.order then "order \(.value.order)" else "no order, after those with one, as listed" end)"' \
+    listConfigVersions -p is_active=true
+  expect "the methods the company gives an order" \
+    "$(field '[.items[0].document.companies[] | select(.code == "'"$CC"'") | .payment_methods[] | select(.order) | "\(.code) \(.order)"] | join(", ")')" "W 1"
+  say "Tom proposes a run in CAD without a house bank: each supplier is paid by the first method of that order"
+  say "it may be paid by, through the bank ranked for the method."
+  api 202 '"\(.kind) \(.status)"' proposePaymentRun \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"run_date\": \"$TODAY\", \"due_by\": \"$(date_add "$TODAY" 30)\"}"
+  wait_op
+  run=$(field .resource | sed 's|.*/||')
+  QUIET=1 api 200 '' getPaymentRun -p "id=$run"
+  etag=$ETAG
+  api 200 '.items[] | "payment \(.end_to_end_id) to \(.supplier_name): \(.amount.amount) \(.amount.currency) by method \(.payment_method) from \(.house_bank_code)"' \
+    listPayments -p "id=$run" -p page_size=100
+  expect "Laurentian Paper, allowing T and W, paid by the run's first method it allows" \
+    "$(field '.items[] | select(.supplier_name == "Laurentian Paper") | "\(.payment_method) \(.house_bank_code)"')" "W RBC"
+  expect "the methods of the suppliers allowing bank transfer alone" \
+    "$(field '[.items[] | select(.supplier_name != "Laurentian Paper") | "\(.payment_method) \(.house_bank_code)"] | unique | join(", ")')" "T MAIN"
+  say "A supplier no method of the run can pay is left out, with the reason:"
+  api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_name)"' listPaymentExclusions -p "id=$run" -p page_size=100
+  say "The pilot pays from its RBC account, so Tara, who releases runs, rejects this one; its items are free again."
+  as tara
+  api 200 '"run \(.document_number): \(.status)"' rejectPaymentRun -p "id=$run" -if-match "$etag" -body '{"reason": "Shown for the method order; the run from RBC pays these"}'
+  expect "the run without a house bank" "$(field .status)" rejected
+}
+
 step_payment() {
-  heading "Step 7 — A payment run: proposed with the cash discount, its release approved by a second person, released by a third, the bank file"
+  heading "Step 7 — A payment run: the method a run without a house bank pays each supplier by; a run proposed with the cash discount, its release approved by a second person, released by a third, the bank file"
+  method_order
   as tom
   say "Tom proposes a run from the RBC account for everything due within 30 days: Tyrell's invoice less"
   say "the credit memo and the 2% discount, and the open payables migrated from SAP that are overdue."

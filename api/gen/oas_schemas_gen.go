@@ -16640,8 +16640,8 @@ type CashSnapshotFlow struct {
 	ValueDate time.Time `json:"value_date"`
 	// The last day a bucket's sum covers; absent at document level.
 	BucketEnd OptDate `json:"bucket_end"`
-	// The house bank the flow was expected on; absent when none (a supplier item takes the bank its
-	// supplier's first payment method ranks).
+	// The house bank the flow was expected on; absent when none (a supplier item takes the bank ranked for
+	// the first payment method of the company's run order that its supplier may be paid by).
 	HouseBankID OptUUID `json:"house_bank_id"`
 	// The house bank's code; present exactly when `house_bank_id` is.
 	HouseBankCode OptString `json:"house_bank_code"`
@@ -54217,9 +54217,10 @@ type PaymentRunPropose struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// House bank to pay every supplier from; its currency is the run currency. Without it, each supplier
-	// is paid through the first of its payment methods that a house bank ranked for the method and the run
-	// currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with
-	// `no_house_bank`.
+	// is paid through the first payment method of the company's run order (the configuration's
+	// `payment_methods`, by their `order`, else as listed) that the supplier may be paid by and that a
+	// house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked
+	// bank can pay by a method of theirs are excluded with `no_house_bank`.
 	HouseBankID OptUUID `json:"house_bank_id"`
 	// The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house
 	// bank's currency.
@@ -65952,8 +65953,9 @@ type SupplierCompany struct {
 	// The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the
 	// company's `withholding_tax_codes` in the configuration.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
-	// The methods the supplier may be paid by in this legal entity, in order of preference (SAP
-	// LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration.
+	// The methods the supplier may be paid by in this legal entity (SAP LFB1-ZWELS; ADR-0038): codes of
+	// the company's `payment_methods` in the configuration. The list restricts the methods a payment run
+	// pays the supplier by; the order they are tried in is the company's, not this list's.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the
 	// configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when
@@ -66054,11 +66056,12 @@ type SupplierCompanyInput struct {
 	// company's configuration, each once. The list replaces the supplier's codes in the legal entity:
 	// leaving it out takes every code off the supplier there, as the other company data is replaced too.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
-	// The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038):
-	// active payment methods of the company's configuration, each once. A payment proposal pays the
-	// supplier through the first method a ranked house bank can pay. The list replaces the supplier's
-	// methods in the legal entity: leaving it out takes every method off the supplier there, as the other
-	// company data is replaced too.
+	// The methods the supplier may be paid by in this legal entity (ADR-0038): active payment methods of
+	// the company's configuration, each once. A payment proposal pays the supplier through the first
+	// method of the company's run order (the configuration's `payment_methods`, by their `order`, else as
+	// listed) that is in this list and that a ranked house bank can pay; the order of this list decides
+	// nothing. The list replaces the supplier's methods in the legal entity: leaving it out takes every
+	// method off the supplier there, as the other company data is replaced too.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the
 	// configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the
