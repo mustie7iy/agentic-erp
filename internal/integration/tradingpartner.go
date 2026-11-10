@@ -202,10 +202,18 @@ func (q *qualityCheck) otherLines() {
 			"load without one: lines %d, documents %d. The load derives a document's trading partner from its vendor line, so a consolidation run "+
 			"lists their balances as no_trading_partner until they are reposted with one", cc, alone[cc].lines, len(alone[cc].documents))
 	}
+	// What such a line loads with, as the run's mode has it: a balances
+	// run's opening entry gives its account balances none.
+	outcome := "They load with the trading partner the document's vendors share, or without one where those name different ones, none or a " +
+		"company that is no legal entity"
+	if q.t.balances {
+		outcome = "They load without one in the opening entry, whose account balances take none whatever its vendor items name; in a document " +
+			"that posts on its own (a down payment's, an item in a foreign currency) with the trading partner its vendors share, or without " +
+			"one where those name different ones, none or a company that is no legal entity"
+	}
 	for _, cc := range sortedKeys(differing) {
 		q.add(SevWarning, "ACDOCA", cc, "journal lines of company %s that carry another trading partner (ACDOCA-RASSC) than their document's vendor "+
-			"lines give them: lines %d, documents %d. They load with the trading partner the document's vendors share, or without one where "+
-			"those name different ones, none or a company that is no legal entity", cc, differing[cc].lines, len(differing[cc].documents))
+			"lines give them: lines %d, documents %d. %s", cc, differing[cc].lines, len(differing[cc].documents), outcome)
 	}
 }
 
@@ -215,7 +223,11 @@ func (q *qualityCheck) otherLines() {
 // supplier is linked to, another company than the document's (the
 // ledger's rule, deriveTradingPartners). In balances mode only a document
 // that posts as an entry of its own gives its other lines one: the
-// opening entry's balances take none (ledger.Posting.Collective).
+// opening entry's balances take none (ledger.Posting.Collective). It is
+// the gate's prediction from SAP's vendor masters, not the ledger's rule
+// to the letter: the ledger reads the group company the platform's
+// supplier has, which for a supplier an earlier run loaded may be another
+// than its VBUND now names, and the reconciliation shows that difference.
 func (q *qualityCheck) derivedPartners() (derived map[string]string, withVendor map[string]bool) {
 	derived, withVendor = map[string]string{}, map[string]bool{}
 	own := downPaymentDocs(q.e)

@@ -144,7 +144,9 @@ func TestTradingPartnersReported(t *testing.T) {
 				tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", "001000"),
 				tpLine("0100000050", "000002", "0000100000", "10.00", "", "001000")}, want: []string{
 				"ACDOCA 2000: journal lines of company 2000 that carry another trading partner (ACDOCA-RASSC) than their document's vendor lines give " +
-					"them: lines 1, documents 1. " + others}},
+					"them: lines 1, documents 1. They load without one in the opening entry, whose account balances take none whatever its vendor " +
+					"items name; in a document that posts on its own (a down payment's, an item in a foreign currency) with the trading partner " +
+					"its vendors share, or without one where those name different ones, none or a company that is no legal entity"}},
 		{name: "none anywhere", lines: []sap.ACDOCA{tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", ""),
 			tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}},
 		{name: "the vendor's on its line, none or the same on the others", vbund: "001000", partners: linked, lines: []sap.ACDOCA{
