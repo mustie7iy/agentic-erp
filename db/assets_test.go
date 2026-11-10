@@ -174,7 +174,7 @@ func TestAssetTermsInUse(t *testing.T) {
 	})
 }
 
-// TestAssetEstimateChangeRules (T57j, migration 000243): a change in
+// TestAssetEstimateChangeRules (T57j, migration 000249): a change in
 // estimate is from a period after the one its ledger is booked through
 // and not before the latest change's, takes the asset's seq and records
 // the terms as they stand; the terms then take exactly the latest
@@ -254,7 +254,7 @@ func TestAssetEstimateChangeRules(t *testing.T) {
 	}
 }
 
-// TestAssetHeldForSaleRules (T57k, migration 000244): a classification
+// TestAssetHeldForSaleRules (T57k, migration 000250): a classification
 // as held for sale is from a period after the one the ledger is booked
 // through, moves only while its period is not booked, and is never
 // cleared; its year, period and first day go together.

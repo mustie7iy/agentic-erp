@@ -2611,7 +2611,7 @@ issues one statement keeps READ COMMITTED.
 life, residual value and method in a ledger change after depreciation was
 posted there, prospectively from a chosen period (IAS 16.51, 16.61, IAS
 8.36-38), so the year-end review is booked in the register rather than by
-a manual journal. Built: migration 000243 (`assets.estimate_change`,
+a manual journal. Built: migration 000249 (`assets.estimate_change`,
 insert-only, each change with its period, its first day, the terms after
 and before it, under the asset's `seq`; `asset_terms.estimate_changes`
 counting them; triggers `estimate_change_prospective` (after the period
@@ -2677,7 +2677,7 @@ overrule:
 
 **T57k (held for sale; a transfer's receiver depreciating its month,
 po:2026-11-09 B11).** The specialist accepted the monthly convention with
-two caveats (IAS 16.55, IFRS 5.25, IAS 8.8). Built: migration 000244
+two caveats (IAS 16.55, IFRS 5.25, IAS 8.8). Built: migration 000250
 (`asset_terms.held_for_sale_year`, `_period`, `_from`, all or none,
 `asset_terms_held_for_sale`; `asset_terms_held_for_sale_prospective` in
 `assets.check_asset_terms`: from a period after the one booked through,
