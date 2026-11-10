@@ -1,0 +1,6 @@
+# No holidays: the repository records no source for the UAE's public
+# holidays, several of which follow the Hijri calendar and are announced
+# for each year, so the tenant adds them (ADR-0048, UAE pack). Nor does a
+# calendar hold the company's weekend yet, which the UAE's differs from
+# Canada's (ADR-0048, Consequences).
+holidays: []

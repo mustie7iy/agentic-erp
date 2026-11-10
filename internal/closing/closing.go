@@ -58,7 +58,11 @@
 // ledger's revaluation posted on the year's last day; T64k's depreciation
 // check passing in every regular period of each covered ledger; and each
 // covered ledger's balance carry-forward from the year current and not
-// stale, read through the ledger's port.
+// stale, read through the ledger's port. T64m6 signs a year close off
+// (ADR-0060 §8): the period close's sign-off with the year's periods, read
+// FOR UPDATE through the ledger's port in the one order, every regular
+// period locked already and every special period closed, which it locks,
+// so that the whole year is locked; the signer's name is recorded.
 package closing
 
 import (
@@ -228,7 +232,11 @@ type EntryStatus struct {
 // checks and problems), and returns its id. Statuses reads the parked
 // entries among ids by id (one the caller may not see is absent); Cancel
 // cancels one as cancelParkedJournalEntry does, as the request's
-// principal, under the ledger's owner rule.
+// principal, under the ledger's owner rule. LockYear reads the periods of
+// a fiscal year, regular and special, of the legal entity's ledgers among
+// ledgers FOR UPDATE in one statement, for a year close's sign-off
+// (ADR-0060 §8): one row per ledger and period, by period, then the
+// leading ledger first, then by code, the order postings lock periods in.
 type Ledger interface {
 	LeadingPeriods(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]Period, error)
 	PeriodsOf(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]LedgerPeriod, error)
@@ -237,6 +245,7 @@ type Ledger interface {
 	PostedRevaluation(ctx context.Context, legalEntity, ledger uuid.UUID, keyDate time.Time) (run uuid.UUID, ok bool, err error)
 	CarryForward(ctx context.Context, legalEntity, ledger uuid.UUID, fiscalYear int16) (CarryForward, error)
 	Lock(ctx context.Context, period uuid.UUID, version int32) error
+	LockYear(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, ledgers []uuid.UUID) ([]LedgerPeriod, error)
 	ProfitAndLoss(ctx context.Context, legalEntity uuid.UUID, fiscalYear, period int16) ([]AccountNet, error)
 	Cited(ctx context.Context, legalEntity, account uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]CitedEntry, error)
 	Accounts(ctx context.Context, legalEntity uuid.UUID, ids []uuid.UUID, numbers []string) ([]Account, error)

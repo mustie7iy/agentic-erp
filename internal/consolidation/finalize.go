@@ -139,6 +139,9 @@ func (e *Endpoints) FinalizeConsolidationRun(ctx context.Context, params gen.Fin
 	if r, err = setStatus(ctx, tx, p, r, RunFinal, ", finalized_by = $5, finalized_at = now()", p.ID); err != nil {
 		return nil, err
 	}
+	if err := e.freeze(ctx, tx, p, r); err != nil {
+		return nil, err
+	}
 	out, err := e.shown(ctx, tx, r)
 	if err != nil {
 		return nil, err

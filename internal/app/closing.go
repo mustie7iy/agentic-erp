@@ -110,6 +110,16 @@ func (closingLedger) CarryForward(ctx context.Context, legalEntity, ledgerID uui
 	return out, err
 }
 
+func (closingLedger) LockYear(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, ledgers []uuid.UUID) ([]closing.LedgerPeriod, error) {
+	ks, err := ledger.ClosePeriods{}.LockYear(ctx, legalEntity, fiscalYear, ledgers)
+	out := make([]closing.LedgerPeriod, len(ks))
+	for i, k := range ks {
+		p := closingPeriod(*k.Period)
+		out[i] = closing.LedgerPeriod{LedgerID: k.LedgerID, Code: k.LedgerCode, Name: k.LedgerName, Leading: k.IsLeading, Period: &p}
+	}
+	return out, err
+}
+
 func (closingLedger) Lock(ctx context.Context, period uuid.UUID, version int32) error {
 	_, err := ledger.ClosePeriods{}.Lock(ctx, period, version)
 	return err

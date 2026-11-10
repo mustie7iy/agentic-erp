@@ -1101,7 +1101,11 @@ ADR-0049 §7), exactly where a component of its code levies its lines'
 (`tax_component.jurisdiction_on_line`, its jurisdiction then a country,
 `tax_component_jurisdiction_on_line`); only with a tax code
 (`journal_line_tax_jurisdiction`), one of the component's country (trigger
-`journal_line_tax_jurisdiction_code`, passed by reversals). The items are
+`journal_line_tax_jurisdiction_code`, passed by reversals) and, where that
+component lists the subdivisions it accepts (`tax_component.subdivisions`,
+migration 000245, the emirate guard: only on a component levying its
+lines', each a subdivision of its country, `tax_component_subdivisions`;
+null accepts any), one of them. The items are
 per jurisdiction. A parked line keeps it (`parked_entry_line.tax_jurisdiction`).
 
 A journal line may declare a tax base (`tax_base_tc`, `tax_base_lc`;
@@ -2531,7 +2535,12 @@ the rows' order, and a posting and a sign-off on a company whose ledgers
 were created out of code order deadlocked; `TestSignOffAndPostingLockInOneOrder`).
 A single posting (one `postingPeriod` call) therefore waits for the first
 period the sign-off holds while holding none the sign-off needs next, then
-reads the committed `locked` status and is refused. Every statement that
+reads the committed `locked` status and is refused. A year close's
+sign-off (T64m6, ADR-0060 §8) reads every period of the year of its covered
+ledgers `FOR UPDATE` in one statement (`ClosePeriods.LockYear`: by period,
+then the leading ledger first, then by code) under its close's row lock,
+before its checks, and then locks each closed special period through
+`LockPeriod` in that order (`TestYearSignOffAndPostingLockInOneOrder`). Every statement that
 locks the `period_status` rows of several ledgers or periods takes them in
 that one order, extended: by legal entity, fiscal year and period, then the
 leading ledger first, then by ledger code, sorted in the statement (an
@@ -3539,9 +3548,25 @@ through the same trigger functions (`closing.check_period_close`,
 `closing.check_close_task`, which name the table they guard), with the
 constraints `year_close_task_check_kind`, `year_close_task_completed`,
 `year_close_task_depends_on`, `year_close_task_checked` and
-`year_close_task_check_passed`; the ledgers are written once. Its sign-off
-(`year_sign_off`) is T64m6's. Schema tests: `db/closing_test.go`
-(`TestYearCloseRules`).
+`year_close_task_check_passed`; the ledgers are written once. Schema
+tests: `db/closing_test.go` (`TestYearCloseRules`).
+
+A year close's sign-offs (T64m6, migration 000244; ADR-0060 §8):
+
+```
+closing.year_sign_off (tenant_id, id, close_id, signed_by, signed_by_name, signed_at, note, locked jsonb)
+                      PK (tenant_id, id); FK (tenant_id, close_id) -> year_close
+```
+
+As `closing.sign_off`, with the signer's name as it was then
+(`signed_by_name`, not blank) and `locked` a list of 1-20 covered ledgers
+(`year_sign_off_locked`), each with its code and name as they were then and
+its special periods of the year (`ledger.period_status`, period 13-16),
+each with whether this sign-off locked it; the regular periods were all
+locked already. Insert-only (`platform.forbid_mutation`), read by close,
+oldest first (`year_sign_off_by_close`); the year close is `signed_off`
+after it, and its latest row is the close's signer. Schema tests:
+`db/closing_test.go` (`TestYearSignOffRules`).
 
 Accrual proposals (T64e, migration 000216), with the closing outbox
 (`AccrualProposed`):
@@ -3655,7 +3680,7 @@ first. The report and the check read a close's comments of a basis
 principals are other contexts', by id, without foreign keys. Schema
 tests: `db/closing_test.go` (`TestVarianceCommentRules`).
 
-The year close (ADR-0060 §8, T64m4-T64m6) is **planned, not built**: a
+The year close (ADR-0060 §8, T64m4-T64m6) is built as described above: a
 company's close of a fiscal year, stored apart from period closes in
 `year_close` (unique per company and year), `year_close_ledger`,
 `year_close_task` and `year_sign_off`, with the same columns and rules as
@@ -3685,7 +3710,8 @@ with the roles `cta`, `retained_earnings`, `nci` and `goodwill`), the
 mapping of each company's accounts (`companies[].chart_of_accounts[].group_account`,
 required on every account of a company in a group), the eliminations
 (`consolidation.eliminations`) and the groups (`consolidation.groups`:
-parent, members with ownership, first period and investment account) are
+parent, members with ownership, origin (T68h), first period and
+investment account) are
 configuration, built in T68a (ADR-0059 §3, As built T68a): they keep no
 table, and migration 000223 adds the permission `consolidation.read`.
 T68b-T68g are built (T68e, the consolidated
@@ -3697,9 +3723,10 @@ difference's acceptance (`accepted`, `accepted_by`, `accepted_at`,
 is computed, kept by the trigger `run_difference_transition`) and the
 permissions `consolidation.difference.accept` and
 `consolidation.run.finalize` (T68g, As built T68g; finalization uses
-`run`'s columns and one-final index of 000224); the tables marked T68h
-below, and the column of the built ones that T68h adds, are planned, not
-built.
+`run`'s columns and one-final index of 000224); migration 000243 adds
+the tables marked T68h below and `run_entry_line.component` (T68h, As
+built T68h); migration 000246 holds an incorporated member's goodwill at
+zero and an acquired member's to the residual (T68h2, As built T68h2).
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as
@@ -3716,8 +3743,8 @@ creates the schema `consolidation` (with its outbox, for
 | `consolidation.run_balance` | A company's translated figures (T68d, insert-only, written while the run runs): per company account and trading partner (`balance`), the local, booked group and translated amounts on its group account, plus the earlier results (`prior_results`, on the retained earnings account) and translation difference (`cta`, a group amount alone) rows, which make each company's rows sum to zero; numbered per company by group account, company account, trading partner code and kind |
 | `consolidation.run_entry`, `consolidation.run_entry_line` | The run's eliminations (T68f; insert-only, written while it runs): intercompany entries per elimination and pair of the run's companies (one per pair, an index), investment and non-controlling interest entries (T68h); each line, never zero, on a group account with the company, company account and trading partner of the row it reverses, or none (a pair's difference), and its component (T68h); each entry has two lines or more summing to zero (`run_entry_balanced`, a deferred constraint trigger) |
 | `consolidation.run_difference` | The intercompany pairs a run matched (T68f; insert-only, written while it runs): per elimination and pair of the run's companies, both amounts, the difference and the tolerance in the group currency's minor units, its status checked against them (matched, within tolerance, open); outside the group (per company and partner) or without a trading partner (per company), the amount alone; numbered in list order (`line_no`), one per elimination, company and partner, none included; an open one accepted by a person while the run is computed (T68g: `accepted` with who, when and why, the reason not blank, its `version` one up; the only change, and the only columns `erp_app` may update; never written accepted but by an import) |
-| `consolidation.run_acquisition` | A member's acquisition figures as a run computed them (T68h): net assets, closing rate, investment, goodwill, non-controlling interest, and whether they were frozen |
-| `consolidation.acquisition`, `consolidation.acquisition_equity` | A member's acquisition figures frozen by its first final run (T68h; insert-only, one per group and member), and its acquisition equity per group account; later runs read them and refuse a changed ownership, first period, investment account or investment |
+| `consolidation.run_acquisition` | A member's acquisition figures as a run's elimination step measured them at the period before its first, or read them frozen (T68h; insert-only, written while the run runs): its origin and the parent's investment account, net assets in local currency and translated at that period's closing rate (numeric(28,12)) and its validity, the investment, goodwill and the non-controlling interest (zero while a run consolidates only members incorporated and held whole, whose investment is their share capital; goodwill is zero for an incorporated member and investment - net assets + the interest for an acquired one, `run_acquisition_goodwill`, T68h2, migration 000246), and whether they were frozen |
+| `consolidation.acquisition`, `consolidation.acquisition_equity` | A member's acquisition frozen by its group's first final run including it (T68h; insert-only, one per group and member, inserted only for a final run of the group, `acquisition_frozen_by_final_run`, but by an import): what `run_acquisition` holds, with the origin, ownership, first period, local currency and the run; and its acquisition equity per group account (never zero, credit negative), from the run's investment entry: an incorporated member's share capital (T68h2); later runs read them and refuse a changed origin, ownership, first period, investment account or investment |
 
 ## 3.25 E-invoicing (`einvoicing`)
 

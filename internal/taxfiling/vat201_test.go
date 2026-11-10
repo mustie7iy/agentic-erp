@@ -117,14 +117,28 @@ func (g vat201) entry(t *testing.T, day string, lines ...string) string {
 // invoice posts a supplier invoice of company 5000 in AED dated the day
 // and posted on another, one item "amount code" on expense account 520000,
 // with the stated tax.
-func (g vat201) invoice(t *testing.T, ref, day, posted, gross, tax, item string) {
+func (g vat201) invoice(t *testing.T, ref, day, posted, gross, tax, item string) string {
+	t.Helper()
+	return g.document(t, "", ref, day, posted, gross, tax, item)
+}
+
+// creditMemo is invoice's credit memo of the invoice credited.
+func (g vat201) creditMemo(t *testing.T, credited, ref, day, posted, gross, tax, item string) {
+	t.Helper()
+	g.document(t, fmt.Sprintf(`"kind": "credit_memo", "reference_invoice_id": %q, `, credited), ref, day, posted, gross, tax, item)
+}
+
+// document posts invoice's supplier document, its kind's fields extra,
+// and returns its id.
+func (g vat201) document(t *testing.T, extra, ref, day, posted, gross, tax, item string) string {
 	t.Helper()
 	f := strings.Fields(item)
-	inv, tag := g.e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": %q,
+	inv, tag := g.e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{%s"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": %q,
 		"invoice_date": %q, "gross_amount": {"amount": %q, "currency": "AED"}, "tax_amount": {"amount": %q, "currency": "AED"},
 		"items": [{"account_id": %q, "description": "Item", "quantity": {"value": "1", "unit": "EA"}, "amount": {"amount": %q, "currency": "AED"}, "tax_code": %q}]}`,
-		g.le, g.e.Supplier, ref, day, gross, tax, g.e.Account(t, "5000", "520000"), f[0], f[1]), "")
+		extra, g.le, g.e.Supplier, ref, day, gross, tax, g.e.Account(t, "5000", "520000"), f[0], f[1]), "")
 	g.e.Must(200, "POST", "/v1/supplier-invoices/"+inv["id"].(string)+":post", fmt.Sprintf(`{"posting_date": %q}`, posted), tag)
+	return inv["id"].(string)
 }
 
 // worked posts the worked set of the first quarter of 2026: standard-rated
@@ -180,8 +194,8 @@ const vat201Boxes = "1a_amount=4000.00/0.00#1 1a_vat=200.00/0.00#1 1a_adjustment
 // blocked VAT recovering nothing, and the adjustments in their boxes; the
 // out-of-scope supply on none. Prepared, the return keeps the boxes in the
 // pack's order and leaves the out-of-scope item unclaimed. Filed, it is
-// amended; the next quarter shows late input VAT apart, held to the pack's
-// AED 10,000 threshold.
+// amended; the next quarter shows late VAT apart, its net shortfall of
+// payable tax held to the pack's AED 10,000 threshold.
 func TestVAT201Golden(t *testing.T) {
 	e, le := vat201Env(t)
 	g := vat201{e: e, le: le}
@@ -237,10 +251,25 @@ func TestVAT201Golden(t *testing.T) {
 	}
 	prior := q2["prior_period"].(map[string]any)
 	want(t, "the threshold, not exceeded", fmt.Sprintf("%v %v", prior["threshold"].(map[string]any)["amount"], prior["above_threshold"]), "10000.00 false")
+	// The threshold is on a net shortfall of payable tax in one earlier
+	// period, all its items together (po:2026-11-09, C11): 11,050.00 of
+	// late input VAT is an overpayment and does not raise it; credit memos
+	// of 31 March, posted in May, taking back 21,050.00 of input VAT make a
+	// shortfall of exactly 10,000.00, which does not either; 0.01 more does.
 	g.invoice(t, "P7", "2026-03-31", "2026-05-06", "210000.00", "10000.00", "200000.00 V5")
-	g.invoice(t, "P8", "2026-03-31", "2026-05-07", "21000.00", "1000.00", "20000.00 V5")
-	q2, _ = e.Must(200, "GET", compute(reg, "2026-04-01"), "", "")
-	want(t, "the threshold, exceeded by 11,050.00 of earlier input VAT", fmt.Sprint(q2["prior_period"].(map[string]any)["above_threshold"]), "true")
+	p8 := g.invoice(t, "P8", "2026-03-31", "2026-05-07", "21000.00", "1000.00", "20000.00 V5")
+	for _, c := range []struct{ name, gross, vat, base, want string }{
+		{"an overpayment of 11,050.00", "", "", "", "false"},
+		{"a shortfall of exactly 10,000.00", "442050.00", "21050.00", "421000.00", "false"},
+		{"a shortfall of 10,000.01", "0.21", "0.01", "0.20", "true"},
+	} {
+		if c.vat != "" { // each case adds to the earlier ones' items
+			g.creditMemo(t, p8, "C-"+c.vat, "2026-03-31", "2026-05-08", c.gross, c.vat, c.base+" V5")
+		}
+		// Not t.Run: the client fails the test it was made with.
+		q2, _ = e.Must(200, "GET", compute(reg, "2026-04-01"), "", "")
+		want(t, "above the threshold, "+c.name, fmt.Sprint(q2["prior_period"].(map[string]any)["above_threshold"]), c.want)
+	}
 }
 
 // boxOf is one box of a draft as code=amount/prior-period part[#items].

@@ -36,8 +36,8 @@ func withCode(code TaxCode, mod func(*TaxCode)) func(c *Config) {
 }
 
 // TestTaxCodesValid: codes with components (GST with a future rate and a
-// non-deductible PST), a reverse charge pair, output codes (one levying
-// its lines' emirate) and a zero code are valid beside the single-rate
+// non-deductible PST), a reverse charge pair, output codes (two levying
+// their lines' emirate, one listing those it accepts) and a zero code are valid beside the single-rate
 // codes.
 func TestTaxCodesValid(t *testing.T) {
 	c := fixture(t)
@@ -47,6 +47,9 @@ func TestTaxCodesValid(t *testing.T) {
 			{Key: "gst", AccountKey: KeyOutput, Account: "211000", RecoverablePercent: "100", Rates: []TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
 		TaxCode{Code: "S5", Description: "UAE standard, by emirate", Direction: TaxOutput, Components: []TaxComponent{
 			{Key: "vat", Jurisdiction: "AE", JurisdictionOnLine: true, AccountKey: KeyOutput, Account: "211000",
+				Rates: []TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
+		TaxCode{Code: "S5L", Description: "UAE standard, in the emirates listed", Direction: TaxOutput, Components: []TaxComponent{
+			{Key: "vat", Jurisdiction: "AE", JurisdictionOnLine: true, Subdivisions: []string{"AE-AZ", "AE-DU"}, AccountKey: KeyOutput, Account: "211000",
 				Rates: []TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}},
 		TaxCode{Code: "Z0", Description: "Zero-rated", Kind: TaxZero, Category: "Z", RatePercent: "0", Account: "140000"})
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
@@ -59,7 +62,12 @@ func TestTaxCodeFindings(t *testing.T) {
 	gst := func(mod func(*TaxComponent)) func(c *Config) { return bc(func(t *TaxCode) { mod(&t.Components[0]) }) }
 	pst := func(mod func(*TaxComponent)) func(c *Config) { return bc(func(t *TaxCode) { mod(&t.Components[1]) }) }
 	rc := func(mod func(*TaxCode)) func(c *Config) { return withCode(reverseCharge(), mod) }
-	p := "companies[1000].tax_codes[I5]"
+	onLine := func(mod func(*TaxComponent)) func(c *Config) {
+		return withCode(TaxCode{Code: "S5", Description: "UAE standard, by emirate", Direction: TaxOutput, Components: []TaxComponent{
+			{Key: "vat", Jurisdiction: "AE", JurisdictionOnLine: true, AccountKey: KeyOutput, Account: "211000",
+				Rates: []TaxRate{{RatePercent: "5", ValidFrom: "2026-01-01"}}}}}, func(t *TaxCode) { mod(&t.Components[0]) })
+	}
+	p, s5 := "companies[1000].tax_codes[I5]", "companies[1000].tax_codes[S5]"
 	tests := []struct {
 		name   string
 		change func(c *Config)
@@ -103,6 +111,12 @@ func TestTaxCodeFindings(t *testing.T) {
 		{"self-assessed without its pair", rc(func(t *TaxCode) { t.Components[1].AccountKey = KeyInput }), "companies[1000].tax_codes[RC].components"},
 		{"jurisdiction on lines of an input code", gst(func(c *TaxComponent) { c.JurisdictionOnLine = true }), p + ".components[gst].jurisdiction_on_line"},
 		{"jurisdiction on lines of a subdivision", pst(func(c *TaxComponent) { c.JurisdictionOnLine = true }), p + ".components[pst_bc].jurisdiction_on_line"},
+		{"subdivisions of a component not levying its lines'", gst(func(c *TaxComponent) { c.Subdivisions = []string{"CA-ON"} }),
+			p + ".components[gst].subdivisions"},
+		{"another country's subdivision", onLine(func(c *TaxComponent) { c.Subdivisions = []string{"AE-DU", "CA-ON"} }), s5 + ".components[vat].subdivisions"},
+		{"a country as a subdivision", onLine(func(c *TaxComponent) { c.Subdivisions = []string{"AE"} }), s5 + ".components[vat].subdivisions"},
+		{"a malformed subdivision", onLine(func(c *TaxComponent) { c.Subdivisions = []string{"AE-dubai"} }), s5 + ".components[vat].subdivisions"},
+		{"a subdivision twice", onLine(func(c *TaxComponent) { c.Subdivisions = []string{"AE-DU", "AE-DU"} }), s5 + ".components[vat].subdivisions"},
 		{"reverse charge without a pair", rc(func(t *TaxCode) {
 			t.Components[0].AccountKey, t.Components[1].AccountKey = KeyInput, KeyInput
 		}), "companies[1000].tax_codes[RC].components"},

@@ -35,3 +35,13 @@ func TestKeptYearOutsideRequest(t *testing.T) {
 		t.Error("outside a unit of work: got no error, want one")
 	}
 }
+
+// TestLockYearOutsideRequest: a year close's sign-off locks a year's
+// periods only in a request's unit of work; its rows, lock order and
+// database failures are tested through POST /v1/year-closes/{id}:signOff
+// (internal/closing).
+func TestLockYearOutsideRequest(t *testing.T) {
+	if _, err := (ledger.ClosePeriods{}).LockYear(context.Background(), uuid.New(), 2026, nil); err == nil {
+		t.Error("outside a unit of work: got no error, want one")
+	}
+}

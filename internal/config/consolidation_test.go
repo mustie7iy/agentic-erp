@@ -34,7 +34,7 @@ func withGroup(t *testing.T) *Config {
 		Eliminations: []Elimination{{Code: "IC_BALANCES", Name: "Intercompany receivables and payables", Accounts: []string{"G1250", "G2250"},
 			DifferenceAccount: "G6950", Tolerance: "10.00"}},
 		Groups: []ConsolidationGroup{{Code: "ACME", Name: "Acme group", Parent: "2000",
-			Members: []GroupMember{{Company: "1000", OwnershipPercent: "80", FirstPeriod: "2026-11", InvestmentAccount: "150000"}}}},
+			Members: []GroupMember{{Company: "1000", OwnershipPercent: "80", Origin: OriginAcquired, FirstPeriod: "2026-11", InvestmentAccount: "150000"}}}},
 	}
 	parent := c.Company("2000")
 	parent.ChartOfAccounts = append(parent.ChartOfAccounts, Account{Number: "150000", Name: "Investment in Acme Corp US", Type: Asset, GroupAccount: "G1500"})
@@ -160,6 +160,8 @@ func groupCases() []consolidationCase {
 		{"an ownership of 0", member(func(m *GroupMember) { m.OwnershipPercent = "0" }), m + ".ownership_percent"},
 		{"an ownership above 100", member(func(m *GroupMember) { m.OwnershipPercent = "100.0001" }), m + ".ownership_percent"},
 		{"an ownership with five decimals", member(func(m *GroupMember) { m.OwnershipPercent = "80.00001" }), m + ".ownership_percent"},
+		{"no origin", member(func(m *GroupMember) { m.Origin = "" }), m + ".origin"},
+		{"an origin of its own", member(func(m *GroupMember) { m.Origin = "merged" }), m + ".origin"},
 		{"a first period without its year", member(func(m *GroupMember) { m.FirstPeriod = "11" }), m + ".first_period"},
 		{"a special period", member(func(m *GroupMember) { m.FirstPeriod = "2026-13" }), m + ".first_period"},
 		{"period 0", member(func(m *GroupMember) { m.FirstPeriod = "2026-00" }), m + ".first_period"},
@@ -173,7 +175,7 @@ func groupCases() []consolidationCase {
 			c.Companies = append(c.Companies, *c.Company("1000"))
 			c.Companies[2].Code = "4000"
 			g := &c.Consolidation.Groups[0]
-			g.Members = append(g.Members, GroupMember{Company: "4000", OwnershipPercent: "100", FirstPeriod: "2026-11", InvestmentAccount: "150000"})
+			g.Members = append(g.Members, GroupMember{Company: "4000", OwnershipPercent: "100", Origin: OriginIncorporated, FirstPeriod: "2026-11", InvestmentAccount: "150000"})
 		}, p + ".members[4000].investment_account"},
 		{"more than 50 groups", func(c *Config) {
 			for i := range 50 {
@@ -247,6 +249,14 @@ func TestConsolidationReads(t *testing.T) {
 	if y, p, ok := cs.Groups[0].Members[0].First(); y != 2026 || p != 11 || !ok {
 		t.Errorf("first period: got %d-%d %v, want 2026-11 true", y, p, ok)
 	}
+	for _, c := range []struct {
+		ownership string
+		want      bool
+	}{{"80", false}, {"100", true}, {"100.0000", true}, {"99.9999", false}, {"a hundred", false}} {
+		if got := (GroupMember{OwnershipPercent: c.ownership}).WhollyOwned(); got != c.want {
+			t.Errorf("WhollyOwned of %s%%: got %v, want %v", c.ownership, got, c.want)
+		}
+	}
 }
 
 // TestConsolidationTiers: names are cosmetic, the rate type and
@@ -264,6 +274,7 @@ func TestConsolidationTiers(t *testing.T) {
 	cs.Eliminations[0].DifferenceAccount = "G5000"
 	cs.Groups[0].Name = "Acme"
 	cs.Groups[0].Members[0].OwnershipPercent = "90"
+	cs.Groups[0].Members[0].Origin = OriginIncorporated
 	cs.GroupAccount("G4000").Type = Expense
 	cs.Accounts = append(cs.Accounts, GroupAccount{Number: "G4100", Name: "Other revenue", Type: Revenue})
 	cs.Eliminations = append(cs.Eliminations, Elimination{Code: "IC_RESULTS", Name: "Results", Accounts: []string{"G4100"}, DifferenceAccount: "G6950", Tolerance: "0"})
@@ -281,6 +292,7 @@ func TestConsolidationTiers(t *testing.T) {
 		"consolidation.eliminations[IC_RESULTS]":                     TierPostingRelated,
 		"consolidation.groups[ACME].name":                            TierCosmetic,
 		"consolidation.groups[ACME].members[1000].ownership_percent": TierStructural,
+		"consolidation.groups[ACME].members[1000].origin":            TierStructural,
 		"companies[1000].chart_of_accounts[400000].group_account":    TierStructural,
 	}
 	if len(diffs) != len(want) {

@@ -123,7 +123,7 @@ func (r groupReader) toAPI(g config.ConsolidationGroup) gen.ConsolidationGroup {
 		year, period, _ := m.First() // validated: well formed
 		investment := gen.AssetAccountRef{Number: m.InvestmentAccount, Name: names[m.InvestmentAccount]}
 		out.Members[i] = gen.ConsolidationMember{LegalEntityID: c.LegalEntityID, CompanyCode: c.CompanyCode, CompanyName: c.CompanyName,
-			LocalCurrency: c.LocalCurrency, OwnershipPercent: m.OwnershipPercent, FirstFiscalYear: int32(year), FirstFiscalPeriod: int32(period),
+			LocalCurrency: c.LocalCurrency, OwnershipPercent: m.OwnershipPercent, Origin: m.Origin, FirstFiscalYear: int32(year), FirstFiscalPeriod: int32(period),
 			InvestmentAccount: investment}
 	}
 	return out

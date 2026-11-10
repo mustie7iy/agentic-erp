@@ -56,14 +56,33 @@ type ConsolidationGroup struct {
 }
 
 // GroupMember is a subsidiary of a group: its company, the parent's
-// ownership in percent, the fiscal year and regular period from whose
-// first day it is consolidated (YYYY-PP), and the parent's account holding
-// the investment in it.
+// ownership in percent, how the parent came to hold it (Origin), the
+// fiscal year and regular period from whose first day it is consolidated
+// (YYYY-PP), and the parent's account holding the investment in it.
 type GroupMember struct {
 	Company           string `yaml:"company" json:"company"`
 	OwnershipPercent  string `yaml:"ownership_percent" json:"ownership_percent"`
+	Origin            string `yaml:"origin" json:"origin"`
 	FirstPeriod       string `yaml:"first_period" json:"first_period"`
 	InvestmentAccount string `yaml:"investment_account" json:"investment_account"`
+}
+
+// How the parent came to hold a member (ADR-0059 As built T68h; the
+// accounting specialist's B5, po:2026-11-09): incorporated by it, so IFRS
+// 3 does not apply and the investment is eliminated against the member's
+// share capital (As built T68h2), or acquired, a business combination
+// with goodwill and fair values. A run consolidates only a member the
+// parent incorporated and holds whole; the others wait for the steps that
+// compute goodwill and the non-controlling interest.
+const (
+	OriginIncorporated = "incorporated"
+	OriginAcquired     = "acquired"
+)
+
+// WhollyOwned reports whether the parent holds all of the member.
+func (m GroupMember) WhollyOwned() bool {
+	o, err := money.ParseDecimal(m.OwnershipPercent, ownershipDecimals)
+	return err == nil && o == ownershipMax
 }
 
 // The roles of group accounts (ADR-0059 §3): the currency translation
@@ -352,13 +371,16 @@ func (v *validator) groupCompany(c *Config, p, group, company string, in map[str
 }
 
 // groupMember checks one member: its company (groupCompany), its ownership
-// above 0 and at most 100 percent with up to four decimals, its first
-// period, and its investment account (memberInvestment).
+// above 0 and at most 100 percent with up to four decimals, its origin,
+// its first period, and its investment account (memberInvestment).
 func (v *validator) groupMember(c *Config, gp string, g ConsolidationGroup, m GroupMember, in, investments map[string]string) {
 	p := gp + ".members[" + m.Company + "]"
 	v.groupCompany(c, p+".company", g.Code, m.Company, in)
 	if o, err := money.ParseDecimal(m.OwnershipPercent, ownershipDecimals); err != nil || o <= 0 || o > ownershipMax {
 		v.err(p+".ownership_percent", "a plain decimal above 0 and at most 100, with up to four decimals")
+	}
+	if m.Origin != OriginIncorporated && m.Origin != OriginAcquired {
+		v.err(p+".origin", "%q is not how the parent came to hold the member: incorporated or acquired", m.Origin)
 	}
 	if _, _, ok := m.First(); !ok {
 		v.err(p+".first_period", "%q is not a fiscal year and regular period (YYYY-PP, period 01-12)", m.FirstPeriod)
