@@ -81,24 +81,38 @@ func TestHouseBankCurrencyFromT012K(t *testing.T) {
 
 // TestHouseBankCurrencyRefused: an account without a currency is not
 // guessed to be in the company's, which could never be corrected under
-// the bank's code; it is drafted with a value validation refuses, noted,
-// as an account in a currency the reference data does not know is.
+// the bank's code; it is drafted in its G/L account's currency (SKB1
+// WAERS, po:2026-11-09, A5), noted, and with neither, with a value
+// validation refuses, noted, as an account in a currency the reference
+// data does not know is.
 func TestHouseBankCurrencyRefused(t *testing.T) {
-	missing := "companies[3000].house_banks[MUSD].currency: T012K gives the account no currency (WAERS); set it"
+	missing := "companies[3000].house_banks[MUSD].currency: T012K gives the account no currency (WAERS), nor does its G/L account 102000 (SKB1 WAERS); set it"
+	ledger := "companies[3000].house_banks[MUSD].currency: T012K gives the account no currency (WAERS), so SAP does not restrict it and its G/L account's binds it: "
 	for name, c := range map[string]struct {
-		waers, companyWaers, currency, note, errors string
+		waers, ledgerWaers, companyWaers, currency, note, errors string
 	}{
-		"missing":          {"", "CAD", unknownCurrency, missing, "companies[3000].house_banks[MUSD].currency"},
-		"blank":            {"   ", "CAD", unknownCurrency, missing, "companies[3000].house_banks[MUSD].currency"},
-		"unknown currency": {"XYZ", "CAD", "XYZ", "companies[3000].house_banks[MUSD].currency: the account is in XYZ (T012K WAERS)", "companies[3000].house_banks[MUSD].currency"},
-		"missing, and the company's too": {"", "", unknownCurrency, missing,
+		"missing":          {"", "", "CAD", unknownCurrency, missing, "companies[3000].house_banks[MUSD].currency"},
+		"blank":            {"   ", " ", "CAD", unknownCurrency, missing, "companies[3000].house_banks[MUSD].currency"},
+		"unknown currency": {"XYZ", "", "CAD", "XYZ", "companies[3000].house_banks[MUSD].currency: the account is in XYZ (T012K WAERS)", "companies[3000].house_banks[MUSD].currency"},
+		"missing, and the company's too": {"", "", "", unknownCurrency, missing,
 			"companies[3000].currency companies[3000].house_banks[MUSD].currency"},
+		"missing, and no G/L account in SKB1":      {"", "drop", "CAD", unknownCurrency, missing, "companies[3000].house_banks[MUSD].currency"},
+		"missing, the G/L account's in another":    {"", "USD", "CAD", "USD", ledger + "USD, from SKB1 WAERS of its G/L account 102000", ""},
+		"missing, the G/L account's the company's": {"", "CAD", "CAD", "", ledger + "CAD, from SKB1 WAERS of its G/L account 102000", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := sap.GenerateMock(42, "2026")
 			for i := range e.T012K {
 				if e.T012K[i].HBKID == "MUSD" {
 					e.T012K[i].WAERS = c.waers
+				}
+			}
+			for i := range e.SKB1 {
+				if e.SKB1[i].BUKRS == "3000" && e.SKB1[i].SAKNR == "0000102000" {
+					e.SKB1[i].WAERS = c.ledgerWaers
+					if c.ledgerWaers == "drop" { // the account is not in SKB1 at all
+						e.SKB1[i].SAKNR = "0000102999"
+					}
 				}
 			}
 			for i := range e.T001 {

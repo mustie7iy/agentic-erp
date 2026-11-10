@@ -82,7 +82,7 @@ func reportToAPI(r Report) gen.MigrationRunReport {
 // data migration rewriting stored reports. A table a stored report
 // predates reads as no rows.
 func extractToAPI(c map[string]int) gen.MigrationExtractCounts {
-	return gen.MigrationExtractCounts{T001: c["T001"], Skb1: c["SKB1"], Lfa1: c["LFA1"], Lfb1: c["LFB1"], Lfbk: c["LFBK"], Ekko: c["EKKO"],
+	return gen.MigrationExtractCounts{T001: c["T001"], Skb1: c["SKB1"], Lfa1: c["LFA1"], Adrc: c["ADRC"], Lfb1: c["LFB1"], Lfbk: c["LFBK"], Ekko: c["EKKO"],
 		Ekpo: c["EKPO"], Mseg: c["MSEG"], Rbkp: c["RBKP"], Rseg: c["RSEG"], Acdoca: c["ACDOCA"], T052: c["T052"], T007a: c["T007A"],
 		T030: c["T030"], T169g: c["T169G"], T012k: c["T012K"], T074: c["T074"], AgrDefine: c["AGR_DEFINE"], AgrTcodes: c["AGR_TCODES"],
 		AgrUsers: c["AGR_USERS"], Csks: c["CSKS"], Cskt: c["CSKT"], Cepc: c["CEPC"], Cepct: c["CEPCT"], CepcBukrs: c["CEPC_BUKRS"],

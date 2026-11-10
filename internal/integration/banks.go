@@ -18,7 +18,9 @@ import (
 // by its bank country: a Canadian one (BANKS CA), which has no IBAN, as
 // scheme ca with the institution and transit numbers its bank key holds
 // in the Canadian Payments Association's electronic routing form, 0 +
-// institution + transit (cabank.SplitMemberID; ADR-0038, T72d); any other
+// institution + transit, or in the paper form, transit-institution, which
+// legacy SAP data holds (cabank.SplitBankKey; ADR-0038, T72d;
+// po:2026-11-09, A6); any other
 // as an IBAN when it is one, or else a domestic account.
 
 // canadian reports whether the bank account is in Canada.
@@ -51,7 +53,7 @@ func supplierBank(v sap.LFA1, b sap.LFBK, today time.Time) partner.BankInput {
 	switch {
 	case canadian(b):
 		in.AccountScheme = "ca"
-		in.InstitutionNumber, in.TransitNumber, _ = cabank.SplitMemberID(b.BANKL)
+		in.InstitutionNumber, in.TransitNumber, _ = cabank.SplitBankKey(b.BANKL)
 	case bankfile.ValidIBAN(b.BANKN):
 		in.AccountScheme = "iban"
 	}
@@ -76,8 +78,9 @@ func (q *qualityCheck) vendorBanks() {
 		if !canadian(b) {
 			continue
 		}
-		if _, _, ok := cabank.SplitMemberID(b.BANKL); !ok {
-			q.add(SevError, "LFBK", lifnr, "bank key %q of the Canadian bank account is not a routing number as 0 + institution (3 digits) + transit (5 digits)", b.BANKL)
+		if _, _, ok := cabank.SplitBankKey(b.BANKL); !ok {
+			q.add(SevError, "LFBK", lifnr, "bank key %q of the Canadian bank account is not a routing number as 0 + institution (3 digits) + transit (5 digits), "+
+				"or transit-institution (12345-001)", b.BANKL)
 		}
 		if !cabank.ValidNumber(cabank.Digits(b.BANKN)) {
 			q.add(SevError, "LFBK", lifnr, "the Canadian bank account number is not 7-12 digits")

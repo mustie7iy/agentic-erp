@@ -618,23 +618,29 @@ others record a confirmation.
   the paper (MICR) form transit-institution with a hyphen (`12345-001`) and
   sometimes eight digits without the leading zero (`00112345`). The
   hyphenated form converts without guessing (`12345-001` is `000112345`)
-  and is to be accepted (tracker leaf); ambiguous forms stay refused.
-  Profile LFBK-BANKL and BNKA-BANKL for BANKS `CA` before the load. The
+  and is accepted (sapvend) for vendor accounts and house banks alike;
+  ambiguous forms stay refused by the quality gate (vendors) or noted for
+  the reviewers (house banks). Before the load, profile LFBK-BANKL and
+  BNKA-BANKL for BANKS `CA` on the pilot system to see which forms it holds,
+  for example by the pattern of each value (nine digits with a leading
+  zero, five digits-hyphen-three, other) and their counts. The
   fields are confirmed (A5, [H]): T012K-BANKN the account number (an IBAN,
   if used, in TIBAN), T012-BANKS the bank country, T012-BANKL the bank key.
 - Each house bank account (T012K) is generated in its currency, T012K-WAERS:
   an account in another currency than the company's is noted, and the draft
   validates once its ledger account is flagged `revalue_foreign_currency`
-  with its unrealised gain and loss; an account without WAERS is drafted with
-  `currency: UNKNOWN`, which validation refuses until a reviewer sets it
+  with its unrealised gain and loss; an account without WAERS is drafted in
+  its G/L account's currency (SKB1-WAERS of T012K-HKONT, which the extract's
+  SKB1 should therefore carry), noted, and with `currency: UNKNOWN` where
+  SKB1 gives none either, which validation refuses until a reviewer sets it
   (ADR-0038). Confirm that the extract's T012K carries WAERS, and what an
   empty one means in your system, before go-live: a bank's currency never
   changes once it is created. Answered (A5): T012K-WAERS is the currency
   [H]. An empty one [M, to verify on the pilot system] means no currency was
   maintained, so SAP does not restrict the account; the binding currency is
   then that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the
-  company code's, which the draft is to take when WAERS is blank (tracker
-  leaf). From S/4HANA 1610 house bank accounts are kept in Bank Account
+  company code's, which the draft takes when WAERS is blank (sapvend; to
+  verify on the pilot system). From S/4HANA 1610 house bank accounts are kept in Bank Account
   Management (FI-BAM: FCLM_BAM_AMD, linked by FCLM_BAM_ACLINK2); T012K is
   still filled and read, and BAM's currency list and validity are a useful
   cross-check.
@@ -660,28 +666,30 @@ others record a confirmation.
   parameters per company code, restricted to those ZWELS allows, and an
   item's fixed method wins over both. The method order and T042I's account
   are a tracker leaf; verify both on the pilot system.
-- Vendor addresses: the extract's LFA1 may carry the vendor's street with
-  house number, city, postal code and region as STRAS, ORT01, PSTLZ and
-  REGIO, which the load gives the supplier as its `legal` address (product
-  owner 2026-11-04, ADR-0054 As built). These field names were written from
-  memory; the SAP specialist answered (A1, [H]): LFA1-STRAS, ORT01, PSTLZ,
-  REGIO and LAND1 exist and are filled, but as a redundant copy of the
-  central address, and LFA1-STRAS (35 characters) holds street and house
-  number together, which cannot be split reliably. The address is to be
-  read from ADRC (tracker leaf): street ADRC-STREET, house number
-  ADRC-HOUSE_NUM1 (ADRC-HOUSE_NUM2 its supplement), city ADRC-CITY1, postal
-  code ADRC-POST_CODE1, region ADRC-REGION, country ADRC-COUNTRY, joined by
-  LFA1-ADRNR = ADRC-ADDRNUMBER in the same client, filtered to ADRC-NATION
-  blank (the international version; other values are other scripts) and
-  ADRC-DATE_FROM <= the cutover date <= ADRC-DATE_TO. Many systems hold the
-  house number in STREET with HOUSE_NUM1 blank, which is normal, not an
-  error; ADRC-STR_SUPPL1/2/3 and ADRC-LOCATION hold further lines if the
-  legal address needs them. Until then the fields are
-  optional: a vendor without them, as every vendor of an OData extract is
-  (the mapping does not carry them), loads without an address; one with a
-  street but no city, a city but no street, or a text longer than an
-  address holds is warned of by the quality gate and loads without one. A
-  vendor an earlier run created keeps the address it has.
+- Vendor addresses: the load first took the vendor's street with house
+  number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
+  REGIO (product owner 2026-11-04, ADR-0054 As built), field names written
+  from memory. The SAP specialist answered (A1, [H]): those fields exist
+  and are filled, but as a redundant copy of the central address, and
+  LFA1-STRAS (35 characters) holds street and house number together. The
+  load now reads ADRC (sapvend): LFA1-ADRNR = ADRC-ADDRNUMBER in the
+  extract's client, the row with ADRC-NATION blank (the international
+  version; other values are other scripts) and ADRC-DATE_FROM <= the run's
+  day <= ADRC-DATE_TO; street ADRC-STREET followed by ADRC-HOUSE_NUM1 and
+  ADRC-HOUSE_NUM2, further lines ADRC-STR_SUPPL1/2/3 and ADRC-LOCATION as
+  the address's second line, city ADRC-CITY1, postal code ADRC-POST_CODE1,
+  region ADRC-REGION, country ADRC-COUNTRY (LFA1-LAND1 when blank). A blank
+  HOUSE_NUM1 is normal: many systems hold the house number in STREET. The
+  extract exports ADRC for the vendors' ADRNR (the run reads only those of
+  the scope's vendors). A vendor without ADRNR, as every vendor of an OData
+  extract is (the mapping does not carry it), loads without an address; a
+  vendor naming an address the extract holds no valid row of, or several,
+  one without a street name or a city, or a text longer than an address
+  holds is warned of by the quality gate and loads without one. A vendor an
+  earlier run created keeps the address it has. **To verify on the pilot
+  system:** whether its countries print the house number before the street
+  (the load keeps SAP's field order, street then number, and does not
+  apply SAP's per-country address layout, which the answers do not give).
 - The controlling master data (T56h; ADR-0050 §10 states the tables from
   memory, and internal/sap's types say which fields are not even in its
   list): that CSKS carries KOKRS, KOSTL, DATAB, DATBI, BUKRS, KOSAR, VERAK,
@@ -823,10 +831,22 @@ others record a confirmation.
   000 without items from before S/4HANA; a year-end valuation posted to the
   reconciliation account rather than an adjustment account (by
   configuration: the valuation runs' AWTYP or BLART, T030H); and items open
-  at the key date but cleared later (AUGDT after the key date). A check per
-  account at the key date, only over lines with LIFNR filled, UMSKZ blank
-  and BSTAT not `S`, reported rather than refused when it fails, is a
-  tracker leaf.
+  at the key date but cleared later (AUGDT after the key date). **Built
+  (sapvend):** the quality gate checks each vendor reconciliation account
+  (SKB1-MITKZ `K`, T074's special G/L accounts left out) at the key date,
+  the company's latest posting date (BUDAT) in the extract: the open vendor
+  items, lines with LIFNR filled, UMSKZ blank and BSTAT not `S`, open at
+  the key date (AUGBL blank, or AUGDT after it), against the account's
+  balance, its lines without the noted items. A difference is a `warning`
+  keyed `<BUKRS>/<account>`, never an error, and splits it into lines
+  without a vendor, special G/L lines and cleared vendor items that do not
+  net to zero in the extract (a clearing in another year or on another
+  account), and counts the open items of vendors whose LFB1-AKONT is now
+  another account. The extract should carry ACDOCA-AUGDT and BSTAT (both
+  optional: without AUGDT an item with AUGBL counts as cleared). The
+  period 000 carry-forward and a valuation posted to the account are named
+  but not told apart (the extract carries no POPER, AWTYP or T030H); verify
+  the check against the pilot's data.
 
 **Facts still awaited from the pilot customer** (the customer questionnaire
 of 2026-11-09, not answered yet). Each has a **planning default, to be

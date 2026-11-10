@@ -120424,6 +120424,10 @@ func (s *MigrationExtractCounts) encodeFields(e *jx.Encoder) {
 		e.Int(s.Lfa1)
 	}
 	{
+		e.FieldStart("adrc")
+		e.Int(s.Adrc)
+	}
+	{
 		e.FieldStart("lfb1")
 		e.Int(s.Lfb1)
 	}
@@ -120541,39 +120545,40 @@ func (s *MigrationExtractCounts) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfMigrationExtractCounts = [32]string{
+var jsonFieldsNameOfMigrationExtractCounts = [33]string{
 	0:  "t001",
 	1:  "skb1",
 	2:  "lfa1",
-	3:  "lfb1",
-	4:  "lfbk",
-	5:  "ekko",
-	6:  "ekpo",
-	7:  "mseg",
-	8:  "rbkp",
-	9:  "rseg",
-	10: "acdoca",
-	11: "t052",
-	12: "t007a",
-	13: "t030",
-	14: "t169g",
-	15: "t012k",
-	16: "t074",
-	17: "agr_define",
-	18: "agr_tcodes",
-	19: "agr_users",
-	20: "csks",
-	21: "cskt",
-	22: "cepc",
-	23: "cepct",
-	24: "cepc_bukrs",
-	25: "fagl_segm",
-	26: "fagl_segmt",
-	27: "tka01",
-	28: "setheader",
-	29: "setheadert",
-	30: "setnode",
-	31: "setleaf",
+	3:  "adrc",
+	4:  "lfb1",
+	5:  "lfbk",
+	6:  "ekko",
+	7:  "ekpo",
+	8:  "mseg",
+	9:  "rbkp",
+	10: "rseg",
+	11: "acdoca",
+	12: "t052",
+	13: "t007a",
+	14: "t030",
+	15: "t169g",
+	16: "t012k",
+	17: "t074",
+	18: "agr_define",
+	19: "agr_tcodes",
+	20: "agr_users",
+	21: "csks",
+	22: "cskt",
+	23: "cepc",
+	24: "cepct",
+	25: "cepc_bukrs",
+	26: "fagl_segm",
+	27: "fagl_segmt",
+	28: "tka01",
+	29: "setheader",
+	30: "setheadert",
+	31: "setnode",
+	32: "setleaf",
 }
 
 // Decode decodes MigrationExtractCounts from json.
@@ -120581,7 +120586,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode MigrationExtractCounts to nil")
 	}
-	var requiredBitSet [4]uint8
+	var requiredBitSet [5]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -120621,8 +120626,20 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"lfa1\"")
 			}
-		case "lfb1":
+		case "adrc":
 			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int()
+				s.Adrc = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"adrc\"")
+			}
+		case "lfb1":
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int()
 				s.Lfb1 = int(v)
@@ -120634,7 +120651,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"lfb1\"")
 			}
 		case "lfbk":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int()
 				s.Lfbk = int(v)
@@ -120646,7 +120663,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"lfbk\"")
 			}
 		case "ekko":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int()
 				s.Ekko = int(v)
@@ -120658,7 +120675,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"ekko\"")
 			}
 		case "ekpo":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int()
 				s.Ekpo = int(v)
@@ -120670,7 +120687,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"ekpo\"")
 			}
 		case "mseg":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
 				s.Mseg = int(v)
@@ -120682,7 +120699,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"mseg\"")
 			}
 		case "rbkp":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int()
 				s.Rbkp = int(v)
@@ -120694,7 +120711,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rbkp\"")
 			}
 		case "rseg":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int()
 				s.Rseg = int(v)
@@ -120706,7 +120723,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rseg\"")
 			}
 		case "acdoca":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int()
 				s.Acdoca = int(v)
@@ -120718,7 +120735,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"acdoca\"")
 			}
 		case "t052":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int()
 				s.T052 = int(v)
@@ -120730,7 +120747,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"t052\"")
 			}
 		case "t007a":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int()
 				s.T007a = int(v)
@@ -120742,7 +120759,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"t007a\"")
 			}
 		case "t030":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int()
 				s.T030 = int(v)
@@ -120754,7 +120771,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"t030\"")
 			}
 		case "t169g":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int()
 				s.T169g = int(v)
@@ -120766,7 +120783,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"t169g\"")
 			}
 		case "t012k":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
 				s.T012k = int(v)
@@ -120778,7 +120795,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"t012k\"")
 			}
 		case "t074":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int()
 				s.T074 = int(v)
@@ -120790,7 +120807,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"t074\"")
 			}
 		case "agr_define":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int()
 				s.AgrDefine = int(v)
@@ -120802,7 +120819,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"agr_define\"")
 			}
 		case "agr_tcodes":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int()
 				s.AgrTcodes = int(v)
@@ -120814,7 +120831,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"agr_tcodes\"")
 			}
 		case "agr_users":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int()
 				s.AgrUsers = int(v)
@@ -120826,7 +120843,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"agr_users\"")
 			}
 		case "csks":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int()
 				s.Csks = int(v)
@@ -120838,7 +120855,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"csks\"")
 			}
 		case "cskt":
-			requiredBitSet[2] |= 1 << 5
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int()
 				s.Cskt = int(v)
@@ -120850,7 +120867,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"cskt\"")
 			}
 		case "cepc":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int()
 				s.Cepc = int(v)
@@ -120862,7 +120879,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"cepc\"")
 			}
 		case "cepct":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
 				s.Cepct = int(v)
@@ -120874,7 +120891,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"cepct\"")
 			}
 		case "cepc_bukrs":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int()
 				s.CepcBukrs = int(v)
@@ -120886,7 +120903,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"cepc_bukrs\"")
 			}
 		case "fagl_segm":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int()
 				s.FaglSegm = int(v)
@@ -120898,7 +120915,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fagl_segm\"")
 			}
 		case "fagl_segmt":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int()
 				s.FaglSegmt = int(v)
@@ -120910,7 +120927,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fagl_segmt\"")
 			}
 		case "tka01":
-			requiredBitSet[3] |= 1 << 3
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int()
 				s.Tka01 = int(v)
@@ -120922,7 +120939,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tka01\"")
 			}
 		case "setheader":
-			requiredBitSet[3] |= 1 << 4
+			requiredBitSet[3] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int()
 				s.Setheader = int(v)
@@ -120934,7 +120951,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"setheader\"")
 			}
 		case "setheadert":
-			requiredBitSet[3] |= 1 << 5
+			requiredBitSet[3] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int()
 				s.Setheadert = int(v)
@@ -120946,7 +120963,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"setheadert\"")
 			}
 		case "setnode":
-			requiredBitSet[3] |= 1 << 6
+			requiredBitSet[3] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int()
 				s.Setnode = int(v)
@@ -120958,7 +120975,7 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"setnode\"")
 			}
 		case "setleaf":
-			requiredBitSet[3] |= 1 << 7
+			requiredBitSet[4] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int()
 				s.Setleaf = int(v)
@@ -120978,11 +120995,12 @@ func (s *MigrationExtractCounts) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [4]uint8{
+	for i, mask := range [5]uint8{
 		0b11111111,
 		0b11111111,
 		0b11111111,
 		0b11111111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

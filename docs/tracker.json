@@ -895,9 +895,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Canadian bank keys in the paper form TTTTT-III accepted (SAP specialist, po:2026-11-09, A6 [M], to verify on the pilot system): legacy SAP data holds the MICR form, transit and institution with a hyphen (12345-001), beside the electronic routing form; the extract converts it without guessing (12345-001 becomes 000112345) for vendor accounts (LFBK) and house banks (T012-BANKL), and ambiguous forms such as eight digits without the leading zero stay refused by the quality gate; LFBK-BANKL and BNKA-BANKL of bank country CA profiled before the load",
-        "r": "internal/sap · cabank.SplitMemberID · integration quality gate (LFBK) · delivery/sapconfig (house banks) · ADR-0038 As built (T72d, answered) · docs/migration.md",
+        "r": "internal/platform/cabank SplitBankKey (the paper form only as five digits, a hyphen and three) · integration supplierBank, quality gate (LFBK) · delivery/sapconfig canadianAccount (house banks) · mock Prairie Freight in the paper form · TestSplitBankKey, TestCanadianHouseBank · ADR-0038 As built (T72d, built in sapvend) · docs/migration.md (profile LFBK-BANKL and BNKA-BANKL before the load)",
         "src": "po:2026-11-09",
         "c": []
        },
@@ -3281,9 +3281,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Migrated suppliers' addresses from SAP's central address ADRC instead of LFA1 (SAP specialist, po:2026-11-09, A1 [H]): LFA1-STRAS, ORT01, PSTLZ and REGIO are a redundant copy of the central address, and STRAS (35 characters) holds street and house number together; the extract reads ADRC-STREET, HOUSE_NUM1 (HOUSE_NUM2 its supplement), CITY1, POST_CODE1, REGION and COUNTRY, joined by LFA1-ADRNR = ADRC-ADDRNUMBER in the same client, with ADRC-NATION blank (the international version) and the cutover date between ADRC-DATE_FROM and DATE_TO; a blank HOUSE_NUM1 (the house number typed into STREET) is normal, not a finding; STR_SUPPL1-3 and LOCATION considered where the legal address needs further lines; the supplier's legal address, the quality gate's warnings and the purchase order document's supplier block take the ADRC fields",
-        "r": "internal/sap (LFA1, ADRC) · integration vendorAddress · docs/migration.md \"What to check on a real SAP system\" (vendor addresses, answered) · ADR-0054 As built (podocb, answered)",
+        "r": "internal/sap ADRC, LFA1-ADRNR (STRAS, ORT01, PSTLZ, REGIO no longer read), FilterScope, mock (Tyrell's old address ended in 2019) · integration addresses.go vendorAddress (the international row valid on the run's day; line 1 STREET HOUSE_NUM1 HOUSE_NUM2, line 2 STR_SUPPL1-3 and LOCATION; COUNTRY, else LAND1), quality gate warnings · MigrationExtractCounts.adrc · TestCentralAddress, TestVendorAddresses · walkthrough step 4 (order_document) · docs/migration.md (vendor addresses, built; house number layout per country to verify) · ADR-0054 As built (sapvend) · 03-data-model §3.17",
         "src": "po:2026-11-09",
         "c": []
        },
@@ -8799,9 +8799,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A house bank account without T012K-WAERS drafted in its G/L account's currency (SAP specialist, po:2026-11-09, A5 [M], to verify on the pilot system): an empty WAERS means no currency was maintained, so SAP does not restrict the account, and the binding currency is that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the company code's; the configuration draft takes SKB1-WAERS, noted for the reviewers, instead of currency UNKNOWN, which remains where neither gives a currency; FI-BAM (FCLM_BAM_AMD) a possible cross-check",
-      "r": "delivery/sapconfig (house banks) · internal/sap T012K, SKB1 · ADR-0038 As built (SAP house banks in their account's currency, answered) · docs/migration.md",
+      "r": "delivery/sapconfig houseBankCurrency, ledgerCurrency (SKB1 WAERS of T012K-HKONT, noted; UNKNOWN where neither gives one) · internal/sap SKB1.WAERS · TestHouseBankCurrencyRefused · ADR-0038 As built (SAP house banks in their account's currency, built in sapvend) · docs/migration.md (house bank currency; to verify on the pilot system)",
       "src": "po:2026-11-09",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
@@ -9546,9 +9546,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP's open vendor items against their reconciliation account's balance (ADR-0060 §9; SAP specialist, po:2026-11-09, A15 [M], to verify on the pilot system): a control per reconciliation account at the key date, the sum of the open vendor items (lines with LIFNR filled, UMSKZ blank and BSTAT not S, open at the key date by AUGDT) against the account's balance, a difference reported in the run's report rather than refused; its listing names the cases that make one: special G/L postings on alternative reconciliation accounts (T074), items left on an old account after LFB1-AKONT changed, balances without vendor items (SKB1-MITKZ K with LIFNR blank), a period 000 carry-forward without items, and a valuation posted to the reconciliation account",
-      "r": "internal/integration reconcile.go · docs/migration.md \"What to check on a real SAP system\" (vendor reconciliation accounts) · ADR-0060 §9, Gaps (answered)",
+      "r": "internal/integration recaccounts.go (quality gate warning per vendor reconciliation account; key date the company's latest BUDAT; open by AUGDT; the difference split into lines without a vendor, special G/L lines and cleared items not netting in the extract; open items of vendors whose LFB1-AKONT is another counted) · internal/sap ACDOCA.AUGDT, BSTAT · TestReconciliationAccounts · docs/migration.md \"What to check on a real SAP system\" (vendor reconciliation accounts, built; to verify on the pilot system) · ADR-0060 §9 As built, Gaps",
       "src": "po:2026-11-09",
       "c": []
      }

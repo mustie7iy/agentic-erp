@@ -22,6 +22,12 @@ type SKB1 struct {
 	XBILK string `json:"XBILK"`
 	// MITKZ reconciliation account type: "K" = vendors, "D" = customers.
 	MITKZ string `json:"MITKZ"`
+	// WAERS is the account's currency. Read only by the configuration
+	// draft, for a house bank account whose T012K WAERS is empty: SAP then
+	// does not restrict the account, and the binding currency is its G/L
+	// account's (T012K-HKONT, SKB1-WAERS), as the SAP specialist answered
+	// (po:2026-11-09, A5 [M], to verify on the pilot system).
+	WAERS string `json:"WAERS,omitempty"`
 }
 
 // LFA1 - vendor general data.
@@ -32,21 +38,44 @@ type LFA1 struct {
 	STCD1 string `json:"STCD1"`
 	// SPERR "X" = central posting block.
 	SPERR string `json:"SPERR"`
-	// STRAS, ORT01, PSTLZ and REGIO are the vendor's street with house
-	// number, city, postal code and region, which the load gives the
-	// supplier as its legal address when the street and city are both
-	// there (product owner 2026-11-04, ADR-0054 As built). They are
-	// optional: an extract without them, as an OData one is, loads its
-	// suppliers without an address. The field names are written from
-	// memory, pending the SAP specialist: whether a release keeps the
-	// address in LFA1 itself or only in the central address (ADRC, by
-	// LFA1-ADRNR), and which fields an extract should take it from, is
-	// for them to confirm (docs/migration.md, "What to check on a real
-	// SAP system").
-	STRAS string `json:"STRAS,omitempty"`
-	ORT01 string `json:"ORT01,omitempty"`
-	PSTLZ string `json:"PSTLZ,omitempty"`
-	REGIO string `json:"REGIO,omitempty"`
+	// ADRNR is the number of the vendor's central address (ADRC
+	// ADDRNUMBER), which the load gives the supplier as its legal address
+	// (product owner 2026-11-04, ADR-0054 As built). LFA1's own STRAS,
+	// ORT01, PSTLZ and REGIO are not read: the SAP specialist answered that
+	// they are a redundant copy of the central address, and that STRAS (35
+	// characters) holds street and house number together (po:2026-11-09,
+	// A1 [H]). Optional: an extract without it, as an OData one is, loads
+	// its suppliers without an address.
+	ADRNR string `json:"ADRNR,omitempty"`
+}
+
+// ADRC - central addresses (business address services), the authoritative
+// address of a vendor through LFA1-ADRNR = ADRC-ADDRNUMBER in the
+// extract's client, as the SAP specialist named the table and fields
+// (po:2026-11-09, A1 [H]). An address has a row per version (NATION blank
+// the international one, other values other scripts, which the load
+// leaves out) and per validity, DATE_FROM to DATE_TO (YYYYMMDD, normally
+// one row 00010101-99991231); the load takes the international row valid
+// on the day it migrates the vendor. STREET is the street, HOUSE_NUM1 the
+// house number and HOUSE_NUM2 its supplement; many systems hold the house
+// number in STREET with HOUSE_NUM1 blank, which is normal. STR_SUPPL1-3
+// and LOCATION are further lines of the street.
+type ADRC struct {
+	ADDRNUMBER string `json:"ADDRNUMBER"`
+	DATE_FROM  string `json:"DATE_FROM,omitempty"`
+	DATE_TO    string `json:"DATE_TO,omitempty"`
+	NATION     string `json:"NATION,omitempty"`
+	STREET     string `json:"STREET,omitempty"`
+	HOUSE_NUM1 string `json:"HOUSE_NUM1,omitempty"`
+	HOUSE_NUM2 string `json:"HOUSE_NUM2,omitempty"`
+	STR_SUPPL1 string `json:"STR_SUPPL1,omitempty"`
+	STR_SUPPL2 string `json:"STR_SUPPL2,omitempty"`
+	STR_SUPPL3 string `json:"STR_SUPPL3,omitempty"`
+	LOCATION   string `json:"LOCATION,omitempty"`
+	CITY1      string `json:"CITY1,omitempty"`
+	POST_CODE1 string `json:"POST_CODE1,omitempty"`
+	REGION     string `json:"REGION,omitempty"`
+	COUNTRY    string `json:"COUNTRY,omitempty"`
 }
 
 // LFB1 - vendor company code data.
@@ -76,9 +105,11 @@ type LFBK struct {
 	BANKN string `json:"BANKN"`
 	// BANKL is the bank key. A Canadian account (BANKS "CA") is loaded
 	// only with its bank key in the Canadian Payments Association's
-	// electronic routing form, 0 + institution + transit (ADR-0038, T72d);
-	// which form a given SAP system keeps it in is its customizing, still
-	// to be confirmed for the pilot's.
+	// electronic routing form, 0 + institution + transit (ADR-0038, T72d),
+	// the usual form, or in the paper form transit-institution (12345-001),
+	// which legacy data commonly holds (the SAP specialist, po:2026-11-09,
+	// A6 [M]); which forms the pilot's system holds is to be profiled
+	// before the load.
 	BANKL string `json:"BANKL,omitempty"`
 }
 
@@ -193,6 +224,15 @@ type ACDOCA struct {
 	LIFNR string `json:"LIFNR"`
 	XBLNR string `json:"XBLNR"`
 	AUGBL string `json:"AUGBL"` // clearing document, empty if open
+	// AUGDT is the clearing date (YYYYMMDD), initial (blank or 00000000)
+	// on an open item, and BSTAT the document status, "S" a noted item
+	// (such as a down payment request) with no G/L effect, as the SAP
+	// specialist confirmed (po:2026-11-09, A3 [H], A15 [M]). Both are
+	// optional: the migration's check of open vendor items against their
+	// reconciliation account reads an item cleared after its key date as
+	// open by AUGDT, and an extract without it as AUGBL says today.
+	AUGDT string `json:"AUGDT,omitempty"`
+	BSTAT string `json:"BSTAT,omitempty"`
 	// UMSKZ is a vendor line's special G/L indicator, "" on an ordinary
 	// line; in the standard system "A" marks a general down payment (SAP
 	// Help, "Posting Keys and Special G/L Indicators",
@@ -549,10 +589,11 @@ type T012K struct {
 	// house bank is generated in: a foreign-currency account in its own
 	// currency, not the company's (ADR-0038, T53a). The field, its data
 	// element and check table are the ABAP dictionary's as a published
-	// mirror shows them (https://leanx.eu/en/sap/table/t012k.html), still to
-	// be confirmed by an SAP specialist, as is what an empty WAERS means
-	// there; the configuration draft refuses an account without one rather
-	// than guess the company's currency.
+	// mirror shows them (https://leanx.eu/en/sap/table/t012k.html), which
+	// the SAP specialist confirmed (po:2026-11-09, A5 [H]). An empty WAERS
+	// means no currency was maintained: the configuration draft takes the
+	// G/L account's (SKB1 WAERS of HKONT; A5 [M]) and refuses an account
+	// neither gives one rather than guess the company's currency.
 	WAERS string `json:"WAERS,omitempty"`
 }
 
@@ -679,6 +720,7 @@ type Extract struct {
 	T001   []T001   `json:"T001"`
 	SKB1   []SKB1   `json:"SKB1"`
 	LFA1   []LFA1   `json:"LFA1"`
+	ADRC   []ADRC   `json:"ADRC,omitempty"`
 	LFB1   []LFB1   `json:"LFB1"`
 	LFBK   []LFBK   `json:"LFBK"`
 	EKKO   []EKKO   `json:"EKKO"`
@@ -743,7 +785,7 @@ type Extract struct {
 // reads to convert amounts.
 func (e *Extract) Counts() map[string]int {
 	return map[string]int{
-		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "LFB1": len(e.LFB1),
+		"T001": len(e.T001), "SKB1": len(e.SKB1), "LFA1": len(e.LFA1), "ADRC": len(e.ADRC), "LFB1": len(e.LFB1),
 		"LFBK": len(e.LFBK), "EKKO": len(e.EKKO), "EKPO": len(e.EKPO), "MSEG": len(e.MSEG),
 		"RBKP": len(e.RBKP), "RSEG": len(e.RSEG), "ACDOCA": len(e.ACDOCA),
 		"T052": len(e.T052), "T007A": len(e.T007A), "T030": len(e.T030), "T169G": len(e.T169G),

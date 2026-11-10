@@ -44832,6 +44832,8 @@ type MigrationExtractCounts struct {
 	Skb1 int `json:"skb1"`
 	// Rows of SAP table LFA1 (vendor general data).
 	Lfa1 int `json:"lfa1"`
+	// Rows of SAP table ADRC (central addresses: the vendors' addresses, by LFA1-ADRNR).
+	Adrc int `json:"adrc"`
 	// Rows of SAP table LFB1 (vendor company code data).
 	Lfb1 int `json:"lfb1"`
 	// Rows of SAP table LFBK (vendor bank details).
@@ -44907,6 +44909,11 @@ func (s *MigrationExtractCounts) GetSkb1() int {
 // GetLfa1 returns the value of Lfa1.
 func (s *MigrationExtractCounts) GetLfa1() int {
 	return s.Lfa1
+}
+
+// GetAdrc returns the value of Adrc.
+func (s *MigrationExtractCounts) GetAdrc() int {
+	return s.Adrc
 }
 
 // GetLfb1 returns the value of Lfb1.
@@ -45067,6 +45074,11 @@ func (s *MigrationExtractCounts) SetSkb1(val int) {
 // SetLfa1 sets the value of Lfa1.
 func (s *MigrationExtractCounts) SetLfa1(val int) {
 	s.Lfa1 = val
+}
+
+// SetAdrc sets the value of Adrc.
+func (s *MigrationExtractCounts) SetAdrc(val int) {
+	s.Adrc = val
 }
 
 // SetLfb1 sets the value of Lfb1.

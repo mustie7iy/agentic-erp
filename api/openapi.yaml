@@ -47302,6 +47302,7 @@ components:
         - t001
         - skb1
         - lfa1
+        - adrc
         - lfb1
         - lfbk
         - ekko
@@ -47344,6 +47345,10 @@ components:
           type: integer
           minimum: 0
           description: "Rows of SAP table LFA1 (vendor general data)."
+        adrc:
+          type: integer
+          minimum: 0
+          description: "Rows of SAP table ADRC (central addresses: the vendors' addresses, by LFA1-ADRNR)."
         lfb1:
           type: integer
           minimum: 0

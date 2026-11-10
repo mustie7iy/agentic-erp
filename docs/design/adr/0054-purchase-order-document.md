@@ -171,7 +171,7 @@ stored, or whether producing it is audited.
 - **The supplier's street from SAP (podocb).** The document prints the
   supplier's address lines as before (street lines, city with region and
   postal code, country; an empty optional line is no longer printed as a
-  blank one). Migrated suppliers now have one: the extract's LFA1 carries
+  blank one). Migrated suppliers now have one: the extract's LFA1 carried
   optional STRAS, ORT01, PSTLZ and REGIO (field names from memory, pending
   the SAP specialist, who is to say whether the address is taken from
   LFA1 or the central address ADRC by ADRNR; docs/migration.md "What to
@@ -188,7 +188,23 @@ stored, or whether producing it is audited.
   together; the authoritative address is ADRC (STREET, HOUSE_NUM1, CITY1,
   POST_CODE1, REGION, COUNTRY) by LFA1-ADRNR = ADRC-ADDRNUMBER, with NATION
   blank and the cutover date between DATE_FROM and DATE_TO
-  (docs/migration.md). Reading the address from ADRC is a tracker leaf.
+  (docs/migration.md). **As built (sapvend):** the load reads it from
+  ADRC. LFA1 carries ADRNR and no longer the four fields; of the rows of
+  that ADDRNUMBER the load takes the one with NATION blank valid on the
+  run's day (the cutover date of the master data; DATE_FROM and DATE_TO
+  both included, blank read as open). Line 1 is STREET followed by
+  HOUSE_NUM1 and HOUSE_NUM2, space-separated, so a house number kept in
+  STREET (HOUSE_NUM1 blank, normal in many systems) prints as SAP holds
+  it; line 2 the further lines STR_SUPPL1-3 and LOCATION, comma-separated;
+  city, postal code and region from CITY1, POST_CODE1 and REGION; the
+  country from COUNTRY, LFA1-LAND1 when blank. A vendor naming an address
+  with no such row, or several, a row without a street name (STREET) or a
+  city, or a text longer than an address holds is warned of and loads
+  without an address, as before. Where a country prints the house number
+  before the street (SAP's address layout per country), the load does not
+  reorder it: that layout is not in the specialist's answers and is left
+  for the pilot's data (docs/migration.md). The run's report counts ADRC
+  (`MigrationExtractCounts.adrc`).
   The configuration draft generated from SAP (sapconfig)
   carries no company address: its reviewers enter it in the draft (where
   SAP keeps a company code's address is not read; no tracker item, as the

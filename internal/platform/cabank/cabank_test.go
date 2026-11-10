@@ -86,3 +86,33 @@ func TestSplitMemberID(t *testing.T) {
 		})
 	}
 }
+
+// TestSplitBankKey: an SAP bank key in the electronic form or the paper
+// form TTTTT-III converts to the same routing; the ambiguous forms stay
+// refused (po:2026-11-09, A6).
+func TestSplitBankKey(t *testing.T) {
+	cases := []struct {
+		name, in, institution, transit string
+		ok                             bool
+	}{
+		{"electronic form", "000112345", "001", "12345", true},
+		{"paper form", "12345-001", "001", "12345", true},
+		{"paper form with spaces around", " 12345-001 ", "001", "12345", true},
+		{"eight digits without the zero", "00112345", "", "", false},
+		{"paper form without its hyphen", "12345001", "", "", false},
+		{"paper form, institution first", "001-12345", "", "", false},
+		{"paper form with a space for the hyphen", "12345 001", "", "", false},
+		{"empty", "", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			institution, transit, ok := SplitBankKey(c.in)
+			if ok != c.ok {
+				t.Fatalf("ok: got %v, want %v", ok, c.ok)
+			}
+			if institution != c.institution || transit != c.transit {
+				t.Errorf("routing: got %q/%q, want %q/%q", institution, transit, c.institution, c.transit)
+			}
+		})
+	}
+}

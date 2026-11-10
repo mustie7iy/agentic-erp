@@ -425,9 +425,18 @@ changed reconciliation account, balances without vendor items, a period
 the key date). With ACDOCA the vendor line is the G/L line, so the equality
 usually holds; the specialist recommends a check per account at the key
 date over lines with a vendor (LIFNR), no special G/L indicator (UMSKZ)
-and not noted (BSTAT not `S`), reported rather than refused: a tracker
-leaf for the migration's reconciliation. The platform's own year-end
-check stays a gap: no ADR asks for it.
+and not noted (BSTAT not `S`), reported rather than refused. **As built
+(sapvend):** the migration checks it in the quality gate, so it is
+reported at the start of every run as a `warning` (the reconciliation's
+checks fail a run, and its issues are refusals); per vendor reconciliation
+account (SKB1-MITKZ `K`, not a T074 special G/L account) at the key date,
+the company's latest posting date in the extract, the items open by AUGDT
+(ACDOCA-AUGDT and BSTAT added to the extract, optional), and the
+difference split into lines without a vendor, special G/L lines and
+cleared vendor items that do not net in the extract, with the open items
+of vendors whose LFB1-AKONT is now another counted (docs/migration.md,
+"What to check on a real SAP system"). The platform's own year-end check
+stays a gap: no ADR asks for it.
 
 ### 10. Parallel ledgers and foreign currency
 - **Per ledger** (ADR-0045): a carry-forward is run per ledger, from that
@@ -672,7 +681,7 @@ item only when one does (07 §7.5).
   change) and financial statements (T65).
 - An automatic check of open items against their reconciliation accounts
   (§9) on the platform; the migration specialist said when it holds on
-  2026-11-09 (A15), and the migration's check is a tracker leaf.
+  2026-11-09 (A15), and the migration checks it (§9, As built).
 - Supplier and customer balances carried per partner (SAP F.07).
 - Year-close tasks in the cross-close worklist (`listCloseTasks`), whose
   rows carry a period.

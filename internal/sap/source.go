@@ -81,6 +81,11 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	}
 	out.LFA1 = keep(all.LFA1, func(r LFA1) bool { return vendors[r.LIFNR] })
 	out.LFBK = keep(all.LFBK, func(r LFBK) bool { return vendors[r.LIFNR] })
+	addresses := map[string]bool{}
+	for _, r := range out.LFA1 {
+		addresses[r.ADRNR] = r.ADRNR != ""
+	}
+	out.ADRC = keep(all.ADRC, func(r ADRC) bool { return addresses[r.ADDRNUMBER] })
 	out.VendorsWithoutPartner = keep(all.VendorsWithoutPartner, func(lifnr string) bool { return vendors[lifnr] })
 	out.EKKO = keep(all.EKKO, func(r EKKO) bool { return inCC(r.BUKRS) })
 	pos := map[string]bool{}

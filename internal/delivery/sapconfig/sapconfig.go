@@ -367,38 +367,61 @@ const unknownCurrency = "UNKNOWN"
 // one keeps; another as it is, which validation refuses unless the
 // reference data knows it and the bank's ledger accounts are revalued at
 // period end (ADR-0042), which the extract cannot tell, so it is noted for
-// the reviewers; and unknownCurrency, noted, when WAERS is empty, even
-// for a company without a currency of its own, which must not make an
-// account without one look like the company's.
+// the reviewers. An account without WAERS is not restricted by SAP, whose
+// binding currency is then its G/L account's (SKB1 WAERS of HKONT; the SAP
+// specialist, po:2026-11-09, A5 [M]), taken with a note; unknownCurrency,
+// noted, when neither gives one, even for a company without a currency of
+// its own, which must not make an account without one look like the
+// company's.
 func (g *gen) houseBankCurrency(path string, b sap.T012K, companyCurrency string, hb *config.HouseBank) {
-	switch waers := strings.TrimSpace(b.WAERS); waers {
-	case "":
-		hb.Currency = unknownCurrency
-		g.note(path+".currency", "T012K gives the account no currency (WAERS); set it (left at "+unknownCurrency+
-			", which fails validation): a bank's currency never changes once it is created")
-	case strings.TrimSpace(companyCurrency):
-	default:
-		hb.Currency = waers
-		g.note(path+".currency", fmt.Sprintf("the account is in %s (T012K WAERS), not the company's %s: flag the bank's ledger accounts "+
-			"revalue_foreign_currency and give each its unrealised gain and loss accounts in fx_valuation.accounts (SAP's valuation "+
-			"accounts are not in the extract); the draft does not validate until then", waers, companyCurrency))
+	waers, from := strings.TrimSpace(b.WAERS), "T012K WAERS"
+	if waers == "" {
+		if waers = g.ledgerCurrency(b.BUKRS, b.HKONT); waers == "" {
+			hb.Currency = unknownCurrency
+			g.note(path+".currency", "T012K gives the account no currency (WAERS), nor does its G/L account "+sap.Alpha(b.HKONT)+
+				" (SKB1 WAERS); set it (left at "+unknownCurrency+", which fails validation): a bank's currency never changes once it is created")
+			return
+		}
+		from = "SKB1 WAERS of its G/L account " + sap.Alpha(b.HKONT)
+		g.note(path+".currency", fmt.Sprintf("T012K gives the account no currency (WAERS), so SAP does not restrict it and its G/L account's "+
+			"binds it: %s, from %s (SAP specialist, to verify on the pilot system; FI-BAM's account master FCLM_BAM_AMD may cross-check it)", waers, from))
 	}
+	if waers == strings.TrimSpace(companyCurrency) {
+		return
+	}
+	hb.Currency = waers
+	g.note(path+".currency", fmt.Sprintf("the account is in %s (%s), not the company's %s: flag the bank's ledger accounts "+
+		"revalue_foreign_currency and give each its unrealised gain and loss accounts in fx_valuation.accounts (SAP's valuation "+
+		"accounts are not in the extract); the draft does not validate until then", waers, from, companyCurrency))
+}
+
+// ledgerCurrency is the currency of G/L account account of company code
+// company (SKB1 WAERS), "" when the extract gives none.
+func (g *gen) ledgerCurrency(company, account string) string {
+	for _, a := range g.e.SKB1 {
+		if a.BUKRS == company && sap.Alpha(a.SAKNR) == sap.Alpha(account) {
+			return strings.TrimSpace(a.WAERS)
+		}
+	}
+	return ""
 }
 
 // canadianAccount gives a Canadian house bank, which has no IBAN, its
 // account by institution, transit and account number (ADR-0038, T72d):
 // the routing from the bank key in the Canadian Payments Association's
-// electronic form, 0 + institution + transit (cabank.MemberID). A bank key
-// in another form is left out with a note, and validation then refuses
-// the bank until a reviewer enters the routing.
+// electronic form, 0 + institution + transit (cabank.MemberID), or in the
+// paper form transit-institution (cabank.SplitBankKey; po:2026-11-09, A6).
+// A bank key in another form is left out with a note, and validation then
+// refuses the bank until a reviewer enters the routing.
 func (g *gen) canadianAccount(path string, b sap.T012K, hb *config.HouseBank) {
 	if b.IBAN != "" || b.BANKS != "CA" {
 		return
 	}
 	hb.AccountNumber = b.BANKN
-	institution, transit, ok := cabank.SplitMemberID(b.BANKL)
+	institution, transit, ok := cabank.SplitBankKey(b.BANKL)
 	if !ok {
-		g.note(path, fmt.Sprintf("bank key %q is not a Canadian routing number as 0 + institution (3 digits) + transit (5 digits); enter institution_number and transit_number", b.BANKL))
+		g.note(path, fmt.Sprintf("bank key %q is not a Canadian routing number as 0 + institution (3 digits) + transit (5 digits), or transit-institution "+
+			"(12345-001); enter institution_number and transit_number", b.BANKL))
 		return
 	}
 	hb.InstitutionNumber, hb.TransitNumber = institution, transit
