@@ -61,7 +61,10 @@ func TestCreditsStayWithinTheirInvoice(t *testing.T) {
 	e := setup(t)
 	post := func(e env, memo map[string]any) {
 		e.T.Helper()
-		e.Must(200, "POST", "/v1/supplier-invoices/"+id(memo)+":post", `{"posting_date": "2026-03-21"}`, e.tag(t, id(memo)))
+		// The document's own ETag, read through e so that a failure stops
+		// the subtest e reports to, not this test.
+		_, tag := e.Must(200, "GET", "/v1/supplier-invoices/"+id(memo), "", "")
+		e.Must(200, "POST", "/v1/supplier-invoices/"+id(memo)+":post", `{"posting_date": "2026-03-21"}`, tag)
 	}
 	t.Run("a second credit past a credited invoice", func(t *testing.T) {
 		// The gap as lane crmemo's probe showed it: 119.00 and then

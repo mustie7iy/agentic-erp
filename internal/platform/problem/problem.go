@@ -9,12 +9,11 @@
 // one). Write stamps the request's instance and trace id, and WithCause
 // records its cause, on a copy, so even a problem reached by two requests
 // is not changed by either. The copy is shallow: Errors, MatchIssues,
-// CalculatedTax, CreditLimit and Header stay shared with the original, so a
-// helper that
-// rewrites a problem it is given (ledger's asItems and asAsset) relies on
-// the problem being its request's alone
-// (review:T53f4: a shared one carried the first refused request's
-// instance and trace id to every later one, of any tenant, and raced).
+// CalculatedTax, CreditLimit and Header stay shared with the original, so
+// a helper that rewrites a problem it is given (ledger's asItems and
+// asAsset) relies on the problem being its request's alone (review:T53f4:
+// a shared one carried the first refused request's instance and trace id
+// to every later one, of any tenant, and raced).
 package problem
 
 import (
