@@ -1596,7 +1596,7 @@ components:
       x-webhook: true
       title: Payment dropped from a releasing run
       summary: A payment of a releasing run could never post and was dropped; its items are free again.
-      description: Emitted by the release of a payment run when a payment it has not posted yet settles an item that was reversed, or is no longer open, since the proposal. The supplier is excluded with `reason_code` (`item_reversed` or `item_not_open`), the payment's items are deactivated, the run's total no longer counts it, and the release goes on with the other payments. Subject is the payment run id.
+      description: Emitted by the release of a payment run when a payment it has not posted yet settles an item that was reversed, or is no longer open, since the proposal. The supplier's items the payment paid are excluded with `reason_code` (`item_reversed` or `item_not_open`). A payment of items that fix a payment method pays those alone, so the supplier's other payment of the run, if it has one, stands (`listPaymentExclusions` names the method). The payment's items are deactivated, the run's total no longer counts it, and the release goes on with the other payments. Subject is the payment run id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:

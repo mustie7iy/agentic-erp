@@ -233,11 +233,12 @@ func itemRefs(p Payment) []ledger.ItemRef {
 // dropPayment takes a payment that can never post out of its releasing
 // run: an item it settles was reversed, or is no longer open, since the
 // proposal (neither changes back). Its supplier is excluded with the
-// reason (for a payment of items fixing a method, those items alone), its items are freed here and in the ledger, the run's total no
-// longer counts it, and the release goes on with the other payments, so a
-// run is never stuck releasing on a payment no retry can post. The run is
-// read FOR UPDATE by the release step, and a dropped payment is skipped by
-// every later step, so it is dropped once.
+// reason (for a payment of items fixing a method, those items alone), its
+// items are freed here and in the ledger, the run's total no longer counts
+// it, and the release goes on with the other payments, so a run is never
+// stuck releasing on a payment no retry can post. The run is read FOR
+// UPDATE by the release step, and a dropped payment is skipped by every
+// later step, so it is dropped once.
 func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, p Payment, unpayable map[ledger.ItemRef]string) error {
 	reason := ItemNotOpen
 	for _, why := range unpayable {

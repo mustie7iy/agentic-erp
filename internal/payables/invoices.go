@@ -12,6 +12,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/approvals"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/mergepatch"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -201,7 +202,7 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	}
 	// The audit names a change of the method the document fixes: it
 	// decides how the item is paid (ADR-0038).
-	if ch.PaymentMethod != nil && !samePtr(v.PaymentMethod, updated.PaymentMethod) {
+	if ch.PaymentMethod != nil && !apitypes.SamePtr(v.PaymentMethod, updated.PaymentMethod) {
 		detail["payment_method"] = map[string]any{"from": v.PaymentMethod, "to": updated.PaymentMethod}
 	}
 	return updated, record(ctx, "payables.supplier_invoice.update", id, detail)
@@ -250,12 +251,6 @@ func changed(v Invoice, ch Change) Input {
 		in.Items = ch.Items
 	}
 	return in
-}
-
-// samePtr tells whether two optional codes are the same: both none, or
-// the same code.
-func samePtr(a, b *string) bool {
-	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }
 
 func requireStatus(v Invoice, action string, allowed ...string) error {

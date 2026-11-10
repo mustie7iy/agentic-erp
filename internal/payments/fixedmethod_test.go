@@ -84,7 +84,7 @@ func (e env) excludedByMethod(t *testing.T, run map[string]any) map[string]strin
 			if _, twice := out[key]; twice {
 				t.Errorf("exclusions of %s: got two, want one per supplier and fixed method", key)
 			}
-			if m["supplier_name"] == nil || m["supplier_name"] == "" {
+			if name, _ := m["supplier_name"].(string); name == "" {
 				t.Errorf("exclusion of %s: got no supplier_name, want the supplier named", key)
 			}
 			out[key] = m["reason_code"].(string) + " " + m["amount"].(map[string]any)["amount"].(string)
@@ -130,6 +130,10 @@ func TestFixedMethodPaidApart(t *testing.T) {
 	e.fixed(t, "credit_memo", e.Supplier, "CM-S", "5.00", "2026-03-02", "S")
 	e.invoice(t, e.Vendor, "INV-V1", "40.00", "2026-03-01")
 	e.document(t, "credit_memo", e.Vendor, "CM-V", "15.00", "2026-03-02")
+	// The vendor's items that fix none go by T, the run order's first, and
+	// one of its items fixes T: two payments by T, each netted apart, as a
+	// group is what its items fix (ADR-0038 As built, the same method twice).
+	e.fixed(t, "invoice", e.Vendor, "INV-VT", "30.00", "2026-03-01", "T")
 
 	op, _ := e.Must(202, "POST", "/v1/payment-runs:propose", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "run_date": "2026-04-15",
 		"due_by": "2026-04-15"}`, e.DE), "")
@@ -142,18 +146,25 @@ func TestFixedMethodPaidApart(t *testing.T) {
 		e.Supplier.String() + " run_order": db.String() + " T 90.00: -10.00 100.00",
 		e.Supplier.String() + " item":      main + " S 55.00: -5.00 60.00",
 		e.Vendor.String() + " run_order":   db.String() + " T 25.00: -15.00 40.00",
+		e.Vendor.String() + " item":        db.String() + " T 30.00: 30.00",
 	})
 	wantAll(t, "exclusion", e.excludedByMethod(t, run), map[string]string{})
-	if got := run["total_amount"].(map[string]any)["amount"]; got != "170.00" {
-		t.Errorf("run total: got %v, want 170.00", got)
+	if got := run["total_amount"].(map[string]any)["amount"]; got != "200.00" {
+		t.Errorf("run total: got %v, want 200.00", got)
 	}
 	proposed := events(t, e.Tenant, "payment_run_proposed")
-	if len(proposed) != 1 || proposed[0]["payment_count"] != float64(3) || proposed[0]["exclusion_count"] != float64(0) {
-		t.Errorf("payment_run_proposed: got %v, want one of 3 payments and no exclusion", proposed)
+	if len(proposed) != 1 {
+		t.Fatalf("payment_run_proposed events: got %d %v, want 1", len(proposed), proposed)
+	}
+	if got := proposed[0]["payment_count"]; got != float64(4) {
+		t.Errorf("payment_run_proposed payment_count: got %v, want 4", got)
+	}
+	if got := proposed[0]["exclusion_count"]; got != float64(0) {
+		t.Errorf("payment_run_proposed exclusion_count: got %v, want 0", got)
 	}
 
 	e.release(t, run, "")
-	e.checkFiles(t, run, map[string]int{db.String() + " T": 2, main + " S": 1})
+	e.checkFiles(t, run, map[string]int{db.String() + " T": 3, main + " S": 1})
 	for _, p := range e.payments(t, run) {
 		if m := p.(map[string]any); m["journal_entry_id"] == nil {
 			t.Errorf("payment %s of the released run: got no journal entry, want it posted", m["id"])
@@ -193,8 +204,11 @@ func TestFixedMethodGroupsNetApart(t *testing.T) {
 		e.Vendor.String() + " none": "debit_balance -20.00",
 	})
 	proposed := events(t, e.Tenant, "payment_run_proposed")
-	if len(proposed) != 1 || proposed[0]["exclusion_count"] != float64(2) {
-		t.Errorf("payment_run_proposed: got %v, want one with 2 exclusions", proposed)
+	if len(proposed) != 1 {
+		t.Fatalf("payment_run_proposed events: got %d %v, want 1", len(proposed), proposed)
+	}
+	if got := proposed[0]["exclusion_count"]; got != float64(2) {
+		t.Errorf("payment_run_proposed exclusion_count: got %v, want 2", got)
 	}
 	e.release(t, run, "")
 	e.checkFiles(t, run, map[string]int{db.String() + " T": 1, main + " S": 1})
@@ -321,8 +335,12 @@ func TestFixedMethodPaymentDropped(t *testing.T) {
 			if len(pays) != 1 {
 				t.Fatalf("payments listed: got %d %v, want 1, the payment that stands", len(pays), pays)
 			}
-			if m := pays[0].(map[string]any); m["payment_method_source"] != c.kept || m["journal_entry_id"] == nil {
-				t.Errorf("the payment that stands: got source %v and entry %v, want %s, posted", m["payment_method_source"], m["journal_entry_id"], c.kept)
+			stands := pays[0].(map[string]any)
+			if got := stands["payment_method_source"]; got != c.kept {
+				t.Errorf("the payment that stands, why it is paid by its method: got %v, want %s", got, c.kept)
+			}
+			if stands["journal_entry_id"] == nil {
+				t.Errorf("the payment that stands: got no journal entry, want it posted")
 			}
 			// The step run again on the dropped payment does nothing twice.
 			if err := apitest.Committed(t, e.Tenant, e.Approver, post); err != nil {

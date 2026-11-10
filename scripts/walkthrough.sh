@@ -1909,6 +1909,8 @@ step_payment() {
   say "the reason, rather than pay it another way; Laurentian's other items are in the run."
   expect "the freight invoice left out of the run for one house bank" \
     "$(field '[.items[] | select(.reason_code == "fixed_method_in_bank_run") | "\(.supplier_name) \(.payment_method) \(.amount.amount)"] | join(", ")')" "Laurentian Paper T 250.00"
+  expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
+  # After the checks that read the exclusions: field reads the last answer.
   as alex
   say "Laurentian withdraws the freight charge the same day; Alex reverses the invoice, so nothing waits for a run"
   say "without a house bank."
@@ -1917,7 +1919,6 @@ step_payment() {
     -body "{\"reason\": \"Freight charge withdrawn by the supplier\", \"posting_date\": \"$TODAY\"}"
   expect "the freight invoice" "$(field .status)" reversed
   as tom
-  expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
   say "$DP_NAME's open down payment from SAP is not netted: the run pays the supplier's open invoices in full (T72c)."
   expect "the payment to $DP_NAME" "$(jq -r --arg n "$DP_NAME" '[.items[] | select(.supplier_name == $n) | .amount.amount] | join(" ")' "$WORK/payments.json")" "$DP_PAYABLE"
   say "The migrated Canadian suppliers are in the run, paid to their Canadian accounts, each payment naming its payee:"

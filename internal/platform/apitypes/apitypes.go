@@ -27,6 +27,12 @@ func Ptr[T any](o interface{ Get() (T, bool) }) *T {
 	return nil
 }
 
+// SamePtr tells whether two optional values are the same: both absent, or
+// both present and equal.
+func SamePtr[T comparable](a, b *T) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
+}
+
 // OptUUID is an optional response field from a pointer: unset when nil.
 func OptUUID(v *uuid.UUID) gen.OptUUID {
 	if v == nil {
