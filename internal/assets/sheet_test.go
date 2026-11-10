@@ -427,6 +427,9 @@ func TestAssetHistorySheetReconciles(t *testing.T) {
 			"5 MACHINES: 0.00 600.00 0.00 0.00 600.00 0.00 0.00 0.00 0.00 0.00 0.00 600.00"}, "; "))
 	for year, sheet := range map[int]map[string]any{2026: first, 2027: second} {
 		rows := sheetRows(sheet)
+		if len(rows) != len(s.shown(year)) {
+			t.Fatalf("%d: got %d rows, want %d", year, len(rows), len(s.shown(year)))
+		}
 		for i, a := range s.shown(year) {
 			want(t, fmt.Sprint(year, ": row ", i+1, ", its movements by column"), rows[i][strings.Index(rows[i], ": ")+2:], s.expected(t, s.l0, year, a))
 		}

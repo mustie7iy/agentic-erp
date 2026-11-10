@@ -5099,12 +5099,15 @@ step_asset_held_for_sale() {
   api 200 '.periods[] | select(.period == '"$next"') | "  the machine, \(.fiscal_year)/\(.period): planned \(.planned.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
     getAssetSchedule -p "id=$mill" -p "fiscal_year=$year"
   expect "no depreciation from the next period" "$(field ".periods[] | select(.period == $next) | .planned.amount")" 0.00
-  say "The asset history sheet keeps both on their rows, the lathe with its change in estimate (step 44) and the machine"
-  say "held for sale, each reconciling from opening to closing (po:2026-11-09, B14):"
+  say "Both apply from the next period, so this year's asset history sheet is as it was: the lathe (step 44) and the"
+  say "machine, still active, stay on their rows with their cost, a classification as held for sale moving no value,"
+  say "and each row reconciles from opening to closing (po:2026-11-09, B14):"
   api 200 '.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
     getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
   expect "the lathe and the machine on the sheet" "$(field '[.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | .description] | unique | join(", ")')" "CNC lathe, CNC milling machine"
-  sheet_reconciles "by asset, after the change in estimate and the classification"
+  expect "the machine held for sale: active, its cost on the sheet" \
+    "$(field '.items[] | select(.description == "CNC milling machine") | "\(.status) \(.closing_cost.amount == .closing_net_book_value.amount) \(.retirements.amount)"')" "active true 0.00"
+  sheet_reconciles "by asset, the change in estimate and the classification recorded"
   passed
 }
 

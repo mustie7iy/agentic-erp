@@ -2744,9 +2744,9 @@ carrying amount; impairment and the consolidated sheet later.
   moves no value (As built, T57k), so the sheet shows a held-for-sale asset
   in its class with the cost unchanged until its retirement, whose line is
   `retirements`; no separate line for a reclassification to held for sale
-  is built (IAS 16.73(e)(ii) names the two together, in the specialist's
-  list; the presentation of held-for-sale assets apart from property,
-  plant and equipment is IFRS 5's, from memory, for a specialist).
+  is built (the specialist's list names the two together, "assets
+  classified as held for sale / disposals", and accepts `retirements`
+  for the line).
 - **Not built, a tracker leaf each (po:2026-11-09), both before the
   pilot's first year end:** impairment postings (losses recognised and
   reversed) with their sheet lines; a consolidated sheet in the group's
