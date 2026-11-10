@@ -27,7 +27,7 @@ import (
 
 // nodeCode is the form of a hierarchy's and a node's code (ADR-0050 §3 as
 // built in T56b): up to 24 characters, as SETHEADER-SETNAME holds (the SAP
-// specialist, po:2026-11-09, A11(c); migration 000244).
+// specialist, po:2026-11-09, A11(c); migration 000248).
 var nodeCode = regexp.MustCompile(`^[0-9A-Z_-]{1,24}$`)
 
 // setKinds are the hierarchy kinds by set class.

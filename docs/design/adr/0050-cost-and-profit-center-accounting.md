@@ -289,7 +289,7 @@ As built in T56a (migration 000128):
 
   As built in T56b (migration 000139):
   - **Tables.** `hierarchy` (kind, code `^[0-9A-Z_-]{1,15}$`, 24 since
-    000244, unique per
+    000248, unique per
     kind, `is_standard` with at most one standard per kind, all three
     fixed), `hierarchy_node` (parent in the same hierarchy by foreign key,
     code unique among the hierarchy's nodes, `position` among siblings) and
@@ -361,12 +361,12 @@ As built in T56a (migration 000128):
     `HierarchyChanged` says what changed, not the tree; audit
     `ledger.hierarchy.create|request|node_create|node_rename|node_move|node_remove|place`.
   - **Amended: centers on inner nodes (SAP specialist, po:2026-11-09,
-    A10(d) [M]; migration 000243).** SAP's sets may hold values beside
+    A10(d) [M]; migration 000247).** SAP's sets may hold values beside
     their subsets, and a center's KHINR may name a group with subgroups,
     so a node holds centers and child nodes alike: "exactly one leaf" above
     reads "exactly one node". Decided by default (the leaf asked §3 to hold
     them; a generated child leaf per inner group would invent nodes and
-    codes SAP does not have): 000243 drops the triggers' refusals of a node
+    codes SAP does not have): 000247 drops the triggers' refusals of a node
     below a node holding centers and of a center at a node with children,
     and the plan no longer refuses adding or moving a node below centers,
     placing a center at a node with children (the API's and a new center's
@@ -1395,11 +1395,11 @@ fixes of the leaves above, each named by its question):
   group with both subgroups and values, or a KHINR naming a group that is
   not a leaf; a center sits at the group whose values take it or that its
   KHINR names, inner or not (exactly one per tree, as before), and the
-  ledger holds it there (§3 as amended, migration 000243). A group an
+  ledger holds it there (§3 as amended, migration 000247). A group an
   earlier run loaded with centers takes the subgroups SAP added since.
 - **Group codes of 24 characters (A11(c) [M])**: SETHEADER-SETNAME holds
   24, so the hierarchy's and the node's codes take up to 24 of 0-9, A-Z, _
-  and - (migration 000244 widens 000139's checks; the contract's code
+  and - (migration 000248 widens 000139's checks; the contract's code
   patterns of the hierarchy list's filter, `HierarchyCreate` and
   `HierarchyNodeAdd` widen with them, a request-side change that breaks no
   client), and the gate's group code check with them.

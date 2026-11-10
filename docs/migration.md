@@ -359,7 +359,7 @@ alternative hierarchy at the group that takes it, if any (`hierarchy_places`
 counts both). A group may hold values beside its subgroups and a KHINR may
 name a group with subgroups (the SAP specialist's answer A10(d) [M], to
 verify on the pilot system): the center then sits at that inner node, which
-the platform's hierarchies allow since migration 000243 (ADR-0050 §3 as
+the platform's hierarchies allow since migration 000247 (ADR-0050 §3 as
 amended). A later run keeps what is loaded: a group it finds loaded is
 not renamed or moved, a group SAP added is added below its parent, and a
 center an earlier run loaded keeps its places (a controller places it
@@ -381,7 +381,7 @@ An alternative hierarchy whose code the tenant already has is refused by
 the load and fails the run. Set names are up to 24 characters in
 SETHEADER (the SAP specialist's answer A11(c) [M], po:2026-11-09; 15 in the
 CO transactions, longer only for sets kept with GS02), which the
-platform's hierarchy and node codes hold since migration 000244.
+platform's hierarchy and node codes hold since migration 000248.
 
 The configuration draft (`erp config generate`) takes each profit and loss
 account's cost element from SAP's cost element category (CSKB-KATYP of its
@@ -806,7 +806,7 @@ others record a confirmation.
   KSH2/KCH2 use only I with EQ or BT [M]; sets edited with GS02 may hold
   other options (CP), which stay refused. A group name holds at most 15
   characters in the CO transactions [M], but SETHEADER-SETNAME holds 24,
-  which the platform's codes hold (built, migration 000244). CSKB carries KOKRS, KSTAR, DATAB, DATBI
+  which the platform's codes hold (built, migration 000248). CSKB carries KOKRS, KSTAR, DATAB, DATBI
   and KATYP [H]; KATYP 01, 11 and 12 mean what the draft takes [H], and
   others met are 22 (external settlement), 41-43 (secondary) and 90
   (statistical, for balance sheet accounts, asset accounts in S/4HANA). An

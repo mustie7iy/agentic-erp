@@ -20,7 +20,7 @@ import (
 // hierarchy per kind, and every active center sits in exactly one node of
 // it; alternative hierarchies hold a center at most once. Hierarchies are
 // not time-dependent (decision P7). The database keeps these rules
-// (migrations 000139, 000243); planning a change checks them
+// (migrations 000139, 000247); planning a change checks them
 // first, so that a request is refused with a reason rather than by a
 // trigger, and checks them again when the change is applied.
 

@@ -93,7 +93,7 @@ func TestHierarchies(t *testing.T) {
 }
 
 // TestHierarchyCodesOf24: a hierarchy and a node take a code of 24
-// characters, as SETHEADER-SETNAME holds (000244, A11(c)).
+// characters, as SETHEADER-SETNAME holds (000248, A11(c)).
 func TestHierarchyCodesOf24(t *testing.T) {
 	need(t)
 	f := newCenters(t)
@@ -106,7 +106,7 @@ func TestHierarchyCodesOf24(t *testing.T) {
 
 // TestHierarchyNodesBelowCenters: a node holding centers takes child
 // nodes, added or moved below it, as an SAP set holds values beside its
-// subsets (000243, A10(d)); it is still not removed while it holds them.
+// subsets (000247, A10(d)); it is still not removed while it holds them.
 func TestHierarchyNodesBelowCenters(t *testing.T) {
 	need(t)
 	f := newCenters(t)
