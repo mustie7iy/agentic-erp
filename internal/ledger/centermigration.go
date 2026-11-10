@@ -25,7 +25,7 @@ import (
 // one by one"). It is checked as a requested create is when it is
 // applied: an active category, a profit center that is active, assigned
 // to the cost center's company and valid over each period, and a place at
-// a leaf of the standard hierarchy: SAP's, which the run loads first
+// a node of the standard hierarchy: SAP's, which the run loads first
 // (T56h2, hierarchymigration.go), else the UNASSIGNED leaf.
 type CenterMigration struct{}
 
@@ -43,7 +43,7 @@ type MigratedCostCenter struct {
 	Code          string
 	Texts         Texts
 	Periods       []MigratedPeriod[CostCenterAttrs]
-	// StandardNodeID is its leaf of the standard hierarchy (SAP's KHINR);
+	// StandardNodeID is its node of the standard hierarchy (SAP's KHINR);
 	// nil places it at the UNASSIGNED leaf.
 	StandardNodeID *uuid.UUID
 	Reason         string

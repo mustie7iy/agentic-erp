@@ -49370,7 +49370,7 @@ func decodeListHierarchiesParams(args [0]string, argsEscaped bool, r *http.Reque
 							MaxLengthSet:  false,
 							Email:         false,
 							Hostname:      false,
-							Regex:         regexMap["^[0-9A-Z_-]{1,15}$"],
+							Regex:         regexMap["^[0-9A-Z_-]{1,24}$"],
 							MinNumeric:    0,
 							MinNumericSet: false,
 							MaxNumeric:    0,

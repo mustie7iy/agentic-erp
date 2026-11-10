@@ -19,14 +19,16 @@ import (
 // extract reads no field naming it). Each other set no set includes tops
 // an alternative hierarchy. A set's values (SETLEAF) are ranges, expanded
 // against the extract's centers of its area; a cost or profit center
-// sits at the standard leaves its ranges or its KHINR name, which must be
-// exactly one, and at most once in an alternative hierarchy. Every table
-// and field, and what each is taken to mean, is pending the SAP
-// specialist (docs/migration.md).
+// sits at the standard groups its ranges or its KHINR name, which must be
+// exactly one, and at most once in an alternative hierarchy. A set may hold
+// values beside its subsets, and a KHINR may name a set that has subsets
+// (the SAP specialist, po:2026-11-09, A10(d) [M]), so a center sits at
+// that inner node, which the ledger allows (ADR-0050 §3 as amended).
 
 // nodeCode is the form of a hierarchy's and a node's code (ADR-0050 §3 as
-// built in T56b).
-var nodeCode = regexp.MustCompile(`^[0-9A-Z_-]{1,15}$`)
+// built in T56b): up to 24 characters, as SETHEADER-SETNAME holds (the SAP
+// specialist, po:2026-11-09, A11(c); migration 000244).
+var nodeCode = regexp.MustCompile(`^[0-9A-Z_-]{1,24}$`)
 
 // setKinds are the hierarchy kinds by set class.
 var setKinds = map[string]string{sap.SetClassCostCenters: ledger.HierarchyCostCenters, sap.SetClassProfitCenters: ledger.HierarchyProfitCenters}
@@ -104,14 +106,14 @@ type groupTree struct {
 func (t groupTree) key() string  { return setKey(t.class, t.area, t.root) }
 func (t groupTree) kind() string { return setKinds[t.class] }
 
-// leaf reports whether the set is a leaf of the tree.
-func (t groupTree) leaf(sets map[string]*sapSet, name string) bool {
-	return slices.ContainsFunc(t.nodes, func(n groupNode) bool { return n.name == name }) && len(sets[setKey(t.class, t.area, name)].subsets) == 0
+// has reports whether the set is a node of the tree.
+func (t groupTree) has(name string) bool {
+	return slices.ContainsFunc(t.nodes, func(n groupNode) bool { return n.name == name })
 }
 
 // groupPlan is what the extract's sets say: the sets, their texts, the
-// trees and, by tree key, the leaf of each center (area/code) that is in
-// exactly one leaf of it; issues are the quality gate's.
+// trees and, by tree key, the group of each center (area/code) that is in
+// exactly one group of it; issues are the quality gate's.
 type groupPlan struct {
 	sets   map[string]*sapSet
 	texts  map[string][]sapText
@@ -211,13 +213,10 @@ func (g *groupPlan) value(v sap.SETLEAF) {
 }
 
 // checkSet refuses a set the platform cannot hold as a node: a code that
-// is not one, no name, or both subsets and centers, which sit at leaves.
+// is not one, or no name.
 func (g *groupPlan) checkSet(s *sapSet) {
 	if !nodeCode.MatchString(s.name) {
-		g.add(SevError, "SETHEADER", s.key(), "set %q is not a code the platform holds (up to 15 of 0-9, A-Z, _ and -)", s.name)
-	}
-	if len(s.subsets) > 0 && len(s.values) > 0 {
-		g.add(SevError, "SETHEADER", s.key(), "set %s has both subsets and values; a node holds either child nodes or centers", s.name)
+		g.add(SevError, "SETHEADER", s.key(), "set %q is not a code the platform holds (up to 24 of 0-9, A-Z, _ and -)", s.name)
 	}
 	t, isEnglish, ok := pickText(g.texts[s.key()])
 	switch {
@@ -229,7 +228,7 @@ func (g *groupPlan) checkSet(s *sapSet) {
 }
 
 // areaCenters are a controlling area's centers of one class: their codes
-// and the standard leaf each names (KHINR of its latest slice).
+// and the standard group each names (KHINR of its latest slice).
 type areaCenters struct {
 	codes []string
 	khinr map[string]string

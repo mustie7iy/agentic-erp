@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -64,6 +65,8 @@ func TestHierarchies(t *testing.T) {
 		"a second root":                    {node, []any{f.tenant, id(), alt, nil, "ROOT2", f.actor}, "hierarchy_one_root"},
 		"a hierarchy code SAP cannot hold": {hierarchy, []any{f.tenant, id(), "cost_center", "lower", false, f.actor}, "hierarchy_code_check"},
 		"a node code SAP cannot hold":      {node, []any{f.tenant, id(), alt, altRoot, "lower", f.actor}, "hierarchy_node_code_check"},
+		"a hierarchy code of 25":           {hierarchy, []any{f.tenant, id(), "cost_center", strings.Repeat("H", 25), false, f.actor}, "hierarchy_code_check"},
+		"a node code of 25":                {node, []any{f.tenant, id(), alt, altRoot, strings.Repeat("N", 25), f.actor}, "hierarchy_node_code_check"},
 		"a hierarchy without a name": {`INSERT INTO ledger.hierarchy (tenant_id, id, kind, code, name, is_standard, created_by, updated_by)
 			VALUES ($1, gen_random_uuid(), 'cost_center', 'NONAME', '', false, $2, $2)`, []any{f.tenant, f.actor}, "hierarchy_name_check"},
 		"a node without a name": {`UPDATE ledger.hierarchy_node SET name = '', version = version + 1 WHERE id = $1`, []any{f.ccLeaf},
@@ -73,9 +76,7 @@ func TestHierarchies(t *testing.T) {
 		"a parent in another hierarchy": {node, []any{f.tenant, id(), alt, f.ccRoot, "X", f.actor},
 			"hierarchy_node_parent"},
 		"a node code twice in a hierarchy": {node, []any{f.tenant, id(), f.ccTree, f.ccRoot, "LEAF", f.actor}, "hierarchy_node_code_once"},
-		"a node under a node holding centers": {node, []any{f.tenant, id(), f.ccTree, f.ccLeaf, "UNDER", f.actor},
-			"the parent node holds centers"},
-		"the root moved below a node": {moveNode, []any{altRoot, f.ccLeaf}, "a root stays the root"},
+		"the root moved below a node":      {moveNode, []any{altRoot, f.ccLeaf}, "a root stays the root"},
 		"a node made a root": {`UPDATE ledger.hierarchy_node SET parent_id = NULL, version = version + 1 WHERE id = $1`, []any{f.ccLeaf},
 			"a root stays the root"},
 		"a node moved to another hierarchy": {`UPDATE ledger.hierarchy_node SET hierarchy_id = $2, parent_id = $3, version = version + 1 WHERE id = $1`,
@@ -91,11 +92,33 @@ func TestHierarchies(t *testing.T) {
 	}
 }
 
-func TestHierarchyNodeMovedBelowCenters(t *testing.T) {
+// TestHierarchyCodesOf24: a hierarchy and a node take a code of 24
+// characters, as SETHEADER-SETNAME holds (000244, A11(c)).
+func TestHierarchyCodesOf24(t *testing.T) {
 	need(t)
 	f := newCenters(t)
+	code := strings.Repeat("A", 24)
+	tree, root := f.alternative(t, code)
+	if err := f.try(t, node, f.tenant, id(), tree, root, strings.Repeat("N", 24), f.actor); err != nil {
+		t.Errorf("a node code of 24: got %v, want none", err)
+	}
+}
+
+// TestHierarchyNodesBelowCenters: a node holding centers takes child
+// nodes, added or moved below it, as an SAP set holds values beside its
+// subsets (000243, A10(d)); it is still not removed while it holds them.
+func TestHierarchyNodesBelowCenters(t *testing.T) {
+	need(t)
+	f := newCenters(t)
+	if err := f.try(t, node, f.tenant, id(), f.ccTree, f.ccLeaf, "UNDER", f.actor); err != nil {
+		t.Errorf("a node added below a node holding centers: got %v, want none", err)
+	}
 	moved := f.chain(t, f.ccTree, f.ccRoot, "M", 1)[0]
-	failsWith(t, f.try(t, moveNode, moved, f.ccLeaf), "the parent node holds centers")
+	if err := f.try(t, moveNode, moved, f.ccLeaf); err != nil {
+		t.Errorf("a node moved below a node holding centers: got %v, want none", err)
+	}
+	failsWith(t, f.try(t, `UPDATE ledger.hierarchy_node SET removed_by_change_id = $2, version = version + 1 WHERE id = $1`, f.ccLeaf, f.ccChange),
+		"a node with child nodes or centers cannot be removed")
 }
 
 func TestHierarchyCyclesAndDepth(t *testing.T) {
@@ -151,9 +174,8 @@ func TestHierarchyMembers(t *testing.T) {
 		args []any
 		want string
 	}{
-		"a center at a node with children": {[]any{f.tenant, alt, "cost_center", altRoot, f.cc, nil, f.actor}, "sits at a leaf node"},
-		"a center at a removed node":       {[]any{f.tenant, alt, "cost_center", removed, f.cc, nil, f.actor}, "sits at a leaf node"},
-		"a node of another hierarchy":      {[]any{f.tenant, alt, "cost_center", f.ccLeaf, f.cc, nil, f.actor}, "hierarchy_member_node"},
+		"a center at a removed node":  {[]any{f.tenant, alt, "cost_center", removed, f.cc, nil, f.actor}, "sits at a node that is not removed"},
+		"a node of another hierarchy": {[]any{f.tenant, alt, "cost_center", f.ccLeaf, f.cc, nil, f.actor}, "hierarchy_member_node"},
 		"a profit center in a cost center hierarchy": {[]any{f.tenant, alt, "profit_center", leaf, nil, f.pc, f.actor},
 			"hierarchy_member_kind"},
 		"a kind its center does not match": {[]any{f.tenant, alt, "cost_center", leaf, nil, f.pc, f.actor}, "hierarchy_member_center"},

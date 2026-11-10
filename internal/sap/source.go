@@ -101,6 +101,7 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	}
 	out.RSEG = keep(all.RSEG, func(r RSEG) bool { return invs[r.BELNR+"/"+r.GJAHR] })
 	filterLedger(all, out, scope, inCC)
+	out.TKA02 = keep(all.TKA02, func(r TKA02) bool { return inCC(r.BUKRS) })
 	filterCenters(all, out, inCC)
 	filterCustomizing(all, out, inCC)
 	return out
@@ -180,12 +181,13 @@ func filterCenters(all, out *Extract, inCC func(string) bool) {
 }
 
 // filterAreas keeps what belongs to the controlling areas of the centers
-// kept (T56h2): their standard hierarchies (TKA01), every cost and profit
-// center group of theirs (sets 0101 and 0106 with their texts, subsets and
-// values), which the load expands against the centers, and their cost
-// elements (CSKB). The extract does not say which controlling area a
-// company code without centers is assigned to (TKA02, not read), so its
-// scope keeps none of them.
+// kept (T56h2): their standard hierarchies (TKA01) and every cost and
+// profit center group of theirs (sets 0101 and 0106 with their texts,
+// subsets and values), which the load expands against the centers; and
+// the cost elements (CSKB) of those areas and of the areas TKA02 assigns
+// the scope's company codes to (A8), which the configuration draft reads.
+// An extract without TKA02 (an OData one) tells no area of a company code
+// without centers, so its scope keeps none of its cost elements.
 func filterAreas(all, out *Extract) {
 	areas := map[string]bool{}
 	for _, r := range out.CSKS {
@@ -202,7 +204,11 @@ func filterAreas(all, out *Extract) {
 	out.SETHEADERT = keep(all.SETHEADERT, func(r SETHEADERT) bool { return group(r.SETCLASS, r.SUBCLASS) })
 	out.SETNODE = keep(all.SETNODE, func(r SETNODE) bool { return group(r.SETCLASS, r.SUBCLASS) })
 	out.SETLEAF = keep(all.SETLEAF, func(r SETLEAF) bool { return group(r.SETCLASS, r.SUBCLASS) })
-	out.CSKB = keep(all.CSKB, func(r CSKB) bool { return areas[r.KOKRS] })
+	assigned := map[string]bool{}
+	for _, r := range out.TKA02 {
+		assigned[r.KOKRS] = true
+	}
+	out.CSKB = keep(all.CSKB, func(r CSKB) bool { return areas[r.KOKRS] || assigned[r.KOKRS] })
 }
 
 // keep returns the rows that match, in order. It returns nil, not an empty

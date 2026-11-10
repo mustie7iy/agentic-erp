@@ -125,7 +125,7 @@ func (l *loader) setName(t groupTree, name string) string {
 	return text.name
 }
 
-// standardNode is the node of the center's standard leaf, nil when its
+// standardNode is the node of the center's standard group, nil when its
 // area has no standard tree: the UNASSIGNED leaf takes it.
 func (l *loader) standardNode(class, area, code string) *uuid.UUID {
 	for _, t := range l.plan.trees {
@@ -139,7 +139,7 @@ func (l *loader) standardNode(class, area, code string) *uuid.UUID {
 	return nil
 }
 
-// groupPlaces places the centers this run created at their leaves of the
+// groupPlaces places the centers this run created at their groups of the
 // alternative hierarchies, after the centers.
 func (l *loader) groupPlaces(ctx context.Context) error {
 	for _, t := range l.plan.trees {

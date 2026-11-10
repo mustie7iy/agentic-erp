@@ -688,9 +688,10 @@ step_tenant() {
   grep "\[error\] companies\[$CC\]\.time_zone: time zone is required" "$WORK/generate.out" | sed 's/^ */     /'
   say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
   say "America/Toronto, given as the draft is generated (T72n1)."
-  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -out config.yaml
+  say "The cutover date (-cutover) picks each account's cost element from SAP's CSKB slice valid then (A12(d))."
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -cutover "$YEAR-01-01" -out config.yaml
   if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
-    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
+    -cutover "$YEAR-01-01" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
     fail "a draft with a USD house bank whose account is not revalued validated"
   fi
   say "SAP's house banks (T012K) are Canadian: no IBAN, each account by institution, transit and account number,"
@@ -963,7 +964,8 @@ migrated_centers() {
     listCostCenters -p "legal_entity_id=$LE"
   expect "the migrated cost centers" "$(field '[.items[] | .code] | sort | join(" ")')" "3100 3120 3200 3300"
   expect "cost center 3100's name, its English text (CSKT)" "$(field '.items[] | select(.code == "3100") | .name')" Finance
-  local cc3120 pc3200
+  local cc3100 cc3120 pc3200
+  cc3100=$(field '.items[] | select(.code == "3100") | .id')
   cc3120=$(field '.items[] | select(.code == "3120") | .id')
   api 200 '"cost center \(.code): \([.periods[] | "\(.valid_from)..\(.valid_to // "") profit center \(.profit_center_id | .[0:8])..."] | join(", "))"' getCostCenter -p "id=$cc3120"
   QUIET=1 api 200 '' listProfitCenters -p code=P3200
@@ -974,7 +976,7 @@ migrated_centers() {
   api 200 '.items[] | "center change \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
     listCenterChanges -p "cost_center_id=$cc3120"
   expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
-  migrated_groups "$cc3120" "$pc3200"
+  migrated_groups "$cc3120" "$pc3200" "$cc3100"
   as ada
 }
 
@@ -1011,31 +1013,37 @@ migrated_line_centers() {
   as ada
 }
 
-# migrated_groups CC3120 PC3200 shows SAP's cost and profit center groups
-# as the load brought them over (ADR-0050 §10, T56h2): the standard
+# migrated_groups CC3120 PC3200 CC3100 shows SAP's cost and profit center
+# groups as the load brought them over (ADR-0050 §10, T56h2): the standard
 # hierarchy H1000 of the controlling area (TKA01-KHINR) and the profit
 # centers' PH1000 below the standard hierarchies' root, each center
-# created at its leaf, the ranges of the groups' values expanded against
-# SAP's centers (3100 to 3199 holds 3100 and 3120), and the alternative
-# hierarchy REGIONS, whose Quebec takes 3100 to 3299 without 3100 and
-# 3300, with 3120 and 3200 in it.
+# created at its group, the ranges of the groups' values expanded against
+# SAP's centers (3101 to 3199 holds 3120), 3100 at Canada H3000, a group
+# holding it beside its subgroups (the SAP specialist's A10(d)), and the
+# alternative hierarchy REGIONS, whose Quebec takes 3100 to 3299 without
+# 3100 and 3300, with 3120 and 3200 in it.
 migrated_groups() {
   say "SAP's cost and profit center groups came over too (sets 0101 and 0106: SETHEADER, SETNODE, SETLEAF; T56h2):"
   say "the controlling area's standard hierarchy (TKA01-KHINR) and the profit centers' below the standard hierarchies'"
   say "root, each node a change the run applied, and the groups no group includes as alternative hierarchies."
   jq -r '.TKA01[] | "     TKA01 \(.KOKRS): standard hierarchy \(.KHINR)"' "$WORK/data/extract.json"
-  jq -r '.SETLEAF[] | select(.SETNAME == "H3100" or .SETNAME == "QC")
+  jq -r '.SETLEAF[] | select(.SETNAME == "H3000" or .SETNAME == "H3100" or .SETNAME == "QC")
     | "     SETLEAF \(.SETCLASS)/\(.SETNAME): \(if .VALSIGN == "I" then "include" else "exclude" end) \(.VALFROM)\(if .VALOPTION == "BT" then " to \(.VALTO)" else "" end)"' \
     "$WORK/data/extract.json"
   grep '^Loaded:' "$WORK/migrate.out" | sed 's/^/     /'
   expect "the groups loaded" "$(grep '^Loaded:' "$WORK/migrate.out" | sed 's/^Loaded: //' | jq -r '"\(.hierarchies) \(.hierarchy_nodes) \(.hierarchy_places)"')" "1 10 10"
-  say "A group's values are ranges, expanded against SAP's centers: H3100's 3100 to 3199 holds 3100 and 3120, and the"
-  say "alternative REGIONS' Quebec takes 3100 to 3299 without 3100 and 3300. Each center was created at its leaf:"
+  say "A group's values are ranges, expanded against SAP's centers: H3100's 3101 to 3199 holds 3120, and the"
+  say "alternative REGIONS' Quebec takes 3100 to 3299 without 3100 and 3300. Each center was created at its group:"
   api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$1"
   expect "3120's places" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | sort | join(" ")')" \
     "REGIONS:REGIONS/QC STANDARD:STANDARD/H1000/H3000/H3100"
   api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > P3200"' listProfitCenterPaths -p "id=$2"
   expect "P3200's place" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | join(" ")')" "STANDARD:STANDARD/PH1000/PH-QC"
+  say "SAP's Canada group H3000 holds cost center 3100 beside its subgroups H3100 and H3200 (KHINR and a value of H3000):"
+  say "a group may hold centers and subgroups alike (the SAP specialist's answer A10(d)), and so may the platform's node."
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3100"' listCostCenterPaths -p "id=$3"
+  expect "3100's places" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | sort | join(" ")')" \
+    "REGIONS:REGIONS/ON STANDARD:STANDARD/H1000/H3000"
   QUIET=1 api 200 '' listHierarchies -p kind=cost_center -p code=REGIONS
   api 200 '"hierarchy \(.code) \(.name), standard: \(.is_standard)", (.nodes[] | "  \("  " * (.level - 1))\(.code) \(.name): \(.center_ids // [] | length) centers")' \
     getHierarchy -p "id=$(field '.items[0].id')"
@@ -2623,7 +2631,7 @@ step_centers() {
   api 201 '"segment \(.code) \(.name)"' createSegment -body '{"code": "CA", "name": "Canada"}'
   local segment pch cch pc cc
   segment=$(field .id)
-  say "The migration (step 3) loaded SAP's groups below the standard hierarchies' root, its centers at their leaves"
+  say "The migration (step 3) loaded SAP's groups below the standard hierarchies' root, its centers at their groups"
   say "(T56h2); Sam builds the pilot's structure beside them."
   api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=profit_center -p is_standard=true
   pch=$(field '.items[0].id')

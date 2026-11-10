@@ -28,6 +28,13 @@ type SKB1 struct {
 	// account's (T012K-HKONT, SKB1-WAERS), as the SAP specialist answered
 	// (po:2026-11-09, A5 [M], to verify on the pilot system).
 	WAERS string `json:"WAERS,omitempty"`
+	// GLACCOUNT_TYPE is SKA1's G/L account type in S/4HANA: N
+	// non-operating (no cost element), P primary costs or revenue, S
+	// secondary costs, X balance sheet (the SAP specialist, po:2026-11-09,
+	// A12(c) [H]). The configuration draft reads it as a cross-check of a
+	// profit and loss account without a cost element (CSKB). Optional: an
+	// extract without it (an OData one) is not cross-checked.
+	GLACCOUNT_TYPE string `json:"GLACCOUNT_TYPE,omitempty"`
 }
 
 // LFA1 - vendor general data.
@@ -270,14 +277,15 @@ type ACDOCA struct {
 	EBELN string `json:"EBELN,omitempty"`
 	EBELP string `json:"EBELP,omitempty"`
 	// RCNTR, PRCTR and SEGMENT are the line's cost center, profit center
-	// and segment, the Universal Journal's account assignment as ADR-0050
-	// names it from memory (§10, T56h4). A documents-mode load posts them
-	// on the line as the cost center (CSKS-KOSTL), profit center
+	// and segment, in the master data's internal form (the SAP specialist,
+	// po:2026-11-09, A9(a) [H]), and KOKRS its controlling area, blank in a
+	// company code without CO active (A9(d) [H]). A documents-mode load
+	// posts them on the line as the cost center (CSKS-KOSTL), profit center
 	// (CEPC-PRCTR) and segment (FAGL_SEGM-SEGMENT) of the same code, each
-	// center the one of the line's company code (RBUKRS): the line's
-	// controlling area is not read, a company code being taken to belong
-	// to one area. The names, and that the codes are in the master data's
-	// form, are pending the SAP specialist (docs/migration.md).
+	// center the one of the line's company code (RBUKRS) in its area.
+	// PRCTR is the profit center SAP derived from the cost center on the
+	// posting date, kept after a change of the cost center (A9(b) [M]).
+	KOKRS   string `json:"KOKRS,omitempty"`
 	RCNTR   string `json:"RCNTR,omitempty"`
 	PRCTR   string `json:"PRCTR,omitempty"`
 	SEGMENT string `json:"SEGMENT,omitempty"`
@@ -382,6 +390,18 @@ type TKA01 struct {
 	KHINR string `json:"KHINR"`
 }
 
+// TKA02 - the controlling area KOKRS company code BUKRS is assigned to. A
+// company code belongs to exactly one controlling area, and TKA02 names it
+// (the SAP specialist, po:2026-11-09, A8 [H]). Read by the configuration
+// draft (delivery/sapconfig), which takes a company code's area from it
+// rather than from its centers, so a company code without centers has
+// one, and by FilterScope, which keeps that area's cost elements. There
+// is no released OData API for it (file extract only).
+type TKA02 struct {
+	BUKRS string `json:"BUKRS"`
+	KOKRS string `json:"KOKRS"`
+}
+
 // Set classes of the center groups (SETHEADER-SETCLASS): cost center
 // groups and profit center groups, whose subclass (SUBCLASS) is the
 // controlling area (ADR-0050 §10, pending the SAP specialist).
@@ -439,14 +459,17 @@ type SETLEAF struct {
 
 // CSKB - cost elements of controlling area KOKRS: the G/L account KSTAR's
 // cost element category (KATYP: 01 primary costs, 11 and 12 revenues and
-// sales deductions, others secondary or statistical; ADR-0050) in its
-// slice ending on DATBI. In S/4HANA it is maintained with the G/L account
-// (FS00, from memory). Read only by the configuration draft (delivery/sapconfig), which
-// sets the accounts' cost_element from it (T56h2); its fields are pending
-// the SAP specialist.
+// sales deductions, others secondary or statistical, such as 22, 41-43
+// and 90; ADR-0050) in its slice valid from DATAB to DATBI (the SAP
+// specialist, po:2026-11-09, A12(a), (b) [H]). In S/4HANA it is maintained
+// with the G/L account (FS00, from memory). Read only by the configuration
+// draft (delivery/sapconfig), which sets the accounts' cost_element from
+// the slice valid at the cutover date (A12(d) [M]). DATAB is optional: a
+// slice without it is taken to run from the start.
 type CSKB struct {
 	KOKRS string `json:"KOKRS"`
 	KSTAR string `json:"KSTAR"`
+	DATAB string `json:"DATAB,omitempty"`
 	DATBI string `json:"DATBI"`
 	KATYP string `json:"KATYP"`
 }
@@ -738,6 +761,7 @@ type Extract struct {
 	FAGL_SEGM  []FAGLSegm   `json:"FAGL_SEGM,omitempty"`
 	FAGL_SEGMT []FAGLSegmt  `json:"FAGL_SEGMT,omitempty"`
 	TKA01      []TKA01      `json:"TKA01,omitempty"`
+	TKA02      []TKA02      `json:"TKA02,omitempty"`
 	SETHEADER  []SETHEADER  `json:"SETHEADER,omitempty"`
 	SETHEADERT []SETHEADERT `json:"SETHEADERT,omitempty"`
 	SETNODE    []SETNODE    `json:"SETNODE,omitempty"`
@@ -780,7 +804,7 @@ type Extract struct {
 // tables a migration run reads and the customizing its report has always
 // counted. The payment method tables (T042*) are read only by the
 // configuration draft (delivery/sapconfig), so a run's report does not
-// count them, nor CSKB, the default account assignments (TKA3A, TKA3C,
+// count them, nor CSKB, TKA02, the default account assignments (TKA3A, TKA3C,
 // TKA3P) and the currencies' decimals (TCURX), which the quality gate
 // reads to convert amounts.
 func (e *Extract) Counts() map[string]int {

@@ -75,6 +75,44 @@ func TestGroupPlan(t *testing.T) {
 	}
 }
 
+// TestGroupCodesOf24: a set named with 24 characters, as SETHEADER-SETNAME
+// holds (A11(c)), is a group the gate passes.
+func TestGroupCodesOf24(t *testing.T) {
+	x := gateGroups()
+	name := strings.Repeat("A", 24)
+	for i := range x.SETHEADER {
+		if x.SETHEADER[i].SETNAME == "ADM" {
+			x.SETHEADER[i].SETNAME, x.SETHEADERT[i].SETNAME = name, name
+		}
+	}
+	x.SETNODE[0].SUBSETNAME, x.CSKS[0].KHINR = name, name
+	if g := planGroups(x); len(g.issues) != 0 {
+		t.Errorf("issues: got %v, want none", g.issues)
+	}
+}
+
+// TestGroupPlanInnerGroups: a group may hold values beside its subgroups,
+// and a center's KHINR may name a group with subgroups (the SAP
+// specialist, A10(d)): the center sits at that inner group.
+func TestGroupPlanInnerGroups(t *testing.T) {
+	x := gateGroups()
+	x.CSKS[0].KHINR = "STD"
+	x.CSKS = append(x.CSKS, sap.CSKS{KOKRS: "A1", KOSTL: "C3", DATAB: "20200101", DATBI: "99991231", BUKRS: "2000", KOSAR: "ADMIN", VERAK: "Bo", WAERS: "EUR"})
+	x.CSKT = append(x.CSKT, sap.CSKT{KOKRS: "A1", KOSTL: "C3", DATBI: "99991231", SPRAS: "E", KTEXT: "C3"})
+	x.SETLEAF[0].VALTO = "C2"
+	withSets(x, set{"0101", "ALT", nil, [][4]string{{"I", "EQ", "C3", ""}}}, set{"0101", "X", nil, [][4]string{{"E", "EQ", "C3", ""}}},
+		set{"0101", "STD", nil, [][4]string{{"I", "EQ", "C3", ""}}})
+	g := planGroups(x)
+	if len(g.issues) != 0 {
+		t.Fatalf("issues: got %v, want none", g.issues)
+	}
+	for tree, want := range map[string]string{"0101/A1/STD": "map[C1:STD C2:SAL C3:STD]", "0101/A1/ALT": "map[C1:X C2:X C3:ALT]"} {
+		if got := fmt.Sprint(g.leaves[tree]); got != want {
+			t.Errorf("groups of the centers below %s: got %s, want %s", tree, got, want)
+		}
+	}
+}
+
 // TestGroupQualityGate: the gate refuses groups the platform cannot hold
 // or that place a center in other than one standard leaf, and warns of
 // what places nothing.
@@ -86,10 +124,13 @@ func TestGroupQualityGate(t *testing.T) {
 		"no standard set": {func(x *sap.Extract) { x.TKA01[0].KHINR = "NONE" }, "error TKA01 A1: standard hierarchy NONE (KHINR) is not a cost center group"},
 		"no standard hierarchy": {func(x *sap.Extract) { x.TKA01 = nil },
 			"warning SETHEADER 0101/A1: controlling area A1 has groups of class 0101 but no standard hierarchy"},
-		"a set code":      {func(x *sap.Extract) { x.SETHEADER[4].SETNAME = "x y"; x.SETNODE[2].SUBSETNAME = "x y" }, `error SETHEADER 0101/A1/x y: set "x y" is not a code`},
-		"no set text":     {func(x *sap.Extract) { x.SETHEADERT[1].DESCRIPT = "" }, "error SETHEADER 0101/A1/ADM: no text with a name (SETHEADERT)"},
-		"a German text":   {func(x *sap.Extract) { x.SETHEADERT[1].LANGU = "D" }, `warning SETHEADER 0101/A1/ADM: no text in English; it loads named "Group ADM"`},
-		"subsets, values": {func(x *sap.Extract) { x.SETLEAF[0].SETNAME = "STD" }, "error SETHEADER 0101/A1/STD: set STD has both subsets and values"},
+		"a set code": {func(x *sap.Extract) { x.SETHEADER[4].SETNAME = "x y"; x.SETNODE[2].SUBSETNAME = "x y" }, `error SETHEADER 0101/A1/x y: set "x y" is not a code`},
+		"a set code of 25": {func(x *sap.Extract) {
+			name := strings.Repeat("A", 25)
+			x.SETHEADER[4].SETNAME, x.SETNODE[2].SUBSETNAME = name, name
+		}, `is not a code the platform holds (up to 24`},
+		"no set text":   {func(x *sap.Extract) { x.SETHEADERT[1].DESCRIPT = "" }, "error SETHEADER 0101/A1/ADM: no text with a name (SETHEADERT)"},
+		"a German text": {func(x *sap.Extract) { x.SETHEADERT[1].LANGU = "D" }, `warning SETHEADER 0101/A1/ADM: no text in English; it loads named "Group ADM"`},
 		"a node of no set": {func(x *sap.Extract) { x.SETNODE[0].SETNAME = "NOPE" },
 			"error SETNODE 0101/A1/NOPE/1: set NOPE is not in SETHEADER"},
 		"a subset of another class": {func(x *sap.Extract) { x.SETNODE[0].SUBSETCLS = "0106" }, "error SETNODE 0101/A1/STD/1: subset ADM is of class 0106"},
@@ -111,14 +152,16 @@ func TestGroupQualityGate(t *testing.T) {
 			}
 			withSets(x, set{"0101", "D13", nil, nil})
 		}, "error SETHEADER 0101/A1/D1: the hierarchy below D1 is deeper than the 12 levels the platform holds"},
-		"two leaves": {func(x *sap.Extract) { x.SETLEAF[0].VALFROM = "C1" }, "error CSKS A1/C1: it is in leaves SAL, ADM of the hierarchy below STD"},
-		"no leaf":    {func(x *sap.Extract) { x.CSKS[0].KHINR = "" }, "error CSKS A1/C1: it is in no leaf of the standard hierarchy below STD"},
-		"a KHINR not a leaf": {func(x *sap.Extract) { x.CSKS[0].KHINR = "STD" },
-			"error CSKS A1/C1: its standard leaf STD (KHINR) is not a leaf of the standard hierarchy below STD"},
-		"two alternative leaves": {func(x *sap.Extract) {
+		"two groups": {func(x *sap.Extract) { x.SETLEAF[0].VALFROM = "C1" }, "error CSKS A1/C1: it is in groups SAL, ADM of the hierarchy below STD"},
+		"no group":   {func(x *sap.Extract) { x.CSKS[0].KHINR = "" }, "error CSKS A1/C1: it is in no group of the standard hierarchy below STD"},
+		"a KHINR not in the tree": {func(x *sap.Extract) { x.CSKS[0].KHINR = "ALT" },
+			"error CSKS A1/C1: its standard group ALT (KHINR) is not a group of the standard hierarchy below STD"},
+		"an inner group's value and a subgroup's": {func(x *sap.Extract) { withSets(x, set{"0101", "STD", nil, [][4]string{{"I", "EQ", "C2", ""}}}) },
+			"error CSKS A1/C2: it is in groups STD, SAL of the hierarchy below STD"},
+		"two alternative groups": {func(x *sap.Extract) {
 			withSets(x, set{"0101", "ALT", []string{"Z"}, nil}, set{"0101", "Z", nil, [][4]string{{"I", "EQ", "C1", ""}}})
 		},
-			"error CSKS A1/C1: it is in leaves X, Z of the hierarchy below ALT"},
+			"error CSKS A1/C1: it is in groups X, Z of the hierarchy below ALT"},
 		"a value matching nothing": {func(x *sap.Extract) { x.SETLEAF[1].VALFROM, x.SETLEAF[1].VALTO = "D0", "D9" },
 			"warning SETLEAF 0101/A1/X/1: value D0 to D9 matches no center of controlling area A1 in the extract"},
 		"an unknown profit center leaf": {func(x *sap.Extract) { x.CEPC[0].KHINR = "NOPE" },

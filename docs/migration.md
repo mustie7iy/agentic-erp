@@ -266,7 +266,7 @@ revenues, PKZKP plan), a profit center's lock (LOCK_IND). A center's name
 and description are its text in English (CSKT and CEPCT KTEXT and LTEXT,
 FAGL_SEGMT NAME, language key E or EN) of its latest slice, else its text
 in another language with a warning; its person responsible is VERAK of its
-latest slice. Each center is created at its leaf of SAP's standard
+latest slice. Each center is created at its group of SAP's standard
 hierarchy (below), or at the standard hierarchy's UNASSIGNED leaf, as a
 center created without a node is, when the extract has none for its
 controlling area.
@@ -303,16 +303,34 @@ configuration's versions keep the platform's.
 Each SAP line the run posts as it stands carries SAP's account assignment
 (ACDOCA RCNTR, PRCTR and SEGMENT; T56h4): the cost center, profit center
 and segment of the same code the run migrated, each center the one of the
-line's company code (CSKS-BUKRS, CEPC_BUKRS), as the extract reads no
-controlling area on the line. The ledger checks them as it checks any
+line's company code (CSKS-BUKRS, CEPC_BUKRS) in the line's controlling
+area (ACDOCA KOKRS, blank in a company code without CO active; the SAP
+specialist's answer A9(d) [H], po:2026-11-09). The ledger checks them as it checks any
 posting (ADR-0050 §5): a profit center other than the cost center's on the
 posting date, a center not valid or locked on it, or a cost center on an
 account that takes none refuses the document, and the run fails. A line without them is derived as any
-line is. The quality gate refuses beforehand a line naming a cost center
-that is not one of its company code's in the extract (CSKS), a profit
-center not assigned to it (CEPC_BUKRS) or a center in two controlling
-areas of it, so not migrated, and a segment that is not the line's profit
-center's (CEPC-SEGMENT), or one on a line without a profit center. In
+line is. SAP derived a line's profit center from its cost center on the
+posting date and keeps that derivation after a change of the cost center
+(A9(b) [M], to verify on the pilot system), so a line is compared with
+the cost center's slice valid on its posting date (BUDAT), not today's;
+a cost center without a profit center gave SAP's line the dummy profit
+center, which loads as a profit center given beside a cost center without
+one. The quality gate refuses beforehand a line naming a center without a
+controlling area (KOKRS blank), a cost center that is not one of its
+company code's of the line's area in the extract (CSKS), a profit center
+not assigned to it (CEPC_BUKRS), so not migrated, a cost center no slice
+of which covers the posting date, a profit center other than that slice's
+(when it has one), and a segment that is not the line's profit
+center's (CEPC-SEGMENT), or one on a line without a profit center. SAP
+sets a line's segment otherwise than from its profit center when the BAdI
+FAGL_DERIVE_SEGMENT or a manual entry sets it (A9(c) [M], to verify on the
+pilot system: profile the lines whose SEGMENT is not their PRCTR's
+CEPC-SEGMENT); the platform gives a profit center one segment and every
+line its profit center's, so such a line is refused with an issue naming
+that case rather than loaded. A profit center whose segment changed after
+posting is refused as a reorganisation (below). The
+reconciliation, which extracts again without the gate, refuses the same
+lines and counts them for no center. In
 `documents` mode that is every line; in `balances` mode only the lines of
 the documents posted as entries of their own (an open down payment's, an
 open item's in a foreign currency), as the opening entry carries
@@ -335,50 +353,64 @@ applied with no approval request of its own, as the centers are
 includes, E excludes; VALOPTION EQ one value, BT a range, both ends
 included), compared as SAP keeps codes (digits alone padded with leading
 zeros to ten) and expanded against the extract's centers of the area: a
-center sits at the leaves whose values take it and, in the standard
-hierarchy, at the leaf its KHINR names, which must be one; it sits in an
-alternative hierarchy at the leaf that takes it, if any (`hierarchy_places`
-counts both). A later run keeps what is loaded: a group it finds loaded is
+center sits at the groups whose values take it and, in the standard
+hierarchy, at the group its KHINR names, which must be one; it sits in an
+alternative hierarchy at the group that takes it, if any (`hierarchy_places`
+counts both). A group may hold values beside its subgroups and a KHINR may
+name a group with subgroups (the SAP specialist's answer A10(d) [M], to
+verify on the pilot system): the center then sits at that inner node, which
+the platform's hierarchies allow since migration 000243 (ADR-0050 §3 as
+amended). A later run keeps what is loaded: a group it finds loaded is
 not renamed or moved, a group SAP added is added below its parent, and a
 center an earlier run loaded keeps its places (a controller places it
-through the API). A group an earlier run loaded as a leaf holding centers
-that SAP has since given subgroups is refused by the load
-(`ledger.hierarchy_change_invalid`, `has_centers`), and every run of such
-an extract fails until a controller moves those centers to other leaves
-through the API (`POST /v1/hierarchies/{id}:place`). The quality gate refuses a group code that is not one
-(up to 15 of 0-9, A-Z, _ and -), a group without a name in any language
-(warning of one only in another language than English), a group holding
-both subgroups and values, a line naming a group the extract lacks or a
+through the API). A group an earlier run loaded holding centers that SAP
+has since given subgroups takes them below its centers. The quality gate refuses a group code that is not one
+(up to 24 of 0-9, A-Z, _ and -, as SETHEADER-SETNAME holds), a group without a name in any language
+(warning of one only in another language than English), a line naming a group the extract lacks or a
 subgroup of another class or area, a value whose sign or option is
 another (patterns, CP, are not expanded) or whose range ends before it
 starts, groups that include each other, a tree deeper than 12 levels (11
 below the standard root), a standard hierarchy (TKA01-KHINR) that is not
 a group, profit centers' places in more than one tree, a group name in the
 standard hierarchies of two controlling areas or topping alternative ones
-in two, a center in no leaf of its standard hierarchy, in two leaves of
-one hierarchy, or whose KHINR is not a leaf of it. It warns of a value
+in two, a center in no group of its standard hierarchy, in two groups of
+one hierarchy, or whose KHINR is not a group of it. It warns of a value
 taking no center of the extract (it places nothing) and of an area with
 groups but no standard hierarchy, whose centers go to the UNASSIGNED leaf.
 An alternative hierarchy whose code the tenant already has is refused by
-the load and fails the run. The SAP specialist's answers of 2026-11-09
-change two of these refusals (tracker leaves, po:2026-11-09): SAP lets a
-group hold values beside its subgroups, and a center's KHINR need not name
-a lowest-level group, so values on inner groups are to load; and set names
-are up to 24 characters in SETHEADER, not 15 (below, "What to check").
+the load and fails the run. Set names are up to 24 characters in
+SETHEADER (the SAP specialist's answer A11(c) [M], po:2026-11-09; 15 in the
+CO transactions, longer only for sets kept with GS02), which the
+platform's hierarchy and node codes hold since migration 000244.
 
 The configuration draft (`erp config generate`) takes each profit and loss
 account's cost element from SAP's cost element category (CSKB-KATYP of its
-latest slice, in the controlling areas of the company's centers; T56h2): 01
+slice valid at the cutover date, `-cutover`, in the company code's
+controlling area; T56h2): 01
 `primary_cost` on an expense account, 11 or 12 `revenue` on a revenue
 account, and `none` for an account that is not a cost element in SAP (no
 CSKB row), so its lines take no cost object (ADR-0050 §4). A category the
 account's type cannot take, a secondary or statistical one (which the
 platform does not hold until T60) or areas that disagree leave the type's
-default, with a note for the reviewer, as does a company whose areas have
-no cost elements or whose area the extract does not tell (a company code
-without centers: TKA02 is not read). To change after the SAP specialist's
-answers of 2026-11-09 (tracker leaves, po:2026-11-09): the slice valid at
-the cutover date is taken rather than the latest, and TKA02 is read.
+default, with a note for the reviewer, as does a company whose area has
+no cost elements or whose area the extract does not tell. A company code's
+controlling area is the one TKA02 assigns it to (BUKRS to KOKRS; the SAP
+specialist's answer A8 [H], po:2026-11-09), so a company code without
+centers has one; an extract without TKA02 (an OData one: there is no
+released API for it) takes the areas of the company's cost centers and of
+the profit centers assigned to it, as before. A scope keeps the TKA02 row
+of each of its company codes and the cost elements of those areas, but
+not their groups, which place centers. To change after the SAP
+specialist's answers of 2026-11-09 (A12(d) [M], to verify on the pilot
+system), the slice valid at the cutover date is taken, not the latest: the
+latest only when no slice covers that date, with a note on the account (an
+expired cost element means CO postings to it were stopped on purpose), and
+the latest with one note on the chart when no `-cutover` is given. An
+account without a CSKB row is cross-checked against S/4HANA's G/L account
+type (SKA1-GLACCOUNT_TYPE, flattened into SKB1; A12(c) [H]): `N`, or none
+given (an OData extract), is `none`; `P` or `S`, which say it is a cost
+element, and `X`, a balance sheet type, leave the account's type default
+with a note.
 
 A later run keeps what an earlier one loaded: it assigns a profit center
 it finds there to the run's company codes it is not yet assigned to
@@ -716,8 +748,8 @@ others record a confirmation.
   costs), PKZER (plan revenues); VERAK_USER holds the responsible user's
   ID. The language key is stored as `E` (SE16 may show `EN`, its ISO
   form): the extract reads raw values. A company code belongs to exactly
-  one controlling area, which TKA02 (BUKRS to KOKRS) names; it is to be
-  read (tracker leaf). Which KOSAR keys the pilot uses waits for the
+  one controlling area, which TKA02 (BUKRS to KOKRS) names; the
+  configuration draft reads it (above). Which KOSAR keys the pilot uses waits for the
   pilot customer (below).
 - The centers on journal lines (T56h4; ADR-0050 §10 names the fields
   from memory): that ACDOCA carries a line's cost center, profit center
@@ -737,7 +769,11 @@ others record a confirmation.
   the BAdI FAGL_DERIVE_SEGMENT or a manual entry set it, or the profit
   center's segment changed after posting [M]. The controlling area is the
   company code's [H]; ACDOCA also carries KOKRS, worth reading, as it
-  shows company codes without CO active (KOKRS blank).
+  shows company codes without CO active (KOKRS blank). Built: the load
+  reads KOKRS and checks a line's profit center against the cost center's
+  slice valid on its posting date (above); to verify on the pilot system
+  [M]: that lines keep the profit center of their posting date and carry
+  the dummy profit center where the cost center had none.
 - The center groups and cost elements (T56h2; ADR-0050 §10 names the
   tables from memory): that TKA01 carries the cost centers' standard
   hierarchy as KHINR, and whether it (or another table) names the profit
@@ -750,7 +786,7 @@ others record a confirmation.
   their internal form (numeric codes zero-padded to ten), that I and E
   and EQ and BT are the signs and options cost and profit center groups
   use, and that CSKS-KHINR and CEPC-KHINR name a leaf of the standard
-  hierarchy; how long a set name may be (the platform holds 15
+  hierarchy; how long a set name may be (the platform held 15
   characters); that CSKB carries KOKRS, KSTAR, DATBI and KATYP, with 01
   primary costs and 11 and 12 revenues and sales deductions; and whether
   the extract should read TKA02 to tell a company code's controlling area.
@@ -763,14 +799,14 @@ others record a confirmation.
   0101 and 0106; subsets are ordered by SETNODE-SEQNR where the release has
   it, else LINEID, and values by LINEID. CSKS-KHINR and CEPC-KHINR need
   **not** name a lowest-level node [M]: a set may hold subsets and values
-  on the same node, so the tree must allow values on inner nodes (tracker
-  leaf; the gate refuses such a group today). Set values hold numeric codes
+  on the same node, so the tree must allow values on inner nodes (built:
+  such centers load at the inner node; to verify on the pilot system). Set values hold numeric codes
   zero-padded to ten [H], alphanumeric codes left-justified and unpadded,
   the same ALPHA rule as CSKS-KOSTL, which is the load's. Groups kept in
   KSH2/KCH2 use only I with EQ or BT [M]; sets edited with GS02 may hold
   other options (CP), which stay refused. A group name holds at most 15
   characters in the CO transactions [M], but SETHEADER-SETNAME holds 24,
-  the size to hold (tracker leaf). CSKB carries KOKRS, KSTAR, DATAB, DATBI
+  which the platform's codes hold (built, migration 000244). CSKB carries KOKRS, KSTAR, DATAB, DATBI
   and KATYP [H]; KATYP 01, 11 and 12 mean what the draft takes [H], and
   others met are 22 (external settlement), 41-43 (secondary) and 90
   (statistical, for balance sheet accounts, asset accounts in S/4HANA). An
@@ -780,7 +816,7 @@ others record a confirmation.
   cross-check worth reading. The slice to use is the one valid at the
   cutover date, not the latest [M]: the latest only when none covers it,
   and the account flagged, since an expired cost element means CO postings
-  were stopped on purpose (tracker leaf).
+  were stopped on purpose (built, above; to verify on the pilot system).
 - The default account assignments (OKB9, T56h3; tables and fields from the
   SAP specialist, PO 2026-11-09, to be validated in SE11 and SE37 on the
   pilot's release): TKA3A keyed by MANDT, BUKRS and KSTAR with KOKRS,

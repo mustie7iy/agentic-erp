@@ -2926,49 +2926,49 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP migration reads TKA02 (SAP specialist, po:2026-11-09, A8 [H]): a company code belongs to exactly one controlling area, which TKA02 (BUKRS to KOKRS) names; the extract carries it and the configuration draft takes a company code's controlling area from it, so a company code without cost centers no longer has an unknown area (docs/migration.md: \"TKA02 is not read\")",
-        "r": "internal/sap types.go · delivery/sapconfig costelements.go · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/sap types.go TKA02, source.go filterAreas (CSKB of the TKA02 areas), mock (3000 to area 1000, 1000 and 2000 to 2000) · delivery/sapconfig costelements.go areasOf (TKA02's area, else the centers' for an extract without it) · TestCostElementCategories, TestFilterScopeKeepsTheAssignedAreasCostElements · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Profit centers on migrated journal lines checked against the cost center period valid at posting, and ACDOCA-KOKRS read (SAP specialist, po:2026-11-09, A9(b), (d); for T56h4): a line's PRCTR is derived from CSKS-PRCTR at posting and keeps that derivation [M], so it may differ from today's master after a change, and a cost center without a profit center takes the dummy profit center; the quality gate and the reconciliation compare a migrated line's profit center with the cost_center_period valid at its posting date, not the current one; ACDOCA-KOKRS is read [H], a blank one naming a company code without CO active",
-        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "r": "T56h4 · internal/sap ACDOCA KOKRS, mock lines' area · internal/integration linecenters.go centers (the line's area, KOKRS blank refused), postedProfitCenter (the CSKS slice valid on BUDAT; none: SAP's dummy) · TestLineCenterQualityGate · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A migrated line's segment that differs from its profit center's (SAP specialist, po:2026-11-09, A9(c) [M], to verify on the pilot system; for T56h4): SAP derives SEGMENT from CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it, or the profit center's segment changed after posting, while T56h4's quality gate refuses a segment that is not the profit center's and ADR-0050 gives a profit center one segment without validity; the step decides by default whether such a line loads with SAP's segment or is refused with an issue of its own naming the case, and amends ADR-0050 §5 if loading needs time-dependent segments",
-        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "r": "T56h4 · internal/integration linecenters.go centers (refused, naming FAGL_DERIVE_SEGMENT or a manual entry; decided by default, §5 not amended) · TestLineCenterQualityGate · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md (to profile on the pilot system)",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP center groups with values on inner nodes (SAP specialist, po:2026-11-09, A10(d) [M], to verify on the pilot system): a set may hold subsets and values on the same node, and CSKS-KHINR or CEPC-KHINR may name a group that has child groups; the quality gate's refusals of a group holding both subgroups and values and of a KHINR that is not a leaf are lifted, and such centers are placed on that group; the platform's hierarchy refuses centers on a node with children (ledger.hierarchy_change_invalid, has_centers), so the step amends ADR-0050 §3, decided by default or by a new ADR, to hold them",
-        "r": "internal/integration sets.go, settrees.go, setload.go · ledger hierarchies · ADR-0050 §3, §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/integration sets.go checkSet (both lifted), settrees.go leavesOf (every group's values; KHINR any group of the tree) · ledger hierarchies.go parent, planPlace, hierarchychange.go unassignedLeaf, addUnassigned (centers and child nodes on one node) · migration 000243_hierarchy_centers_on_inner_nodes · api/openapi.yaml descriptions · TestGroupPlanInnerGroups, TestHierarchyRefusals, TestCentersCreatedInTheStandardHierarchy, TestHierarchyNodesBelowCenters · ADR-0050 §3 amended, §10 As built (SAP specialist's answers) · 03-data-model · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP group codes up to 24 characters (SAP specialist, po:2026-11-09, A11(c) [M]): SETHEADER-SETNAME holds 24 characters, 15 being the limit of the CO transactions; the quality gate's group code check (up to 15 of 0-9, A-Z, _ and -) and the hierarchy node's code, which the platform holds at 15, take 24, so a set kept with a longer name (GS02) migrates; implied: the contract's code patterns ^[0-9A-Z_-]{1,15}$ (api/openapi.yaml) widen, the check of migration 000139_hierarchies changes in a new migration, and the breaking-change check applies",
-        "r": "internal/integration sets.go · ledger hierarchy_node · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/integration sets.go nodeCode (24) · migration 000244_hierarchy_codes_24 (hierarchy_code_check, hierarchy_node_code_check) · api/openapi.yaml code patterns {1,24} (request side; oasdiff) · TestHierarchyCodesOf24, TestGroupQualityGate · ADR-0050 §3, §10 As built (SAP specialist's answers) · 03-data-model · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cost element category from the CSKB slice valid at cutover (SAP specialist, po:2026-11-09, A12(d) [M], to verify on the pilot system): the configuration draft takes CSKB-KATYP of the slice valid at the cutover date instead of the latest slice, the latest only when none covers that date, with a note for the reviewer on that account (an expired cost element means CO postings were stopped on purpose); SKA1-GLACCOUNT_TYPE (N non-operating, P primary costs or revenue, S secondary, X balance sheet) read as a cross-check of an account without a CSKB row [H]",
-        "r": "delivery/sapconfig costelements.go · internal/sap CSKB, SKA1 · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "delivery/sapconfig costelements.go cutoverSlices, noCostElement · Options.Cutover, erp config generate -cutover · internal/sap CSKB DATAB, SKB1 GLACCOUNT_TYPE · TestCostElementCategories, TestCostElementAccountTypes · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []

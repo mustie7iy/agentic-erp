@@ -14,11 +14,13 @@ import (
 )
 
 // Hierarchies of cost and profit centers (ADR-0050 §3, T56b): trees of
-// nodes with centers of the hierarchy's kind at their leaves. A tenant has
-// at most one standard hierarchy per kind, and every active center sits in
-// exactly one leaf of it; alternative hierarchies hold a center at most
-// once. Hierarchies are not time-dependent (decision P7). The database
-// keeps these rules (migration 000139); planning a change checks them
+// nodes with centers of the hierarchy's kind at their nodes, an inner node
+// included, as SAP's groups hold centers beside subgroups (the SAP
+// specialist, po:2026-11-09, A10(d)). A tenant has at most one standard
+// hierarchy per kind, and every active center sits in exactly one node of
+// it; alternative hierarchies hold a center at most once. Hierarchies are
+// not time-dependent (decision P7). The database keeps these rules
+// (migrations 000139, 000243); planning a change checks them
 // first, so that a request is refused with a reason rather than by a
 // trigger, and checks them again when the change is applied.
 
@@ -224,8 +226,8 @@ type hierarchyPayload struct {
 const (
 	reasonUnknown     = "unknown"      // not a node of the hierarchy
 	reasonRoot        = "root"         // the root is not moved or removed
-	reasonHasCenters  = "has_centers"  // centers sit at leaves
-	reasonHasChildren = "has_children" // a node with children is not removed, and holds no centers
+	reasonHasCenters  = "has_centers"  // a node holding centers is not removed
+	reasonHasChildren = "has_children" // a node with children is not removed
 	reasonCycle       = "cycle"        // a node moved below itself
 	reasonTooDeep     = "too_deep"     // more than maxLevels
 	reasonStandard    = "standard"     // a center does not leave the standard hierarchy
@@ -265,15 +267,13 @@ func (t tree) plan(kind string, center uuid.UUID, p hierarchyPayload) error {
 	return t.planPlace("node_id", center, p.NodeID)
 }
 
-// parent checks a node to be given a child: it holds no centers, and the
-// child's subtree of height levels stays within maxLevels.
+// parent checks a node to be given a child: the child's subtree of height
+// levels stays within maxLevels. A node holding centers takes children.
 func (t tree) parent(field string, id *uuid.UUID, height int) (*HierarchyNode, error) {
 	n, err := t.node(field, id)
 	switch {
 	case err != nil:
 		return nil, err
-	case len(n.Centers) > 0:
-		return nil, invalidChange(field, reasonHasCenters, "the node holds centers, which sit at leaves")
 	case t.level(n.ID)+height > maxLevels:
 		return nil, invalidChange(field, reasonTooDeep, fmt.Sprintf("a hierarchy has at most %d levels", maxLevels))
 	}
@@ -331,13 +331,13 @@ func (t tree) planRemove(p hierarchyPayload) error {
 	return nil
 }
 
-// planPlace checks placing a center at a leaf, or (node nil) taking it
+// planPlace checks placing a center at a node, or (node nil) taking it
 // out of the hierarchy.
 func (t tree) planPlace(field string, center uuid.UUID, node *uuid.UUID) error {
 	at, placed := t.placed[center]
 	if node == nil {
 		if t.IsStandard {
-			return invalidChange(field, reasonStandard, "every active center sits in a leaf of the standard hierarchy, which must be named")
+			return invalidChange(field, reasonStandard, "every active center sits in a node of the standard hierarchy, which must be named")
 		}
 		if !placed {
 			return nothingToChange()
@@ -348,8 +348,6 @@ func (t tree) planPlace(field string, center uuid.UUID, node *uuid.UUID) error {
 	switch {
 	case err != nil:
 		return err
-	case len(t.children[n.ID]) > 0:
-		return invalidChange(field, reasonHasChildren, "centers sit at leaves; the node has child nodes")
 	case placed && at == n.ID:
 		return nothingToChange()
 	}

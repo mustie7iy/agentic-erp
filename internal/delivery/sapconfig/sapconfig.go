@@ -50,6 +50,12 @@ type Options struct {
 	// it they are in SAP's internal form, as table exports write them, and
 	// the draft converts them with the extract's TCURX (amounts.go).
 	ExternalAmounts bool
+	// Cutover is the cutover date (YYYYMMDD), at which the draft takes each
+	// account's cost element category from the CSKB slice valid then (the
+	// SAP specialist, po:2026-11-09, A12(d)). It is an input, as the
+	// extract does not say when the scope cuts over; without it the draft
+	// takes the latest slice, with a note.
+	Cutover string
 }
 
 // DefaultOptions suit a standard S/4HANA procure-to-pay role design.
