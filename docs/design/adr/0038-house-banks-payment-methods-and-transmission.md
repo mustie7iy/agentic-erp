@@ -1095,7 +1095,13 @@ configuration holds what the company pays by):
   activation whose document gives a method an `order` is refused while
   such a replica runs (409 `config.replica_lacks_key`, the key
   `companies[].payment_methods[].order`; As built, activation refused
-  while a replica lacks a key).
+  while a replica lacks a key). A document that only lists its methods in
+  another order sets no new key, so such a replica may activate it during
+  the upgrade: it writes no `run_order`, the methods keep the places they
+  had, and the run order follows the document again only at the next
+  activation by an upgraded replica. So methods are not reordered during
+  an upgrade, or the configuration is activated again after it
+  (docs/migration.md, check list).
 - **The draft from SAP.** The run's parameters are not in the T042 tables
   the extract carries (the specialist names the F110 parameters, no table;
   where SAP stores them is not stated here and is on the pilot check list),

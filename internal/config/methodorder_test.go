@@ -44,7 +44,7 @@ func TestMethodsInRunOrder(t *testing.T) {
 func TestMethodOrderIsAChange(t *testing.T) {
 	base, changed := fixture(t), fixture(t)
 	changed.Companies[0].PaymentMethods[0].Order = 2
-	changes, _ := Diff(base, changed)
+	changes, _ := Diff(base, changed) // Diff never fails
 	if len(changes) != 1 {
 		t.Fatalf("changes: got %v, want 1", changes)
 	}

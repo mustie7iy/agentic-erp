@@ -672,7 +672,10 @@ others record a confirmation.
   with several, that the order is the reviewer's to set. **Check on the
   pilot system:** which order the company's payment runs (F110) enter their
   methods in, per paying company code, and set `order` to match before the
-  first proposal without a house bank; that ZWELS's letter order is indeed
+  first proposal without a house bank (not during an upgrade of the cell:
+  a replica of the release before stores no order, so a change of the
+  methods' order made then takes effect only once the configuration is
+  activated again after the upgrade); that ZWELS's letter order is indeed
   not used [M]; and where the pilot's release keeps a run's parameters, if
   the order is to be extracted rather than read off a run (not stated by
   the specialist, so not assumed here). An item's fixed method and T042I's
