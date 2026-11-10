@@ -211,7 +211,7 @@ po:2026-11-09):
   amount to the company's translation reserve. This run, its entries
   and a company's own ledger and reports are unchanged; the ledger
   publishes the lines to consolidation
-  (`ConsolidationReads.RevaluationLines`).
+  (`ConsolidationReads.BalancesThrough`).
 - **Net investment items.** Exchange differences on a monetary item that
   forms part of the net investment in a foreign operation (a long-term
   intercompany loan not expected to be settled) go to other comprehensive

@@ -4141,6 +4141,7 @@ consolidation_revaluation_translation() {
     (.totals[] | "  \(.currency) \(.amount.amount): \(.direction) \(.difference_lc.amount) \(.difference_lc.currency), in group currency \(.difference_gc.amount) \(.difference_gc.currency)")' \
     postRevaluationRun -body "{\"legal_entity_id\": \"$us\", \"key_date\": \"$end\"}"
   reval=$(field .id)
+  cp "$WORK/last.json" "$WORK/euro-revaluation.json"
   expect "the euros' differences" "$(field '[.totals[] | "\(.direction) \(.amount.amount) \(.difference_lc.amount) \(.difference_gc.amount)"] | join(", ")')" \
     "gain 1000.00 20.00 $(amount "$difference")"
   say "USD 20.00 translated is not CAD $(amount "$difference"): the rest of the group difference is a translation effect, which"
@@ -4170,7 +4171,9 @@ consolidation_revaluation_translation() {
     "$(field '.totals.revaluation_translation | "\(.reported.amount) \(.eliminations.amount) \(.consolidated.amount)"')" "$(amount "$moved") 0.00 $(amount "$moved")"
   expect "the profit against the first run's" \
     "$(($(field ".totals.profit.consolidated | $cents") - $(jq -r ".totals.profit.consolidated | $cents" "$WORK/profit-and-loss.json")))" 2700
-  expect "the booked group amount is what the profit keeps and what the run moved" "$((2700 + moved))" "$difference"
+  expect "the reset's booked group amount is what the profit keeps and what the run moved" \
+    "$((2700 + $(field ".totals.revaluation_translation.reported | $cents")))" \
+    "$(jq -r ".totals[] | select(.direction == \"gain\") | .difference_gc | $cents" "$WORK/euro-revaluation.json")"
   QUIET=1 api 200 '' getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
   expect "assets, liabilities, equity and the profit, consolidated" "$(field "[.totals[].consolidated | $cents] | add")" 0
   say "Carla discards this run, cancels the revaluation and reverses the sale: the steps that follow see the month as booked."

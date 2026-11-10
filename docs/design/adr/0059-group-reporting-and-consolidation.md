@@ -325,11 +325,12 @@ Each is additive and built in the slice that first needs it, as ADR-0058
   `rateOfType` is unexported).
 - **T68g**: no new read: `stale` and finalization compare `PeriodOf`'s
   status and version with those the run recorded.
-- **B4 correction 1** (po:2026-11-09): `ledger.RevaluationLines(ctx,
-  company, ledger, year, period)`: the lines on profit and loss accounts
-  of the company's revaluation runs' entries through the period, each
-  with its entry's recorded local-to-group rate (As built: the
-  group-currency revaluation's translation part).
+- **B4 correction 1** (po:2026-11-09): `ledger.BalancesThrough` also
+  returns, from the same statement and so the same database state, the
+  lines on profit and loss accounts of the company's revaluation runs'
+  entries through the period, each with its entry's recorded
+  local-to-group rate (As built: the group-currency revaluation's
+  translation part).
 
 ### 5. Data model
 Every table has `tenant_id` leading its keys and RLS (ADR-0003); keys are
@@ -2124,13 +2125,18 @@ read. Decided by default, for the product owner to overrule:
   comprehensive income, above) was translated before the change would
   show the earlier years' parts in the year's difference; no group has a
   final run of an earlier fiscal year yet.
-- **Ledger (§4a).** `ledger.ConsolidationReads.RevaluationLines(ctx,
-  company, ledger, year, period)`: the lines on profit and loss accounts
+- **Ledger (§4a).** `ledger.ConsolidationReads.BalancesThrough` returns
+  them with the balances, in one statement, so both are of one database
+  state: read apart in the run's read-committed transaction, a
+  revaluation posted or cancelled between the two reads would give lines
+  whose amounts the balances do not hold, or the reverse (review round
+  1). They are the lines on profit and loss accounts
   of the entries whose source is a revaluation run of the company and
   ledger, through the period, each with its local and booked group
   amounts, its trading partner, its fiscal year and period as
   `BalancesThrough` gives a profit and loss balance's, and its entry's
-  recorded local-to-group rate; read through `journal_entry_source`.
+  recorded local-to-group rate; read through the index
+  `journal_entry_source`.
   Additive; no ledger table or posting changes, so a company's own
   ledger, reports and revaluation runs are as they were
   (`TestRevaluationTranslationPart` compares its lines and balances

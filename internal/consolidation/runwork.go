@@ -275,11 +275,9 @@ func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member, y
 	for _, c := range entities {
 		f.partners[c.ID] = c.Code
 	}
-	if f.balances, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, year, period); err != nil {
-		return figures{}, fmt.Errorf("consolidation: balances of %s through %d/%d: %w", m.CompanyCode, year, period, err)
-	}
-	f.revaluations, err = e.Ledger.RevaluationLines(ctx, m.LegalEntityID, year, period)
-	return f, errs.Wrapf(err, "consolidation: revaluation lines of %s through %d/%d", m.CompanyCode, year, period)
+	// One read, so the revaluation lines are those the balances hold.
+	f.balances, f.revaluations, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, year, period)
+	return f, errs.Wrapf(err, "consolidation: balances of %s through %d/%d", m.CompanyCode, year, period)
 }
 
 // writeRows writes a company's translated rows, numbered in their order,

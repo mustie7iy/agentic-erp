@@ -129,7 +129,7 @@ type Balance struct {
 
 // RevaluationLine is a line of one of a company's revaluation runs'
 // entries (ADR-0042) on a profit and loss account, in its leading ledger
-// (ADR-0059 §4a, RevaluationLines): its local and booked group amounts and
+// (ADR-0059 §4a, BalancesThrough): its local and booked group amounts and
 // the local-to-group rate its entry records, the posting date's, with the
 // fiscal year and period of a profit and loss Balance (Period 0 in an
 // earlier fiscal year).
@@ -158,10 +158,10 @@ type Ledger interface {
 	// company without the period is absent.
 	PeriodsOf(ctx context.Context, companies []uuid.UUID, year, period int16) (map[uuid.UUID]Period, error)
 	Accounts(ctx context.Context, company uuid.UUID) ([]Account, error)
-	BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16) ([]Balance, error)
-	// RevaluationLines are the lines of the company's revaluation runs'
-	// entries on profit and loss accounts through the period.
-	RevaluationLines(ctx context.Context, company uuid.UUID, year, period int16) ([]RevaluationLine, error)
+	// BalancesThrough are the company's balances through the period and,
+	// read with them from one database state, the lines of its
+	// revaluation runs' entries on profit and loss accounts through it.
+	BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16) ([]Balance, []RevaluationLine, error)
 	// RateOn is the latest rate of the type valid on the date; ok is
 	// false when there is none.
 	RateOn(ctx context.Context, rateType, from, to string, date time.Time) (Rate, bool, error)
