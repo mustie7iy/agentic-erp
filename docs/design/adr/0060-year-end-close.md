@@ -435,7 +435,10 @@ the company's latest posting date in the extract, the items open by AUGDT
 difference split into lines without a vendor, special G/L lines and
 cleared vendor items that do not net in the extract, with the open items
 of vendors whose LFB1-AKONT is now another counted (docs/migration.md,
-"What to check on a real SAP system"). The platform's own year-end check
+"What to check on a real SAP system"). Since the step bstat
+(review:batch63) the noted items are not among a run's journal lines at
+all (ADR-0037 As built: set aside by the scope and reported), so the
+check, like the load, never sees one. The platform's own year-end check
 stays a gap: no ADR asks for it.
 
 ### 10. Parallel ledgers and foreign currency

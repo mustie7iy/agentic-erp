@@ -192,6 +192,14 @@ type RSEG struct {
 	TBTKZ string `json:"TBTKZ,omitempty"`
 }
 
+// StatusNoted is the document status (ACDOCA/BSEG-BSTAT) of a noted item,
+// a statistical document such as a down payment request that posts
+// nothing to the G/L (the SAP specialist, po:2026-11-09, A14 [H], A15
+// [M]). The other values of BSTAT are not read: which of them ACDOCA
+// carries on the pilot's release is a question for the specialist
+// (docs/migration.md, "What to check on a real SAP system").
+const StatusNoted = "S"
+
 // ACDOCA - Universal Journal line item.
 type ACDOCA struct {
 	// RLDNR is the line's ledger. SAP holds a line once per ledger; a
@@ -768,6 +776,14 @@ type Extract struct {
 	// both, so an extract file holds neither.
 	Ledger       string         `json:"-"`
 	OtherLedgers map[string]int `json:"-"`
+
+	// Noted are the scope's noted items (ACDOCA lines with BSTAT S, such
+	// as down payment requests), which FilterScope takes out of ACDOCA:
+	// SAP posts nothing to the G/L for one (the SAP specialist,
+	// po:2026-11-09, A14 [H], A15 [M]), so a migration run neither posts
+	// nor counts them and its quality gate reports them (review:batch63).
+	// An extract file holds them in ACDOCA, as SAP does.
+	Noted []ACDOCA `json:"-"`
 
 	// VendorsWithoutPartner are the vendors (LFA1-LIFNR) of an OData
 	// extract that no business partner links to as its supplier, so whose

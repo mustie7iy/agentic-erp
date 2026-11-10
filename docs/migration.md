@@ -98,6 +98,23 @@ tax, and a tax that is not the code's rate of the down payment (SAP's gross
 display, where the down payment includes its tax). A down payment SAP cleared
 loads in `balances` mode only, since SAP's clearing of it is not taken over.
 
+SAP's noted items are not migrated (review:batch63, ADR-0037 As built). A
+noted item (ACDOCA-BSTAT `S`), such as a down payment request (special G/L
+F), posts nothing to the G/L in SAP (A14 [H], A15 [M]), so in either mode
+it loads as no journal entry and counts as no open item, in no total and
+no check: the run's scope sets these lines aside, and `extract.acdoca`
+counts the journal lines without them. The quality gate reports them as
+warnings: one keyed by the company code with how many lines in how many
+documents were left out and how many of them are open, and one per open
+line (AUGBL blank) keyed `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` with its vendor
+(number and name), special G/L indicator, posting date and amount in
+company currency, and in its document currency where that is another. A
+request that is still wanted is entered on the platform as a down payment
+request after the load. The extract must carry ACDOCA-BSTAT for this: an
+extract without it (the OData mapping does not carry it) cannot tell a
+noted item, which then stops the run as an unbalanced document or, if it
+balances, would post.
+
 In either mode an order SAP valued through GR/IR (a line on its GR/IR account,
 T030 WRX, names the order item, ACDOCA EBELN/EBELP) loads valued through GR/IR
 (T72f, ADR-0034): its receipts (MSEG 101) are recorded without posting again,
@@ -847,6 +864,22 @@ others record a confirmation.
   period 000 carry-forward and a valuation posted to the account are named
   but not told apart (the extract carries no POPER, AWTYP or T030H); verify
   the check against the pilot's data.
+- **Noted items and the document status (BSTAT)** (review:batch63): the
+  load leaves out the lines with ACDOCA-BSTAT `S` and reports them, on the
+  specialist's answers A14 and A15. Still to ask the SAP specialist, none
+  of it assumed by the code: (a) whether ACDOCA on the pilot's release
+  holds noted items at all, or only BSEG and the vendor open item views
+  do, in which case the extract never has one and BSTAT need not be
+  exported; (b) which other values of BSTAT can appear in ACDOCA and
+  whether any of them marks lines that must not be loaded as journal
+  lines either (from memory, to be confirmed and not relied on: BKPF-BSTAT
+  also knows parked, recurring, sample and clearing documents, and
+  S/4HANA has values for postings to one ledger group and for balance
+  carry-forward lines); (c) whether a noted item's line carries the
+  reconciliation account or the special G/L account of T074, and an amount
+  in HSL; (d) whether the OData service used
+  (API_JOURNALENTRYITEMBASIC_SRV) returns noted items and exposes their
+  status. Until (d) is answered an OData extract cannot tell a noted item.
 
 **Facts still awaited from the pilot customer** (the customer questionnaire
 of 2026-11-09, not answered yet). Each has a **planning default, to be

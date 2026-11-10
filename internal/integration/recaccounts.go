@@ -23,9 +23,9 @@ type recAccount struct {
 // (ADR-0060 §9; the SAP specialist, po:2026-11-09, A15 [M]). The key date
 // is the company's latest posting date in the extract; the balance is
 // the account's lines (noted items, BSTAT S, have no G/L effect and are
-// left out); an open vendor item is a line with a vendor (LIFNR), no
-// special G/L indicator (UMSKZ) and not noted, open at the key date
-// (openAt). A difference is a warning, never a refusal: its message
+// not among the journal lines: sap.FilterScope sets them aside); an open
+// vendor item is a line with a vendor (LIFNR) and no special G/L
+// indicator (UMSKZ), open at the key date (openAt). A difference is a warning, never a refusal: its message
 // names the parts the extract tells apart, and the cases SAP knows that
 // make one.
 func (q *qualityCheck) reconciliationAccounts() {
@@ -39,7 +39,7 @@ func (q *qualityCheck) reconciliationAccounts() {
 	for _, l := range q.e.ACDOCA {
 		key := l.RBUKRS + "/" + sap.Alpha(l.RACCT)
 		amt, err := q.t.amount(l.HSL, q.currency[l.RBUKRS])
-		if q.account[l.RBUKRS+"/"+l.RACCT].MITKZ != "K" || q.specialAccounts[key] || err != nil || l.BSTAT == "S" { // a bad amount is journalLine's to refuse
+		if q.account[l.RBUKRS+"/"+l.RACCT].MITKZ != "K" || q.specialAccounts[key] || err != nil { // a bad amount is journalLine's to refuse
 			continue
 		}
 		a := accounts[key]

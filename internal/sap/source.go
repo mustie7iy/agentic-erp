@@ -68,7 +68,9 @@ func WriteExtract(path string, e *Extract) error {
 // counts the scope's lines of each other ledger in OtherLedgers, which the
 // export should have left out (the SAP specialist: WHERE RLDNR = '0L'), so
 // that the migration's quality gate refuses them as a safety net rather
-// than the run proceeding as if the extract were whole (review:T56h4).
+// than the run proceeding as if the extract were whole (review:T56h4), and
+// moves the leading ledger's noted items (BSTAT S) from ACDOCA to Noted
+// (review:batch63).
 func FilterScope(all *Extract, scope Scope) *Extract {
 	inCC := func(cc string) bool { return slices.Contains(scope.CompanyCodes, cc) }
 	out := &Extract{}
@@ -127,20 +129,24 @@ func filterCustomizing(all, out *Extract, inCC func(string) bool) {
 	out.AGR_DEFINE, out.AGR_TCODES, out.AGR_USERS = all.AGR_DEFINE, all.AGR_TCODES, all.AGR_USERS
 }
 
-// filterLedger keeps the scope's journal lines of its leading ledger and
-// counts those of the others.
+// filterLedger keeps the scope's journal lines of its leading ledger,
+// counts those of the others and sets its noted items aside (Extract.Noted):
+// a noted item is no journal line, so nothing that reads ACDOCA posts,
+// sums or counts one.
 func filterLedger(all, out *Extract, scope Scope, inCC func(string) bool) {
 	out.Ledger = cmp.Or(scope.Ledger, LeadingLedger)
 	for _, r := range all.ACDOCA {
 		switch {
 		case !inCC(r.RBUKRS) || r.GJAHR != scope.FiscalYear:
-		case r.RLDNR == out.Ledger:
-			out.ACDOCA = append(out.ACDOCA, r)
-		default:
+		case r.RLDNR != out.Ledger:
 			if out.OtherLedgers == nil {
 				out.OtherLedgers = map[string]int{}
 			}
 			out.OtherLedgers[r.RLDNR]++
+		case r.BSTAT == StatusNoted:
+			out.Noted = append(out.Noted, r)
+		default:
+			out.ACDOCA = append(out.ACDOCA, r)
 		}
 	}
 }

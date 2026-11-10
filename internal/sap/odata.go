@@ -119,6 +119,10 @@ var DefaultEntities = []EntityMapping{
 	// so the quality gate cannot tell an OData extract's ledgers apart as
 	// it does a file extract's (review:T56h4); the API's ledger property
 	// is to be mapped from the pilot's $metadata (T56h5).
+	// Nor is ACDOCA-BSTAT, the document status (review:batch63): an OData
+	// extract cannot tell a noted item, which a file extract's scope sets
+	// aside (FilterScope), until the API's property for it is confirmed
+	// (docs/migration.md, "What to check on a real SAP system").
 	// OKB9's default account assignments (TKA3A, TKA3C, TKA3P; T56h3) have
 	// no released OData API (the SAP specialist, PO 2026-11-09): only a
 	// file extract carries them.
