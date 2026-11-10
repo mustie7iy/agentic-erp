@@ -11122,6 +11122,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_source
         - payables.unknown_tax_code
@@ -11277,6 +11278,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_tax_code
         - payables.unknown_unit
@@ -11510,6 +11512,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_tax_code
         - payables.unknown_unit
@@ -22707,6 +22710,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_source
         - payables.unknown_tax_code
@@ -31425,6 +31429,10 @@ components:
           $ref: "#/components/schemas/ItemPaymentTerms"
           description: The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others, which are due by their supplier's current terms.
           readOnly: true
+        payment_method:
+          type: string
+          description: "The payment method the item's document fixed when it posted (SAP BSEG-ZLSCH; ADR-0038), on a supplier item: a payment run pays the item by this method alone, in a payment of its own, and leaves it out with the reason when the method cannot pay it. Absent on an item that fixes none, which is paid by the company's run order."
+          readOnly: true
         special_gl:
           type: string
           description: "Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -36149,6 +36157,10 @@ components:
               $ref: "#/components/schemas/ItemPaymentTerms"
               description: "The payment terms the invoice posted with (T36b): its order's term, else its supplier's in the legal entity, counted from the invoice date; a correction naming an invoice has that invoice's. Absent before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount), and on invoices posted before terms were kept."
               readOnly: true
+            payment_method:
+              type: string
+              description: "The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the company's configuration (`payment_methods[].code`). A payment run pays the document's open item by this method alone, in a payment of its own beside the supplier's items that fix none, whatever the company's run order; when the method cannot pay it the item is left out of the run with the reason (`listPaymentExclusions`), never paid by another method. Absent: the item is paid by the company's run order. Changed while the document is parked (`updateSupplierInvoice`); its open item keeps the method it posted with."
+              pattern: "^[A-Z0-9]$"
             reversal_entry_id:
               type: string
               format: uuid
@@ -36270,6 +36282,10 @@ components:
           type: string
           format: uuid
           description: "The posted invoice a credit memo or subsequent debit/credit corrects (optional); never on an invoice."
+        payment_method:
+          type: string
+          description: "The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the company's configuration (`payment_methods[].code`). A payment run pays the document's open item by this method alone, in a payment of its own beside the supplier's items that fix none, whatever the company's run order; when the method cannot pay it the item is left out of the run with the reason (`listPaymentExclusions`), never paid by another method. A code that is not an active payment method of the legal entity is 422 `payables.unknown_payment_method`. Left out: the item is paid by the company's run order."
+          pattern: "^[A-Z0-9]$"
         source:
           type: string
           description: "How the invoice entered the system; scanned documents use `:capture`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -36350,6 +36366,12 @@ components:
             - "null"
           format: uuid
           description: The posted invoice a credit memo or subsequent debit/credit corrects. Send null to clear.
+        payment_method:
+          type:
+            - string
+            - "null"
+          description: "The payment method the document fixes (ADR-0038), an active payment method of the legal entity (422 `payables.unknown_payment_method` otherwise). Send null to clear: the item is paid by the company's run order."
+          pattern: "^[A-Z0-9]$"
         items:
           type: array
           items:
@@ -36954,7 +36976,7 @@ components:
           description: When the release was approved.
           readOnly: true
     PaymentRun:
-      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks the company's payment methods rank, each supplier by the first method of the company's run order that it may be paid by (ADR-0038)."
+      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks the company's payment methods rank, each supplier by the first method of the company's run order that it may be paid by, and its items that fix a payment method by that method, in a payment of their own (ADR-0038)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -37071,7 +37093,7 @@ components:
         house_bank_id:
           type: string
           format: uuid
-          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first payment method of the company's run order (the configuration's `payment_methods`, by their `order`, else as listed) that the supplier may be paid by and that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay by a method of theirs are excluded with `no_house_bank`."
+          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first payment method of the company's run order (the configuration's `payment_methods`, by their `order`, else as listed) that the supplier may be paid by and that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay by a method of theirs are excluded with `no_house_bank`. A supplier's items that fix a payment method (`payment_method` of their invoice) are paid by that method alone, in one payment per fixed method beside the payment of its other items, and never net with items of another method; a run proposed for one house bank pays by no method, so it leaves such items out (`fixed_method_in_bank_run`) and pays the others."
         currency:
           type: string
           description: "The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house bank's currency."
@@ -37291,7 +37313,7 @@ components:
               readOnly: true
             kind:
               type: string
-              description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run for its items that fix no payment method, and one per payment method its items fix, `payment_method_source`), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - items
                 - down_payment
@@ -37317,6 +37339,13 @@ components:
             payment_method:
               type: string
               description: "Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank."
+              readOnly: true
+            payment_method_source:
+              type: string
+              description: "Why the payment is paid by its `payment_method`; present exactly when `payment_method` is. `run_order`: the first method of the company's run order that the supplier may be paid by and a ranked house bank pays with. `item`: its items fix the method (their invoices' `payment_method`), which wins over the run order; such a payment holds the supplier's items fixing that method alone. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - run_order
+                - item
               readOnly: true
             items:
               type: array
@@ -37444,7 +37473,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a payment method are judged apart from its others, per fixed method (`payment_method`), for every reason here, and are left out when the method cannot pay them, never paid by another: `method_not_active` (the method is not an active payment method of the company), `method_not_allowed` (it is not among the supplier's `payment_methods` in the company), `no_house_bank` (no active house bank in the run currency is ranked for it) and `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method: propose a run without a house bank to pay them)."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -37456,6 +37485,13 @@ components:
             - item_not_open
             - tax_code_invalid
             - no_house_bank
+            - method_not_active
+            - method_not_allowed
+            - fixed_method_in_bank_run
+          readOnly: true
+        payment_method:
+          type: string
+          description: "The payment method the items left out fix (their invoices' `payment_method`; ADR-0038): the exclusion is of the supplier's items fixing this method alone, and `amount` what they would have been paid. Absent on the exclusion of the supplier's items that fix none, and on a request's. A run lists at most one exclusion per supplier for its items without a fixed method and one per fixed method, so a supplier may appear more than once."
           readOnly: true
         down_payment_request_id:
           type: string
@@ -42881,7 +42917,7 @@ components:
         flow_no: {type: integer, format: int32, minimum: 1, description: "The flow the line is of: the lines of one flow share it; a bucket's sum has its own.", readOnly: true}
         value_date: {type: string, format: date, description: "The day the flow was expected at the bank (a blocked supplier's on its due date); a bucket's sum: the first day it covers.", readOnly: true}
         bucket_end: {type: string, format: date, description: "The last day a bucket's sum covers; absent at document level.", readOnly: true}
-        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank ranked for the first payment method of the company's run order that its supplier may be paid by).", readOnly: true}
+        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank ranked for the first payment method of the company's run order that its supplier may be paid by, and one that fixes a payment method the bank ranked for that method, or none when the method cannot pay it).", readOnly: true}
         house_bank_code: {type: string, description: "The house bank's code; present exactly when `house_bank_id` is.", readOnly: true}
         source:
           type: string

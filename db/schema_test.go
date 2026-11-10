@@ -2953,7 +2953,7 @@ func TestDownPaymentPayments(t *testing.T) {
 		insert func(tx pgx.Tx) error
 		fails  string
 	}{
-		{"a second items payment", pay("items", nil), "payment_items_once"},
+		{"a second items payment", pay("items", nil), "payment_items_once_unfixed"},
 		{"the request twice", pay("down_payment", request), "payment_request_once"},
 		{"a down payment without its request", pay("down_payment", nil), "payment_down_payment_request"},
 		{"items naming a request", pay("items", id()), "payment_down_payment_request"},

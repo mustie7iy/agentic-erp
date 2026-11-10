@@ -1153,6 +1153,13 @@ the items without terms) and ages the items it selects on a key date
 (`aging_key_date`, `aging_days`), summed per local currency on its first
 page (ADR-0052 G4, T73j).
 
+It keeps the payment method its document fixed, when it fixed one
+(`open_item_payment_method`, migration 000249; ADR-0038 As built, an
+item's fixed payment method; SAP BSEG-ZLSCH): one row per supplier open
+item of the entry, insert-only, the code as the payables context checked
+it against the company's active methods. A payment run pays such an item
+by that method alone; `GET /v1/open-items` shows it (`payment_method`).
+
 It keeps its supplier's withholding taxes too (`open_item_withholding`,
 migration 000088, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the
 supplier in the legal entity when it posted: the code, its rate and
@@ -1748,6 +1755,7 @@ erDiagram
     uuid journal_entry_id
     uuid reversal_entry_id
     uuid workflow_request_id
+    text payment_method "the method it fixes for its open item, or null (ADR-0038)"
     int exception_version
     int version }
   supplier_invoice_item { uuid supplier_invoice_id PK
@@ -2116,6 +2124,7 @@ erDiagram
   payment_run ||--o{ payment : contains
   payment ||--|{ payment_item : settles
   payment_run ||--o{ payment_exclusion : excludes
+  payment_run ||--o{ method_exclusion : "excludes items fixing a method"
   payment_run ||--o{ bank_file : produces
   house_bank ||--o{ bank_statement : "statements of its account"
   bank_statement ||--|{ bank_statement_line : books
@@ -2151,6 +2160,7 @@ erDiagram
     char currency
     uuid house_bank_id "null: the run's (T45c)"
     text payment_method "null in a run proposed for one bank"
+    bool method_fixed "its items fix payment_method (ADR-0038)"
     uuid journal_entry_id }
   payment_item { uuid payment_id PK
     smallint item_fiscal_year PK
@@ -2160,6 +2170,11 @@ erDiagram
     bool is_active }
   payment_exclusion { uuid payment_run_id PK
     uuid supplier_id PK
+    text reason_code }
+  method_exclusion { uuid id PK
+    uuid payment_run_id
+    uuid supplier_id
+    text payment_method "the method the items left out fix"
     text reason_code }
   house_bank { uuid id PK
     uuid legal_entity_id
@@ -2342,7 +2357,26 @@ the order from its own parameters, not from LFB1-ZWELS: SAP specialist
 supplier none can pay is excluded with `no_house_bank`. The payment names
 the bank and method (`payment.house_bank_id`, `payment_method`; null in a
 run proposed for one bank, whose bank pays), posts to that bank's account,
-and the release writes one bank file per house bank and method. At most one
+and the release writes one bank file per house bank and method.
+
+A supplier invoice may fix the payment method its open item is paid by
+(`payables.supplier_invoice.payment_method`, kept with the item at
+posting; ADR-0038 As built, an item's fixed payment method; product owner
+2026-11-10). A proposal splits a supplier's due items by the method they
+fix: those that fix none are one payment by the run order, as before, and
+each fixed method's items a payment of their own by that method
+(`payment.method_fixed`), a credit memo netting within its own group
+alone. One items payment per run and supplier for the items that fix none
+(`payment_items_once_unfixed`) and one per fixed method
+(`payment_items_once_per_method`) replace `payment_items_once`
+(000250-000253). A group whose fixed method cannot pay it (not an active
+method of the company, not among the supplier's methods, no ranked house
+bank, or a run proposed for one house bank, which pays by no method) is
+left out with the reason, as is one a release drops, in
+`payments.method_exclusion` (one row per run, supplier and method),
+beside `payment_exclusion`, which keeps the supplier's items that fix
+none; a payment counts as dropped when its own group has an exclusion.
+At most one
 active house bank of a legal entity is on a ledger account
 (`house_bank_account_once`, a deferrable unique constraint on
 `active_gl_account_id`, checked at commit so banks may swap accounts;
@@ -2421,8 +2455,10 @@ earned; a release being resumed is not refused, since some of its
 payments may have posted.
 
 Down payment requests (T46c, ADR-0037). A `payment` has a `kind`: `items`,
-the supplier's open items netted, at most one per supplier and run
-(`payment_items_once`), or `down_payment`, one down payment request
+the supplier's open items netted, at most one per supplier and run for its
+items that fix no payment method and one per method its items fix
+(`payment_items_once_unfixed`, `payment_items_once_per_method`; first
+`payment_items_once`, one per supplier and run), or `down_payment`, one down payment request
 (`down_payment_request_id`, `payment_request_once`), paid whole and never
 netted with the supplier's items, as SAP pays special G/L items
 separately. A proposal pays every open request of the legal entity due by
@@ -2435,8 +2471,10 @@ date is left out with reason `tax_code_invalid`, and the supplier's items
 are still paid. A request left out has an exclusion of its own, in
 `payments.request_exclusion` (key run and request, its supplier, reason and
 amount), beside `payment_exclusion`, which keeps one row per run and
-supplier for the items (the release's drop and the dropped check use it
-alone); the listing returns both. During the upgrade an application
+supplier for the items that fix no payment method (the release's drop and
+the dropped check use it for a payment of those, and
+`payments.method_exclusion` for a payment of items fixing a method); the
+listing returns all three. During the upgrade an application
 version from before T46c must not release a run a newer one proposed with
 request payments, which it would settle as items payments without items. A
 proposed run whose

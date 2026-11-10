@@ -41,6 +41,10 @@ type PayableItem struct {
 	// Withholding are its withholding taxes deducted at payment (T46f):
 	// a payment withholds PaymentWithholding of them.
 	Withholding []Withholding
+	// PaymentMethod is the payment method its document fixed (ADR-0038,
+	// SAP BSEG-ZLSCH), or nil: a run pays the item by it alone, beside
+	// the supplier's items that fix none.
+	PaymentMethod *string
 	// Lines are its document's offsetting lines where its reader gives
 	// them: an unposted invoice's items, as payables reads them for the
 	// liquidity forecast (T53e3); a posted item's are read by Offsetting.
@@ -84,7 +88,7 @@ func payable(ctx context.Context, what, filter string, args ...any) ([]PayableIt
 		return nil, err
 	}
 	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, e.currency_tc, l.amount_tc,
-			e.document_number, `+termsColumns+`, `+withholdingColumn+`
+			e.document_number, `+methodColumn+`, `+termsColumns+`, `+withholdingColumn+`
 		FROM ledger.journal_line l
 		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 			AND t.line_no = l.line_no
@@ -103,7 +107,7 @@ func payable(ctx context.Context, what, filter string, args ...any) ([]PayableIt
 		var p PayableItem
 		var t storedTerms
 		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Currency, &p.Amount,
-			&p.Number}, append(t.fields(), &p.Withholding)...)...), "scan payable item")
+			&p.Number, &p.PaymentMethod}, append(t.fields(), &p.Withholding)...)...), "scan payable item")
 		p.Terms, p.Document = t.terms(), p.EntryID
 		return p, err
 	})

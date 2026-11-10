@@ -680,6 +680,14 @@ others record a confirmation.
   the order is to be extracted rather than read off a run (not stated by
   the specialist, so not assumed here). An item's fixed method and T042I's
   account are tracker leaves of their own; verify both on the pilot system.
+  The platform honours a method fixed on an invoice entered here (ADR-0038
+  As built, an item's fixed payment method): its item is paid by that
+  method alone, in a payment of its own, and left out of a run, with the
+  reason, when the method cannot pay it. Taking ZLSCH over onto migrated
+  open items is not built yet (its own leaf): until it is, a migrated item
+  that fixed a method in SAP is paid by the company's run order here, so
+  list the open items with a ZLSCH before the first run. Fixed methods
+  are entered only once an upgrade of the cell has completed.
 - Vendor addresses: the load first took the vendor's street with house
   number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
   REGIO (product owner 2026-11-04, ADR-0054 As built), field names written

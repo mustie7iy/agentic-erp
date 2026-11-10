@@ -390,7 +390,9 @@ item is:
    the first method of the company's run order that the supplier may be
    paid by (first written as "the supplier's first method"; the order is
    the company's since ADR-0038's amendment of 2026-11-10, as a proposal
-   routes it) (`cash.value_days` per house bank and method,
+   routes it; an item that fixes its payment method takes the bank ranked
+   for that method, or none when the method cannot pay it: ADR-0038 As
+   built, an item's fixed payment method) (`cash.value_days` per house bank and method,
    default 0), and moved to the next working day of the company's
    calendar (`Config.Holiday`, ADR-0048: weekends and holidays).
 The rule reuses the proposer's due-date and discount-tier logic, moved
@@ -1423,7 +1425,10 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   out. A credit memo alone is therefore never forecast as money coming in,
   and one beside an invoice in a discount tier nets on the tier's day, as
   the run that takes the invoice nets it. A flow is one supplier payment
-  (`count` counts payments).
+  (`count` counts payments). A supplier's items that fix a payment method
+  are a payment of their own in a run, so they are netted apart from its
+  items that fix none, per fixed method (`netting.method`; ADR-0038 As
+  built, an item's fixed payment method; product owner 2026-11-10).
 - **Amount.** What a run on that payment day pays the supplier: what each
   item owes less the cash discount of the tier open that day and the
   withholding tax deducted at payment (`ledger.PaymentWithholding` after

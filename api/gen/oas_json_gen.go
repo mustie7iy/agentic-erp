@@ -124515,6 +124515,12 @@ func (s *OpenItem) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentMethod.Set {
+			e.FieldStart("payment_method")
+			s.PaymentMethod.Encode(e)
+		}
+	}
+	{
 		if s.SpecialGl.Set {
 			e.FieldStart("special_gl")
 			s.SpecialGl.Encode(e)
@@ -124522,7 +124528,7 @@ func (s *OpenItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfOpenItem = [13]string{
+var jsonFieldsNameOfOpenItem = [14]string{
 	0:  "fiscal_year",
 	1:  "journal_entry_id",
 	2:  "line_no",
@@ -124535,7 +124541,8 @@ var jsonFieldsNameOfOpenItem = [13]string{
 	9:  "document_number",
 	10: "reference",
 	11: "payment_terms",
-	12: "special_gl",
+	12: "payment_method",
+	13: "special_gl",
 }
 
 // Decode decodes OpenItem from json.
@@ -124680,6 +124687,16 @@ func (s *OpenItem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_terms\"")
+			}
+		case "payment_method":
+			if err := func() error {
+				s.PaymentMethod.Reset()
+				if err := s.PaymentMethod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method\"")
 			}
 		case "special_gl":
 			if err := func() error {
@@ -132694,6 +132711,12 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentMethodSource.Set {
+			e.FieldStart("payment_method_source")
+			s.PaymentMethodSource.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -132703,7 +132726,7 @@ func (s *Payment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPayment = [27]string{
+var jsonFieldsNameOfPayment = [28]string{
 	0:  "id",
 	1:  "created_at",
 	2:  "created_by",
@@ -132730,7 +132753,8 @@ var jsonFieldsNameOfPayment = [27]string{
 	23: "house_bank_id",
 	24: "house_bank_code",
 	25: "payment_method",
-	26: "items",
+	26: "payment_method_source",
+	27: "items",
 }
 
 // Decode decodes Payment from json.
@@ -133018,8 +133042,18 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_method\"")
 			}
+		case "payment_method_source":
+			if err := func() error {
+				s.PaymentMethodSource.Reset()
+				if err := s.PaymentMethodSource.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method_source\"")
+			}
 		case "items":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				s.Items = make([]PaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -133049,7 +133083,7 @@ func (s *Payment) Decode(d *jx.Decoder) error {
 		0b01111111,
 		0b00100000,
 		0b00000010,
-		0b00000100,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -133117,6 +133151,12 @@ func (s *PaymentExclusion) encodeFields(e *jx.Encoder) {
 		e.Str(s.ReasonCode)
 	}
 	{
+		if s.PaymentMethod.Set {
+			e.FieldStart("payment_method")
+			s.PaymentMethod.Encode(e)
+		}
+	}
+	{
 		if s.DownPaymentRequestID.Set {
 			e.FieldStart("down_payment_request_id")
 			s.DownPaymentRequestID.Encode(e)
@@ -133152,16 +133192,17 @@ func (s *PaymentExclusion) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfPaymentExclusion = [9]string{
+var jsonFieldsNameOfPaymentExclusion = [10]string{
 	0: "supplier_id",
 	1: "supplier_name",
 	2: "reason_code",
-	3: "down_payment_request_id",
-	4: "down_payment_request_number",
-	5: "amount",
-	6: "tax_code",
-	7: "request_tax_rate_percent",
-	8: "run_date_tax_rate_percent",
+	3: "payment_method",
+	4: "down_payment_request_id",
+	5: "down_payment_request_number",
+	6: "amount",
+	7: "tax_code",
+	8: "request_tax_rate_percent",
+	9: "run_date_tax_rate_percent",
 }
 
 // Decode decodes PaymentExclusion from json.
@@ -133209,6 +133250,16 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reason_code\"")
 			}
+		case "payment_method":
+			if err := func() error {
+				s.PaymentMethod.Reset()
+				if err := s.PaymentMethod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method\"")
+			}
 		case "down_payment_request_id":
 			if err := func() error {
 				s.DownPaymentRequestID.Reset()
@@ -133230,7 +133281,7 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"down_payment_request_number\"")
 			}
 		case "amount":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -133279,7 +133330,7 @@ func (s *PaymentExclusion) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b00100111,
+		0b01000111,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -167549,6 +167600,12 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentMethod.Set {
+			e.FieldStart("payment_method")
+			s.PaymentMethod.Encode(e)
+		}
+	}
+	{
 		if s.ReversalEntryID.Set {
 			e.FieldStart("reversal_entry_id")
 			s.ReversalEntryID.Encode(e)
@@ -167594,7 +167651,7 @@ func (s *SupplierInvoice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoice = [30]string{
+var jsonFieldsNameOfSupplierInvoice = [31]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -167618,13 +167675,14 @@ var jsonFieldsNameOfSupplierInvoice = [30]string{
 	20: "source",
 	21: "journal_entry_id",
 	22: "payment_terms",
-	23: "reversal_entry_id",
-	24: "workflow_request_id",
-	25: "items",
-	26: "extensions",
-	27: "documentary_warnings",
-	28: "calculated_tax",
-	29: "expanded",
+	23: "payment_method",
+	24: "reversal_entry_id",
+	25: "workflow_request_id",
+	26: "items",
+	27: "extensions",
+	28: "documentary_warnings",
+	29: "calculated_tax",
+	30: "expanded",
 }
 
 // Decode decodes SupplierInvoice from json.
@@ -167890,6 +167948,16 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"payment_terms\"")
 			}
+		case "payment_method":
+			if err := func() error {
+				s.PaymentMethod.Reset()
+				if err := s.PaymentMethod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method\"")
+			}
 		case "reversal_entry_id":
 			if err := func() error {
 				s.ReversalEntryID.Reset()
@@ -167911,7 +167979,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"workflow_request_id\"")
 			}
 		case "items":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -167929,7 +167997,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"items\"")
 			}
 		case "extensions":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -167939,7 +168007,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"extensions\"")
 			}
 		case "documentary_warnings":
-			requiredBitSet[3] |= 1 << 3
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				s.DocumentaryWarnings = make([]DocumentaryWarning, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -167989,7 +168057,7 @@ func (s *SupplierInvoice) Decode(d *jx.Decoder) error {
 		0b11011111,
 		0b01100111,
 		0b00010100,
-		0b00001110,
+		0b00011100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -168099,6 +168167,12 @@ func (s *SupplierInvoiceCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentMethod.Set {
+			e.FieldStart("payment_method")
+			s.PaymentMethod.Encode(e)
+		}
+	}
+	{
 		if s.Source.Set {
 			e.FieldStart("source")
 			s.Source.Encode(e)
@@ -168120,7 +168194,7 @@ func (s *SupplierInvoiceCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoiceCreate = [14]string{
+var jsonFieldsNameOfSupplierInvoiceCreate = [15]string{
 	0:  "legal_entity_id",
 	1:  "supplier_id",
 	2:  "supplier_reference",
@@ -168132,9 +168206,10 @@ var jsonFieldsNameOfSupplierInvoiceCreate = [14]string{
 	8:  "purchase_order_id",
 	9:  "kind",
 	10: "reference_invoice_id",
-	11: "source",
-	12: "items",
-	13: "extensions",
+	11: "payment_method",
+	12: "source",
+	13: "items",
+	14: "extensions",
 }
 
 // Decode decodes SupplierInvoiceCreate from json.
@@ -168265,6 +168340,16 @@ func (s *SupplierInvoiceCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reference_invoice_id\"")
 			}
+		case "payment_method":
+			if err := func() error {
+				s.PaymentMethod.Reset()
+				if err := s.PaymentMethod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method\"")
+			}
 		case "source":
 			if err := func() error {
 				s.Source.Reset()
@@ -168276,7 +168361,7 @@ func (s *SupplierInvoiceCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"source\"")
 			}
 		case "items":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				s.Items = make([]SupplierInvoiceItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -168314,7 +168399,7 @@ func (s *SupplierInvoiceCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11001111,
-		0b00010000,
+		0b00100000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -168980,6 +169065,12 @@ func (s *SupplierInvoiceUpdate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.PaymentMethod.Set {
+			e.FieldStart("payment_method")
+			s.PaymentMethod.Encode(e)
+		}
+	}
+	{
 		if s.Items != nil {
 			e.FieldStart("items")
 			e.ArrStart()
@@ -168997,17 +169088,18 @@ func (s *SupplierInvoiceUpdate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSupplierInvoiceUpdate = [10]string{
-	0: "supplier_reference",
-	1: "invoice_date",
-	2: "posting_date",
-	3: "tax_date",
-	4: "gross_amount",
-	5: "tax_amount",
-	6: "purchase_order_id",
-	7: "reference_invoice_id",
-	8: "items",
-	9: "extensions",
+var jsonFieldsNameOfSupplierInvoiceUpdate = [11]string{
+	0:  "supplier_reference",
+	1:  "invoice_date",
+	2:  "posting_date",
+	3:  "tax_date",
+	4:  "gross_amount",
+	5:  "tax_amount",
+	6:  "purchase_order_id",
+	7:  "reference_invoice_id",
+	8:  "payment_method",
+	9:  "items",
+	10: "extensions",
 }
 
 // Decode decodes SupplierInvoiceUpdate from json.
@@ -169097,6 +169189,16 @@ func (s *SupplierInvoiceUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reference_invoice_id\"")
+			}
+		case "payment_method":
+			if err := func() error {
+				s.PaymentMethod.Reset()
+				if err := s.PaymentMethod.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_method\"")
 			}
 		case "items":
 			if err := func() error {

@@ -63,11 +63,11 @@ func (e *Endpoints) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, i
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payables.supplier_invoice (tenant_id, id, document_number, legal_entity_id, supplier_id, supplier_reference,
 			invoice_date, posting_date, currency, gross_amount, tax_amount, purchase_order_id, status, hold_reason, source, capture_object_ref,
-			capture_sha256, extensions, created_by, updated_by, kind, reference_invoice_id, extensions_schema, tax_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $22, $23)`,
+			capture_sha256, extensions, created_by, updated_by, kind, reference_invoice_id, extensions_schema, tax_date, payment_method)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $19, $20, $21, $22, $23, $24)`,
 		p.TenantID, id, number, in.LegalEntityID, in.SupplierID, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax,
 		c.purchaseOrder, in.status, in.holdReason, in.source, ref, in.sha, in.Extensions, p.ID, c.kind, in.ReferenceInvoiceID, c.extensionsSchema,
-		in.TaxDate); err != nil {
+		in.TaxDate, in.PaymentMethod); err != nil {
 		return Invoice{}, fmt.Errorf("payables: insert invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -142,8 +142,11 @@ type Change struct {
 	// ReferenceInvoiceID names the invoice a correction corrects; set to nil
 	// to clear. The kind is fixed once entered.
 	ReferenceInvoiceID **uuid.UUID
-	Items              []ItemInput // nil: unchanged; the complete list otherwise
-	Extensions         map[string]any
+	// PaymentMethod is the payment method the document fixes; set to nil
+	// to clear (ADR-0038).
+	PaymentMethod **string
+	Items         []ItemInput // nil: unchanged; the complete list otherwise
+	Extensions    map[string]any
 }
 
 func amountInput(minor money.Minor, currency string, exp int) Amount {
@@ -179,10 +182,10 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	}
 	if _, err := tx.Exec(ctx, `UPDATE payables.supplier_invoice SET supplier_reference = $2, invoice_date = $3, posting_date = $4, currency = $5,
 			gross_amount = $6, tax_amount = $7, purchase_order_id = $8, extensions = $9, workflow_request_id = NULL, version = version + 1, updated_by = $10,
-			reference_invoice_id = $11, extensions_schema = $12, tax_date = $13
+			reference_invoice_id = $11, extensions_schema = $12, tax_date = $13, payment_method = $14
 		WHERE id = $1`,
 		id, in.SupplierReference, in.InvoiceDate, in.PostingDate, c.currency, c.gross, c.tax, c.purchaseOrder, in.Extensions, p.ID, in.ReferenceInvoiceID,
-		c.extensionsSchema, in.TaxDate); err != nil {
+		c.extensionsSchema, in.TaxDate, in.PaymentMethod); err != nil {
 		return Invoice{}, fmt.Errorf("payables: update invoice %s: %w", id, err)
 	}
 	if err := putItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -196,6 +199,11 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 	if v.WorkflowRequestID != nil {
 		detail["exception_unlinked"] = *v.WorkflowRequestID
 	}
+	// The audit names a change of the method the document fixes: it
+	// decides how the item is paid (ADR-0038).
+	if ch.PaymentMethod != nil && !samePtr(v.PaymentMethod, updated.PaymentMethod) {
+		detail["payment_method"] = map[string]any{"from": v.PaymentMethod, "to": updated.PaymentMethod}
+	}
 	return updated, record(ctx, "payables.supplier_invoice.update", id, detail)
 }
 
@@ -203,7 +211,8 @@ func (e *Endpoints) UpdateInvoice(ctx context.Context, id uuid.UUID, ifMatch fun
 func changed(v Invoice, ch Change) Input {
 	in := Input{LegalEntityID: v.LegalEntityID, SupplierID: v.SupplierID, SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate,
 		PostingDate: v.PostingDate, TaxDate: v.TaxDate, Gross: amountInput(v.Gross, v.Currency, v.Exponent), Tax: amountInput(v.Tax, v.Currency, v.Exponent),
-		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions), Kind: v.Kind, ReferenceInvoiceID: v.ReferenceInvoiceID}
+		PurchaseOrderID: v.PurchaseOrderID, Extensions: mergepatch.Apply(v.Extensions, ch.Extensions), Kind: v.Kind, ReferenceInvoiceID: v.ReferenceInvoiceID,
+		PaymentMethod: v.PaymentMethod}
 	for _, it := range v.Items {
 		in.Items = append(in.Items, ItemInput{PurchaseOrderID: it.PurchaseOrderID, POItemNo: it.POItemNo, Description: it.Description,
 			Quantity: it.Quantity, Unit: it.Unit, Amount: amountInput(it.Amount, v.Currency, v.Exponent), TaxCode: it.TaxCode, AccountID: it.AccountID,
@@ -234,10 +243,19 @@ func changed(v Invoice, ch Change) Input {
 	if ch.ReferenceInvoiceID != nil {
 		in.ReferenceInvoiceID = *ch.ReferenceInvoiceID
 	}
+	if ch.PaymentMethod != nil {
+		in.PaymentMethod = *ch.PaymentMethod
+	}
 	if ch.Items != nil {
 		in.Items = ch.Items
 	}
 	return in
+}
+
+// samePtr tells whether two optional codes are the same: both none, or
+// the same code.
+func samePtr(a, b *string) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
 }
 
 func requireStatus(v Invoice, action string, allowed ...string) error {

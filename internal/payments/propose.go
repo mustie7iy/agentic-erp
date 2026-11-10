@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -42,6 +43,15 @@ const (
 	// supplier's items or request when none of its payment methods has a
 	// house bank ranked for the run currency (T45c, ADR-0038).
 	NoHouseBank = "no_house_bank"
+	// A supplier's items that fix a payment method are left out, never
+	// paid by another, when the method cannot pay them (router.fixed;
+	// ADR-0038, product owner 2026-11-10): it is no longer an active
+	// method of the company, the supplier may not be paid by it, or the
+	// run was proposed for one house bank, which pays by no method. No
+	// ranked bank for it is NoHouseBank.
+	MethodNotActive      = "method_not_active"
+	MethodNotAllowed     = "method_not_allowed"
+	FixedMethodInBankRun = "fixed_method_in_bank_run"
 )
 
 // Proposal is what a client asks to pay: from one house bank, or without
@@ -132,10 +142,37 @@ func runCurrency(ctx context.Context, tx pgx.Tx, legalEntity uuid.UUID, in Propo
 	return hb.Currency, nil
 }
 
-// candidate is a supplier's due items not in another live run.
+// candidate is a supplier's due items not in another live run that one
+// payment would pay: those that fix no payment method (method ""), or
+// those that fix one method (byMethod).
 type candidate struct {
 	supplier uuid.UUID
+	method   string
 	items    []Item
+}
+
+// byMethod splits each supplier's items by the payment method they fix
+// (ADR-0038; product owner 2026-11-10: one payment per supplier and
+// method, a credit memo netting only within its group): its items that
+// fix none stay one candidate, first, and each fixed method's items
+// become a candidate of their own, by code. A supplier none of whose
+// items fixes a method is passed on as it is.
+func byMethod(cands []candidate) []candidate {
+	out := make([]candidate, 0, len(cands))
+	for _, c := range cands {
+		if !slices.ContainsFunc(c.items, func(it Item) bool { return it.method != "" }) {
+			out = append(out, c)
+			continue
+		}
+		groups := map[string][]Item{}
+		for _, it := range c.items {
+			groups[it.method] = append(groups[it.method], it)
+		}
+		for _, m := range slices.Sorted(maps.Keys(groups)) { // "" sorts first
+			out = append(out, candidate{supplier: c.supplier, method: m, items: groups[m]})
+		}
+	}
+	return out
 }
 
 // errTooLarge fails a proposal whose amounts add up to more than an
@@ -323,7 +360,8 @@ func exclusion(p partner.Payee, found bool, runDate time.Time, holdDays int) str
 	return ""
 }
 
-// candidates groups the legal entity's due open items by supplier, leaving
+// candidates groups the legal entity's due open items by supplier and,
+// within a supplier, by the payment method they fix (byMethod), leaving
 // out items reserved by another live run: the items due by the run's
 // due-by date, and those whose cash discount would lapse before it
 // (losesDiscount), each with the terms it was posted with.
@@ -360,9 +398,9 @@ func (e *Endpoints) candidates(ctx context.Context, tx pgx.Tx, r Run, requests [
 		}
 		c := &out[len(out)-1]
 		c.items = append(c.items, Item{FiscalYear: it.FiscalYear, EntryID: it.EntryID, LineNo: it.LineNo, Amount: -it.Amount,
-			DueDate: partner.Date{Time: due}, Active: true, terms: it.Terms, withholding: it.Withholding})
+			DueDate: partner.Date{Time: due}, Active: true, terms: it.Terms, withholding: it.Withholding, method: methodOf(it.PaymentMethod)})
 	}
-	return out, payees, nil
+	return byMethod(out), payees, nil
 }
 
 // reservedItems are the legal entity's open items a live run holds (its
@@ -421,19 +459,19 @@ func (e *Endpoints) build(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r 
 		return Run{}, err
 	}
 	if _, err := operations.Succeed(ctx, *r.OperationID, "/v1/payment-runs/"+r.ID.String(), map[string]any{"payment_run_id": r.ID, "status": Proposed,
-		"payment_count": len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "item_count": n, "total_amount": money.EventAmount(pr.total, r.Currency, r.Exponent)}); err != nil {
+		"payment_count": len(pr.payIDs), "exclusion_count": pr.exclusions(), "item_count": n, "total_amount": money.EventAmount(pr.total, r.Currency, r.Exponent)}); err != nil {
 		return Run{}, err
 	}
 	proposed, err := load(ctx, tx, r.ID, false)
 	if err != nil {
 		return Run{}, err
 	}
-	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(pr.payIDs), "exclusions": len(pr.exSuppliers), "items": n},
+	return proposed, record(ctx, "payments.payment_run.build", r.ID, map[string]any{"payments": len(pr.payIDs), "exclusions": pr.exclusions(), "items": n},
 		runEvent(proposed, le.Code, "payment_run_proposed", map[string]any{"house_bank_id": proposed.HouseBankID, "run_date": proposed.RunDate.Format(time.DateOnly),
 			"due_by": proposed.DueBy.Format(time.DateOnly), "total_amount": money.EventAmount(pr.total, proposed.Currency, proposed.Exponent),
 			"discount_amount":    money.EventAmount(pr.discount, proposed.Currency, proposed.Exponent),
 			"withholding_amount": money.EventAmount(pr.withheld, proposed.Currency, proposed.Exponent),
-			"payment_count":      len(pr.payIDs), "exclusion_count": len(pr.exSuppliers), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
+			"payment_count":      len(pr.payIDs), "exclusion_count": pr.exclusions(), "proposed_by": proposed.ProposedBy, "operation_id": proposed.OperationID}))
 }
 
 // paymentsFor computes a run's payments and exclusions: of the suppliers'
@@ -539,13 +577,42 @@ type proposal struct {
 	total, discount, withheld              money.Minor
 	houseBanks                             []*uuid.UUID // the bank that pays a payment, or nil for the run's (via)
 	methods                                []*string
-	route                                  router
+	fixed                                  []bool // a payment's items fix its method (via)
+	// The supplier's items fixing a method that the run leaves out, in
+	// payments.method_exclusion: its row's id, the supplier, the method,
+	// the reason and what they would have been paid.
+	mxIDs, mxSuppliers   []uuid.UUID
+	mxMethods, mxReasons []string
+	mxAmounts            []money.Minor
+	route                router
 }
 
-// propose pays each candidate supplier its open items in one payment, or
-// excludes it with the reason; a supplier is paid what its items owe after
-// their cash discounts, and one owed nothing after them is excluded with
-// its debit balance, one no ranked house bank can pay with NoHouseBank.
+// exclusions is how many exclusions the proposal makes: of suppliers'
+// items that fix no method, of requests, and of items fixing a method.
+func (pr *proposal) exclusions() int {
+	return len(pr.exSuppliers) + len(pr.mxSuppliers)
+}
+
+// excludeItems leaves the candidate's items out for the reason: a
+// supplier's items that fix no method as before (exclude), those fixing
+// one in an exclusion of their own, naming the method.
+func (pr *proposal) excludeItems(c candidate, reason string, amount money.Minor) {
+	if c.method == "" {
+		pr.exclude(c.supplier, nil, reason, amount, taxCheck{})
+		return
+	}
+	pr.mxIDs, pr.mxSuppliers, pr.mxMethods = append(pr.mxIDs, uuid.Must(uuid.NewV7())), append(pr.mxSuppliers, c.supplier), append(pr.mxMethods, c.method)
+	pr.mxReasons, pr.mxAmounts = append(pr.mxReasons, reason), append(pr.mxAmounts, amount)
+}
+
+// propose pays each candidate, a supplier's open items that fix no
+// payment method or those that fix one, in one payment, or excludes it
+// with the reason; it is paid what its items owe after their cash
+// discounts, and one owed nothing after them is excluded with its debit
+// balance, one no ranked house bank can pay with NoHouseBank, one whose
+// fixed method cannot pay it with why (router.fixed). So a credit memo
+// nets only with the items of its own group, and a group left in debit
+// does not stop the supplier's other group (product owner 2026-11-10).
 // Totals out of range fail the proposal (supplierTooLarge, errTooLarge).
 func (pr *proposal) propose(cands []candidate, payees map[uuid.UUID]partner.Payee, r Run, entityCode string, holdDays int) error {
 	for _, c := range cands {
@@ -561,12 +628,12 @@ func (pr *proposal) propose(cands []candidate, payees map[uuid.UUID]partner.Paye
 		if reason == "" && total <= 0 {
 			reason = DebitBalance
 		}
-		v, routed := pr.route.route(payee)
-		if reason == "" && !routed {
-			reason = NoHouseBank
+		v, unrouted := pr.route.items(payee, c.method)
+		if reason == "" {
+			reason = unrouted
 		}
 		if reason != "" {
-			pr.exclude(c.supplier, nil, reason, total, taxCheck{})
+			pr.excludeItems(c, reason, total)
 			continue
 		}
 		if err := pr.pay(c, *payee.BankAccountID, v, total, r, entityCode); err != nil {
@@ -610,7 +677,7 @@ func (pr *proposal) pay(c candidate, bank uuid.UUID, v via, total money.Minor, r
 // withholding, through v, and returns its id.
 func (pr *proposal) payment(supplier, bank uuid.UUID, v via, amounts [3]money.Minor, kind string, request *uuid.UUID, r Run, entityCode string) uuid.UUID {
 	id := uuid.Must(uuid.NewV7())
-	pr.houseBanks, pr.methods = append(pr.houseBanks, v.bank), append(pr.methods, v.method)
+	pr.houseBanks, pr.methods, pr.fixed = append(pr.houseBanks, v.bank), append(pr.methods, v.method), append(pr.fixed, v.fixed)
 	pr.payIDs, pr.suppliers, pr.banks, pr.amounts = append(pr.payIDs, id), append(pr.suppliers, supplier), append(pr.banks, bank), append(pr.amounts, amounts[0])
 	pr.discounts, pr.withholding = append(pr.discounts, amounts[1]), append(pr.withholding, amounts[2])
 	pr.e2e = append(pr.e2e, fmt.Sprintf("%s-%s-%06d", entityCode, r.DocumentNumber, len(pr.payIDs)))
@@ -636,12 +703,13 @@ func owner(r Run) ledger.Owner {
 // insert stores the proposal's payments, items and exclusions.
 func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r Run) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment (tenant_id, id, payment_run_id, supplier_id, bank_account_id, amount, discount_amount,
-			discount_until, currency, end_to_end_id, created_by, kind, down_payment_request_id, withholding_amount, house_bank_id, payment_method)
-		SELECT $1, i, $2, s, b, a, d, u, $3, x, $4, k, q, w, h, m
+			discount_until, currency, end_to_end_id, created_by, kind, down_payment_request_id, withholding_amount, house_bank_id, payment_method,
+			method_fixed)
+		SELECT $1, i, $2, s, b, a, d, u, $3, x, $4, k, q, w, h, m, f
 		FROM unnest($5::uuid[], $6::uuid[], $7::uuid[], $8::bigint[], $9::bigint[], $10::date[], $11::text[], $12::text[], $13::uuid[], $14::bigint[],
-			$15::uuid[], $16::text[]) AS t(i, s, b, a, d, u, x, k, q, w, h, m)`,
+			$15::uuid[], $16::text[], $17::boolean[]) AS t(i, s, b, a, d, u, x, k, q, w, h, m, f)`,
 		p.TenantID, r.ID, r.Currency, p.ID, pr.payIDs, pr.suppliers, pr.banks, pr.amounts, pr.discounts, pr.untils, pr.e2e, pr.kinds, pr.requests,
-		pr.withholding, pr.houseBanks, pr.methods); err != nil {
+		pr.withholding, pr.houseBanks, pr.methods, pr.fixed); err != nil {
 		return fmt.Errorf("payments: insert the payments of run %s: %w", r.ID, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_item (tenant_id, payment_id, item_fiscal_year, item_entry_id, item_line_no, amount,
@@ -652,15 +720,20 @@ func (pr *proposal) insert(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r
 		return fmt.Errorf("payments: insert the payment items of run %s: %w", r.ID, err)
 	}
 	// A supplier's items are excluded in payment_exclusion, a request left
-	// out in request_exclusion (T46c): the request is the row's key there.
+	// out in request_exclusion (T46c): the request is the row's key there;
+	// its items fixing a payment method in method_exclusion, one row per
+	// method.
 	if _, err := tx.Exec(ctx, `WITH x AS (SELECT * FROM unnest($3::uuid[], $4::text[], $5::bigint[], $6::uuid[], $7::text[], $8::numeric[], $9::numeric[])
 			AS t(s, c, a, q, tc, rr, nr)),
 		items AS (INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
-			SELECT $1, $2, s, c, a FROM x WHERE q IS NULL)
+			SELECT $1, $2, s, c, a FROM x WHERE q IS NULL),
+		fixed AS (INSERT INTO payments.method_exclusion (tenant_id, id, payment_run_id, supplier_id, payment_method, reason_code, amount)
+			SELECT $1, i, $2, s, m, c, a FROM unnest($10::uuid[], $11::uuid[], $12::text[], $13::text[], $14::bigint[]) AS f(i, s, m, c, a))
 		INSERT INTO payments.request_exclusion (tenant_id, payment_run_id, down_payment_request_id, supplier_id, reason_code, amount, tax_code,
 			request_tax_rate, run_tax_rate)
 		SELECT $1, $2, q, s, c, a, tc, rr, nr FROM x WHERE q IS NOT NULL`,
-		p.TenantID, r.ID, pr.exSuppliers, pr.exReasons, pr.exAmounts, pr.exRequests, pr.exTaxCodes, pr.exRequestRates, pr.exRunRates); err != nil {
+		p.TenantID, r.ID, pr.exSuppliers, pr.exReasons, pr.exAmounts, pr.exRequests, pr.exTaxCodes, pr.exRequestRates, pr.exRunRates,
+		pr.mxIDs, pr.mxSuppliers, pr.mxMethods, pr.mxReasons, pr.mxAmounts); err != nil {
 		return fmt.Errorf("payments: insert the exclusions of run %s: %w", r.ID, err)
 	}
 	return nil

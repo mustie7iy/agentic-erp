@@ -85,6 +85,7 @@ func paymentToAPI(p Payment, r Run, refs paymentRefs) gen.Payment {
 	}
 	if p.Method != nil {
 		out.PaymentMethod.SetTo(*p.Method)
+		out.PaymentMethodSource.SetTo(methodSource(p))
 	}
 	if p.DiscountUntil != nil {
 		out.DiscountUntil.SetTo(*p.DiscountUntil)
@@ -98,6 +99,15 @@ func paymentToAPI(p Payment, r Run, refs paymentRefs) gen.Payment {
 			WithholdingAmount: gen.NewOptMoney(apitypes.Money(it.Withholding, currency, exp)), DueDate: it.DueDate.Time, IsActive: it.Active}
 	}
 	return out
+}
+
+// methodSource is why a payment is paid by its method: its items fix it
+// (`item`), or the company's run order chose it (`run_order`).
+func methodSource(p Payment) string {
+	if p.MethodFixed {
+		return "item"
+	}
+	return "run_order"
 }
 
 // fileToAPI is bank file f, its house bank named by its code from codes.
@@ -283,19 +293,22 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	if err != nil {
 		return nil, err
 	}
-	// The suppliers' items, keyed by supplier as before, and the requests
-	// left out (T46c), keyed by request.
-	q, args := ks.SQL(`SELECT id, supplier_id, request_id, reason_code, amount, tax_code, request_tax_rate, run_tax_rate FROM (
+	// The suppliers' items, keyed by supplier as before, the requests
+	// left out (T46c), keyed by request, and the suppliers' items fixing
+	// a payment method, keyed by their row.
+	q, args := ks.SQL(`SELECT id, supplier_id, request_id, reason_code, amount, tax_code, request_tax_rate, run_tax_rate, payment_method FROM (
 		SELECT supplier_id AS id, supplier_id, NULL::uuid AS request_id, reason_code, amount, NULL AS tax_code, NULL AS request_tax_rate,
-			NULL AS run_tax_rate FROM payments.payment_exclusion WHERE payment_run_id = $1
+			NULL AS run_tax_rate, NULL AS payment_method FROM payments.payment_exclusion WHERE payment_run_id = $1
 		UNION ALL
 		SELECT down_payment_request_id, supplier_id, down_payment_request_id, reason_code, amount, tax_code, trim_scale(request_tax_rate)::text,
-			trim_scale(run_tax_rate)::text FROM payments.request_exclusion WHERE payment_run_id = $1) x
+			trim_scale(run_tax_rate)::text, NULL FROM payments.request_exclusion WHERE payment_run_id = $1
+		UNION ALL
+		SELECT id, supplier_id, NULL, reason_code, amount, NULL, NULL, NULL, payment_method FROM payments.method_exclusion WHERE payment_run_id = $1) x
 		WHERE true`, []any{r.ID})
 	rows, _ := tx.Query(ctx, q, args...)
 	exs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Exclusion, error) {
 		var x Exclusion
-		return x, errs.Wrapf(row.Scan(&x.ID, &x.SupplierID, &x.RequestID, &x.Reason, &x.Amount, &x.TaxCode, &x.RequestTaxRate, &x.RunTaxRate), "scan exclusion")
+		return x, errs.Wrapf(row.Scan(&x.ID, &x.SupplierID, &x.RequestID, &x.Reason, &x.Amount, &x.TaxCode, &x.RequestTaxRate, &x.RunTaxRate, &x.Method), "scan exclusion")
 	})
 	if err != nil {
 		return nil, fmt.Errorf("payments: list exclusions of run %s: %w", r.ID, err)
@@ -312,7 +325,7 @@ func (e *Endpoints) ListPaymentExclusions(ctx context.Context, params gen.ListPa
 	out := gen.PaymentExclusionPage{Items: make([]gen.PaymentExclusion, len(page))}
 	for i, x := range page {
 		out.Items[i] = gen.PaymentExclusion{SupplierID: x.SupplierID, SupplierName: names[x.SupplierID].Name, DownPaymentRequestID: apitypes.OptUUID(x.RequestID),
-			ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent)}
+			ReasonCode: x.Reason, Amount: apitypes.Money(x.Amount, r.Currency, r.Exponent), PaymentMethod: apitypes.OptString(x.Method)}
 		if x.RequestID != nil {
 			out.Items[i].DownPaymentRequestNumber.SetTo(numbers[*x.RequestID])
 		}

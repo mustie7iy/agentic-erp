@@ -132,6 +132,9 @@ func (e *Endpoints) posting(ctx context.Context, tx pgx.Tx, v Invoice, sup partn
 	lines = append(lines, wl...)
 	posting := invoicePosting(v, v.ID, date)
 	posting.Lines, posting.GRIR, posting.Terms, posting.Withholding = lines, grir, terms, ws
+	// The method the document fixes is kept with its open item, as its
+	// terms are: a payment run pays the item by it alone (ADR-0038).
+	posting.PaymentMethod = v.PaymentMethod
 	// A tax date a person set is held to the open returns (P6); the
 	// invoice date, or a corrected invoice's, is the document's and is not.
 	posting.TaxDate, posting.TaxItems, posting.TaxDateChosen = &taxDate, t.items, v.TaxDate != nil
