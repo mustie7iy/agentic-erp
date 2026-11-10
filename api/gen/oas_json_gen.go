@@ -97870,6 +97870,12 @@ func (s *JournalEntry) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxDocument.Set {
+			e.FieldStart("tax_document")
+			s.TaxDocument.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("currency")
 		e.Str(s.Currency)
 	}
@@ -97959,7 +97965,7 @@ func (s *JournalEntry) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalEntry = [28]string{
+var jsonFieldsNameOfJournalEntry = [29]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "ledger_id",
@@ -97971,23 +97977,24 @@ var jsonFieldsNameOfJournalEntry = [28]string{
 	8:  "document_date",
 	9:  "posting_date",
 	10: "tax_date",
-	11: "currency",
-	12: "local_currency",
-	13: "group_currency",
-	14: "rate_tc_lc",
-	15: "rate_lc_gc",
-	16: "reference",
-	17: "header_text",
-	18: "source_context",
-	19: "source_document_id",
-	20: "reversal_of_id",
-	21: "posting_group_id",
-	22: "ledger_group_id",
-	23: "reversed_by_id",
-	24: "lines",
-	25: "posted_at",
-	26: "posted_by",
-	27: "expanded",
+	11: "tax_document",
+	12: "currency",
+	13: "local_currency",
+	14: "group_currency",
+	15: "rate_tc_lc",
+	16: "rate_lc_gc",
+	17: "reference",
+	18: "header_text",
+	19: "source_context",
+	20: "source_document_id",
+	21: "reversal_of_id",
+	22: "posting_group_id",
+	23: "ledger_group_id",
+	24: "reversed_by_id",
+	25: "lines",
+	26: "posted_at",
+	27: "posted_by",
+	28: "expanded",
 }
 
 // Decode decodes JournalEntry from json.
@@ -98129,8 +98136,18 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_date\"")
 			}
+		case "tax_document":
+			if err := func() error {
+				s.TaxDocument.Reset()
+				if err := s.TaxDocument.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_document\"")
+			}
 		case "currency":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -98142,7 +98159,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"currency\"")
 			}
 		case "local_currency":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.LocalCurrency = string(v)
@@ -98154,7 +98171,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"local_currency\"")
 			}
 		case "group_currency":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.GroupCurrency = string(v)
@@ -98166,7 +98183,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"group_currency\"")
 			}
 		case "rate_tc_lc":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				if err := s.RateTcLc.Decode(d); err != nil {
 					return err
@@ -98176,7 +98193,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"rate_tc_lc\"")
 			}
 		case "rate_lc_gc":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				if err := s.RateLcGc.Decode(d); err != nil {
 					return err
@@ -98206,7 +98223,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"header_text\"")
 			}
 		case "source_context":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.SourceContext = string(v)
@@ -98268,7 +98285,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"reversed_by_id\"")
 			}
 		case "lines":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				s.Lines = make([]JournalLine, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -98286,7 +98303,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"lines\"")
 			}
 		case "posted_at":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.PostedAt = v
@@ -98298,7 +98315,7 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"posted_at\"")
 			}
 		case "posted_by":
-			requiredBitSet[3] |= 1 << 2
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.PostedBy = v
@@ -98330,9 +98347,9 @@ func (s *JournalEntry) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [4]uint8{
 		0b11111111,
-		0b11111011,
-		0b00000100,
-		0b00000111,
+		0b11110011,
+		0b00001001,
+		0b00001110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -98424,6 +98441,12 @@ func (s *JournalEntryCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxDocument.Set {
+			e.FieldStart("tax_document")
+			s.TaxDocument.Encode(e)
+		}
+	}
+	{
 		if s.FiscalPeriod.Set {
 			e.FieldStart("fiscal_period")
 			s.FiscalPeriod.Encode(e)
@@ -98455,7 +98478,7 @@ func (s *JournalEntryCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfJournalEntryCreate = [12]string{
+var jsonFieldsNameOfJournalEntryCreate = [13]string{
 	0:  "legal_entity_id",
 	1:  "ledger_id",
 	2:  "ledger_group",
@@ -98463,11 +98486,12 @@ var jsonFieldsNameOfJournalEntryCreate = [12]string{
 	4:  "document_date",
 	5:  "posting_date",
 	6:  "tax_date",
-	7:  "fiscal_period",
-	8:  "currency",
-	9:  "reference",
-	10: "header_text",
-	11: "lines",
+	7:  "tax_document",
+	8:  "fiscal_period",
+	9:  "currency",
+	10: "reference",
+	11: "header_text",
+	12: "lines",
 }
 
 // Decode decodes JournalEntryCreate from json.
@@ -98556,6 +98580,16 @@ func (s *JournalEntryCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_date\"")
 			}
+		case "tax_document":
+			if err := func() error {
+				s.TaxDocument.Reset()
+				if err := s.TaxDocument.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_document\"")
+			}
 		case "fiscal_period":
 			if err := func() error {
 				s.FiscalPeriod.Reset()
@@ -98567,7 +98601,7 @@ func (s *JournalEntryCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fiscal_period\"")
 			}
 		case "currency":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -98599,7 +98633,7 @@ func (s *JournalEntryCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"header_text\"")
 			}
 		case "lines":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				s.Lines = make([]JournalLineInput, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -98627,7 +98661,7 @@ func (s *JournalEntryCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00110001,
-		0b00001001,
+		0b00010010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -127980,6 +128014,55 @@ func (s *OptNilNullableEntrySchedule) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes ParkedJournalEntryUpdateTaxDocument as json.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	if o.Null {
+		e.Null()
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes ParkedJournalEntryUpdateTaxDocument from json.
+func (o *OptNilParkedJournalEntryUpdateTaxDocument) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptNilParkedJournalEntryUpdateTaxDocument to nil")
+	}
+	if d.Next() == jx.Null {
+		if err := d.Null(); err != nil {
+			return err
+		}
+
+		var v ParkedJournalEntryUpdateTaxDocument
+		o.Value = v
+		o.Set = true
+		o.Null = true
+		return nil
+	}
+	o.Set = true
+	o.Null = false
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptNilParkedJournalEntryUpdateTaxDocument) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptNilParkedJournalEntryUpdateTaxDocument) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes string as json.
 func (o OptNilString) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -128510,6 +128593,39 @@ func (s OptSupplierInvoicePost) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *OptSupplierInvoicePost) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes TaxDocumentReference as json.
+func (o OptTaxDocumentReference) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes TaxDocumentReference from json.
+func (o *OptTaxDocumentReference) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptTaxDocumentReference to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptTaxDocumentReference) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptTaxDocumentReference) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -129979,6 +130095,12 @@ func (s *ParkedJournalEntry) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxDocument.Set {
+			e.FieldStart("tax_document")
+			s.TaxDocument.Encode(e)
+		}
+	}
+	{
 		if s.FiscalPeriod.Set {
 			e.FieldStart("fiscal_period")
 			s.FiscalPeriod.Encode(e)
@@ -130072,7 +130194,7 @@ func (s *ParkedJournalEntry) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfParkedJournalEntry = [30]string{
+var jsonFieldsNameOfParkedJournalEntry = [31]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -130087,22 +130209,23 @@ var jsonFieldsNameOfParkedJournalEntry = [30]string{
 	11: "document_date",
 	12: "posting_date",
 	13: "tax_date",
-	14: "fiscal_period",
-	15: "currency",
-	16: "reference",
-	17: "header_text",
-	18: "status",
-	19: "created_by_kind",
-	20: "owner_id",
-	21: "approval_request_id",
-	22: "journal_entry_id",
-	23: "journal_fiscal_year",
-	24: "lines",
-	25: "limit_exceeded",
-	26: "template_id",
-	27: "template_name",
-	28: "occurrence_date",
-	29: "expanded",
+	14: "tax_document",
+	15: "fiscal_period",
+	16: "currency",
+	17: "reference",
+	18: "header_text",
+	19: "status",
+	20: "created_by_kind",
+	21: "owner_id",
+	22: "approval_request_id",
+	23: "journal_entry_id",
+	24: "journal_fiscal_year",
+	25: "lines",
+	26: "limit_exceeded",
+	27: "template_id",
+	28: "template_name",
+	29: "occurrence_date",
+	30: "expanded",
 }
 
 // Decode decodes ParkedJournalEntry from json.
@@ -130274,6 +130397,16 @@ func (s *ParkedJournalEntry) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_date\"")
 			}
+		case "tax_document":
+			if err := func() error {
+				s.TaxDocument.Reset()
+				if err := s.TaxDocument.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_document\"")
+			}
 		case "fiscal_period":
 			if err := func() error {
 				s.FiscalPeriod.Reset()
@@ -130285,7 +130418,7 @@ func (s *ParkedJournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"fiscal_period\"")
 			}
 		case "currency":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.Currency = string(v)
@@ -130317,7 +130450,7 @@ func (s *ParkedJournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"header_text\"")
 			}
 		case "status":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Status = string(v)
@@ -130329,7 +130462,7 @@ func (s *ParkedJournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "created_by_kind":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.CreatedByKind = string(v)
@@ -130381,7 +130514,7 @@ func (s *ParkedJournalEntry) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_fiscal_year\"")
 			}
 		case "lines":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				s.Lines = make([]ParkedJournalLine, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -130459,9 +130592,9 @@ func (s *ParkedJournalEntry) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [4]uint8{
 		0b11011111,
-		0b10011100,
-		0b00001100,
-		0b00000001,
+		0b00011100,
+		0b00011001,
+		0b00000010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -130664,6 +130797,12 @@ func (s *ParkedJournalEntryUpdate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.TaxDocument.Set {
+			e.FieldStart("tax_document")
+			s.TaxDocument.Encode(e)
+		}
+	}
+	{
 		if s.FiscalPeriod.Set {
 			e.FieldStart("fiscal_period")
 			s.FiscalPeriod.Encode(e)
@@ -130699,16 +130838,17 @@ func (s *ParkedJournalEntryUpdate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfParkedJournalEntryUpdate = [9]string{
+var jsonFieldsNameOfParkedJournalEntryUpdate = [10]string{
 	0: "document_type",
 	1: "document_date",
 	2: "posting_date",
 	3: "tax_date",
-	4: "fiscal_period",
-	5: "currency",
-	6: "reference",
-	7: "header_text",
-	8: "lines",
+	4: "tax_document",
+	5: "fiscal_period",
+	6: "currency",
+	7: "reference",
+	8: "header_text",
+	9: "lines",
 }
 
 // Decode decodes ParkedJournalEntryUpdate from json.
@@ -130758,6 +130898,16 @@ func (s *ParkedJournalEntryUpdate) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tax_date\"")
+			}
+		case "tax_document":
+			if err := func() error {
+				s.TaxDocument.Reset()
+				if err := s.TaxDocument.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"tax_document\"")
 			}
 		case "fiscal_period":
 			if err := func() error {
@@ -130836,6 +130986,136 @@ func (s *ParkedJournalEntryUpdate) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ParkedJournalEntryUpdate) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ParkedJournalEntryUpdateTaxDocument) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ParkedJournalEntryUpdateTaxDocument) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("kind")
+		e.Str(s.Kind)
+	}
+	{
+		e.FieldStart("number")
+		e.Str(s.Number)
+	}
+	{
+		e.FieldStart("date")
+		json.EncodeDate(e, s.Date)
+	}
+}
+
+var jsonFieldsNameOfParkedJournalEntryUpdateTaxDocument = [3]string{
+	0: "kind",
+	1: "number",
+	2: "date",
+}
+
+// Decode decodes ParkedJournalEntryUpdateTaxDocument from json.
+func (s *ParkedJournalEntryUpdateTaxDocument) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ParkedJournalEntryUpdateTaxDocument to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "kind":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Kind = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Number = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"number\"")
+			}
+		case "date":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.Date = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"date\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ParkedJournalEntryUpdateTaxDocument")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfParkedJournalEntryUpdateTaxDocument) {
+					name = jsonFieldsNameOfParkedJournalEntryUpdateTaxDocument[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ParkedJournalEntryUpdateTaxDocument) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ParkedJournalEntryUpdateTaxDocument) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -169317,6 +169597,136 @@ func (s *TakeCashSnapshotUnprocessableEntity) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *TakeCashSnapshotUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *TaxDocumentReference) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *TaxDocumentReference) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("kind")
+		e.Str(s.Kind)
+	}
+	{
+		e.FieldStart("number")
+		e.Str(s.Number)
+	}
+	{
+		e.FieldStart("date")
+		json.EncodeDate(e, s.Date)
+	}
+}
+
+var jsonFieldsNameOfTaxDocumentReference = [3]string{
+	0: "kind",
+	1: "number",
+	2: "date",
+}
+
+// Decode decodes TaxDocumentReference from json.
+func (s *TaxDocumentReference) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode TaxDocumentReference to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "kind":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Kind = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Number = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"number\"")
+			}
+		case "date":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeDate(d)
+				s.Date = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"date\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode TaxDocumentReference")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfTaxDocumentReference) {
+					name = jsonFieldsNameOfTaxDocumentReference[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *TaxDocumentReference) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *TaxDocumentReference) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

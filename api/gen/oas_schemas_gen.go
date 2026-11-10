@@ -37959,6 +37959,10 @@ type JournalEntry struct {
 	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
 	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
 	TaxDate OptDate `json:"tax_date"`
+	// The tax invoice or tax credit note the entry's VAT rests on, whose date is its tax date: a year-end
+	// adjustment posted into a special period with a tax code (`JournalEntryCreate` `tax_document`,
+	// ADR-0060 §3), and its reversal; absent on every other entry.
+	TaxDocument OptTaxDocumentReference `json:"tax_document"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// Local currency.
@@ -38053,6 +38057,11 @@ func (s *JournalEntry) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *JournalEntry) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *JournalEntry) GetTaxDocument() OptTaxDocumentReference {
+	return s.TaxDocument
 }
 
 // GetCurrency returns the value of Currency.
@@ -38195,6 +38204,11 @@ func (s *JournalEntry) SetTaxDate(val OptDate) {
 	s.TaxDate = val
 }
 
+// SetTaxDocument sets the value of TaxDocument.
+func (s *JournalEntry) SetTaxDocument(val OptTaxDocumentReference) {
+	s.TaxDocument = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *JournalEntry) SetCurrency(val string) {
 	s.Currency = val
@@ -38311,15 +38325,28 @@ type JournalEntryCreate struct {
 	// refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its
 	// status (decision P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptDate `json:"tax_date"`
+	// The tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3): given
+	// only with `fiscal_period` and a tax code on a line (422 `ledger.invalid_tax_document` on
+	// `tax_document` otherwise; one of a kind not listed is the same code on `tax_document.kind`). Its
+	// `date` is the entry's tax date, so its tax is reported in the return of the period the document is
+	// dated in, not the period of the posting date; `tax_date`, when given too, equals it (422
+	// `ledger.invalid_tax_document` on `tax_date`). The document decides the date, so it is not held to
+	// the open returns (`ledger.tax_date_in_return` does not apply): a document dated in a period whose
+	// return is prepared, approved or filed is a late item of that period, for its amendment or the next
+	// return (ADR-0049 decision P7).
+	TaxDocument OptTaxDocumentReference `json:"tax_document"`
 	// A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of
 	// the company's fiscal calendar: the entry posts into it instead of the regular period of its posting
 	// date. The posting date must be in the year's last regular period, whose dates the special periods
 	// share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting
 	// date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409
-	// `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`:
-	// refused until the tax specialist confirms how year-end adjustments enter the returns, product owner
-	// 2026-11-05, ADR-0060 question 2). Absent: the regular period of the posting date. A parked entry
-	// (`parkJournalEntry`) keeps it and is held to these rules again when it is posted.
+	// `ledger.period_not_open`). A line carries a tax code only in an entry of a company in the United
+	// Arab Emirates that names the tax invoice or tax credit note its VAT rests on (`tax_document`); any
+	// other is 422 `ledger.special_period_tax_code` (the UAE tax specialist's answer of 2026-11-09,
+	// ADR-0060 §3 and question 2: accruals, provisions and reclassifications carry no VAT; another
+	// country's tax codes stay refused until its tax specialist answers). Absent: the regular period of
+	// the posting date. A parked entry (`parkJournalEntry`) keeps it and is held to these rules again when
+	// it is posted.
 	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
@@ -38364,6 +38391,11 @@ func (s *JournalEntryCreate) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *JournalEntryCreate) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *JournalEntryCreate) GetTaxDocument() OptTaxDocumentReference {
+	return s.TaxDocument
 }
 
 // GetFiscalPeriod returns the value of FiscalPeriod.
@@ -38424,6 +38456,11 @@ func (s *JournalEntryCreate) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *JournalEntryCreate) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetTaxDocument sets the value of TaxDocument.
+func (s *JournalEntryCreate) SetTaxDocument(val OptTaxDocumentReference) {
+	s.TaxDocument = val
 }
 
 // SetFiscalPeriod sets the value of FiscalPeriod.
@@ -38572,8 +38609,10 @@ type JournalEntryReverse struct {
 	// its posting date, the original's unless `posting_date` is given, in the year's last regular period
 	// (422 `ledger.special_period_date`), a special period the calendar has (422
 	// `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409
-	// `ledger.period_not_open`), and an original without tax codes (422 `ledger.special_period_tax_code`).
-	// Absent: the regular period of the reversal's posting date.
+	// `ledger.period_not_open`), and an original without tax codes, or one of a company in the United Arab
+	// Emirates that names its tax document (`tax_document`), which the reversal then names too (422
+	// `ledger.special_period_tax_code` otherwise). Absent: the regular period of the reversal's posting
+	// date.
 	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Header text of the reversal entry.
 	HeaderText OptString `json:"header_text"`
@@ -50447,6 +50486,74 @@ func (o OptNilNullableEntrySchedule) Or(d NullableEntrySchedule) NullableEntrySc
 	return d
 }
 
+// NewOptNilParkedJournalEntryUpdateTaxDocument returns new OptNilParkedJournalEntryUpdateTaxDocument with value set to v.
+func NewOptNilParkedJournalEntryUpdateTaxDocument(v ParkedJournalEntryUpdateTaxDocument) OptNilParkedJournalEntryUpdateTaxDocument {
+	return OptNilParkedJournalEntryUpdateTaxDocument{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilParkedJournalEntryUpdateTaxDocument is optional nullable ParkedJournalEntryUpdateTaxDocument.
+type OptNilParkedJournalEntryUpdateTaxDocument struct {
+	Value ParkedJournalEntryUpdateTaxDocument
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilParkedJournalEntryUpdateTaxDocument was set.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilParkedJournalEntryUpdateTaxDocument) Reset() {
+	var v ParkedJournalEntryUpdateTaxDocument
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilParkedJournalEntryUpdateTaxDocument) SetTo(v ParkedJournalEntryUpdateTaxDocument) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilParkedJournalEntryUpdateTaxDocument) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v ParkedJournalEntryUpdateTaxDocument
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilParkedJournalEntryUpdateTaxDocument) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) Get() (v ParkedJournalEntryUpdateTaxDocument, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) Or(d ParkedJournalEntryUpdateTaxDocument) ParkedJournalEntryUpdateTaxDocument {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptNilString returns new OptNilString with value set to v.
 func NewOptNilString(v string) OptNilString {
 	return OptNilString{
@@ -51175,6 +51282,52 @@ func (o OptSupplierInvoicePost) Get() (v SupplierInvoicePost, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptSupplierInvoicePost) Or(d SupplierInvoicePost) SupplierInvoicePost {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptTaxDocumentReference returns new OptTaxDocumentReference with value set to v.
+func NewOptTaxDocumentReference(v TaxDocumentReference) OptTaxDocumentReference {
+	return OptTaxDocumentReference{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptTaxDocumentReference is optional TaxDocumentReference.
+type OptTaxDocumentReference struct {
+	Value TaxDocumentReference
+	Set   bool
+}
+
+// IsSet returns true if OptTaxDocumentReference was set.
+func (o OptTaxDocumentReference) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptTaxDocumentReference) Reset() {
+	var v TaxDocumentReference
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptTaxDocumentReference) SetTo(v TaxDocumentReference) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptTaxDocumentReference) Get() (v TaxDocumentReference, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptTaxDocumentReference) Or(d TaxDocumentReference) TaxDocumentReference {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -51927,6 +52080,9 @@ type ParkedJournalEntry struct {
 	PostingDate time.Time `json:"posting_date"`
 	// Tax date the entry was parked with; absent: its posting date.
 	TaxDate OptDate `json:"tax_date"`
+	// The tax invoice or tax credit note its VAT rests on (`JournalEntryCreate` `tax_document`), whose
+	// date is the tax date it is posted with; absent: none.
+	TaxDocument OptTaxDocumentReference `json:"tax_document"`
 	// The special period (ADR-0060 §3) it is to be posted into, held to a manual entry's rules for one
 	// when it is parked, changed and posted; absent: the regular period of its posting date. A period
 	// close's `no_parked_entries` check leaves an entry naming one out: it is the year's.
@@ -52038,6 +52194,11 @@ func (s *ParkedJournalEntry) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntry) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *ParkedJournalEntry) GetTaxDocument() OptTaxDocumentReference {
+	return s.TaxDocument
 }
 
 // GetFiscalPeriod returns the value of FiscalPeriod.
@@ -52188,6 +52349,11 @@ func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *ParkedJournalEntry) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetTaxDocument sets the value of TaxDocument.
+func (s *ParkedJournalEntry) SetTaxDocument(val OptTaxDocumentReference) {
+	s.TaxDocument = val
 }
 
 // SetFiscalPeriod sets the value of FiscalPeriod.
@@ -52368,6 +52534,9 @@ type ParkedJournalEntryUpdate struct {
 	// posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision
 	// P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptNilDate `json:"tax_date"`
+	// The tax invoice or tax credit note the entry's VAT rests on, by the rules of a manual entry's
+	// `tax_document` (ADR-0060 §3), replaced as a whole. Send null to remove it.
+	TaxDocument OptNilParkedJournalEntryUpdateTaxDocument `json:"tax_document"`
 	// The special period to post into, by the rules of a manual entry's `fiscal_period` (ADR-0060 §3).
 	// Send null to remove it: the regular period of the posting date then.
 	FiscalPeriod OptNilInt32 `json:"fiscal_period"`
@@ -52399,6 +52568,11 @@ func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntryUpdate) GetTaxDate() OptNilDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *ParkedJournalEntryUpdate) GetTaxDocument() OptNilParkedJournalEntryUpdateTaxDocument {
+	return s.TaxDocument
 }
 
 // GetFiscalPeriod returns the value of FiscalPeriod.
@@ -52446,6 +52620,11 @@ func (s *ParkedJournalEntryUpdate) SetTaxDate(val OptNilDate) {
 	s.TaxDate = val
 }
 
+// SetTaxDocument sets the value of TaxDocument.
+func (s *ParkedJournalEntryUpdate) SetTaxDocument(val OptNilParkedJournalEntryUpdateTaxDocument) {
+	s.TaxDocument = val
+}
+
 // SetFiscalPeriod sets the value of FiscalPeriod.
 func (s *ParkedJournalEntryUpdate) SetFiscalPeriod(val OptNilInt32) {
 	s.FiscalPeriod = val
@@ -52469,6 +52648,48 @@ func (s *ParkedJournalEntryUpdate) SetHeaderText(val OptNilString) {
 // SetLines sets the value of Lines.
 func (s *ParkedJournalEntryUpdate) SetLines(val []JournalLineInput) {
 	s.Lines = val
+}
+
+// The tax invoice or tax credit note the entry's VAT rests on, by the rules of a manual entry's
+// `tax_document` (ADR-0060 §3), replaced as a whole. Send null to remove it.
+type ParkedJournalEntryUpdateTaxDocument struct {
+	// `tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open
+	// enumeration: values may be added within /v1.
+	Kind string `json:"kind"`
+	// The document's number, as its issuer printed it.
+	Number string `json:"number"`
+	// The date the document was issued: the entry's tax date.
+	Date time.Time `json:"date"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ParkedJournalEntryUpdateTaxDocument) GetKind() string {
+	return s.Kind
+}
+
+// GetNumber returns the value of Number.
+func (s *ParkedJournalEntryUpdateTaxDocument) GetNumber() string {
+	return s.Number
+}
+
+// GetDate returns the value of Date.
+func (s *ParkedJournalEntryUpdateTaxDocument) GetDate() time.Time {
+	return s.Date
+}
+
+// SetKind sets the value of Kind.
+func (s *ParkedJournalEntryUpdateTaxDocument) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetNumber sets the value of Number.
+func (s *ParkedJournalEntryUpdateTaxDocument) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetDate sets the value of Date.
+func (s *ParkedJournalEntryUpdateTaxDocument) SetDate(val time.Time) {
+	s.Date = val
 }
 
 // One line of a parked journal entry, in transaction currency.
@@ -67160,6 +67381,52 @@ func (*TakeCashSnapshotPreconditionRequired) takeCashSnapshotRes() {}
 type TakeCashSnapshotUnprocessableEntity Problem
 
 func (*TakeCashSnapshotUnprocessableEntity) takeCashSnapshotRes() {}
+
+// A tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3; the UAE
+// tax specialist's answer of 2026-11-09): what the entry says of it, not a document the ERP holds or
+// checks.
+// Ref: #/components/schemas/TaxDocumentReference
+type TaxDocumentReference struct {
+	// `tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Kind string `json:"kind"`
+	// The document's number, as its issuer printed it.
+	Number string `json:"number"`
+	// The date the document was issued: the entry's tax date, which decides the return its tax is reported
+	// in.
+	Date time.Time `json:"date"`
+}
+
+// GetKind returns the value of Kind.
+func (s *TaxDocumentReference) GetKind() string {
+	return s.Kind
+}
+
+// GetNumber returns the value of Number.
+func (s *TaxDocumentReference) GetNumber() string {
+	return s.Number
+}
+
+// GetDate returns the value of Date.
+func (s *TaxDocumentReference) GetDate() time.Time {
+	return s.Date
+}
+
+// SetKind sets the value of Kind.
+func (s *TaxDocumentReference) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetNumber sets the value of Number.
+func (s *TaxDocumentReference) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetDate sets the value of Date.
+func (s *TaxDocumentReference) SetDate(val time.Time) {
+	s.Date = val
+}
 
 // A tax identifier, masked.
 // Ref: #/components/schemas/TaxIdentifier

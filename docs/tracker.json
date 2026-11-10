@@ -1807,7 +1807,7 @@
       ]
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Year-end close designed (ADR-0060, product owner 2026-11-04, T64m): special periods 13-16 take manual entries; a retained earnings account per company; the balance carry-forward per company, ledger and year stored as balances, chained, stale when a period is opened, re-run by a person; a year close in closing whose sign-off locks the year",
       "r": "ADR-0060 · T64m (split T64m1-T64m6)",
       "c": [
@@ -1854,9 +1854,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A UAE VAT code on a year-end adjustment only with a tax document (UAE tax specialist, po:2026-11-09, C10 [M]; VAT Executive Regulation): a special-period posting may carry a VAT code of a UAE registration when it references a tax invoice or tax credit note, its return period derived from that document's date, the statutory annual adjustments (input tax apportionment, the capital assets scheme) going to the first return after the end of the tax year or adjustment period; accruals, provisions and reclassifications keep ledger.special_period_tax_code, as do Canadian codes until the tax specialist answers for the GST34 (ADR-0060 question 2)",
-        "r": "ADR-0060 §3, question 2 (answered for the UAE) · ledger special periods · taxfiling VAT 201",
+        "r": "ADR-0060 §3, question 2 (answered for the UAE), As built C10 · ledger.specialPeriodTax, checkTaxDocument · tax_document on postJournalEntry, parkJournalEntry, updateParkedJournalEntry · migrations 000247, 000248 · walkthrough step 41 (uae_year_end_adjustment)",
         "src": "po:2026-11-09",
         "c": []
        }

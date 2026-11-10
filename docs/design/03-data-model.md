@@ -1406,7 +1406,14 @@ in any period) and one that is neither a manual entry (`source_context`
 `ledger`) nor a reversal; the ledger answers both first with problems
 (`ledger.special_period_date`; no other context's posting names a special
 period), and refuses a tax code on a special-period line
-(`ledger.special_period_tax_code`, application only). A period close's
+(`ledger.special_period_tax_code`, application only) unless the entry is a
+UAE company's and names the tax invoice or tax credit note its VAT rests
+on (ADR-0060 As built, C10; migrations 000247 and 000248):
+`tax_document_kind`, `tax_document_number` and `tax_document_date` on
+`journal_entry` and `parked_entry`, all three or none, the kind
+`tax_invoice` or `tax_credit_note`, the number 1 to 64 characters, and the
+entry's `tax_date` the document's date, a parked entry's when it has one
+(`journal_entry_tax_document`, `parked_entry_tax_document`). A period close's
 parked-entry check (`ledger.CloseChecks.Parked`) leaves out entries naming
 a special period.
 

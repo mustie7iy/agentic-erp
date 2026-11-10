@@ -4168,7 +4168,7 @@ governed() {
 # approved and filed (T61k, uae_return), a sale naming a mistyped emirate
 # refused first.
 step_uae() {
-  heading "Step 41 — The UAE country pack: the UAE pilot company applies it; an invoice above AED 10,000 without the supplier's TRN is flagged; its VAT 201 is filed"
+  heading "Step 41 — The UAE country pack: the UAE pilot company applies it; an invoice above AED 10,000 without the supplier's TRN is flagged; a year-end adjustment carries VAT only with its tax document; its VAT 201 is filed"
   as ada
   local cal ae base cr p supplier expense recon item invoice company=${UAE_COMPANY//@AE@/$AE}
   say "The second pilot is a UAE company (07 §7.6). The image holds the UAE pack (T62f): its VAT codes and tax"
@@ -4266,12 +4266,71 @@ step_uae() {
   passed
 }
 
+# uae_year_end_adjustment AE BANK SALES VAT END is a UAE year-end
+# adjustment carrying VAT (ADR-0060 §3 and question 2; the UAE tax
+# specialist's answer C10 of 2026-11-09): Ada sets PREV up for the UAE
+# company, Tom records an AED rate for its last month and Carla opens its
+# special period 13. An adjustment with a VAT code is refused there without
+# a tax document; naming the tax credit note it rests on, dated END, the
+# quarter's last day, it posts into PREV/13 with the credit note's date as
+# its tax date, so uae_return's VAT 201 of that quarter reports it. Carla
+# closes the period again.
+uae_year_end_adjustment() {
+  local ae=$1 bank=$2 sales=$3 vat=$4 end=$5 base cr p lines
+  as ada
+  say "The auditors of Maple Gulf Trading ask for an adjustment to $PREV: AED 100.00 of Dubai sales credited to a"
+  say "customer, with its 5.00 of VAT. Ada sets $PREV up for $AE, a journal number range like any other change:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Fiscal year $PREV of $AE\", rationale: \"A year-end adjustment of $PREV (ADR-0060)\", base_version: $base,
+    proposed: (.items[0].document | .number_ranges += [.number_ranges[] | select(.company == \"$AE\" and .document_type == \"journal_sa\" and .fiscal_year == $YEAR)
+      | .fiscal_year = $PREV])}" "$WORK/last.json" >"$WORK/uae-prev-year.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-prev-year.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change" "$(field '[.items[].path] | join(" ")')" "number_ranges[$AE/journal_sa/$PREV]"
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  as tom
+  api 201 '"\(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+    -body "{\"rate_type\": \"average\", \"from_currency\": \"AED\", \"to_currency\": \"CAD\", \"valid_from\": \"$PREV-12-01\", \"rate\": \"0.37\", \"source\": \"walkthrough\"}"
+  as carla
+  say "Carla opens special period 13 of $PREV, which shares December's dates:"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$ae" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period) (special: \(.is_special)): \(.status)"' openFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+  lines="{\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-105.00\", \"currency\": \"AED\"}}, {\"account_id\": \"$sales\", \"amount\": {\"amount\": \"100.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}, {\"account_id\": \"$vat\", \"amount\": {\"amount\": \"5.00\", \"currency\": \"AED\"}, \"tax_code\": \"S5\", \"tax_jurisdiction\": \"AE-DU\"}"
+  # uae_adjustment [TAX DOCUMENT] is the adjustment's entry, dated the
+  # year's last day into period 13, resting on the tax document or none.
+  uae_adjustment() {
+    printf '{"legal_entity_id": "%s", "document_date": "%s-12-31", "posting_date": "%s-12-31", "fiscal_period": 13, %s"currency": "AED", "header_text": "Year-end adjustment: Dubai sales credited", "lines": [%s]}' \
+      "$ae" "$PREV" "$PREV" "${1:+\"tax_document\": $1, }" "$lines"
+  }
+  say "A year-end adjustment carries VAT only when it rests on a tax invoice or tax credit note (the UAE tax"
+  say "specialist, 2026-11-09): accruals, provisions and reclassifications carry none. Without one it is refused:"
+  refused 422 ledger.special_period_tax_code postJournalEntry -body "$(uae_adjustment)"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "lines[1].tax_code"
+  say "Carla names the tax credit note issued to the customer on $end. Its date is the entry's tax date: the VAT"
+  say "belongs to the return of the period the credit note is dated in, not to December $PREV:"
+  api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period), tax date \(.tax_date), \(.tax_document.kind) \(.tax_document.number) of \(.tax_document.date): \(.header_text)"' \
+    postJournalEntry -body "$(uae_adjustment "{\"kind\": \"tax_credit_note\", \"number\": \"TCN-$PREV-0042\", \"date\": \"$end\"}")"
+  expect "the adjustment's period, tax date and tax document" "$(field '"\(.fiscal_year)/\(.fiscal_period) \(.tax_date) \(.tax_document.kind) \(.tax_document.number) \(.tax_document.date)"')" \
+    "$PREV/13 $end tax_credit_note TCN-$PREV-0042 $end"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$ae" -p "fiscal_year=$PREV" -p page_size=100
+  for p in $(field '.items[] | select(.period == 13) | "\(.id)/\(.version)"'); do
+    api 200 '"  period \(.fiscal_year)/\(.period): \(.status)"' closeFiscalPeriod -p "id=${p%/*}" -if-match "\"${p#*/}\""
+  done
+}
+
 # uae_return AE SUPPLIER EXPENSE is step 41's VAT 201 (T61k) of legal
 # entity AE's latest quarter ended: Carla posts its sales in Dubai and Abu
 # Dhabi, a zero-rated export, an exempt supply and the import VAT of a
 # customs declaration, and Alex the supplier's invoices of the domestic
 # reverse charge and of blocked VAT, each dated the quarter's last day;
-# Carla computes the draft and drills box 1b down, prepares the return,
+# Carla posts a year-end adjustment of PREV resting on a tax credit note of
+# that day (uae_year_end_adjustment), which the return reports; she
+# computes the draft and drills box 1b down, prepares the return,
 # Fiona approves it and Carla records it filed.
 uae_return() {
   local ae=$1 supplier=$2 expense=$3 registration start end bank sales vat input ret request
@@ -4330,6 +4389,7 @@ uae_return() {
       -body "{\"legal_entity_id\": \"$ae\", \"supplier_id\": \"$supplier\", \"supplier_reference\": \"$ref\", \"invoice_date\": \"$end\", \"gross_amount\": {\"amount\": \"$gross\", \"currency\": \"AED\"}, \"tax_amount\": {\"amount\": \"$tax\", \"currency\": \"AED\"}, \"items\": [{\"account_id\": \"$expense\", \"description\": \"$code purchase\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"$amount\", \"currency\": \"AED\"}, \"tax_code\": \"$code\"}]}"
     api 200 '"\(.document_number): \(.status)"' postSupplierInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
   done
+  uae_year_end_adjustment "$ae" "$bank" "$sales" "$vat" "$end"
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
@@ -4338,20 +4398,20 @@ uae_return() {
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
   expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.4"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
-  expect "boxes 1a and 1b, by emirate" "$(field '[.boxes[] | select(.code | test("^1[ab]_(amount|vat)$")) | .amount.amount] | join(" ")')" "4000.00 200.00 10000.00 500.00"
+  expect "boxes 1a and 1b, by emirate" "$(field '[.boxes[] | select(.code | test("^1[ab]_(amount|vat)$")) | .amount.amount] | join(" ")')" "4000.00 200.00 9900.00 495.00"
   expect "boxes 3, 4, 5 and 6" "$(field '[.boxes[] | select(.code | test("^[3-6]_")) | .amount.amount] | join(" ")')" "2000.00 100.00 3000.00 1500.00 10000.00 500.00"
   expect "boxes 9 and 10" "$(field '[.boxes[] | select(.code | test("^(9|10)_")) | .amount.amount] | join(" ")')" "1000.00 0.00 0.00 600.00"
-  expect "boxes 12, 13 and 14: due, recoverable and payable" "$(field '[.boxes[] | select(.code | test("^1[234]$")) | .amount.amount] | join(" ")')" "1300.00 600.00 700.00"
-  say "Box 1b drills down to the Dubai branch's sales:"
+  expect "boxes 12, 13 and 14: due, recoverable and payable" "$(field '[.boxes[] | select(.code | test("^1[234]$")) | .amount.amount] | join(" ")')" "1295.00 600.00 695.00"
+  say "Box 1b drills down to the Dubai branch's sales and the year-end adjustment of $PREV, dated by its credit note:"
   api 200 '.items[] | "  \(.tax_date) \(.tax_code)/\(.component) \(.jurisdiction // ""): adds \(.box_amount.amount), entry \(.document_number): \(.header_text // "")"' \
     listTaxReturnDraftItems -p "id=$registration" -p "period_start=$start" -p box=1b_vat
-  expect "box 1b's items" "$(field '[.items[] | "\(.header_text) \(.box_amount.amount)"] | join(", ")')" "Sales of the Dubai branch 500.00"
+  expect "box 1b's items" "$(field '[.items[] | "\(.header_text) \(.box_amount.amount)"] | join(", ")')" "Year-end adjustment: Dubai sales credited -5.00, Sales of the Dubai branch 500.00"
   local body="{\"period_start\": \"$start\"}"
   say "Carla prepares the return once the quarter's fiscal periods are closed, which claims its items:"
   close_tax_periods "$start" "$end" "$body" "$registration" "$ae"
   api 201 '"return \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end): \(.status), \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount)")' \
     prepareTaxReturn -p "id=$registration" -body "$body"
-  expect "the return's box 14" "$(field '.boxes[] | select(.code == "14") | .amount.amount')" "700.00"
+  expect "the return's box 14" "$(field '.boxes[] | select(.code == "14") | .amount.amount')" "695.00"
   ret=$(field .id)
   request=$(field .approval_request_id)
   approve fiona "$request" "Boxes agree with the VAT accounts"
