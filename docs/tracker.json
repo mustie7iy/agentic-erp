@@ -9504,9 +9504,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP's trading partner on migrated intercompany documents (ADR-0059 question 4, answered po:2026-11-05: a migration leaf once an SAP specialist confirms the fields; the SAP specialist answered po:2026-11-09, A2): the extract reads the vendor's LFA1-VBUND (KNA1-VBUND for a customer) [H] and each line's ACDOCA-RASSC [H]; SAP does not guarantee RASSC on every line of a document [M] (lines from MIRO and GR/IR, tax, exchange and price difference and cash discount lines, documents with several vendors and lines a user cleared often lack it), so the load gives a whole intercompany document the trading partner of its vendor line, as ADR-0059 §4's derivation does on the platform, instead of requiring it on each SAP line; how a VBUND names the tenant's legal entity is settled in the step; checked on the pilot's data with the specialist's query (documents whose vendor line has a RASSC that another line lacks)",
-      "r": "ADR-0059 §4, question 4 (answered) · internal/sap (LFA1, ACDOCA) · internal/integration load · docs/migration.md",
+      "r": "ADR-0059 §4, question 4 (answered), As built (SAP's trading partner on migrated intercompany documents) · internal/sap (LFA1 VBUND, ACDOCA RASSC, T001 RCOMP, Extract.CompanyCodes) · internal/integration tradingpartner.go (the supplier's group company from VBUND, the gate's warnings, the open payables by trading partner) · ledger Reports.OpenPayablesByTradingPartner · docs/migration.md · walkthrough step 3 (migration_group_company, migrated_trading_partner). Settled in the step: a VBUND names the legal entity of the company code T001-RCOMP assigns to it (RCOMP from memory, for the specialist); one that names none is a warning",
       "src": "po:2026-11-05 · po:2026-11-09 · adr:ADR-0059",
       "c": []
      },

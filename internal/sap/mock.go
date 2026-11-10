@@ -47,7 +47,10 @@ import (
 // received and not yet invoiced, an open GR/IR position in that currency
 // (receivedInUSD). Its other orders' receipts post nothing to SAP's
 // journal, as 1000's and 2000's do. It alone has controlling master data
-// (centers): cost and profit centers and a segment.
+// (centers): cost and profit centers and a segment. One of its vendors,
+// Muskoka Office Supply, is a company of the group (intercompanyVendor): its
+// master names company 2000's company ID as its trading partner, and its
+// vendor lines carry it; every company code has a company ID (T001-RCOMP).
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -76,7 +79,19 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 	g.receivedInUSD("3000")
 	g.centers("3000")
 	g.customizing()
+	g.tradingPartner()
 	return g.e
+}
+
+// tradingPartner gives the lines of intercompanyVendor its trading
+// partner, as SAP does from the vendor's master, and no other line of its
+// documents. It draws nothing from the generator and changes no amount.
+func (g *mockGen) tradingPartner() {
+	for i := range g.e.ACDOCA {
+		if g.e.ACDOCA[i].LIFNR == intercompanyVendor {
+			g.e.ACDOCA[i].RASSC = intercompanyPartner
+		}
+	}
 }
 
 type mockGen struct {
@@ -100,10 +115,22 @@ type mockGen struct {
 const mockDecimals = 2
 
 var mockCompanies = []T001{
-	{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US"},
-	{BUKRS: "2000", BUTXT: "Acme GmbH", WAERS: "EUR", LAND1: "DE"},
-	{BUKRS: "3000", BUTXT: "Maple Industries Canada", WAERS: "CAD", LAND1: "CA"},
+	{BUKRS: "1000", BUTXT: "Acme Corp US", WAERS: "USD", LAND1: "US", RCOMP: "001000"},
+	{BUKRS: "2000", BUTXT: "Acme GmbH", WAERS: "EUR", LAND1: "DE", RCOMP: "002000"},
+	{BUKRS: "3000", BUTXT: "Maple Industries Canada", WAERS: "CAD", LAND1: "CA", RCOMP: "003000"},
 }
+
+// intercompanyVendor is company 3000's vendor that is a company of the
+// group, Muskoka Office Supply, and intercompanyPartner the company ID its
+// master names as its trading partner (LFA1-VBUND): company code 2000's
+// (T001-RCOMP), a company ID being no company code. SAP gives the vendor's
+// lines the trading partner (ACDOCA-RASSC) and, its invoices coming from
+// invoice verification, their other lines none (the SAP specialist,
+// po:2026-11-09, A2).
+const (
+	intercompanyVendor  = "0000300005"
+	intercompanyPartner = "002000"
+)
 
 var mockAccounts = []SKB1{
 	{SAKNR: "0000100000", TXT50: "Bank - Operating", XBILK: "X"},
@@ -240,6 +267,9 @@ func (g *mockGen) canadianVendors(terms []string) {
 	for i, name := range canadianVendorNames {
 		id := fmt.Sprintf("%010d", 300001+i)
 		v := LFA1{LIFNR: id, NAME1: name, LAND1: "CA", STCD1: fmt.Sprintf("%09d", 800000000+i*7919)}
+		if id == intercompanyVendor {
+			v.VBUND = intercompanyPartner
+		}
 		g.addressed(&v)
 		g.e.LFA1 = append(g.e.LFA1, v)
 		institution, transit := []string{"001", "002", "003", "004", "006", "010"}[i], fmt.Sprintf("%05d", 10+i*111)

@@ -128,7 +128,8 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 	return minor.Plain(l.t.exponents[currency])
 }
 
-// load brings the extract over: suppliers, purchase orders, the
+// load brings the extract over: suppliers, each linked to the company of
+// the group its SAP trading partner is (tradingpartner.go), purchase orders, the
 // quantities posted invoices invoiced, goods receipts, the open GR/IR
 // positions of the orders SAP valued through GR/IR, parked invoices,
 // then the journal (every document, or one
@@ -190,7 +191,9 @@ func (l *loader) partners(ctx context.Context) error {
 		if id, ok := l.refs["LFA1/"+v.LIFNR]; ok {
 			err = l.extendSupplier(ctx, v, id, in, reason)
 		} else {
-			err = l.createSupplier(ctx, newSupplier(v, in, banks, as, reason, l.t.cutoverDays(companies[v.LIFNR]), l.today), v)
+			np := newSupplier(v, in, banks, as, reason, l.t.cutoverDays(companies[v.LIFNR]), l.today)
+			np.GroupCompanyID = l.t.groupCompanyOf(v)
+			err = l.createSupplier(ctx, np, v)
 		}
 		if err != nil {
 			return err
@@ -200,7 +203,9 @@ func (l *loader) partners(ctx context.Context) error {
 }
 
 // extendSupplier sets an earlier run's supplier up in the company codes it
-// is not yet set up in.
+// is not yet set up in. Its group company stays as the platform has it: a
+// supplier's link to a company of the group changes through a partner
+// change with its approval, never by a later run (ADR-0059 As built).
 func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, in []partner.SupplierCompanyInput, reason string) error {
 	l.vendors[v.LIFNR] = id
 	var missing []partner.SupplierCompanyInput
@@ -229,7 +234,8 @@ func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, i
 }
 
 // newSupplier is the partner a vendor master becomes, with its tax number,
-// its first bank account and its address: the central address valid on
+// its first bank account and its address (partners adds the group company
+// its trading partner is, target.groupCompanyOf): the central address valid on
 // days, the run's day in the vendor's companies' time zones, both starting
 // by today, partner's day (cutover.go).
 func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string]sap.LFBK, as addresses, reason string, days []time.Time,

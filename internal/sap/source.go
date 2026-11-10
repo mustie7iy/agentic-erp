@@ -68,13 +68,15 @@ func WriteExtract(path string, e *Extract) error {
 // counts the scope's lines of each other ledger in OtherLedgers, which the
 // export should have left out (the SAP specialist: WHERE RLDNR = '0L'), so
 // that the migration's quality gate refuses them as a safety net rather
-// than the run proceeding as if the extract were whole (review:T56h4), and
+// than the run proceeding as if the extract were whole (review:T56h4),
 // moves the leading ledger's noted items (BSTAT S) from ACDOCA to Noted
-// (review:batch63).
+// (review:batch63), and keeps every company code's company ID
+// (CompanyCodes), the scope's or not.
 func FilterScope(all *Extract, scope Scope) *Extract {
 	inCC := func(cc string) bool { return slices.Contains(scope.CompanyCodes, cc) }
 	out := &Extract{}
 	out.T001 = keep(all.T001, func(r T001) bool { return inCC(r.BUKRS) })
+	out.CompanyCodes, out.NoTradingPartners = companyCodes(all.T001), all.NoTradingPartners
 	out.SKB1 = keep(all.SKB1, func(r SKB1) bool { return inCC(r.BUKRS) })
 	out.LFB1 = keep(all.LFB1, func(r LFB1) bool { return inCC(r.BUKRS) })
 	vendors := map[string]bool{}
@@ -105,6 +107,26 @@ func FilterScope(all *Extract, scope Scope) *Extract {
 	filterLedger(all, out, scope, inCC)
 	filterCenters(all, out, inCC)
 	filterCustomizing(all, out, inCC)
+	return out
+}
+
+// companyCodes are the company codes assigned to each company ID
+// (T001-RCOMP), by CompanyID: nil when no company code names one.
+func companyCodes(companies []T001) map[string][]string {
+	var out map[string][]string
+	for _, c := range companies {
+		id := CompanyID(c.RCOMP)
+		if id == "" {
+			continue
+		}
+		if out == nil {
+			out = map[string][]string{}
+		}
+		if !slices.Contains(out[id], c.BUKRS) {
+			out[id] = append(out[id], c.BUKRS)
+			slices.Sort(out[id])
+		}
+	}
 	return out
 }
 

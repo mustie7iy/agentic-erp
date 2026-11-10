@@ -115,6 +115,51 @@ extract without it (the OData mapping does not carry it) cannot tell a
 noted item, which then stops the run as an unbalanced document or, if it
 balances, would post.
 
+SAP's trading partner is taken over through the supplier (ADR-0059 §4 and
+As built; the SAP specialist, A2). A vendor that is a company of the group
+names it in its master, LFA1-VBUND, a company ID; SAP gives the vendor's
+journal lines the same (ACDOCA-RASSC) but does not guarantee it on a
+document's other lines. So in either mode the load does not post RASSC
+line by line: it links the supplier it creates to the legal entity that
+company is (the supplier's `group_company`), and the ledger gives every
+line naming the supplier that trading partner and, when a document's
+vendor lines all name the same one, its other lines too, as it does for
+every posting on the platform. A company ID is no company code: the load
+takes the company code SAP assigns to it (T001-RCOMP, read from every
+company code of the extract file, the scope's or not) and the legal
+entity of that code, whatever its status, so the legal entity of the
+other company only has to exist, not to be migrated or configured. In
+`documents` mode an intercompany invoice's expense and tax lines carry
+the trading partner with its vendor line, and its payment's lines keep
+it; in `balances` mode the open vendor items carry it and the account
+balances none, an opening entry holding many vendors. The quality gate
+warns and never refuses, a group having companies that are not on the
+platform:
+
+- a vendor whose trading partner names no legal entity, keyed by the
+  vendor number: its company ID is assigned to no company code of the
+  extract or to several, or its company code is no legal entity of the
+  tenant. The supplier loads linked to no company and its documents
+  without a trading partner, which a consolidation run lists as
+  `no_trading_partner`. Create the legal entity before the run to have it
+  linked.
+- vendor lines whose own trading partner (RASSC) is not their vendor's
+  master's, keyed `<BUKRS>/<LIFNR>` with how many lines carry which: they
+  load with the master's (a vendor linked, relinked or unlinked since the
+  posting).
+- lines carrying a trading partner in documents without a vendor line
+  (an intercompany loan or recharge posted between G/L accounts), keyed
+  by the company code with their number: they load without one.
+- once, keyed `VBUND`, an extract that cannot carry trading partners: the
+  OData mapping reads neither field, so an OData run links no supplier.
+
+A supplier an earlier run loaded keeps the group company it has: a later
+run does not link it, since a supplier's group company changes through a
+partner change with its approval, and lines already posted keep theirs
+(ADR-0006). The reconciliation then shows SAP's open payables under the
+trading partner against none on the platform. Customers are not migrated,
+so KNA1-VBUND is not read.
+
 In either mode an order SAP valued through GR/IR (a line on its GR/IR account,
 T030 WRX, names the order item, ACDOCA EBELN/EBELP) loads valued through GR/IR
 (T72f, ADR-0034): its receipts (MSEG 101) are recorded without posting again,
@@ -451,6 +496,15 @@ ACDOCA, so no plan filter is needed.
   payments), in total and per vendor, in that currency, where either side has
   any: the controls in company currency cannot tell an item loaded with the
   wrong document amount
+- Open payables by trading partner (ordinary items and down payments), in
+  total and per trading partner, where either side has any: SAP's open
+  vendor items under the company their vendor's master names (LFA1-VBUND,
+  by its company code; none for a vendor whose trading partner is the
+  company itself or no legal entity), against the platform's open supplier
+  items as their lines carry a trading partner, which a consolidation run
+  reads (differences listed by `trading partner <company code>`, or
+  `trading partner <id>` for a legal entity no vendor of the extract
+  names; ADR-0059)
 - Vendor count per company code
 - Cost centers and profit centers per company code, where either side has
   any: SAP's of the company code against the platform's active ones that
@@ -533,7 +587,11 @@ A finding or a difference names what it is about by SAP's reference where
 there is one: a refused supplier, its posting block included, by the vendor
 number (`LFA1`, `<LIFNR>`), a vendor's open items by `vendor <LIFNR>`. Open
 items of a platform supplier that is no migrated vendor, which SAP cannot
-name, are keyed `partner <id> (<name>)`.
+name, are keyed `partner <id> (<name>)`. A trading partner is named by the
+SAP company code its company ID is assigned to (`trading partner 2000`),
+never by the platform's name of that company, which a person running the
+migration may not be allowed to read; one no vendor of the extract names
+is keyed by the legal entity's id alone.
 
 When the run ends, `reconciled` or `failed`, its `MigrationRunCompleted`
 event (api/asyncapi.yaml) carries the report's headline figures as
@@ -712,6 +770,45 @@ others record a confirmation.
   system:** whether its countries print the house number before the street
   (the load keeps SAP's field order, street then number, and does not
   apply SAP's per-country address layout, which the answers do not give).
+- The trading partner (ADR-0059 §4, the migration leaf). Answered (A2):
+  the vendor's is LFA1-VBUND ("company ID of trading partner"; KNA1-VBUND
+  for a customer) [H] and the journal line's ACDOCA-RASSC [H] (BSEG-VBUND
+  on the entry view); SAP does not guarantee RASSC on every line of a
+  document [M, to verify on the pilot system]: the vendor line always has
+  it, lines from materials management (MIRO, GR/IR), generated lines (tax,
+  exchange and price differences, cash discount), documents with several
+  vendors and lines a user cleared often lack it. The load therefore
+  derives a document's trading partner from its vendor line's supplier.
+  Run the specialist's query on the pilot's data to see how far SAP's
+  lines differ (documents whose vendor line has a trading partner that
+  another line lacks):
+
+  ```sql
+  SELECT a.rbukrs, a.gjahr, a.belnr, b.docln, b.racct, b.ktosl
+  FROM acdoca a JOIN acdoca b
+    ON b.rldnr = a.rldnr AND b.rbukrs = a.rbukrs AND b.gjahr = a.gjahr AND b.belnr = a.belnr
+  WHERE a.koart = 'K' AND a.rassc <> '' AND b.rassc = '' AND a.rldnr = '0L';
+  ```
+
+  **Not in the answer, stated from memory, for the specialist:** that the
+  company a company code belongs to is T001-RCOMP (check table T880), the
+  field the load reads to tell which company code a VBUND is; that
+  several company codes may share one company (the gate then warns, the
+  company ID naming no one legal entity); and that VBUND, RASSC and RCOMP
+  hold the company ID in the same ALPHA form (the load compares them
+  without leading zeros and blanks). The extract must export T001 for
+  every company code, not only the scope's, with RCOMP, and LFA1 with
+  VBUND; an extract without either links no supplier and says nothing,
+  since a blank VBUND is also what a vendor outside the group has. Also to
+  check on the pilot's data: intercompany documents posted without a
+  vendor line (loans, recharges between G/L accounts), which load without
+  a trading partner and are warned of, and vendors whose VBUND was set or
+  changed after documents were posted. The OData mapping carries none of
+  the three fields: the answer names the tables' fields, and of the APIs
+  only `A_JournalEntryItemBasic`'s `PartnerCompany` for RASSC [L] (A7),
+  which the load does not post; a property of `A_Supplier` for VBUND and
+  of `A_CompanyCode` for RCOMP is to be found in the pilot's `$metadata`.
+  Until then an OData run warns once and links no supplier.
 - The controlling master data (T56h; ADR-0050 §10 states the tables from
   memory, and internal/sap's types say which fields are not even in its
   list): that CSKS carries KOKRS, KOSTL, DATAB, DATBI, BUKRS, KOSAR, VERAK,

@@ -68,6 +68,9 @@ type target struct {
 	// supplier's bank account and address start by on the platform.
 	days  map[string]time.Time
 	today time.Time
+	// partners are what the trading partners the extract's vendors name
+	// (LFA1-VBUND) are on the platform, by company ID (tradingpartner.go).
+	partners map[string]groupCompany
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -129,6 +132,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.accounts()
 	q.centers()
 	q.vendors()
+	q.tradingPartners()
 	q.vendorCompanies()
 	q.vendorBanks()
 	q.purchaseOrders()

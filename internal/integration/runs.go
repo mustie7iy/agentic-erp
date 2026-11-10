@@ -251,6 +251,10 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
 	}
 	ext, err := e.extract(ctx, c, scope, &t)
+	if err != nil {
+		return t, nil, c, err
+	}
+	t.partners, err = e.groupCompanies(ctx, ext)
 	return t, ext, c, err
 }
 

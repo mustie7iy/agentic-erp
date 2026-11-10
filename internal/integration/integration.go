@@ -43,6 +43,7 @@ import (
 // LegalEntities is what integration reads about legal entities (tenancy).
 type LegalEntities interface {
 	Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error)
+	EntityByCode(ctx context.Context, code string) (tenancy.Entity, bool, error)
 }
 
 // Accounts reads a legal entity's chart of accounts (ledger).
@@ -132,6 +133,7 @@ type Reports interface {
 	Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (ledger.Totals, error)
 	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenPayableItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int, error)
+	OpenPayablesByTradingPartner(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenForeignItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]map[string]money.Minor, error)
 	OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]ledger.OpenGRIR, error)

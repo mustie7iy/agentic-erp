@@ -429,6 +429,10 @@ func TestMigrationPorts(t *testing.T) {
 			_, err := ledger.Reports{}.OpenPayableItems(ctx, e.de, 2026)
 			return err
 		},
+		"open payables by trading partner": func(ctx context.Context) error {
+			_, err := ledger.Reports{}.OpenPayablesByTradingPartner(ctx, e.de, 2026)
+			return err
+		},
 		"entry years": func(ctx context.Context) error {
 			_, err := postings().EntryYears(ctx, []uuid.UUID{invoice.ID})
 			return err
