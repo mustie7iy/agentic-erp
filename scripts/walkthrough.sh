@@ -4312,10 +4312,13 @@ uae_year_end_adjustment() {
   say "whatever tax date it names:"
   refused 422 ledger.special_period_tax_code postJournalEntry -body "$(uae_adjustment "\"tax_date\": \"$end\"")"
   expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "lines[1].tax_code"
+  # Built here, not inside the substitution: bash 3.2 expands the braces of
+  # a quoted word nested in "$(...)".
+  local document="\"tax_document\": {\"kind\": \"tax_credit_note\", \"number\": \"TCN-$PREV-0042\", \"date\": \"$end\"}"
   say "Carla names the tax credit note issued to the customer on $end. Its date is the entry's tax date: the VAT"
   say "belongs to the return of the period the credit note is dated in, not to December $PREV:"
   api 201 '"journal entry \(.document_number) of \(.posting_date), period \(.fiscal_year)/\(.fiscal_period), tax date \(.tax_date), \(.tax_document.kind) \(.tax_document.number) of \(.tax_document.date): \(.header_text)"' \
-    postJournalEntry -body "$(uae_adjustment "\"tax_document\": {\"kind\": \"tax_credit_note\", \"number\": \"TCN-$PREV-0042\", \"date\": \"$end\"}")"
+    postJournalEntry -body "$(uae_adjustment "$document")"
   expect "the adjustment's period, tax date and tax document" "$(field '"\(.fiscal_year)/\(.fiscal_period) \(.tax_date) \(.tax_document.kind) \(.tax_document.number) \(.tax_document.date)"')" \
     "$PREV/13 $end tax_credit_note TCN-$PREV-0042 $end"
   QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$ae" -p "fiscal_year=$PREV" -p page_size=100
