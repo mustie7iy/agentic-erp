@@ -543,7 +543,10 @@ commit-time check, like the balance trigger).
   output tax); a non-deductible component's tax and the part of a
   component's tax not recovered (a self-assessed claim's too) go on the
   item's line (for an item on a
-  GR/IR order, into what it invoices, so onto the price difference). A
+  GR/IR order, into what it invoices, so onto the price difference; the
+  ledger records that tax beside the price difference line with its order
+  item, `ledger.price_difference_item`, migration 000249, ADR-0057 As
+  built B10). A
   reverse charge code posts its self-assessed pair, the supplier owed the
   base only. The supplier's stated tax is held to the calculated within
   `companies[].invoice_tolerance.tax_units_per_code` minor units per code

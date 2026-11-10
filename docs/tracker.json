@@ -1254,9 +1254,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The order item and the tax borne recorded on price difference lines (accounting specialist B10, po:2026-11-09; product owner 2026-11-10, option B): the materiality report could not be exact, since an invoiced order item's price difference and the input tax it bears post as one line on price_difference that names no order item; from now on the ledger records, beside each such line of an invoice or credit memo on an order valued through GR/IR, the order item and the tax borne (transaction and local currency, signed as the line), a reversal recording its original's negated; nothing posts differently; lines posted before stay unknown, never backfilled",
+        "r": "migration 000249 (ledger.price_difference_item, insert-only: the line's foreign key, a GR/IR line refused, price_difference_item_tax_sign) · internal/ledger/pricedifference.go (keepPriceDifferences, reversePriceDifferences), GRIRItem.TaxBorne · internal/payables/post.go (invoiceLines) · TestPriceDifferencesRecorded, TestPriceDifferencesReversed, TestGRIRDatabaseFailures, TestTaxBorneRecordedOnPriceDifferences, TestPriceDifferenceItems · ADR-0057 As built (B10, step 1) · ADR-0049 §8 · 03-data-model §3.7",
+        "src": "po:2026-11-10 · po:2026-11-09",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Non-refundable purchase tax and price differences in an asset's cost, after a materiality report (accounting specialist, po:2026-11-09, B10; IAS 16.16(a), IAS 8.8): first a report of the amounts expensed on asset purchase orders (price differences on price_difference, input tax not recovered), so the auditor can judge their materiality, the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment; then, before the first year end, an order item's price difference and non-recoverable tax capitalised on the asset rather than expensed (ADR-0057's question on price differences and non-recovered tax)",
-        "r": "ADR-0057 §6, Questions for the product owner (answered) · ledger price difference · payables input tax",
+        "t": "The B10 materiality report (accounting specialist B10, po:2026-11-09; product owner 2026-11-10, option B; IAS 16.16(a), IAS 8.8): per company and fiscal year, the non-recovered tax and the price differences expensed on order items that are assets, exact for postings recorded with their order item and stating how much comes from earlier postings whose split is unknown, so the auditor can judge materiality; GR/IR clearings (T72e) left out until the product owner decides whether they count as expensed",
+        "r": "ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 1)",
+        "src": "po:2026-11-10 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a)): the posting change itself, after the materiality report; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment (ADR-0057's question on price differences and non-recovered tax)",
+        "r": "ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 1) · ledger price difference · payables input tax",
         "src": "po:2026-11-09",
         "c": []
        },

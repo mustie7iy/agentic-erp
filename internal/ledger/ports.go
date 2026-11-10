@@ -255,7 +255,14 @@ type GRIRItem struct {
 	// TaxCode is an invoiced item's tax code: its GR/IR and price
 	// difference lines are the code's base (ADR-0049 §5).
 	TaxCode *string
-	Text    *string
+	// TaxBorne is the input tax an invoiced item bears, which Invoiced
+	// includes (a non-deductible component's, a part not recovered;
+	// ADR-0049 §8), signed as Invoiced. It moves no amount: the ledger
+	// records it beside the item's price difference line with the order
+	// item (ledger.price_difference_item; B10, ADR-0057 §6), so that what
+	// the line expenses can be told apart as tax and price difference.
+	TaxBorne money.Minor
+	Text     *string
 	// CostCenterID is the order item's cost center (ADR-0050 §6, T56e): a
 	// goods movement's counter line and an invoice's price difference line
 	// carry it, as SAP charges a non-valuated receipt's price difference to

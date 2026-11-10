@@ -1015,6 +1015,17 @@ Rules enforced in the database:
   zero and rounding leaves a balance (the item moved since), it adds a
   GR/IR line of quantity 0 that clears it against `price_difference`, so a
   position is zero in every currency once its quantities agree.
+- `price_difference_item` (insert-only, migration 000249; B10,
+  po:2026-11-10; ADR-0057 As built) records, beside an invoiced order
+  item's line on `price_difference`, the order item it belongs to
+  (`purchase_order_id`, `po_item_no`; the line itself names none, since a
+  line's order item marks a GR/IR line) and the input tax borne in it
+  (`tax_borne_tc`, `tax_borne_lc` at the entry's rate, signed as the
+  line): the line's amount less the tax is the price difference. Keyed as
+  the line, with a foreign key to it; a GR/IR line is refused, and the
+  tax has one sign in both currencies. A reversal's lines record their
+  originals' with the tax negated. Lines posted before the migration, a
+  reversal's rounding residue and a GR/IR clearing's line have no row.
 - `period_balance` is maintained by an idempotent projector (ADR-0006).
 - `journal_line` is partitioned by `fiscal_year`.
 - `period_status` (one row per legal entity, ledger, year and period) has a
