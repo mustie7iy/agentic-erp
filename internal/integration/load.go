@@ -175,10 +175,7 @@ func (l *loader) load(ctx context.Context) error {
 }
 
 func (l *loader) partners(ctx context.Context) error {
-	companies := map[string][]sap.LFB1{}
-	for _, c := range l.ext.LFB1 {
-		companies[c.LIFNR] = append(companies[c.LIFNR], c)
-	}
+	companies := vendorCompanies(l.ext)
 	banks, as := firstBanks(l.ext), addressesOf(l.ext)
 	vendors := slices.Clone(l.ext.LFA1)
 	slices.SortFunc(vendors, func(a, b sap.LFA1) int { return cmp.Compare(a.LIFNR, b.LIFNR) })
@@ -193,7 +190,7 @@ func (l *loader) partners(ctx context.Context) error {
 		if id, ok := l.refs["LFA1/"+v.LIFNR]; ok {
 			err = l.extendSupplier(ctx, v, id, in, reason)
 		} else {
-			err = l.createSupplier(ctx, newSupplier(v, in, banks, as, reason, l.today), v)
+			err = l.createSupplier(ctx, newSupplier(v, in, banks, as, reason, l.t.cutoverDays(companies[v.LIFNR]), l.today), v)
 		}
 		if err != nil {
 			return err
@@ -232,8 +229,11 @@ func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, i
 }
 
 // newSupplier is the partner a vendor master becomes, with its tax number,
-// its first bank account and its address.
-func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string]sap.LFBK, as addresses, reason string, today time.Time) partner.NewPartner {
+// its first bank account and its address: the central address valid on
+// days, the run's day in the vendor's companies' time zones, both starting
+// by today, partner's day (cutover.go).
+func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string]sap.LFBK, as addresses, reason string, days []time.Time,
+	today time.Time) partner.NewPartner {
 	np := partner.NewPartner{Kind: "organization", Name: v.NAME1, CountryCode: v.LAND1, Roles: []string{"supplier"},
 		SupplierCompanies: in, Reason: reason}
 	if tax := strings.TrimSpace(v.STCD1); tax != "" {
@@ -242,7 +242,7 @@ func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string
 	if b, ok := banks[v.LIFNR]; ok {
 		np.BankAccounts = []partner.BankInput{supplierBank(v, b, today)}
 	}
-	if a, ok, _ := vendorAddress(v, as, today); ok { // an address it cannot keep was warned of (qualityCheck.vendors)
+	if a, ok, _ := vendorAddress(v, as, days, today); ok { // an address it cannot keep was warned of (qualityCheck.vendors)
 		np.Addresses = []partner.AddressInput{a}
 	}
 	return np

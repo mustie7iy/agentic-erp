@@ -486,7 +486,9 @@ contracts' expiry and its notice (T72n6) and a contract's number are
 judged on the company's date too. Judged in UTC by decision: the
 suppliers a migration run creates, whose date is their bank account's
 `valid_from`, one UTC rule for the whole supplier (product owner
-2026-10-31, ADR-0051 as built).
+2026-10-31, ADR-0051 as built); the day the run chooses a vendor's
+central address by, the cutover date, is the company's date
+(review:batch63, ADR-0051 as built).
 
 A company's postal address is its `companies[].postal_address`, in a
 business partner address's shape without purpose or validity (`line1`,

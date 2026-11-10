@@ -9516,6 +9516,13 @@
       "r": "internal/sap FilterScope, Extract.Noted, StatusNoted · internal/integration noted.go (qualityCheck.noted), recaccounts.go · TestNotedItemsAreNotMigrated (mock extract, both modes), TestNotedItemsReported, TestFilterScopeKeepsTheLeadingLedger · ADR-0037 As built (SAP's noted items are not migrated, bstat) · ADR-0060 §9 · docs/migration.md (noted items; what to check: BSTAT's other values, whether ACDOCA holds noted items)",
       "src": "review:batch63",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migration run's day is the company's date, not UTC's: the cutover date a vendor's central address (ADRC) must be valid on was the database's UTC day, so on a cutover evening in Toronto the run took the address valid from the next day; it is each company's date in its time zone at the run's instant, a vendor judged on the days of the company codes it is set up in; the dates the run writes on the platform (a supplier's bank account and address valid_from) stay partner's UTC rule (product owner 2026-10-31 and 2026-11-02)",
+      "r": "internal/integration cutover.go (companyDays, target.cutoverDays), addresses.go, runs.go (target.configure) · internal/app Integration (Endpoints.Now wired) · TestRunDayIsTheCompanysDay (Toronto, Dubai), TestRunDayZoneLost, TestCompanyDays, TestCutoverDays, TestCentralAddressAcrossDays · ADR-0051 As built (a run's cutover date is the company's, bstat) · 03-data-model · docs/migration.md (vendor addresses)",
+      "src": "review:batch63",
+      "c": []
      }
     ]
    },

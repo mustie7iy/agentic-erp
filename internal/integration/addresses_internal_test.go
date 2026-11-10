@@ -50,7 +50,7 @@ func TestCentralAddress(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			x := &sap.Extract{ADRC: c.rows}
-			a, ok, why := vendorAddress(sap.LFA1{LIFNR: "1", LAND1: "DE", ADRNR: c.adrnr}, addressesOf(x), day)
+			a, ok, why := vendorAddress(sap.LFA1{LIFNR: "1", LAND1: "DE", ADRNR: c.adrnr}, addressesOf(x), []time.Time{day}, day)
 			if ok != (c.wantLine1 != "") {
 				t.Fatalf("address taken: got %v, want %v (why %q)", ok, c.wantLine1 != "", why)
 			}

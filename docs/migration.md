@@ -692,7 +692,12 @@ others record a confirmation.
   load now reads ADRC (sapvend): LFA1-ADRNR = ADRC-ADDRNUMBER in the
   extract's client, the row with ADRC-NATION blank (the international
   version; other values are other scripts) and ADRC-DATE_FROM <= the run's
-  day <= ADRC-DATE_TO; street ADRC-STREET followed by ADRC-HOUSE_NUM1 and
+  day <= ADRC-DATE_TO, the run's day being the company's date in its time
+  zone when the run starts, not UTC's (review:batch63, ADR-0051 As built:
+  for a vendor set up in several company codes a row valid on any of
+  their days counts, so an address SAP changes between two companies'
+  days is one of several and is warned of; the address starts on the
+  platform on UTC's day, partner's rule); street ADRC-STREET followed by ADRC-HOUSE_NUM1 and
   ADRC-HOUSE_NUM2, further lines ADRC-STR_SUPPL1/2/3 and ADRC-LOCATION as
   the address's second line, city ADRC-CITY1, postal code ADRC-POST_CODE1,
   region ADRC-REGION, country ADRC-COUNTRY (LFA1-LAND1 when blank). A blank

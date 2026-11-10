@@ -21,6 +21,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
+	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
@@ -243,6 +244,21 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 	if err != nil {
 		return t, nil, c, err
 	}
+	if err := t.configure(doc, clock.Now(e.Now)); err != nil {
+		return t, nil, c, fmt.Errorf("integration: migration run %s: %w", r.ID, err)
+	}
+	if t.exponents, err = currency.Load(ctx, tx); err != nil {
+		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
+	}
+	ext, err := e.extract(ctx, c, scope, &t)
+	return t, ext, c, err
+}
+
+// configure gives the target what the active configuration says of the
+// run's scope: its payment terms, number ranges, cost center categories,
+// each company's tax codes and payment methods, and each company's day at
+// instant now in its time zone (companyDays).
+func (t *target) configure(doc *config.Config, now time.Time) error {
 	for _, term := range doc.PaymentTerms {
 		t.terms[term.Key] = true
 	}
@@ -262,11 +278,9 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, r Run) (target, *sap
 			t.methods[co.Code][m.Code] = true
 		}
 	}
-	if t.exponents, err = currency.Load(ctx, tx); err != nil {
-		return t, nil, c, fmt.Errorf("integration: read the currency exponents for run %s: %w", r.ID, err)
-	}
-	ext, err := e.extract(ctx, c, scope, &t)
-	return t, ext, c, err
+	var err error
+	t.days, err = companyDays(doc, t.entities, now)
+	return err
 }
 
 // extract reads the scope from the connector's source and gives the
