@@ -185,7 +185,7 @@ type storedEntryLine struct {
 	entry, line          int32
 	group                string
 	company, account, tp *uuid.UUID
-	code                 *string
+	code, component      *string
 	amount               money.Minor
 }
 
@@ -254,13 +254,13 @@ func entryLines(ctx context.Context, tx pgx.Tx, r Run, page []storedEntry) ([]uu
 	for i := range page {
 		at[page[i].no], nos[i] = &page[i], page[i].no
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.entry_no, l.line_no, l.group_account, l.legal_entity_id, m.company_code, l.account_id, l.trading_partner_id, l.amount_gc
+	rows, _ := tx.Query(ctx, `SELECT l.entry_no, l.line_no, l.group_account, l.legal_entity_id, m.company_code, l.account_id, l.trading_partner_id, l.component, l.amount_gc
 		FROM consolidation.run_entry_line l
 		LEFT JOIN consolidation.run_member m ON m.tenant_id = l.tenant_id AND m.run_id = l.run_id AND m.legal_entity_id = l.legal_entity_id
 		WHERE l.run_id = $1 AND l.entry_no = ANY($2) ORDER BY l.entry_no, l.line_no`, r.ID, nos)
 	var l storedEntryLine
 	var companies []uuid.UUID
-	_, err := pgx.ForEachRow(rows, []any{&l.entry, &l.line, &l.group, &l.company, &l.code, &l.account, &l.tp, &l.amount}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&l.entry, &l.line, &l.group, &l.company, &l.code, &l.account, &l.tp, &l.component, &l.amount}, func() error {
 		en := at[l.entry]
 		en.lines = append(en.lines, l)
 		if l.amount > 0 {
@@ -284,7 +284,7 @@ func (n names) entryAPI(s storedEntry) gen.ConsolidationEntry {
 	for _, l := range s.lines {
 		x := gen.ConsolidationEntryLine{LineNo: l.line, GroupAccount: n.groupAccount(l.group), LegalEntityID: apitypes.OptUUID(l.company),
 			CompanyCode: apitypes.OptString(l.code), AccountID: apitypes.OptUUID(l.account), TradingPartner: n.tradingPartner(l.tp),
-			Amount: n.money(l.amount, n.group)}
+			Component: apitypes.OptString(l.component), Amount: n.money(l.amount, n.group)}
 		if l.company != nil {
 			x.CompanyName = gen.NewOptString(n.companies[*l.company].Name)
 		}

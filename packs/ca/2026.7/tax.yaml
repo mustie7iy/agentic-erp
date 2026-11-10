@@ -1,0 +1,179 @@
+# Purchase (input) tax codes in ADR-0049's component schema, one component
+# each, with every dated rate (valid_to inclusive), from
+# ../TAX-PENDING-T61a.md, which cites the 2026-10-20 retrieval of the
+# sources in pack.yaml; a test compares the two, so a typo fails.
+#
+# Recovery is the proposal of that file, for the tax specialist to confirm:
+# GST and HST as input tax credits to 1300, QST as input tax refunds to
+# 1310, PST not recovered. A non-deductible component has no account of its
+# own (ADR-0049 §3, §6): its PST is expensed on the purchase's own line, not
+# on 6400, which the file proposed and the schema cannot name.
+#
+# The QST and PST rates start on 2026-01-01, the pack's valid_from: their
+# earlier start dates were not fetched from an authority (the file's note
+# for the specialist). A purchase in BC, MB, SK or QC carries GST and a
+# provincial tax together; there is no combined code, as the file has none.
+tax_codes:
+  # CRA GST/HST rate table: GST in AB, BC, MB, NT, NU, QC, SK and YT.
+  - code: G5
+    description: GST (AB, BC, MB, NT, NU, QC, SK, YT)
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: gst
+        jurisdiction: CA
+        account_key: input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "5", valid_from: 2013-04-01}
+  # CRA GST/HST rate table.
+  - code: HON
+    description: HST Ontario
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: hst
+        jurisdiction: CA-ON
+        account_key: input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "13", valid_from: 2013-04-01}
+  # CRA GST/HST rate table; CRA GI-190 (the increase of 2016-07-01).
+  - code: HNB
+    description: HST New Brunswick
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: hst
+        jurisdiction: CA-NB
+        account_key: input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "13", valid_from: 2013-04-01, valid_to: 2016-06-30}
+          - {rate_percent: "15", valid_from: 2016-07-01}
+  # CRA GST/HST rate table; CRA GI-190 (the increase of 2016-07-01).
+  - code: HNL
+    description: HST Newfoundland and Labrador
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: hst
+        jurisdiction: CA-NL
+        account_key: input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "13", valid_from: 2013-04-01, valid_to: 2016-06-30}
+          - {rate_percent: "15", valid_from: 2016-07-01}
+  # CRA GST/HST rate table (the decrease of 2025-04-01).
+  - code: HNS
+    description: HST Nova Scotia
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: hst
+        jurisdiction: CA-NS
+        account_key: input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "15", valid_from: 2013-04-01, valid_to: 2025-03-31}
+          - {rate_percent: "14", valid_from: 2025-04-01}
+  # CRA GST/HST rate table (the increase of 2016-10-01).
+  - code: HPE
+    description: HST Prince Edward Island
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: hst
+        jurisdiction: CA-PE
+        account_key: input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "14", valid_from: 2013-04-01, valid_to: 2016-09-30}
+          - {rate_percent: "15", valid_from: 2016-10-01}
+  # Revenu Québec, Calculating the Taxes. Earlier start not sourced.
+  - code: QST
+    description: Quebec sales tax
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: qst
+        jurisdiction: CA-QC
+        account_key: input
+        recoverable_percent: "100"
+        account: "1310"
+        rates:
+          - {rate_percent: "9.975", valid_from: 2026-01-01}
+  # Government of British Columbia, PST. Earlier start not sourced.
+  - code: PBC
+    description: British Columbia PST
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: pst_bc
+        jurisdiction: CA-BC
+        account_key: non_deductible
+        recoverable_percent: "0"
+        rates:
+          - {rate_percent: "7", valid_from: 2026-01-01}
+  # Manitoba Finance, Retail Sales Tax. Earlier start not sourced.
+  - code: PMB
+    description: Manitoba RST
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: rst_mb
+        jurisdiction: CA-MB
+        account_key: non_deductible
+        recoverable_percent: "0"
+        rates:
+          - {rate_percent: "7", valid_from: 2026-01-01}
+  # Government of Saskatchewan, PST. Earlier start not sourced.
+  - code: PSK
+    description: Saskatchewan PST
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: pst_sk
+        jurisdiction: CA-SK
+        account_key: non_deductible
+        recoverable_percent: "0"
+        rates:
+          - {rate_percent: "6", valid_from: 2026-01-01}
+tax_settings:
+  # The authority's rate type and rounding (ADR-0049 §8). Tax is converted
+  # at the Bank of Canada's rate of the day it became payable (Excise Tax Act
+  # s. 159, cited from memory in ADR-0049: pending the tax specialist), which
+  # a tenant records as its average rate; rounding once per document, code
+  # and component (no authoritative per-line rule found: pending the tax
+  # specialist).
+  rate_type: average
+  rounding: document
+  # What a supplier's document must show for its ITC (ADR-0049 §6), by the
+  # total paid or payable, in CAD: SOR/91-45 s. 3 (retrieved 2026-11-01).
+  # The ERP checks what it holds: the supplier's GST/HST registration number
+  # (a tax identifier of its business partner) from $100, and from $500 a
+  # description of each supply. The other $500 items (the recipient's name,
+  # the terms of payment) are on the document only and are not checked.
+  documentary_requirements:
+    - at_least: "100"
+      requires: [supplier_tax_id]
+      source: "SOR/91-45 s. 3(b): $100 or more and less than $500, the supplier's registration number"
+    - at_least: "500"
+      requires: [supplier_tax_id, item_descriptions]
+      source: "SOR/91-45 s. 3(c): $500 or more, also the recipient's name, the terms and a description of each supply"

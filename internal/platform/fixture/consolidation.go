@@ -28,16 +28,16 @@ var GroupAccounts = []config.GroupAccount{
 // §3, T68a): the group chart GroupAccounts, the elimination IC_BALANCES of
 // intercompany receivables and payables (tolerance 10.00), and the group
 // ACME: company 2000, in EUR, the fixture tenant's group currency, holding
-// 80% of company 1000 from 2026-11, its investment on a new asset account
-// 150000. Every other account of every company maps to the group account
-// of its type.
+// the whole of company 1000, which it incorporated, from 2026-11, its
+// investment on a new asset account 150000. Every other account of every
+// company maps to the group account of its type.
 func Consolidation(doc *config.Config) {
 	doc.Consolidation = config.Consolidation{
 		Accounts: append([]config.GroupAccount(nil), GroupAccounts...),
 		Eliminations: []config.Elimination{{Code: "IC_BALANCES", Name: "Intercompany receivables and payables",
 			Accounts: []string{"G1250", "G2250"}, DifferenceAccount: "G6950", Tolerance: "10.00"}},
 		Groups: []config.ConsolidationGroup{{Code: "ACME", Name: "Acme group", Parent: "2000",
-			Members: []config.GroupMember{{Company: "1000", OwnershipPercent: "80", FirstPeriod: "2026-11", InvestmentAccount: "150000"}}}},
+			Members: []config.GroupMember{{Company: "1000", OwnershipPercent: "100", Origin: config.OriginIncorporated, FirstPeriod: "2026-11", InvestmentAccount: "150000"}}}},
 	}
 	parent := doc.Company("2000")
 	parent.ChartOfAccounts = append(parent.ChartOfAccounts,

@@ -72,7 +72,8 @@ func wideGroupChart(cs *config.Consolidation) {
 // partner, the parent's naming 1000 and each member's the parent (written
 // without the triggers a posting runs, as TestDepreciationRunBudget seeds
 // its assets), the asset and liability accounts' group accounts in the
-// elimination. The run is measured once, from its start (POST) to
+// elimination, and the parent's investment in each member its share
+// capital. The run is measured once, from its start (POST) to
 // computed, carried out by the in-process runner (Consolidator), and
 // checked: every company translated, two rows per account, each company's
 // rows summing to zero, the 99 pairs of the parent and a member matched
@@ -104,10 +105,12 @@ func TestConsolidationRunBudget(t *testing.T) {
 			|| ' ' || (SELECT count(*) FROM consolidation.run_difference d WHERE d.run_id = r.id AND d.partner_id IS NOT NULL)
 			|| ' ' || (SELECT count(*) FROM consolidation.run_difference d WHERE d.run_id = r.id AND d.status = 'no_trading_partner')
 			|| ' ' || (SELECT count(*) FROM consolidation.run_entry e WHERE e.run_id = r.id)
+			|| ' ' || coalesce(r.problem->>'detail', '')
 		FROM consolidation.run r WHERE r.id = $1`, []any{in.RunID}, &got)
-	if want := fmt.Sprintf("computed 100 %d 0 99 100 99", 100*2*budgetAccounts); got != want {
-		t.Errorf("the run: got %s, want %s (computed, 100 companies translated, two rows per account, each company's rows summing to zero, "+
-			"99 pairs and 100 companies' rows without a trading partner matched, 99 entries)", got, want)
+	if want := fmt.Sprintf("computed 100 %d 0 99 100 198 ", 100*2*budgetAccounts+100); got != want {
+		t.Errorf("the run: got %s, want %s (computed, 100 companies translated, two rows per account and the parent's investments and bank, each "+
+			"company's rows summing to zero, 99 pairs and 100 companies' rows without a trading partner matched, 99 intercompany and 99 investment "+
+			"entries)", got, want)
 	}
 	t.Logf("consolidation run of 100 companies: %v", elapsed)
 	if budget := nfr.Budget(120 * time.Second); elapsed > budget {
@@ -141,14 +144,15 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		}
 	}
 	group := &doc.Consolidation.Groups[0]
-	parent := doc.Company("2000")
 	for i := 1; i <= 98; i++ {
 		co := *doc.Company("1000")
 		co.Code, co.Name = fmt.Sprintf("C%03d", i), fmt.Sprintf("Budget member %d", i)
 		doc.Companies = append(doc.Companies, co)
+		// Looked up after the append, which may move the companies.
+		parent := doc.Company("2000")
 		parent.ChartOfAccounts = append(parent.ChartOfAccounts, config.Account{Number: fmt.Sprintf("15%04d", i), Name: "Investment", Type: config.Asset,
 			GroupAccount: "G1500"})
-		group.Members = append(group.Members, config.GroupMember{Company: co.Code, OwnershipPercent: "100", FirstPeriod: "2026-11",
+		group.Members = append(group.Members, config.GroupMember{Company: co.Code, OwnershipPercent: "100", Origin: config.OriginIncorporated, FirstPeriod: "2026-11",
 			InvestmentAccount: fmt.Sprintf("15%04d", i)})
 	}
 	for i := range doc.Companies {
@@ -163,7 +167,7 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		e.Tenant.ID, raw, sum[:], e.Tenant.Human.ID)
 	exec(`UPDATE config.active_version SET number = 2, version = version + 1 WHERE tenant_id = $1`, e.Tenant.ID)
 	// The members on the parent's calendar, in USD; their charts and the
-	// leading ledger's November.
+	// leading ledger's October (where their acquisitions are measured, ADR-0059 §9) and November.
 	exec(`UPDATE tenancy.legal_entity u SET fiscal_calendar_id = d.fiscal_calendar_id, version = u.version + 1
 		FROM tenancy.legal_entity d WHERE u.id = $1 AND d.id = $2`, e.US, e.DE)
 	exec(`INSERT INTO tenancy.legal_entity (tenant_id, id, code, name, country_code, local_currency, fiscal_calendar_id, status, created_by, updated_by)
@@ -182,12 +186,22 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		WHERE le.tenant_id = $1`, e.Tenant.ID, e.Tenant.Human.ID)
 	exec(`UPDATE ledger.period_status u SET calendar_id = d.fiscal_calendar_id, version = u.version + 1
 		FROM tenancy.legal_entity d WHERE u.legal_entity_id = $1 AND d.id = $2`, e.US, e.DE)
+	// The parent's investment accounts of the members (ADR-0059 §9); their
+	// balances are written with the members' below. Every member's net
+	// assets at acquisition are zero: October holds nothing.
+	exec(`INSERT INTO ledger.gl_account (tenant_id, id, chart_id, number, name, account_type, status, created_by, updated_by)
+		SELECT $1, gen_random_uuid(), c.id, '15' || lpad(n::text, 4, '0'), 'Investment', 'asset', 'active', $2, $2
+		FROM ledger.chart_of_accounts c, generate_series(1, 98) n WHERE c.tenant_id = $1 AND c.code = '2000'`, e.Tenant.ID, e.Tenant.Human.ID)
+	exec(`INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by)
+		SELECT $1, $2, a.id, $3, $3 FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.id = a.chart_id
+		WHERE a.tenant_id = $1 AND c.code = '2000' AND a.number ~ '^15[0-9]{4}$' AND a.number <> '150000'`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
 	exec(`INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
-		SELECT $1, gen_random_uuid(), le.id, l.id, le.fiscal_calendar_id, 2026, 11, 'open', $2
-		FROM tenancy.legal_entity le, ledger.ledger l WHERE le.tenant_id = $1 AND le.code LIKE 'C%' AND l.tenant_id = $1 AND l.is_leading`,
+		SELECT $1, gen_random_uuid(), le.id, l.id, le.fiscal_calendar_id, 2026, p, CASE p WHEN 11 THEN 'open' ELSE 'closed' END, $2
+		FROM tenancy.legal_entity le, ledger.ledger l, (VALUES (10), (11)) AS x(p) WHERE le.tenant_id = $1 AND le.code LIKE 'C%' AND l.tenant_id = $1 AND l.is_leading`,
 		e.Tenant.ID, e.Tenant.Human.ID)
 	exec(`INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
-		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-10-01', 0.9, 'ECB', $2),
+		       ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-01', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
 	// Each account's balance, alternately a debit and a credit of 100.00
 	// to 1,099.00, so each company's sum is zero, its group amount at
 	// 0.90; half of it with the trading partner.
@@ -204,6 +218,18 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		SELECT tenant_id, ledger_id, legal_entity_id, account_id, CASE WHEN legal_entity_id = $2 THEN $3::uuid ELSE $2::uuid END, fiscal_year, fiscal_period,
 			currency_tc, debit_tc / 2, credit_tc / 2, debit_lc / 2, credit_lc / 2, debit_gc / 2, credit_gc / 2
 		FROM ledger.period_balance WHERE tenant_id = $1 AND fiscal_year = 2026 AND fiscal_period = 11`, e.Tenant.ID, e.DE, e.US)
+	// The parent's investment in each member, the member's share capital
+	// (ADR-0059 As built T68h2): minus its equity balances in the group
+	// currency, every member's the same, against the parent's bank, so
+	// that each investment entry eliminates it.
+	exec(`WITH capital AS (SELECT -sum(pb.debit_gc - pb.credit_gc) AS x FROM ledger.period_balance pb
+			JOIN ledger.gl_account a ON a.id = pb.account_id AND a.account_type = 'equity' WHERE pb.tenant_id = $1 AND pb.legal_entity_id = $2),
+		amounts AS (SELECT a.id, capital.x FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.id = a.chart_id, capital
+			WHERE a.tenant_id = $1 AND c.code = '2000' AND a.number ~ '^15[0-9]{4}$' UNION ALL SELECT $4::uuid, -99 * capital.x FROM capital)
+		INSERT INTO ledger.period_balance (tenant_id, ledger_id, legal_entity_id, account_id, fiscal_year, fiscal_period, currency_tc, debit_tc,
+			credit_tc, debit_lc, credit_lc, debit_gc, credit_gc)
+		SELECT $1, l.id, $3, m.id, 2026, 11, 'EUR', greatest(m.x, 0), greatest(-m.x, 0), greatest(m.x, 0), greatest(-m.x, 0), greatest(m.x, 0),
+			greatest(-m.x, 0) FROM amounts m, ledger.ledger l WHERE l.tenant_id = $1 AND l.is_leading`, e.Tenant.ID, e.US, e.DE, e.Account(t, "2000", "100000"))
 	exec(`ANALYZE ledger.period_balance, ledger.trading_partner_balance, ledger.gl_account, ledger.company_account`)
 }
 

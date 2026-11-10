@@ -510,7 +510,10 @@ func TestTaxBaseRules(t *testing.T) {
 // when its code's component levies its lines' subdivision, one of that
 // component's country (000150, T61f), but for a reversal, which repeats
 // the original's; a component levies its lines' subdivisions only as a
-// country; the items are per jurisdiction.
+// country; the items are per jurisdiction. A component levying its lines'
+// subdivision may list those it accepts, each a subdivision of its
+// country, and a line naming another is refused (000245, the emirate
+// guard); no other component lists any.
 func TestLineJurisdictionRules(t *testing.T) {
 	need(t)
 	s := newTaxScene(t)
@@ -573,6 +576,24 @@ func TestLineJurisdictionRules(t *testing.T) {
 					VALUES ($1, $2, 1, $3, 500, nullif($4, ''), $5)`, s.tenant, pe, s.tax, code, jurisdiction))
 		}
 	}
+	listed := func(code string, subdivisions *string) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE ledger.tax_component SET subdivisions = $1::text[], version = version + 1 WHERE code = $2`, subdivisions, code)
+		}
+	}
+	list := func(s string) *string { return &s }
+	// A line naming one the component lists is taken; the list is then
+	// dropped again, as the reversal below turns the levy off.
+	mustApp(t, s.tenant, func(tx pgx.Tx) error {
+		err := listed("S5", list("{AE-AZ,AE-DU}"))(tx)
+		if err == nil {
+			err = sale("AE-DU")(tx)
+		}
+		if err == nil {
+			err = listed("S5", nil)(tx)
+		}
+		return err
+	})
 	for name, c := range map[string]struct {
 		write func(tx pgx.Tx) error
 		fails string
@@ -600,8 +621,21 @@ func TestLineJurisdictionRules(t *testing.T) {
 			}
 			return err
 		}, "journal_line_tax_jurisdiction"},
-		"a parked line's without a code":    {parkedLine("", "AE-DU"), "parked_entry_line_tax_jurisdiction"},
-		"a parked line's not a subdivision": {parkedLine("S5", "AE"), "parked_entry_line_tax_jurisdiction"},
+		"one its component does not list": {func(tx pgx.Tx) error {
+			if err := listed("S5", list("{AE-AZ}"))(tx); err != nil {
+				return err
+			}
+			return sale("AE-DU")(tx)
+		}, "journal_line_tax_jurisdiction_code"},
+		"a list on a component not levying its lines'": {listed("I5", list("{CA-BC}")), "tax_component_subdivisions"},
+		"another country's in the list":                {listed("S5", list("{AE-DU,CA-ON}")), "tax_component_subdivisions"},
+		"a malformed one in the list":                  {listed("S5", list("{AE-DU,AE-dubai}")), "tax_component_subdivisions"},
+		"an empty list":                                {listed("S5", list("{}")), "tax_component_subdivisions"},
+		"a null in the list":                           {listed("S5", list("{AE-DU,NULL}")), "tax_component_subdivisions"},
+		"two in one element":                           {listed("S5", list(`{"AE-DU,AE-AZ"}`)), "tax_component_subdivisions"},
+		"a list of lists":                              {listed("S5", list("{{AE-DU},{AE-AZ}}")), "tax_component_subdivisions"},
+		"a parked line's without a code":               {parkedLine("", "AE-DU"), "parked_entry_line_tax_jurisdiction"},
+		"a parked line's not a subdivision":            {parkedLine("S5", "AE"), "parked_entry_line_tax_jurisdiction"},
 		"a subdivision levying its lines'": {func(tx pgx.Tx) error {
 			return exec(tx, `UPDATE ledger.tax_component SET jurisdiction = 'AE-DU', version = version + 1 WHERE code = 'S5'`)
 		}, "tax_component_jurisdiction_on_line"},

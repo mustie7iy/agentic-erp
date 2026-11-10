@@ -383,7 +383,7 @@ channels:
   closing:
     address: 'erp.{cell}.closing.{tenant}.{event}'
     title: Financial close events
-    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13); year closes and their checklists (ADR-0060 §12).
+    description: Period closes, their checklists, sign-offs, accrual proposals and variance comments (ADR-0058 §13); year closes, their checklists and sign-offs (ADR-0060 §12).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -393,6 +393,7 @@ channels:
       AccrualProposalRejected: {$ref: '#/components/messages/AccrualProposalRejected'}
       VarianceCommentChanged: {$ref: '#/components/messages/VarianceCommentChanged'}
       YearCloseChanged: {$ref: '#/components/messages/YearCloseChanged'}
+      YearCloseSignedOff: {$ref: '#/components/messages/YearCloseSignedOff'}
   consolidation:
     address: 'erp.{cell}.consolidation.{tenant}.{event}'
     title: Consolidation events
@@ -645,6 +646,7 @@ operations:
       - $ref: '#/channels/closing/messages/AccrualProposalRejected'
       - $ref: '#/channels/closing/messages/VarianceCommentChanged'
       - $ref: '#/channels/closing/messages/YearCloseChanged'
+      - $ref: '#/channels/closing/messages/YearCloseSignedOff'
   publishConsolidationEvents:
     action: send
     title: Consolidation publishes
@@ -3347,7 +3349,7 @@ components:
         (`task_assigned`), `:complete` (`task_completed`), `:reopen`
         (`task_reopened`, with the reason) (ADR-0060 §8, §12, T64m4) and
         `:check` (`task_checked`, with `check_passed`, T64m5); and
-        `reopened` when the first write on a signed-off year close (T64m6)
+        `reopened` when the first write on a signed-off year close
         whose covered ledgers' periods of the year are no longer all
         locked sets it open again, before that write's own change. Shaped
         as PeriodCloseChanged, with the fiscal year in place of the period.
@@ -3365,6 +3367,31 @@ components:
         - name: task_completed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000811, source: /erp/eu-1/closing, type: com.example.erp.closing.year_close_changed.v1, subject: 0192a000-0000-7000-8000-000000000f61, time: '2026-01-20T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {year_close_id: 0192a000-0000-7000-8000-000000000f61, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2025, change: task_completed, task_code: AUDIT_ADJUSTMENTS, reason: null, check_passed: null, status: open, version: 3}
+    YearCloseSignedOff:
+      name: YearCloseSignedOff
+      x-webhook: true
+      title: Year close signed off
+      summary: A year close was signed off, and its fiscal year locked in its covered ledgers.
+      description: |
+        Emitted by `year-closes/{id}:signOff` (ADR-0060 §8, §12, T64m6):
+        who signed off, and per covered ledger each special period of the
+        year and whether this sign-off locked it (each lock is also
+        published by the ledger as PeriodLocked); every regular period was
+        locked already. Shaped as PeriodCloseSignedOff, with the fiscal
+        year in place of the period. A year close signed off again after
+        an unlock is published again, with its new sign-off. Subject is the
+        year close id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.closing.year_close_signed_off.v1}
+      payload: {$ref: '#/components/schemas/YearCloseSignedOffV1'}
+      examples:
+        - name: signed_off
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000812, source: /erp/eu-1/closing, type: com.example.erp.closing.year_close_signed_off.v1, subject: 0192a000-0000-7000-8000-000000000f61, time: '2026-02-20T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {year_close_id: 0192a000-0000-7000-8000-000000000f61, sign_off_id: 0192a000-0000-7000-8000-000000000f71, legal_entity_id: 0192a000-0000-7000-8000-000000000201, fiscal_year: 2025, signed_by: 0192a000-0000-7000-8000-000000000101, note: null, periods: [{ledger_id: 0192a000-0000-7000-8000-000000000a01, ledger_code: 0L, fiscal_period_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d4d, period: 13, locked: true}], status: signed_off, version: 12}
     AccrualProposed:
       name: AccrualProposed
       x-webhook: true
@@ -4274,6 +4301,30 @@ components:
               ledger_id: {$ref: '#/components/schemas/Uuid'}
               ledger_code: {type: string}
               fiscal_period_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.period_status.id`.'}
+              locked: {type: boolean, description: Whether this sign-off locked the period; false when it was locked already.}
+        status: {type: string, description: "The close's status after the sign-off. Open enum: signed_off."}
+        version: {type: integer, description: "The close's version after the sign-off."}
+    YearCloseSignedOffV1:
+      type: object
+      required: [year_close_id, sign_off_id, legal_entity_id, fiscal_year, signed_by, note, periods, status, version]
+      properties:
+        year_close_id: {$ref: '#/components/schemas/Uuid', description: '`closing.year_close.id`.'}
+        sign_off_id: {$ref: '#/components/schemas/Uuid', description: '`closing.year_sign_off.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        fiscal_year: {type: integer}
+        signed_by: {$ref: '#/components/schemas/Uuid', description: The person who signed it off.}
+        note: {type: [string, 'null'], description: "The sign-off's note; null without one."}
+        periods:
+          type: array
+          description: Each covered ledger's special periods of the year, the leading ledger first, then by code, then by period.
+          items:
+            type: object
+            required: [ledger_id, ledger_code, fiscal_period_id, period, locked]
+            properties:
+              ledger_id: {$ref: '#/components/schemas/Uuid'}
+              ledger_code: {type: string}
+              fiscal_period_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.period_status.id`.'}
+              period: {type: integer, description: The special period (13-16).}
               locked: {type: boolean, description: Whether this sign-off locked the period; false when it was locked already.}
         status: {type: string, description: "The close's status after the sign-off. Open enum: signed_off."}
         version: {type: integer, description: "The close's version after the sign-off."}

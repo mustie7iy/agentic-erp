@@ -28,7 +28,7 @@ var (
 )
 
 // withGroups is fixture.Consolidation's group ACME, company 2000 holding
-// 80% of 1000, to which it adds all of Maple (3000, in CAD) from 2026-01 on
+// the whole of 1000, to which it adds all of Maple (3000, in CAD) from 2026-01 on
 // a new account 151000, named before 1000 so the members are sorted; and
 // the group EURO: company 4000 holding 60% of 5000 from 2026-06 on its
 // account 150000, both copies of 2000 with house banks of their own.
@@ -39,7 +39,7 @@ func withGroups(doc *config.Config) {
 	parent.ChartOfAccounts = append(parent.ChartOfAccounts, config.Account{Number: "151000", Name: "Investment in Maple Inc", Type: config.Asset,
 		GroupAccount: "G1500"})
 	g := &doc.Consolidation.Groups[0]
-	g.Members = append([]config.GroupMember{{Company: "3000", OwnershipPercent: "100", FirstPeriod: "2026-01", InvestmentAccount: "151000"}}, g.Members...)
+	g.Members = append([]config.GroupMember{{Company: "3000", OwnershipPercent: "100", Origin: config.OriginIncorporated, FirstPeriod: "2026-01", InvestmentAccount: "151000"}}, g.Members...)
 	for _, c := range []struct {
 		co        fixture.Company
 		iban, bic string
@@ -54,7 +54,7 @@ func withGroups(doc *config.Config) {
 		doc.Companies = append(doc.Companies, co)
 	}
 	doc.Consolidation.Groups = append(doc.Consolidation.Groups, config.ConsolidationGroup{Code: "EURO", Name: "Euro group", Parent: "4000",
-		Members: []config.GroupMember{{Company: "5000", OwnershipPercent: "60", FirstPeriod: "2026-06", InvestmentAccount: "150000"}}})
+		Members: []config.GroupMember{{Company: "5000", OwnershipPercent: "60", Origin: config.OriginAcquired, FirstPeriod: "2026-06", InvestmentAccount: "150000"}}})
 }
 
 // groupEnv is a tenant with the groups of withGroups whose people hold the
@@ -84,7 +84,7 @@ func groupLine(g map[string]any) string {
 	for _, m := range g["members"].([]any) {
 		m := m.(map[string]any)
 		inv := m["investment_account"].(map[string]any)
-		members = append(members, fmt.Sprintf("%s at %s%% from %v-%v on %s %s", company(m), m["ownership_percent"], m["first_fiscal_year"],
+		members = append(members, fmt.Sprintf("%s at %s%% %s from %v-%v on %s %s", company(m), m["ownership_percent"], m["origin"], m["first_fiscal_year"],
 			m["first_fiscal_period"], inv["number"], inv["name"]))
 	}
 	return fmt.Sprintf("%s %s in %s: %s holds [%s]", g["code"], g["name"], g["group_currency"], company(g["parent"].(map[string]any)),
@@ -92,9 +92,9 @@ func groupLine(g map[string]any) string {
 }
 
 const (
-	acme = "ACME Acme group in EUR: 2000 Acme GmbH EUR holds [1000 Acme Corp US USD at 80% from 2026-11 on 150000 Investment in Acme Corp US; " +
-		"3000 Maple Inc CAD at 100% from 2026-1 on 151000 Investment in Maple Inc]"
-	euro = "EURO Euro group in EUR: 4000 Acme France EUR holds [5000 Acme Italia EUR at 60% from 2026-6 on 150000 Investment in Acme Italia]"
+	acme = "ACME Acme group in EUR: 2000 Acme GmbH EUR holds [1000 Acme Corp US USD at 100% incorporated from 2026-11 on 150000 Investment in Acme " +
+		"Corp US; 3000 Maple Inc CAD at 100% incorporated from 2026-1 on 151000 Investment in Maple Inc]"
+	euro = "EURO Euro group in EUR: 4000 Acme France EUR holds [5000 Acme Italia EUR at 60% acquired from 2026-6 on 150000 Investment in Acme Italia]"
 )
 
 func want(t *testing.T, what string, got []string, want ...string) {

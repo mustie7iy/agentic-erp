@@ -144,6 +144,45 @@ func (ClosePeriods) OfYear(ctx context.Context, legalEntity uuid.UUID, fiscalYea
 	return out, nil
 }
 
+// LockYear reads the posting periods of the fiscal year, regular and
+// special, of the legal entity's ledgers among ledgers FOR UPDATE, for a
+// year close's sign-off (ADR-0060 §8): in one statement and in the
+// project's one order, by period, then the leading ledger first, then by
+// code (03 §3.7's entry locks), so that no period is opened or unlocked
+// between the sign-off's checks and its commit, and a posting, which takes
+// one period of every ledger it posts to in that order, never waits on
+// the sign-off in the opposite order. Each row is a ledger with one
+// period, in that order: none for a legal entity the caller may not act
+// in.
+func (ClosePeriods) LockYear(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16, ledgers []uuid.UUID) ([]KeptPeriod, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	access, err := authz.Companies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.id, l.code, l.name, l.is_leading, s.id, s.period, f.start_date, f.end_date, f.is_special, s.status, s.version
+		FROM ledger.period_status s JOIN ledger.fiscal_period f ON f.tenant_id = s.tenant_id AND f.calendar_id = s.calendar_id
+			AND f.fiscal_year = s.fiscal_year AND f.period = s.period
+		JOIN ledger.ledger l ON l.tenant_id = s.tenant_id AND l.id = s.ledger_id
+		WHERE ($1 OR s.legal_entity_id = ANY($2)) AND s.legal_entity_id = $3 AND s.fiscal_year = $4 AND s.ledger_id = ANY($5)
+		ORDER BY s.period, NOT l.is_leading, l.code FOR UPDATE OF s`, access.All, access.IDs, legalEntity, fiscalYear, ledgers)
+	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (KeptPeriod, error) {
+		var k KeptPeriod
+		p := Period{LegalEntityID: legalEntity, FiscalYear: fiscalYear}
+		err := row.Scan(&k.LedgerID, &k.LedgerCode, &k.LedgerName, &k.IsLeading, &p.ID, &p.Period, &p.StartDate, &p.EndDate, &p.IsSpecial,
+			&p.Status, &p.Version)
+		p.LedgerID, k.Period = k.LedgerID, &p
+		return k, errs.Wrapf(err, "scan locked period")
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ledger: lock the periods of %s in fiscal year %d: %w", legalEntity, fiscalYear, err)
+	}
+	return out, nil
+}
+
 // Lock locks a closed period as lockFiscalPeriod does, audited and
 // published as that is, for a close's sign-off (ADR-0058 §7): version is
 // the one the sign-off read the period at, so a period changed since (an

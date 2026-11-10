@@ -372,6 +372,7 @@ const (
 	RunAnalyticsQueryOperation                     OperationName = "RunAnalyticsQuery"
 	RunBalanceCarryForwardOperation                OperationName = "RunBalanceCarryForward"
 	SignOffPeriodCloseOperation                    OperationName = "SignOffPeriodClose"
+	SignOffYearCloseOperation                      OperationName = "SignOffYearClose"
 	SimulateChangeRequestOperation                 OperationName = "SimulateChangeRequest"
 	StartAgentSessionOperation                     OperationName = "StartAgentSession"
 	StartDepreciationRunOperation                  OperationName = "StartDepreciationRun"
