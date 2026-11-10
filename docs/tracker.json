@@ -644,6 +644,13 @@
       "c": []
      },
      {
+      "s": "T",
+      "t": "A credit memo without a purchase order has no limit against the invoice it names (pre-existing finding of the c11fix review, batch 62): an invoice of 119.00 posted, a credit memo of 119.00 naming it posted, then a second of 1,190.00 naming it posts too (:post 200; documents without an order are not matched), and TestVAT201Golden credits 442,050.21 against invoice P8 of 21,000.00. Order items are held by quantity (03 §3.9, quantity_exceeds_invoiced); no ADR, design document or database rule states an amount limit for a credit memo without an order, or that there is deliberately none. A money rule: waits for the product owner's decision (limit by the invoice's gross or open amount, per tax code, or a warning needing approval; how reversed memos, paid invoices and memos naming no invoice count); no production code until then",
+      "r": "internal/payables kinds.go reference, post.go requireReference (FOR SHARE, status only) · internal/taxfiling/vat201_test.go P8 · 03 §3.9 · lane crmemo's report",
+      "src": "review:batch62",
+      "c": []
+     },
+     {
       "s": "D",
       "t": "The SAP load's receipts step takes its locks in one order (pre-existing finding on T72b2): its first receipt takes the legal entity's goods_receipt number range (and journal_we), then a later receipt on an order an earlier run loaded locks that order's items, while a concurrent POST /v1/goods-receipts holds those items and waits on the range, so the two deadlock; e.g. every item lock is taken before the first receipt posts",
       "r": "internal/integration/load.go receipts",
