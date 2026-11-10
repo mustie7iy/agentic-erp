@@ -28,7 +28,7 @@ func (g *gen) paymentMethods(p, country string, co *config.Company) []config.Pay
 		}
 		seen[e.ZLSCH] = true
 		mp := p + ".payment_methods[" + e.ZLSCH + "]"
-		g.amountLimits(mp, e)
+		g.amountLimits(mp, e, co.Currency)
 		out = append(out, config.PaymentMethod{Code: e.ZLSCH, Description: g.methodName(mp, country, e.ZLSCH), Ranking: g.ranking(mp, co, e.ZLSCH)})
 		g.subaccounts(mp, co, e.ZLSCH)
 	}
@@ -61,14 +61,28 @@ func (g *gen) methodName(mp, country, code string) string {
 }
 
 // amountLimits notes T042E's minimum and maximum amount of a payment by
-// the method: the configuration has none per method (ADR-0038 keeps
-// amount limits out of scope), so a proposal would pay any amount by it.
-func (g *gen) amountLimits(mp string, e sap.T042E) {
+// the method, in the company's currency: the configuration has none per
+// method (ADR-0038 keeps amount limits out of scope), so a proposal would
+// pay any amount by it.
+func (g *gen) amountLimits(mp string, e sap.T042E, cur string) {
 	if strings.Trim(e.VONBT+e.BISBT, "0., ") == "" {
 		return
 	}
-	g.note(mp, fmt.Sprintf("SAP pays by the method only from %q to %q (T042E VONBT/BISBT); the configuration has no amount limits per method, "+
-		"so payment proposals would pay any amount by it", strings.TrimSpace(e.VONBT), strings.TrimSpace(e.BISBT)))
+	g.note(mp, fmt.Sprintf("SAP pays by the method only from %s to %s (T042E VONBT/BISBT); the configuration has no amount limits per method, "+
+		"so payment proposals would pay any amount by it", g.shown(e.VONBT, cur), g.shown(e.BISBT, cur)))
+}
+
+// shown is an SAP amount as a note quotes it: converted (amount) where it
+// can be, else as the export wrote it, saying so.
+func (g *gen) shown(s, cur string) string {
+	if strings.TrimSpace(s) == "" {
+		return `""`
+	}
+	v, problem := g.amount(s, cur)
+	if problem != "" {
+		return fmt.Sprintf("%q as exported, which %s", strings.TrimSpace(s), problem)
+	}
+	return fmt.Sprintf("%q", v)
 }
 
 // ranked is a T042A row's place in its method's ranking: its order, or

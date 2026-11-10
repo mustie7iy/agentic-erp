@@ -1847,9 +1847,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Year-close sign-off locks the year: :sign-off needing every task done, checks passing when re-run, every regular period of each covered ledger locked (closing.year_periods_not_locked) and every special period closed or locked (closing.period_not_closed); the special periods read FOR UPDATE in one statement by period, leading ledger, code and locked through LockPeriod in that order; year_sign_off with the signer's name; YearCloseSignedOff; reopening after an unlock and a second sign-off; a concurrency test with a posting into a special period on three ledgers whose ids and codes sort differently; walkthrough: sign-off refused while a regular period is unlocked, then signed off, every period of the year locked and a posting into period 13 refused",
-        "r": "ADR-0060 §8 · T64m6",
+        "r": "ADR-0060 §8 · T64m6 · db/migrations/000244 · internal/closing yearsignoff.go, signoff.go · internal/ledger closeperiods.go · walkthrough year_end_sign_off",
         "src": "adr:ADR-0060",
         "c": []
        },
@@ -1973,10 +1973,24 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Investment and equity elimination for a subsidiary the parent incorporated and holds whole (the pilot's structure, D11; the accounting specialist's B5(a) and B8, po:2026-11-09): consolidation.groups[].members[].origin (incorporated or acquired, required); run_acquisition (each run's acquisition measured at the period before the member's first at its closing rate, or read frozen), acquisition and acquisition_equity frozen at the group's first final run including the member; the investment entry (the acquisition equity reversed per group account, its results through that period on retained earnings, and the parent's investment); a run refusing a member held below 100% or acquired (consolidation.structure_unsupported), one whose investment differs from its net assets at acquisition (consolidation.investment_mismatch), a changed origin, ownership, first period or investment account (consolidation.acquisition_changed, at a run and at a finalization against another final run's freeze) and a changed investment (consolidation.investment_changed); the member's acquisition on the run, the entry lines' component, the profit and loss's attribution to owners and non-controlling interests (zero); walkthrough: Acme Corp US's share capital posted on the last day of the period before its first and Maple's investment on the month's first day; the run eliminates the investment against Acme Corp US's share capital, and step_close's final run freezes the acquisition, which a later run reads",
+        "r": "db/migrations/000243 · consolidation.run_acquisition · consolidation.acquisition · consolidation.acquisition_equity · run_entry_line.component · consolidation.groups[].members[].origin · ConsolidationAcquisition · TestInvestmentElimination · TestInvestmentFirstPeriodOne · TestConsolidationAcquisitionRules · ADR-0059 As built · T68h",
+        "src": "adr:ADR-0059 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "An incorporated member's investment eliminated against its share capital alone (correction of T68h; the accounting specialist's B5(a), B3 and B8, po:2026-11-09; migrated equity at the migration date's rate and the translation reserve zero at go-live, po:2026-11-05): the investment entry reverses the member's share capital (its equity accounts other than its retained earnings account, as booked through the run's period, as the investment is) and the parent's investment, its results through the period before its first, its retained earnings and its translation reserve staying in the group; consolidation.investment_mismatch compares the investment with the share capital; an incorporated member's goodwill held at zero whatever its net assets, an acquired member's to the residual; an opening entry migrated into the first consolidated period carrying share capital and retained earnings consolidates without moving first_period; walkthrough: Acme Corp US's sales on the last day of the period before its first stay on the group's retained earnings, uneliminated",
+        "r": "db/migrations/000246 · consolidation.run_acquisition and acquisition goodwill checks · ConsolidationAcquisition descriptions · TestInvestmentOpeningEntry · TestInvestmentElimination · TestConsolidatedStatements · TestConsolidationAcquisitionRules · walkthrough step 40 consolidation_investment, consolidation_statements · ADR-0059 As built T68h2 · T68h2",
+        "src": "review:T68h · po:2026-11-09 · po:2026-11-05",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Investment and equity elimination with non-controlling interests: run_acquisition, acquisition, acquisition_equity frozen at the first final run; the investment entry (acquisition equity, investment, goodwill, the interest at acquisition) and the NCI entry (profit, translation and other shares); consolidation.negative_goodwill, consolidation.acquisition_changed, consolidation.investment_changed; the profit and loss's attribution to owners and non-controlling interests; walkthrough: Maple's investment eliminated against Acme Corp US's equity at acquisition, goodwill and the 20% interest shown",
-        "r": "ADR-0059 · T68h",
-        "src": "adr:ADR-0059",
+        "t": "Goodwill and non-controlling interests for a member held below 100% or acquired (ADR-0059 §9, split from T68h): the investment entry's goodwill (investment - net assets + the interest) and interest at acquisition (its share of the net assets at acquisition), the nci entry per member and period (profit, translation and other shares, each rounded once, on the nci account against retained earnings and the reserve) and the profit and loss's attribution read from its profit components, with tests by hand for a member at 80% with a profit and a translation difference (a non-zero acquisition cta among them) and one first consolidated in period 1; today a run refuses such a member (consolidation.structure_unsupported) and a difference that would be goodwill (consolidation.investment_mismatch), and run_acquisition and acquisition keep goodwill and the interest at zero. Fair values (B5), goodwill retranslation (B6), a bargain purchase (B7) and the interest's dividends (B9) are their own leaves. Not a pilot item: after the pilot unless the customer's D11 answer differs from its ⚠ planning default of the pilot customer questionnaire, to be confirmed by the customer before go-live (po:2026-11-09): the Canadian company holds 100% of the UAE company, which it incorporated, group currency CAD, so IFRS 3 does not apply and the investment is eliminated against share capital",
+        "r": "ADR-0059 §9, As built T68h · T68h",
+        "src": "split:T68h",
         "c": []
        },
        {
@@ -2410,9 +2424,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "GST/HST return signed off by the tax specialist before the pilot: a new Canada pack version with sign_off (a released version never changes), after the specialist confirms 2026.6's GST34 lines, the sums of 112, 113A, 113B, 113C, 114 and 115 written from memory, and how the tenant's codes map to the lines (packs/ca/TAX-PENDING-T61j.md)",
-        "r": "after T61j · ADR-0049 §11 As built (T61j) · ADR-0048",
+        "r": "packs/ca/2026.7 (sign_off Musto Ibrahim 2026-11-09) · packs/released.sha256 · packs/ca/TAX-PENDING-T61j.md · TestCanadaPack2026_7 · ADR-0049 §11 As built (T61j: Signed off) and Sources As built · ADR-0048 As built (T61j sign-off) · walkthrough steps 2 and 11 · after T61j · po:2026-11-09",
         "src": "split:T61j · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
@@ -2434,25 +2448,25 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The VAT 201's prior-period threshold measured as the UAE tax specialist states it (po:2026-11-09, C11 [M]; Federal Decree-Law No. 28 of 2022 on Tax Procedures Art. 10, Cabinet Decision No. 74 of 2023 Art. 10): above_threshold is raised when the items of one earlier tax period make a net payable-tax shortfall (output tax less recoverable input tax, underpaid tax only) above AED 10,000, all that period's items together, instead of when either direction's tax of a period exceeds it; the draft states that a voluntary disclosure is due within 20 business days of discovery",
-        "r": "ADR-0049 §11 As built (the threshold's measure, answered) · taxfiling return engine (above_threshold) · packs/ae/TAX-PENDING-T61k.md item 11",
+        "r": "ADR-0049 §11 As built (the threshold's measure, answered; C11) · taxfiling returnSums.aboveThreshold · TestReturnOverflow · TestGetTaxReturnDraft · TestVAT201Golden · api/openapi.yaml above_threshold · packs/ae/TAX-PENDING-T61k.md item 11",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "VAT 201 signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes; one version with T62f's sign-off), after the specialist confirms 2026.2's boxes against EmaraTax's labels, the columns of boxes 2-7, the totals 8, 11, 12 and 13 written from memory, the emirates' letters and ISO codes, and how the tenant's codes map to the boxes (packs/ae/TAX-PENDING-T61k.md)",
-        "r": "after T61k and the emirate guard below · ADR-0049 §11 As built (T61k) · ADR-0048 As built (T61k)",
+        "r": "packs/ae/2026.4 (one version with T62f's sign-off, Musto Ibrahim 2026-11-09) · packs/ae/TAX-PENDING-T61k.md · TestUAEPackVAT201SignedOff · ADR-0049 §11 As built (T61k: Signed off) and Sources As built · ADR-0048 As built (T62f and T61k sign-offs) · walkthrough step 41 · after T61k and the emirate guard below · po:2026-11-09",
         "src": "split:T61k · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Emirate guard: a tax code component that levies its lines' subdivision lists the subdivisions it accepts (the UAE pack's seven emirates, their ISO 3166-2 codes confirmed by the tax specialist), and the ledger refuses a line naming another with 422 ledger.jurisdiction_not_levied, so a mistyped emirate cannot leave a sale's output VAT off the VAT 201's boxes 1a-1g unreported (today the ledger checks only the country prefix); a schema or ledger test",
-        "r": "after T61k · before the VAT 201's sign-off · ADR-0049 §7 and §11 As built (T61k)",
+        "r": "config.TaxComponent.Subdivisions · ledger checkJurisdictions · db/migrations/000245 (tax_component_subdivisions, journal_line_tax_jurisdiction_code) · TestLineJurisdictionRules · TestOutputTaxRefused · packs/ae/2026.3 · TestUAEPack2026_3 · ADR-0049 §7 As built (the emirate guard) · ADR-0048 As built (the emirate guard) · walkthrough step 41 · after T61k · before the VAT 201's sign-off",
         "src": "review:T61k",
         "pilot": "po:2026-10-31 · adr:ADR-0049",
         "c": []
@@ -2882,17 +2896,17 @@
        },
        {
         "s": "T",
-        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
+        "t": "SAP migration over OData: the controlling tables T56h1 and T56h2 load (CSKS/CSKT, CEPC/CEPCT/CEPC_BUKRS, FAGL_SEGM(T), TKA01, the sets 0101/0106) mapped onto the cost and profit center read APIs and whatever serves the groups, and the journal lines' centers T56h4 loads (ACDOCA RCNTR/PRCTR/SEGMENT) onto A_JournalEntryItemBasic's properties, and the line's ledger (ACDOCA RLDNR, today a constant label in the OData mapping, so the quality gate cannot refuse an OData extract of several ledgers; review:T56h4), their service and entity names taken from the pilot's $metadata (not recorded; split from T56h2 rather than guessed)",
         "r": "T56h5",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
-        "t": "SAP migration: default account assignments (split from T56h): OKB9 (TKA3A and its detail tables) onto the companies' default_assignments through a configuration change; quality-gate issues (a default cost center not migrated, an account not in the chart); mock generator extended",
-        "r": "T56h3",
-        "src": "split:T56h · adr:ADR-0050",
+        "s": "D",
+        "t": "SAP migration: default account assignments (split from T56h): OKB9 (TKA3A and its detail tables) onto the companies' default_assignments through a configuration change; quality-gate issues (a default cost center not migrated, an account not in the chart); mock generator extended. As built: TKA3A/TKA3C/TKA3P in the file extract (the SAP specialist's fields; no OData API); the configuration draft notes a TKA3A row with REGEL blank and a cost center the run migrates in the company (open-ended, not locked), on an account of the chart needing one, as the default to propose after the migration, which a posting-related configuration change activates once the run has loaded the cost center (walkthrough step 3); REGEL 1/2/3 (naming its TKA3C/TKA3P rows, no fallback to TKA3A's cost center), order- or profit-center-only defaults, BSSUBST, a cost center not migrated and an account not in the chart are notes, not proposed; the mock's company 3000 has each case",
+        "r": "internal/sap types.go, source.go, mock.go (defaultAssignments), odata.go (not mapped) · internal/delivery/sapconfig defaults.go · docs/migration.md · walkthrough step 1 (default_assignments), step 3 (migrated_default_assignment) · ADR-0050 §10 as built · T56h · T56h3",
+        "src": "split:T56h · adr:ADR-0050 · po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -2902,6 +2916,13 @@
         "r": "internal/sap types.go, odata.go (not mapped), mock.go (lineCenters) · internal/integration linecenters.go, centertotals.go, load.go (journalPosting), reconcile.go · internal/app app.go (ledger.AssignmentBalances) · api/openapi.yaml (MigrationDiff key) · docs/migration.md · walkthrough step 3 (migrated_line_centers) · ADR-0050 §10 as built · T56h · T56h4",
         "src": "split:T56h · adr:ADR-0050",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "SAP migration: the ledger of journal lines (fix of T56h4): ACDOCA RLDNR was neither checked by the load nor by the reconciliation; the scope keeps its leading ledger's lines (sap.Scope.Ledger, 0L when empty, the SAP specialist's answer of 2026-11-09, to be confirmed in FINSC_LEDGER) and counts the other ledgers' lines, which the quality gate and the reconciliation refuse as a safety net, naming each ledger and its lines, so no line is posted or summed twice",
+        "r": "internal/sap source.go, types.go, odata.go · internal/integration ledgers.go, quality.go, reconcile.go · api/openapi.yaml (MigrationRunReport issues) · docs/migration.md · ADR-0050 §10 as built · T56h4b",
+        "src": "review:T56h4 · po:2026-11-09",
         "c": []
        },
        {
@@ -6054,7 +6075,7 @@
     "ph": 2,
     "c": [
      {
-      "s": "P",
+      "s": "D",
       "t": "Country packs",
       "r": "ADR-0048 · T62 (split T62a-T62f)",
       "c": [
@@ -6102,9 +6123,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "UAE pack signed off by the tax specialist before the pilot: a new UAE pack version with sign_off (a released version never changes) and its documentary tier no longer pending, after the specialist confirms 2026.1's VAT codes, rates and their start, recovery, categories, tax settings and the items of packs/ae/TAX-PENDING-T62f.md",
-        "r": "after T62f · ADR-0048 As built (T62f) · ADR-0049 §6 As built (T62f)",
+        "r": "packs/ae/2026.4 (sign_off Musto Ibrahim 2026-11-09, the tier not pending) · packs/released.sha256 · packs/ae/TAX-PENDING-T62f.md · TestUAEPack2026_4 · ADR-0048 As built (T62f and T61k sign-offs) · ADR-0049 §6 As built (T62f sign-off) and Sources As built (sign-off of the UAE pack) · walkthrough step 41 · after T62f · po:2026-11-09",
         "src": "split:T62f · adr:ADR-0049",
         "pilot": "po:2026-10-31 · adr:ADR-0048",
         "c": []
@@ -9437,9 +9458,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP amounts in internal or external format told apart (the pilot customer questionnaire's D10 planning default, to be confirmed by the customer before go-live, po:2026-11-09: tables exported with SE16H or a custom report in SAP's internal amount format): the quality gate parses amounts with the currency's ISO exponent, i.e. in external format, and nothing reads TCURX, so a JPY 1,000 stored internally as 10.00 would load as 10 yen. To change, the step deciding which: either the extract reads TCURX and converts internal amounts of currencies with other than two decimals, or the customer is asked for external format and the gate refuses an internal one; in either case the gate refuses an amount whose format it cannot tell",
-      "r": "internal/integration/quality.go (amount parsing) · internal/sap · docs/migration.md (pilot customer facts, D10; amounts for currencies with no or three decimals)",
+      "r": "internal/integration/amounts.go target.amount · currencyDecimals · amountForm · sap_file settings.amount_format (internal default, external) · internal/sap TCURX, FilterScope, mock TCURX · TestAmountForms · TestAmountFormRefusals · TestODataAmountsAreExternal · walkthrough step 3 yen_item_rehearsed · sapconfig amount (T169G-WERTO, T042E limits), erp config generate -amount-format · ADR-0005 As built · docs/migration.md Amounts in SAP's internal form (TCURX)",
       "src": "po:2026-11-09",
       "pilot": "po:2026-10-31",
       "c": []

@@ -122,9 +122,9 @@ func compute(id, start string) string {
 // the registration's companies into the pack's boxes (ADR-0049 §11, T61h):
 // selection boxes by measure, negated where credits show positive, the
 // expression box from them; a later period's draft carries the earlier
-// period's unreported items apart as prior-period items, held to the
-// pack's threshold; computing again gives the same draft and claims no
-// item; a reported item is left out.
+// period's unreported items apart as prior-period items, their net
+// shortfall of payable tax held to the pack's threshold; computing again
+// gives the same draft and claims no item; a reported item is left out.
 func TestGetTaxReturnDraft(t *testing.T) {
 	e := returnsEnv(t)
 	sale(t, e, "2026-02-10", "")
@@ -143,7 +143,7 @@ func TestGetTaxReturnDraft(t *testing.T) {
 	q2, _ := e.Must(200, "GET", compute(testID, "2026-04-01"), "", "")
 	want(t, "Q2's boxes", boxes(q2), "sales=300.00/100.00#3 out=15.00/5.00#3 in=19.00/19.00#1 cost=0.00/0.00#1 net=-4.00/-14.00")
 	want(t, "Q2's prior period", fmt.Sprint(q2["prior_period"]),
-		"map[above_threshold:true item_count:2 tax:map[amount:14.00 currency:EUR] threshold:map[amount:10.00 currency:EUR]]")
+		"map[above_threshold:false item_count:2 tax:map[amount:14.00 currency:EUR] threshold:map[amount:10.00 currency:EUR]]")
 	again, _ := e.Must(200, "GET", compute(testID, "2026-04-01"), "", "")
 	want(t, "computed again", fmt.Sprint(again), fmt.Sprint(q2))
 	var claimed int
@@ -156,7 +156,16 @@ func TestGetTaxReturnDraft(t *testing.T) {
 		UPDATE ledger.tax_item SET reported_in = gen_random_uuid() WHERE journal_entry_id = '%s'; END $$`, q1Purchase))
 	q2, _ = e.Must(200, "GET", compute(testID, "2026-04-01"), "", "")
 	want(t, "Q2 without the reported purchase", boxes(q2), "sales=300.00/100.00#3 out=15.00/5.00#3 in=0.00/0.00#0 cost=0.00/0.00#0 net=15.00/5.00")
-	want(t, "now within the threshold", fmt.Sprint(q2["prior_period"].(map[string]any)["above_threshold"]), "false")
+	want(t, "a shortfall of 5.00", fmt.Sprint(q2["prior_period"].(map[string]any)["above_threshold"]), "false")
+
+	// Late sales of the first quarter: a shortfall of exactly the
+	// threshold, then above it (po:2026-11-09, C11).
+	sale(t, e, "2026-07-03", "2026-03-31")
+	q2, _ = e.Must(200, "GET", compute(testID, "2026-04-01"), "", "")
+	want(t, "a shortfall of 10.00", fmt.Sprint(q2["prior_period"].(map[string]any)["above_threshold"]), "false")
+	sale(t, e, "2026-07-03", "2026-03-31")
+	q2, _ = e.Must(200, "GET", compute(testID, "2026-04-01"), "", "")
+	want(t, "a shortfall of 15.00", fmt.Sprint(q2["prior_period"].(map[string]any)["above_threshold"]), "true")
 }
 
 // TestComputeConcurrently: two drafts computed at once are the same and
@@ -301,8 +310,10 @@ func TestReturnOverflow(t *testing.T) {
 	for name, c := range map[string]overflowing{
 		"a box":            {groups: []ledger.TaxItemGroup{out, out}},
 		"prior-period tax": {groups: []ledger.TaxItemGroup{nonDeductible, nonDeductible}},
-		"one period's tax": {groups: []ledger.TaxItemGroup{nonDeductible,
-			{Direction: "output", AccountKey: "output", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), TaxLC: -big}, nonDeductible}},
+		// The tax sums to big, what is posted to 2·big: the second group's
+		// tax is not recovered.
+		"one period's posted tax": {groups: []ledger.TaxItemGroup{nonDeductible,
+			{Direction: "input", AccountKey: "non_deductible", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), TaxLC: -big}, nonDeductible}},
 		"a box's prior":  {groups: []ledger.TaxItemGroup{{Direction: "input", AccountKey: "input", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), RecoverableLC: big}, {Direction: "input", AccountKey: "input", PriorPeriod: true, PriorTaxDate: day("2025-12-31"), RecoverableLC: 1}}},
 		"the expression": {groups: []ledger.TaxItemGroup{out, in}},
 		"a negation":     {groups: []ledger.TaxItemGroup{{Direction: "output", AccountKey: "output", TaxLC: math.MinInt64}}},
@@ -318,17 +329,27 @@ func TestReturnOverflow(t *testing.T) {
 			}
 		})
 	}
-	// The threshold is 10.00; P7's measure is open, so the flag is raised
-	// when either direction's tax of any one earlier period exceeds it.
+	// The threshold is 10.00 (1000 minor units). It is raised by a net
+	// shortfall of payable tax above it in one earlier period: output tax
+	// (a credit, negative) less recovered input tax (po:2026-11-09, C11).
+	recoveredInPart := ledger.TaxItemGroup{Direction: "input", AccountKey: "input", PriorPeriod: true, PriorTaxDate: day("2026-02-10"), Items: 1,
+		TaxLC: 1000, RecoverableLC: 400}
 	for name, c := range map[string]struct {
 		groups []ledger.TaxItemGroup
 		want   bool
 	}{
-		"directions do not cancel": {[]ledger.TaxItemGroup{prior("output", "2026-01-10", -1200), prior("input", "2026-01-10", 1200)}, true},
-		"periods do not cancel":    {[]ledger.TaxItemGroup{prior("input", "2025-08-10", 1200), prior("input", "2026-02-10", -1200)}, true},
-		"periods do not add up":    {[]ledger.TaxItemGroup{prior("input", "2025-08-10", 600), prior("input", "2026-02-10", 600)}, false},
-		"within one period":        {[]ledger.TaxItemGroup{prior("input", "2026-02-10", 600), prior("input", "2026-03-10", 600)}, true},
-		"before the first period":  {[]ledger.TaxItemGroup{prior("input", "2025-11-10", 600), prior("input", "2025-12-10", 600)}, true},
+		"a shortfall above it":                 {[]ledger.TaxItemGroup{prior("output", "2026-02-10", -1200)}, true},
+		"an overpayment above it":              {[]ledger.TaxItemGroup{prior("input", "2026-02-10", 1200)}, false},
+		"output tax reduced above it":          {[]ledger.TaxItemGroup{prior("output", "2026-02-10", 1200)}, false},
+		"a shortfall of exactly it":            {[]ledger.TaxItemGroup{prior("output", "2026-02-10", -1000)}, false},
+		"a shortfall one minor unit above it":  {[]ledger.TaxItemGroup{prior("output", "2026-02-10", -1001)}, true},
+		"directions net within a period":       {[]ledger.TaxItemGroup{prior("output", "2026-01-10", -1500), prior("input", "2026-03-10", 600)}, false},
+		"a period's items add up":              {[]ledger.TaxItemGroup{prior("output", "2026-02-10", -600), prior("output", "2026-03-10", -600)}, true},
+		"periods are not pooled":               {[]ledger.TaxItemGroup{prior("output", "2025-08-10", -600), prior("output", "2026-02-10", -600)}, false},
+		"an overpayment offsets no period":     {[]ledger.TaxItemGroup{prior("output", "2025-08-10", -1200), prior("input", "2026-02-10", 5000)}, true},
+		"before the first period, one bucket":  {[]ledger.TaxItemGroup{prior("output", "2025-11-10", -600), prior("output", "2025-12-10", -600)}, true},
+		"the recovered part of input tax only": {[]ledger.TaxItemGroup{prior("output", "2026-02-10", -1500), recoveredInPart}, true},
+		"a shortfall net of recovered input":   {[]ledger.TaxItemGroup{prior("output", "2026-02-10", -1300), recoveredInPart}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h.Items = overflowing{groups: c.groups}

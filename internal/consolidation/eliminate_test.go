@@ -436,7 +436,8 @@ func TestIntercompanyToleranceFinerThanTheCurrency(t *testing.T) {
 	}, runPermissions...)
 	sameCalendar(t, e)
 	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
-		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-30', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-10-01', 0.85, 'ECB', $2),
+		       ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-11-30', 0.9, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
 	h := app.Consolidation(app.Config{})
 	run, _ := start(t, e)
 	var companies []uuid.UUID

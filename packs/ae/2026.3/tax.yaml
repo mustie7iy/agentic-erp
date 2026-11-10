@@ -1,0 +1,196 @@
+# The UAE's VAT codes in ADR-0049's component schema, from
+# ../TAX-PENDING-T62f.md, which gives each fact's basis as ADR-0049 records
+# it; a test compares the two, so a typo fails. None is signed off.
+#
+# One rate, 5% (ADR-0049, Context: the VAT Law), and the zero-rated,
+# exempt and out-of-scope categories at 0, all from 2026-01-01, the pack's
+# valid_from: the rate's earlier start is not recorded in the repository
+# (as Canada's QST and PST rates start on 2026-01-01).
+#
+# Recovery, decided by default and for the tax specialist to confirm: input
+# VAT wholly recovered to 1300, blocked input (Executive Regulation Art. 53)
+# recovering nothing and so a cost on the purchase's own line (ADR-0049 §6,
+# P8); output VAT and self-assessed VAT owed on 2300. A self-assessed code
+# keys its owed part vat_due and its claim vat, as an ordinary input code
+# keys its tax; the VAT 201's boxes (T61k) select by kind and account key.
+tax_codes:
+  # ADR-0049 Context: the VAT Law's standard rate; Input tax.
+  - code: V5
+    description: Input VAT 5%, standard-rated purchase
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: vat
+        jurisdiction: AE
+        account_key: input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+  # ADR-0049 Context: Input tax, blocked for entertainment, motor vehicles
+  # available for personal use and employees' personal goods and services
+  # (Executive Regulation Art. 53); P8, blocked UAE input 0%.
+  - code: VB5
+    description: Input VAT 5%, blocked (Executive Regulation Art. 53)
+    direction: input
+    kind: standard
+    category: S
+    components:
+      - key: vat
+        jurisdiction: AE
+        account_key: input
+        recoverable_percent: "0"
+        account: "1300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+  # ADR-0049 Context and §9: imported services and goods imported without
+  # a customs declaration, owed and recovered by the recipient (boxes 3
+  # and 10); no self-invoice from 2026 (Federal Decree-Law No. 16 of 2025).
+  - code: RC5
+    description: Reverse charge 5%, imported services and goods without a customs declaration
+    direction: input
+    kind: reverse_charge
+    category: AE
+    components:
+      - key: vat_due
+        jurisdiction: AE
+        account_key: self_output
+        account: "2300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+      - key: vat
+        jurisdiction: AE
+        account_key: self_input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+  # ADR-0049 Context and §9: the domestic reverse charge between
+  # registrants for gold and diamonds (precious metals and stones from
+  # 2025-02-25, Cabinet Decision No. 127 of 2024), crude oil and natural gas,
+  # and electronic devices (Cabinet Decision No. 91 of 2023); a code the
+  # clerk chooses, the recipient's declaration kept as evidence.
+  - code: DR5
+    description: Domestic reverse charge 5% (precious metals and stones, crude oil and natural gas, electronic devices)
+    direction: input
+    kind: reverse_charge
+    category: AE
+    components:
+      - key: vat_due
+        jurisdiction: AE
+        account_key: self_output
+        account: "2300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+      - key: vat
+        jurisdiction: AE
+        account_key: self_input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+  # ADR-0049 §9: import VAT on goods through a customs declaration, posted
+  # from the declaration (box 6, output and input). No UN/CEFACT category:
+  # ADR-0049 records none for an import.
+  - code: IM5
+    description: Import VAT 5% on goods through a customs declaration
+    direction: input
+    kind: import
+    components:
+      - key: vat_due
+        jurisdiction: AE
+        account_key: self_output
+        account: "2300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+      - key: vat
+        jurisdiction: AE
+        account_key: self_input
+        recoverable_percent: "100"
+        account: "1300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+  # ADR-0049 Context and §7 As built: standard-rated supplies are reported
+  # by emirate (boxes 1a-1g) at one rate, so one code levies the emirate
+  # each line names (AE-AZ, AE-DU, ...). It accepts the seven emirates
+  # alone (2026.3, the emirate guard), their ISO 3166-2 codes confirmed by
+  # the tax specialist (product owner, 2026-11-09), so a line naming
+  # another is refused rather than left off boxes 1a-1g.
+  - code: S5
+    description: Output VAT 5%, standard-rated supply (the emirate on each line)
+    direction: output
+    kind: standard
+    category: S
+    components:
+      - key: vat
+        jurisdiction: AE
+        jurisdiction_on_line: true
+        subdivisions: [AE-AZ, AE-DU, AE-SH, AE-AJ, AE-UQ, AE-RK, AE-FU]
+        account_key: output
+        account: "2300"
+        rates:
+          - {rate_percent: "5", valid_from: 2026-01-01}
+  # ADR-0049 Context: the zero rate (exports, international transport and
+  # the other supplies it lists); box 4.
+  - code: Z0
+    description: Zero-rated supply
+    direction: output
+    kind: zero
+    category: Z
+    components:
+      - key: vat
+        jurisdiction: AE
+        account_key: output
+        account: "2300"
+        rates:
+          - {rate_percent: "0", valid_from: 2026-01-01}
+  # ADR-0049 Context: exempt supplies (some financial services, residential
+  # leases after the first supply, bare land, local passenger transport);
+  # box 5.
+  - code: E0
+    description: Exempt supply
+    direction: output
+    kind: exempt
+    category: E
+    components:
+      - key: vat
+        jurisdiction: AE
+        account_key: output
+        account: "2300"
+        rates:
+          - {rate_percent: "0", valid_from: 2026-01-01}
+  # ADR-0049 Context: out of scope, among them supplies of goods within or
+  # between designated zones (FTA Designated Zones VAT Guide), a code a
+  # person or a rule chooses.
+  - code: OS
+    description: Out of scope (such as goods within or between designated zones)
+    direction: output
+    kind: out_of_scope
+    category: O
+    components:
+      - key: vat
+        jurisdiction: AE
+        account_key: output
+        account: "2300"
+        rates:
+          - {rate_percent: "0", valid_from: 2026-01-01}
+tax_settings:
+  # The authority's rate type and rounding (ADR-0049 §8), decided by
+  # default as Canada's: tax converted at the UAE Central Bank's rate on the
+  # date of supply (VAT Law Art. 69, cited from memory in ADR-0049), which a
+  # tenant records as its average rate; rounding once per document, code
+  # and component (no rule recorded). Both pending the tax specialist.
+  rate_type: average
+  rounding: document
+  # ADR-0049 Context: a tax invoice shows the supplier's TRN, and a
+  # simplified tax invoice is allowed where the recipient is registered and
+  # the supply is AED 10,000 or less (Executive Regulation Art. 59, read
+  # through secondary summaries). The tier is ADR-0049 §6 As built's: above
+  # AED 10,000 the supplier's TRN, which the ERP checks as a tax identifier
+  # of the UAE held by the supplier. Pending the tax specialist.
+  documentary_requirements:
+    - above: "10000"
+      requires: [supplier_tax_id]
+      source: "UAE Executive Regulation (Cabinet Decision No. 52 of 2017) Art. 59: above AED 10,000, a tax invoice with the supplier's TRN"
+      pending_sign_off: true

@@ -33,6 +33,7 @@ type runView struct {
 	periods     map[periodKey]Period
 	people      map[uuid.UUID]string
 	supersedes  map[uuid.UUID]uuid.UUID
+	acquired    map[memberKey]gen.ConsolidationAcquisition
 }
 
 // viewOf reads what the runs are shown with.
@@ -69,7 +70,10 @@ func (e *Endpoints) viewOf(ctx context.Context, tx pgx.Tx, rs []Run) (runView, e
 	if v.people, err = idref.Resolve(ctx, e.People.Named, idref.Of(rs, func(r Run) *uuid.UUID { return r.FinalizedBy }), personRef); err != nil {
 		return runView{}, fmt.Errorf("consolidation: finalizers of %d runs: %w", len(rs), err)
 	}
-	v.supersedes, err = superseded(ctx, tx, ids)
+	if v.supersedes, err = superseded(ctx, tx, ids); err != nil {
+		return runView{}, err
+	}
+	v.acquired, err = acquisitionsShown(ctx, tx, rs, v.members)
 	return v, err
 }
 
@@ -128,6 +132,9 @@ func (v runView) runAPI(r Run) gen.ConsolidationRun {
 		}
 		if m.TranslatedAt != nil {
 			x.TranslatedAt = gen.NewOptDateTime(*m.TranslatedAt)
+		}
+		if a, ok := v.acquired[memberKey{r.ID, m.LegalEntityID}]; ok {
+			x.Acquisition = gen.NewOptConsolidationAcquisition(a)
 		}
 		out.Members = append(out.Members, x)
 	}

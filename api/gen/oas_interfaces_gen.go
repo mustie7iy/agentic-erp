@@ -1465,6 +1465,10 @@ type SignOffPeriodCloseRes interface {
 	signOffPeriodCloseRes()
 }
 
+type SignOffYearCloseRes interface {
+	signOffYearCloseRes()
+}
+
 type SimulateChangeRequestRes interface {
 	simulateChangeRequestRes()
 }

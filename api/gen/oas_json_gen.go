@@ -52016,15 +52016,29 @@ func (s *ConsolidatedStatementTotals) encodeFields(e *jx.Encoder) {
 		e.FieldStart("profit")
 		s.Profit.Encode(e)
 	}
+	{
+		if s.NonControllingInterests.Set {
+			e.FieldStart("non_controlling_interests")
+			s.NonControllingInterests.Encode(e)
+		}
+	}
+	{
+		if s.OwnersOfTheParent.Set {
+			e.FieldStart("owners_of_the_parent")
+			s.OwnersOfTheParent.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsolidatedStatementTotals = [6]string{
+var jsonFieldsNameOfConsolidatedStatementTotals = [8]string{
 	0: "assets",
 	1: "liabilities",
 	2: "equity",
 	3: "revenue",
 	4: "expenses",
 	5: "profit",
+	6: "non_controlling_interests",
+	7: "owners_of_the_parent",
 }
 
 // Decode decodes ConsolidatedStatementTotals from json.
@@ -52096,6 +52110,26 @@ func (s *ConsolidatedStatementTotals) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"profit\"")
 			}
+		case "non_controlling_interests":
+			if err := func() error {
+				s.NonControllingInterests.Reset()
+				if err := s.NonControllingInterests.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"non_controlling_interests\"")
+			}
+		case "owners_of_the_parent":
+			if err := func() error {
+				s.OwnersOfTheParent.Reset()
+				if err := s.OwnersOfTheParent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"owners_of_the_parent\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -52148,6 +52182,263 @@ func (s *ConsolidatedStatementTotals) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ConsolidatedStatementTotals) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidationAcquisition) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidationAcquisition) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("period")
+		e.Int32(s.Period)
+	}
+	{
+		e.FieldStart("closing_rate")
+		e.Str(s.ClosingRate)
+	}
+	{
+		if s.RateValidFrom.Set {
+			e.FieldStart("rate_valid_from")
+			s.RateValidFrom.Encode(e, json.EncodeDate)
+		}
+	}
+	{
+		e.FieldStart("net_assets")
+		s.NetAssets.Encode(e)
+	}
+	{
+		e.FieldStart("net_assets_group")
+		s.NetAssetsGroup.Encode(e)
+	}
+	{
+		e.FieldStart("investment")
+		s.Investment.Encode(e)
+	}
+	{
+		e.FieldStart("goodwill")
+		s.Goodwill.Encode(e)
+	}
+	{
+		e.FieldStart("non_controlling_interest")
+		s.NonControllingInterest.Encode(e)
+	}
+	{
+		e.FieldStart("frozen")
+		e.Bool(s.Frozen)
+	}
+	{
+		if s.FrozenByRunID.Set {
+			e.FieldStart("frozen_by_run_id")
+			s.FrozenByRunID.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfConsolidationAcquisition = [11]string{
+	0:  "fiscal_year",
+	1:  "period",
+	2:  "closing_rate",
+	3:  "rate_valid_from",
+	4:  "net_assets",
+	5:  "net_assets_group",
+	6:  "investment",
+	7:  "goodwill",
+	8:  "non_controlling_interest",
+	9:  "frozen",
+	10: "frozen_by_run_id",
+}
+
+// Decode decodes ConsolidationAcquisition from json.
+func (s *ConsolidationAcquisition) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidationAcquisition to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "period":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Period = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"period\"")
+			}
+		case "closing_rate":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.ClosingRate = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"closing_rate\"")
+			}
+		case "rate_valid_from":
+			if err := func() error {
+				s.RateValidFrom.Reset()
+				if err := s.RateValidFrom.Decode(d, json.DecodeDate); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"rate_valid_from\"")
+			}
+		case "net_assets":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.NetAssets.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_assets\"")
+			}
+		case "net_assets_group":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				if err := s.NetAssetsGroup.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_assets_group\"")
+			}
+		case "investment":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				if err := s.Investment.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"investment\"")
+			}
+		case "goodwill":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				if err := s.Goodwill.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"goodwill\"")
+			}
+		case "non_controlling_interest":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.NonControllingInterest.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"non_controlling_interest\"")
+			}
+		case "frozen":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Bool()
+				s.Frozen = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"frozen\"")
+			}
+		case "frozen_by_run_id":
+			if err := func() error {
+				s.FrozenByRunID.Reset()
+				if err := s.FrozenByRunID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"frozen_by_run_id\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidationAcquisition")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11110111,
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidationAcquisition) {
+					name = jsonFieldsNameOfConsolidationAcquisition[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidationAcquisition) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidationAcquisition) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -53278,12 +53569,18 @@ func (s *ConsolidationEntryLine) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.Component.Set {
+			e.FieldStart("component")
+			s.Component.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
 }
 
-var jsonFieldsNameOfConsolidationEntryLine = [9]string{
+var jsonFieldsNameOfConsolidationEntryLine = [10]string{
 	0: "line_no",
 	1: "group_account",
 	2: "legal_entity_id",
@@ -53292,7 +53589,8 @@ var jsonFieldsNameOfConsolidationEntryLine = [9]string{
 	5: "account_id",
 	6: "account",
 	7: "trading_partner",
-	8: "amount",
+	8: "component",
+	9: "amount",
 }
 
 // Decode decodes ConsolidationEntryLine from json.
@@ -53386,8 +53684,18 @@ func (s *ConsolidationEntryLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"trading_partner\"")
 			}
+		case "component":
+			if err := func() error {
+				s.Component.Reset()
+				if err := s.Component.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"component\"")
+			}
 		case "amount":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.Amount.Decode(d); err != nil {
 					return err
@@ -53407,7 +53715,7 @@ func (s *ConsolidationEntryLine) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00000011,
-		0b00000001,
+		0b00000010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -54056,6 +54364,10 @@ func (s *ConsolidationMember) encodeFields(e *jx.Encoder) {
 		e.Str(s.OwnershipPercent)
 	}
 	{
+		e.FieldStart("origin")
+		e.Str(s.Origin)
+	}
+	{
 		e.FieldStart("first_fiscal_year")
 		e.Int32(s.FirstFiscalYear)
 	}
@@ -54069,15 +54381,16 @@ func (s *ConsolidationMember) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidationMember = [8]string{
+var jsonFieldsNameOfConsolidationMember = [9]string{
 	0: "legal_entity_id",
 	1: "company_code",
 	2: "company_name",
 	3: "local_currency",
 	4: "ownership_percent",
-	5: "first_fiscal_year",
-	6: "first_fiscal_period",
-	7: "investment_account",
+	5: "origin",
+	6: "first_fiscal_year",
+	7: "first_fiscal_period",
+	8: "investment_account",
 }
 
 // Decode decodes ConsolidationMember from json.
@@ -54085,7 +54398,7 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ConsolidationMember to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -54149,8 +54462,20 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"ownership_percent\"")
 			}
-		case "first_fiscal_year":
+		case "origin":
 			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Str()
+				s.Origin = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"origin\"")
+			}
+		case "first_fiscal_year":
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.FirstFiscalYear = int32(v)
@@ -54162,7 +54487,7 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"first_fiscal_year\"")
 			}
 		case "first_fiscal_period":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.FirstFiscalPeriod = int32(v)
@@ -54174,7 +54499,7 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"first_fiscal_period\"")
 			}
 		case "investment_account":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.InvestmentAccount.Decode(d); err != nil {
 					return err
@@ -54192,8 +54517,9 @@ func (s *ConsolidationMember) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b11111111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -54841,9 +55167,15 @@ func (s *ConsolidationRunMember) encodeFields(e *jx.Encoder) {
 			s.TranslatedAt.Encode(e, json.EncodeDateTime)
 		}
 	}
+	{
+		if s.Acquisition.Set {
+			e.FieldStart("acquisition")
+			s.Acquisition.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfConsolidationRunMember = [13]string{
+var jsonFieldsNameOfConsolidationRunMember = [14]string{
 	0:  "legal_entity_id",
 	1:  "company_code",
 	2:  "company_name",
@@ -54857,6 +55189,7 @@ var jsonFieldsNameOfConsolidationRunMember = [13]string{
 	10: "period_status",
 	11: "period_version",
 	12: "translated_at",
+	13: "acquisition",
 }
 
 // Decode decodes ConsolidationRunMember from json.
@@ -55009,6 +55342,16 @@ func (s *ConsolidationRunMember) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"translated_at\"")
+			}
+		case "acquisition":
+			if err := func() error {
+				s.Acquisition.Reset()
+				if err := s.Acquisition.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"acquisition\"")
 			}
 		default:
 			return d.Skip()
@@ -127042,6 +127385,39 @@ func (s *OptConsolidatedFigures) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes ConsolidationAcquisition as json.
+func (o OptConsolidationAcquisition) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes ConsolidationAcquisition from json.
+func (o *OptConsolidationAcquisition) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptConsolidationAcquisition to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptConsolidationAcquisition) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptConsolidationAcquisition) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes ConsolidationRunProblem as json.
 func (o OptConsolidationRunProblem) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -163606,6 +163982,234 @@ func (s *SignOffPeriodCloseUnprocessableEntity) UnmarshalJSON(data []byte) error
 	return s.Decode(d)
 }
 
+// Encode encodes SignOffYearCloseBadRequest as json.
+func (s *SignOffYearCloseBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffYearCloseBadRequest from json.
+func (s *SignOffYearCloseBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffYearCloseBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffYearCloseBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffYearCloseBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffYearCloseBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffYearCloseForbidden as json.
+func (s *SignOffYearCloseForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffYearCloseForbidden from json.
+func (s *SignOffYearCloseForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffYearCloseForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffYearCloseForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffYearCloseForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffYearCloseForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffYearCloseNotFound as json.
+func (s *SignOffYearCloseNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffYearCloseNotFound from json.
+func (s *SignOffYearCloseNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffYearCloseNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffYearCloseNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffYearCloseNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffYearCloseNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffYearClosePreconditionFailed as json.
+func (s *SignOffYearClosePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffYearClosePreconditionFailed from json.
+func (s *SignOffYearClosePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffYearClosePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffYearClosePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffYearClosePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffYearClosePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffYearClosePreconditionRequired as json.
+func (s *SignOffYearClosePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffYearClosePreconditionRequired from json.
+func (s *SignOffYearClosePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffYearClosePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffYearClosePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffYearClosePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffYearClosePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes SignOffYearCloseUnprocessableEntity as json.
+func (s *SignOffYearCloseUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes SignOffYearCloseUnprocessableEntity from json.
+func (s *SignOffYearCloseUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SignOffYearCloseUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = SignOffYearCloseUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SignOffYearCloseUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SignOffYearCloseUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes SimulateChangeRequestBadRequest as json.
 func (s *SimulateChangeRequestBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -184584,6 +185188,24 @@ func (s *YearClose) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.SignedOffAt.Set {
+			e.FieldStart("signed_off_at")
+			s.SignedOffAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.SignedOffBy.Set {
+			e.FieldStart("signed_off_by")
+			s.SignedOffBy.Encode(e)
+		}
+	}
+	{
+		if s.SignedOffByName.Set {
+			e.FieldStart("signed_off_by_name")
+			s.SignedOffByName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("read_date")
 		json.EncodeDate(e, s.ReadDate)
 	}
@@ -184624,6 +185246,14 @@ func (s *YearClose) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		e.FieldStart("sign_offs")
+		e.ArrStart()
+		for _, elem := range s.SignOffs {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("version")
 		e.Int32(s.Version)
 	}
@@ -184645,7 +185275,7 @@ func (s *YearClose) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfYearClose = [21]string{
+var jsonFieldsNameOfYearClose = [25]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -184654,19 +185284,23 @@ var jsonFieldsNameOfYearClose = [21]string{
 	5:  "year_end",
 	6:  "config_version",
 	7:  "status",
-	8:  "read_date",
-	9:  "time_zone",
-	10: "tasks_total",
-	11: "tasks_done",
-	12: "tasks_open",
-	13: "tasks_overdue",
-	14: "ledgers",
-	15: "tasks",
-	16: "version",
-	17: "created_at",
-	18: "created_by",
-	19: "updated_at",
-	20: "updated_by",
+	8:  "signed_off_at",
+	9:  "signed_off_by",
+	10: "signed_off_by_name",
+	11: "read_date",
+	12: "time_zone",
+	13: "tasks_total",
+	14: "tasks_done",
+	15: "tasks_open",
+	16: "tasks_overdue",
+	17: "ledgers",
+	18: "tasks",
+	19: "sign_offs",
+	20: "version",
+	21: "created_at",
+	22: "created_by",
+	23: "updated_at",
+	24: "updated_by",
 }
 
 // Decode decodes YearClose from json.
@@ -184674,7 +185308,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode YearClose to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -184774,8 +185408,38 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "signed_off_at":
+			if err := func() error {
+				s.SignedOffAt.Reset()
+				if err := s.SignedOffAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_at\"")
+			}
+		case "signed_off_by":
+			if err := func() error {
+				s.SignedOffBy.Reset()
+				if err := s.SignedOffBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by\"")
+			}
+		case "signed_off_by_name":
+			if err := func() error {
+				s.SignedOffByName.Reset()
+				if err := s.SignedOffByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by_name\"")
+			}
 		case "read_date":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ReadDate = v
@@ -184787,7 +185451,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"read_date\"")
 			}
 		case "time_zone":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.TimeZone = string(v)
@@ -184799,7 +185463,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"time_zone\"")
 			}
 		case "tasks_total":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksTotal = int32(v)
@@ -184811,7 +185475,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_total\"")
 			}
 		case "tasks_done":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksDone = int32(v)
@@ -184823,7 +185487,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_done\"")
 			}
 		case "tasks_open":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOpen = int32(v)
@@ -184835,7 +185499,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_open\"")
 			}
 		case "tasks_overdue":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOverdue = int32(v)
@@ -184847,7 +185511,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_overdue\"")
 			}
 		case "ledgers":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.Ledgers = make([]YearCloseLedger, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -184865,7 +185529,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"ledgers\"")
 			}
 		case "tasks":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				s.Tasks = make([]YearCloseTask, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -184882,8 +185546,26 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"tasks\"")
 			}
+		case "sign_offs":
+			requiredBitSet[2] |= 1 << 3
+			if err := func() error {
+				s.SignOffs = make([]YearCloseSignOff, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem YearCloseSignOff
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.SignOffs = append(s.SignOffs, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"sign_offs\"")
+			}
 		case "version":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -184895,7 +185577,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "created_at":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -184907,7 +185589,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -184919,7 +185601,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_by\"")
 			}
 		case "updated_at":
-			requiredBitSet[2] |= 1 << 3
+			requiredBitSet[2] |= 1 << 7
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -184931,7 +185613,7 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"updated_at\"")
 			}
 		case "updated_by":
-			requiredBitSet[2] |= 1 << 4
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.UpdatedBy = v
@@ -184951,10 +185633,11 @@ func (s *YearClose) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11111111,
+		0b11111000,
 		0b11111111,
-		0b00011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -185185,6 +185868,24 @@ func (s *YearCloseItem) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		if s.SignedOffAt.Set {
+			e.FieldStart("signed_off_at")
+			s.SignedOffAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.SignedOffBy.Set {
+			e.FieldStart("signed_off_by")
+			s.SignedOffBy.Encode(e)
+		}
+	}
+	{
+		if s.SignedOffByName.Set {
+			e.FieldStart("signed_off_by_name")
+			s.SignedOffByName.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("read_date")
 		json.EncodeDate(e, s.ReadDate)
 	}
@@ -185230,7 +185931,7 @@ func (s *YearCloseItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfYearCloseItem = [19]string{
+var jsonFieldsNameOfYearCloseItem = [22]string{
 	0:  "id",
 	1:  "legal_entity_id",
 	2:  "company_code",
@@ -185239,17 +185940,20 @@ var jsonFieldsNameOfYearCloseItem = [19]string{
 	5:  "year_end",
 	6:  "config_version",
 	7:  "status",
-	8:  "read_date",
-	9:  "time_zone",
-	10: "tasks_total",
-	11: "tasks_done",
-	12: "tasks_open",
-	13: "tasks_overdue",
-	14: "version",
-	15: "created_at",
-	16: "created_by",
-	17: "updated_at",
-	18: "updated_by",
+	8:  "signed_off_at",
+	9:  "signed_off_by",
+	10: "signed_off_by_name",
+	11: "read_date",
+	12: "time_zone",
+	13: "tasks_total",
+	14: "tasks_done",
+	15: "tasks_open",
+	16: "tasks_overdue",
+	17: "version",
+	18: "created_at",
+	19: "created_by",
+	20: "updated_at",
+	21: "updated_by",
 }
 
 // Decode decodes YearCloseItem from json.
@@ -185357,8 +186061,38 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
+		case "signed_off_at":
+			if err := func() error {
+				s.SignedOffAt.Reset()
+				if err := s.SignedOffAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_at\"")
+			}
+		case "signed_off_by":
+			if err := func() error {
+				s.SignedOffBy.Reset()
+				if err := s.SignedOffBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by\"")
+			}
+		case "signed_off_by_name":
+			if err := func() error {
+				s.SignedOffByName.Reset()
+				if err := s.SignedOffByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_off_by_name\"")
+			}
 		case "read_date":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ReadDate = v
@@ -185370,7 +186104,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"read_date\"")
 			}
 		case "time_zone":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.TimeZone = string(v)
@@ -185382,7 +186116,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"time_zone\"")
 			}
 		case "tasks_total":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksTotal = int32(v)
@@ -185394,7 +186128,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_total\"")
 			}
 		case "tasks_done":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksDone = int32(v)
@@ -185406,7 +186140,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_done\"")
 			}
 		case "tasks_open":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOpen = int32(v)
@@ -185418,7 +186152,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_open\"")
 			}
 		case "tasks_overdue":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Int32()
 				s.TasksOverdue = int32(v)
@@ -185430,7 +186164,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tasks_overdue\"")
 			}
 		case "version":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Int32()
 				s.Version = int32(v)
@@ -185442,7 +186176,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version\"")
 			}
 		case "created_at":
-			requiredBitSet[1] |= 1 << 7
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -185454,7 +186188,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "created_by":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.CreatedBy = v
@@ -185466,7 +186200,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_by\"")
 			}
 		case "updated_at":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -185478,7 +186212,7 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"updated_at\"")
 			}
 		case "updated_by":
-			requiredBitSet[2] |= 1 << 2
+			requiredBitSet[2] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.UpdatedBy = v
@@ -185500,8 +186234,8 @@ func (s *YearCloseItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11111111,
-		0b11111111,
-		0b00000111,
+		0b11111000,
+		0b00111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -185987,6 +186721,587 @@ func (s *YearClosePeriod) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *YearClosePeriod) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *YearCloseSignOff) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *YearCloseSignOff) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("id")
+		json.EncodeUUID(e, s.ID)
+	}
+	{
+		e.FieldStart("close_id")
+		json.EncodeUUID(e, s.CloseID)
+	}
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("company_code")
+		e.Str(s.CompanyCode)
+	}
+	{
+		e.FieldStart("company_name")
+		e.Str(s.CompanyName)
+	}
+	{
+		e.FieldStart("fiscal_year")
+		e.Int32(s.FiscalYear)
+	}
+	{
+		e.FieldStart("signed_by")
+		json.EncodeUUID(e, s.SignedBy)
+	}
+	{
+		e.FieldStart("signed_by_name")
+		e.Str(s.SignedByName)
+	}
+	{
+		e.FieldStart("signed_at")
+		json.EncodeDateTime(e, s.SignedAt)
+	}
+	{
+		if s.Note.Set {
+			e.FieldStart("note")
+			s.Note.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("ledgers")
+		e.ArrStart()
+		for _, elem := range s.Ledgers {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfYearCloseSignOff = [11]string{
+	0:  "id",
+	1:  "close_id",
+	2:  "legal_entity_id",
+	3:  "company_code",
+	4:  "company_name",
+	5:  "fiscal_year",
+	6:  "signed_by",
+	7:  "signed_by_name",
+	8:  "signed_at",
+	9:  "note",
+	10: "ledgers",
+}
+
+// Decode decodes YearCloseSignOff from json.
+func (s *YearCloseSignOff) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode YearCloseSignOff to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "close_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.CloseID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"close_id\"")
+			}
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "company_code":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_code\"")
+			}
+		case "company_name":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.CompanyName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company_name\"")
+			}
+		case "fiscal_year":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				v, err := d.Int32()
+				s.FiscalYear = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_year\"")
+			}
+		case "signed_by":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.SignedBy = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_by\"")
+			}
+		case "signed_by_name":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Str()
+				s.SignedByName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_by_name\"")
+			}
+		case "signed_at":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeDateTime(d)
+				s.SignedAt = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"signed_at\"")
+			}
+		case "note":
+			if err := func() error {
+				s.Note.Reset()
+				if err := s.Note.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"note\"")
+			}
+		case "ledgers":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				s.Ledgers = make([]YearCloseSignOffLedger, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem YearCloseSignOffLedger
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Ledgers = append(s.Ledgers, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledgers\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode YearCloseSignOff")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b11111111,
+		0b00000101,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfYearCloseSignOff) {
+					name = jsonFieldsNameOfYearCloseSignOff[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *YearCloseSignOff) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *YearCloseSignOff) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *YearCloseSignOffLedger) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *YearCloseSignOffLedger) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("ledger_id")
+		json.EncodeUUID(e, s.LedgerID)
+	}
+	{
+		e.FieldStart("ledger_code")
+		e.Str(s.LedgerCode)
+	}
+	{
+		e.FieldStart("ledger_name")
+		e.Str(s.LedgerName)
+	}
+	{
+		e.FieldStart("is_leading")
+		e.Bool(s.IsLeading)
+	}
+	{
+		e.FieldStart("periods")
+		e.ArrStart()
+		for _, elem := range s.Periods {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+}
+
+var jsonFieldsNameOfYearCloseSignOffLedger = [5]string{
+	0: "ledger_id",
+	1: "ledger_code",
+	2: "ledger_name",
+	3: "is_leading",
+	4: "periods",
+}
+
+// Decode decodes YearCloseSignOffLedger from json.
+func (s *YearCloseSignOffLedger) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode YearCloseSignOffLedger to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "ledger_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LedgerID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_id\"")
+			}
+		case "ledger_code":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.LedgerCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_code\"")
+			}
+		case "ledger_name":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.LedgerName = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"ledger_name\"")
+			}
+		case "is_leading":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Bool()
+				s.IsLeading = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"is_leading\"")
+			}
+		case "periods":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				s.Periods = make([]YearCloseSignOffPeriod, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem YearCloseSignOffPeriod
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Periods = append(s.Periods, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"periods\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode YearCloseSignOffLedger")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00011111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfYearCloseSignOffLedger) {
+					name = jsonFieldsNameOfYearCloseSignOffLedger[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *YearCloseSignOffLedger) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *YearCloseSignOffLedger) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *YearCloseSignOffPeriod) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *YearCloseSignOffPeriod) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("fiscal_period_id")
+		json.EncodeUUID(e, s.FiscalPeriodID)
+	}
+	{
+		e.FieldStart("period")
+		e.Int32(s.Period)
+	}
+	{
+		e.FieldStart("locked")
+		e.Bool(s.Locked)
+	}
+}
+
+var jsonFieldsNameOfYearCloseSignOffPeriod = [3]string{
+	0: "fiscal_period_id",
+	1: "period",
+	2: "locked",
+}
+
+// Decode decodes YearCloseSignOffPeriod from json.
+func (s *YearCloseSignOffPeriod) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode YearCloseSignOffPeriod to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "fiscal_period_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.FiscalPeriodID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"fiscal_period_id\"")
+			}
+		case "period":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.Period = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"period\"")
+			}
+		case "locked":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Bool()
+				s.Locked = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"locked\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode YearCloseSignOffPeriod")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfYearCloseSignOffPeriod) {
+					name = jsonFieldsNameOfYearCloseSignOffPeriod[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *YearCloseSignOffPeriod) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *YearCloseSignOffPeriod) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

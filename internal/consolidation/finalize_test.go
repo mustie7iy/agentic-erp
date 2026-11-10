@@ -19,13 +19,15 @@ import (
 )
 
 // finalEnv is icEnv's tenant and figures, its person and agent also
-// holding the permissions to accept differences and finalize runs.
+// holding the permissions to accept differences and finalize runs, and
+// 1000's October locked.
 func finalEnv(t *testing.T) fixture.Env {
 	t.Helper()
 	e, _ := icEnv(t)
 	for _, p := range []string{"consolidation.difference.accept", "consolidation.run.finalize"} {
 		e.Tenant.Grant(t, p, e.Tenant.Human, e.Tenant.Agent)
 	}
+	setOctober(t, e, "closed", "locked") // where 1000's acquisition is measured, frozen at finalizing
 	return e
 }
 

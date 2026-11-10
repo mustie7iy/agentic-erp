@@ -169,9 +169,11 @@ func (t target) all() []uuid.UUID {
 // consolidation.special_period) and the parent's (422
 // consolidation.period_unknown), the parent in the group currency (422
 // consolidation.parent_currency), the members included on the parent's
-// fiscal calendar (422 consolidation.calendar_mismatch) and each company
-// currency's closing rate there and not stale (closingRate).
-func (e *Endpoints) targetOf(ctx context.Context, doc *config.Config, code string, year, per int32) (target, error) {
+// fiscal calendar (422 consolidation.calendar_mismatch), incorporated by
+// the parent and held whole (422 consolidation.structure_unsupported, As
+// built T68h), each company currency's closing rate there and not stale
+// (closingRate), and each member's acquisition measurable (acquirable).
+func (e *Endpoints) targetOf(ctx context.Context, tx pgx.Tx, doc *config.Config, code string, year, per int32) (target, error) {
 	t := target{doc: doc, rateType: doc.Consolidation.RateTypeOrAverage(), year: int16(year), per: int16(per)}
 	g := doc.Consolidation.Group(code)
 	var err error
@@ -209,11 +211,11 @@ func (e *Endpoints) targetOf(ctx context.Context, doc *config.Config, code strin
 			Message: "a period of the parent's fiscal calendar"})
 	}
 	t.period = p
-	return t, e.include(ctx, &t)
+	return t, e.include(ctx, tx, &t)
 }
 
 // include lists the companies the run includes with their closing rates.
-func (e *Endpoints) include(ctx context.Context, t *target) error {
+func (e *Endpoints) include(ctx context.Context, tx pgx.Tx, t *target) error {
 	parent := t.companies[t.group.Parent]
 	members := slices.Clone(t.group.Members)
 	slices.SortFunc(members, func(a, b config.GroupMember) int { return strings.Compare(a.Company, b.Company) })
@@ -230,6 +232,9 @@ func (e *Endpoints) include(ctx context.Context, t *target) error {
 				"calendar than its parent %s; a run consolidates members on the parent's calendar (ADR-0059 §1).", co.Code, t.group.Code, parent.Code),
 				problem.FieldError{Field: "group_code", Code: "calendar_mismatch", Message: "company " + co.Code + " on the parent's calendar"})
 		}
+		if !m.WhollyOwned() || m.Origin != config.OriginIncorporated {
+			return structureUnsupported(t.group.Code, *m)
+		}
 		t.included = append(t.included, includedCompany{co: co, member: m, firstYear: int16(year), firstP: int16(per)})
 	}
 	for i := range t.included {
@@ -239,32 +244,38 @@ func (e *Endpoints) include(ctx context.Context, t *target) error {
 		}
 		t.included[i].rate = r
 	}
-	return nil
+	return e.acquirable(ctx, tx, *t)
 }
 
 // closingRate is the company's closing rate into the group currency
-// (ADR-0059 §7, ADR-0042's rule): 1 in the group currency; else the latest
-// of the rate type valid on the period's last day, refused when missing
-// (422 consolidation.rate_missing) or valid from before the period's
-// first day (422 consolidation.rate_stale).
+// for the run's period (rateOf).
 func (e *Endpoints) closingRate(ctx context.Context, t target, co Company) (Rate, error) {
-	if co.LocalCurrency == t.currency {
+	return e.rateOf(ctx, t.rateType, t.currency, co, t.period, t.year, t.per)
+}
+
+// rateOf is the company's closing rate into the group currency for a
+// period (ADR-0059 §7, ADR-0042's rule): 1 in the group currency; else
+// the latest of the rate type valid on the period's last day, refused
+// when missing (422 consolidation.rate_missing) or valid from before the
+// period's first day (422 consolidation.rate_stale).
+func (e *Endpoints) rateOf(ctx context.Context, rateType, group string, co Company, p Period, year, per int16) (Rate, error) {
+	if co.LocalCurrency == group {
 		return Rate{Rate: one(), Shown: "1"}, nil
 	}
-	end, start := t.period.End.Format(time.DateOnly), t.period.Start.Format(time.DateOnly)
-	pair := co.LocalCurrency + "/" + t.currency
-	r, ok, err := e.Ledger.RateOn(ctx, t.rateType, co.LocalCurrency, t.currency, t.period.End)
+	end, start := p.End.Format(time.DateOnly), p.Start.Format(time.DateOnly)
+	pair := co.LocalCurrency + "/" + group
+	r, ok, err := e.Ledger.RateOn(ctx, rateType, co.LocalCurrency, group, p.End)
 	switch {
 	case err != nil:
-		return Rate{}, fmt.Errorf("consolidation: %s rate %s on %s: %w", t.rateType, pair, end, err)
+		return Rate{}, fmt.Errorf("consolidation: %s rate %s on %s: %w", rateType, pair, end, err)
 	case !ok || r.Rate.Sign() <= 0:
 		return Rate{}, problem.Unprocessable("consolidation.rate_missing", fmt.Sprintf("No %s rate %s is valid on %s, the closing rate of company %s "+
-			"for %d/%d.", t.rateType, pair, end, co.Code, t.year, t.per), problem.FieldError{Field: "period", Code: "rate_missing",
-			Message: "record the " + t.rateType + " rate " + pair + " of " + end})
-	case r.ValidFrom.Before(t.period.Start):
-		return Rate{}, problem.Unprocessable("consolidation.rate_stale", fmt.Sprintf("The latest %s rate %s on %s, the closing rate of company %s, is "+
-			"valid from %s, before the period starts on %s (ADR-0042).", t.rateType, pair, end, co.Code, r.ValidFrom.Format(time.DateOnly), start),
-			problem.FieldError{Field: "period", Code: "rate_stale", Message: "record a " + t.rateType + " rate " + pair + " valid from within the period"})
+			"for %d/%d.", rateType, pair, end, co.Code, year, per), problem.FieldError{Field: "period", Code: "rate_missing",
+			Message: "record the " + rateType + " rate " + pair + " of " + end})
+	case r.ValidFrom.Before(p.Start):
+		return Rate{}, problem.Unprocessable("consolidation.rate_stale", fmt.Sprintf("The latest %s rate %s on %s, the closing rate of company %s "+
+			"for %d/%d, is valid from %s, before the period starts on %s (ADR-0042).", rateType, pair, end, co.Code, year, per, r.ValidFrom.Format(time.DateOnly),
+			start), problem.FieldError{Field: "period", Code: "rate_stale", Message: "record a " + rateType + " rate " + pair + " valid from within the period"})
 	}
 	return r, nil
 }
@@ -301,7 +312,7 @@ func (e *Endpoints) CreateConsolidationRun(ctx context.Context, req *gen.Consoli
 	if err != nil {
 		return nil, fmt.Errorf("consolidation: configuration: %w", err)
 	}
-	t, err := e.targetOf(ctx, doc, req.GroupCode, req.FiscalYear, req.Period)
+	t, err := e.targetOf(ctx, tx, doc, req.GroupCode, req.FiscalYear, req.Period)
 	if err != nil {
 		return nil, err
 	}

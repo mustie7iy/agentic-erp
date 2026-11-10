@@ -89,7 +89,8 @@ func getConnector(ctx context.Context, tx pgx.Tx, id uuid.UUID, lock bool) (Conn
 }
 
 // checkSettings validates the settings of the source kinds: sap_file needs
-// a relative path below the server's extract directory, sap_odata the
+// a relative path below the server's extract directory and optionally the
+// form of its amounts (amount_format, amounts.go), sap_odata the
 // base URL of the SAP system and optionally its client and page size.
 // Settings never hold secrets; credentials are named by secret_ref.
 func checkSettings(kind string, settings map[string]any) error {
@@ -107,6 +108,7 @@ func checkSettings(kind string, settings map[string]any) error {
 		if p, ok := str("path"); !ok || !filepath.IsLocal(p) {
 			return invalid("integration.invalid_settings", "settings.path", "An extract file path relative to the server's extract directory.")
 		}
+		return checkAmountFormat(settings)
 	case SAPOData:
 		return checkODataSettings(settings)
 	case BankSFTP:
@@ -269,6 +271,9 @@ func sftpPort(settings map[string]any) (int, error) {
 
 // checkODataSettings validates the settings of a sap_odata source.
 func checkODataSettings(settings map[string]any) error {
+	if _, ok := settings["amount_format"]; ok {
+		return invalid("integration.invalid_settings", "settings.amount_format", "OData delivers amounts in external form; only a sap_file connector takes amount_format.")
+	}
 	b, ok := settings["base_url"].(string)
 	u, err := url.Parse(b)
 	if !ok || err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {

@@ -63,8 +63,9 @@ func exportThenErase(t *testing.T, pool *database.Pool, store blobstore.Dir) (uu
 // pastFirstStates gives the tenant of e rows past the state the database
 // inserts them in, each reached through its transitions: a period close
 // signed off with its task done, a year close signed off with its task
-// done (000237), a posted parked entry with its lines, a
-// final consolidation run with its members and a balance, and a
+// done (000237) and its sign-off (000244), a posted parked entry with its lines, a
+// final consolidation run with its members, a balance and the acquisition
+// it froze (000243), and a
 // carry-forward run superseded by a second (ADR-0029, migration 000230).
 func pastFirstStates(t *testing.T, e fixture.Env) {
 	t.Helper()
@@ -87,6 +88,8 @@ func pastFirstStates(t *testing.T, e fixture.Env) {
 	pgtest.Exec(t, `UPDATE closing.year_close_task SET status = 'done', completed_by = $2, completed_at = now(), version = version + 1 WHERE close_id = $1`,
 		yearClose, who)
 	pgtest.Exec(t, `UPDATE closing.year_close SET status = 'signed_off', version = version + 1 WHERE id = $1`, yearClose)
+	pgtest.Exec(t, `INSERT INTO closing.year_sign_off (tenant_id, id, close_id, signed_by, signed_by_name, locked)
+		VALUES ($1, gen_random_uuid(), $2, $3, 'Carla Controller', '[{"periods": [{"period": 13, "locked": true}]}]')`, ten, yearClose, who)
 	parked := e.Park(t, "2026-03-15", "Imported", [2]string{"520000", "10.00"}, [2]string{"100000", "-10.00"})
 	_, tag := e.Must(200, "GET", "/v1/parked-journal-entries/"+parked.String(), "", "")
 	e.Must(200, "POST", "/v1/parked-journal-entries/"+parked.String()+":post", "", tag)
@@ -109,8 +112,17 @@ func finalRun(t *testing.T, e fixture.Env) {
 	pgtest.Exec(t, `UPDATE consolidation.run_member SET period_status = 'open', period_version = 1, translated_at = now() WHERE run_id = $1`, run)
 	pgtest.Exec(t, `INSERT INTO consolidation.run_balance (tenant_id, run_id, legal_entity_id, line_no, group_account, kind, amount_gc)
 		VALUES ($1, $2, $3, 1, 'G3900', 'cta', 5)`, ten, run, e.US)
+	pgtest.Exec(t, `INSERT INTO consolidation.run_acquisition (tenant_id, run_id, legal_entity_id, origin, investment_account_id, net_assets_lc, closing_rate,
+		net_assets_gc, investment_gc, goodwill_gc, nci_gc, frozen) VALUES ($1, $2, $3, 'incorporated', gen_random_uuid(), 1000, 0.9, 900, 900, 0, 0, false)`,
+		ten, run, e.US)
 	pgtest.Exec(t, `UPDATE consolidation.run SET status = 'computed', computed_at = now(), version = version + 1 WHERE id = $1`, run)
 	pgtest.Exec(t, `UPDATE consolidation.run SET status = 'final', finalized_by = updated_by, finalized_at = now(), version = version + 1 WHERE id = $1`, run)
+	pgtest.Exec(t, `INSERT INTO consolidation.acquisition (tenant_id, group_code, legal_entity_id, origin, ownership_percent, first_fiscal_year,
+		first_fiscal_period, investment_account_id, local_currency, net_assets_lc, closing_rate, net_assets_gc, investment_gc, goodwill_gc, nci_gc, run_id,
+		created_by) SELECT tenant_id, 'GROUP', legal_entity_id, origin, 100, 2026, 1, investment_account_id, 'USD', net_assets_lc, closing_rate, net_assets_gc,
+		investment_gc, goodwill_gc, nci_gc, run_id, $2 FROM consolidation.run_acquisition WHERE run_id = $1`, run, who)
+	pgtest.Exec(t, `INSERT INTO consolidation.acquisition_equity (tenant_id, group_code, legal_entity_id, group_account, amount_gc)
+		VALUES ($1, 'GROUP', $2, 'G3000', -900)`, ten, e.US)
 }
 
 // supersededCarryForward gives company 2000 of e a retained earnings
@@ -158,12 +170,15 @@ func pastFirstStatesHeld(t *testing.T, tenant uuid.UUID) map[string]int64 {
 		"signed-off year closes": `SELECT count(*) FROM closing.year_close WHERE tenant_id = $1 AND status = 'signed_off'`,
 		"done year close tasks":  `SELECT count(*) FROM closing.year_close_task WHERE tenant_id = $1 AND status = 'done'`,
 		"year closes' ledgers":   `SELECT count(*) FROM closing.year_close_ledger WHERE tenant_id = $1`,
+		"year sign-offs":         `SELECT count(*) FROM closing.year_sign_off WHERE tenant_id = $1`,
 		"posted parked entries":  `SELECT count(*) FROM ledger.parked_entry WHERE tenant_id = $1 AND status = 'posted' AND journal_entry_id IS NOT NULL`,
 		"posted parked entries' lines": `SELECT count(*) FROM ledger.parked_entry_line l JOIN ledger.parked_entry p ON p.tenant_id = l.tenant_id
 			AND p.id = l.parked_entry_id WHERE l.tenant_id = $1 AND p.status = 'posted'`,
 		"final runs":           `SELECT count(*) FROM consolidation.run WHERE tenant_id = $1 AND status = 'final'`,
 		"translated members":   `SELECT count(*) FROM consolidation.run_member WHERE tenant_id = $1 AND translated_at IS NOT NULL`,
 		"final runs' balances": `SELECT count(*) FROM consolidation.run_balance WHERE tenant_id = $1`,
+		"frozen acquisitions": `SELECT count(*) FROM consolidation.acquisition a JOIN consolidation.acquisition_equity q USING (tenant_id, group_code,
+			legal_entity_id) WHERE a.tenant_id = $1`,
 		"superseded carry-forwards": `SELECT count(*) FROM ledger.carry_forward_run WHERE tenant_id = $1 AND status = 'superseded'
 			AND superseded_by_id IS NOT NULL`,
 		"current carry-forwards": `SELECT count(*) FROM ledger.carry_forward_run WHERE tenant_id = $1 AND status = 'current'`,
