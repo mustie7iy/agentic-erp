@@ -11626,7 +11626,7 @@ paths:
       tags:
         - payables
       summary: Post a supplier invoice
-      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an invoice changed after its match, including a hold and release by hand, is matched again, and an edit unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when documents posted on the order since (another invoice past the received quantity, a credit memo past the invoiced one), a change of the order or of the tolerances leave it with an issue its clean match, or the match its exception was approved on, did not have; the problem's `match_issues` are those issues."
+      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an invoice changed after its match, including a hold and release by hand, is matched again, and an edit unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when documents posted on the order since (another invoice past the received quantity, a credit memo past the invoiced one), a change of the order or of the tolerances leave it with an issue its clean match, or the match its exception was approved on, did not have; the problem's `match_issues` are those issues. A credit memo or subsequent credit naming an invoice (`reference_invoice_id`), on a purchase order or not, posts only while the gross amounts of the posted credit memos and subsequent credits naming that invoice, with its own `gross_amount`, do not exceed that invoice's `gross_amount`: 422 `payables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a reversed credit frees its amount; a credit naming no invoice has no such limit. It is checked under a lock on the named invoice, so of two credits posted at once that together exceed it one is refused."
       x-permission: payables.invoice.post
       x-problem-codes:
         - config.no_number_range
@@ -11683,6 +11683,7 @@ paths:
         - payables.already_captured
         - payables.amount_too_large
         - payables.amounts_mismatch
+        - payables.credit_exceeds_invoice
         - payables.duplicate_invoice
         - payables.invalid_status
         - payables.invalid_tax_code
@@ -24719,6 +24720,9 @@ components:
           items:
             $ref: "#/components/schemas/FailingCheck"
           description: "With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it again, with what it found (ADR-0058 §7)."
+        credit_limit:
+          $ref: "#/components/schemas/CreditLimit"
+          description: "With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount, what posted credits naming it already credit, and the gross amount of the one refused."
       examples:
         - type: "https://errors.example.com/request/not-found"
           title: Raise the tier 2 approval limit
@@ -24757,6 +24761,46 @@ components:
               tax:
                 amount: "19.00"
                 currency: EUR
+    CreditLimit:
+      type: object
+      description: "The figures of a credit memo or subsequent credit refused at `:post` because the posted credits naming its invoice, with it, would exceed that invoice's gross amount (422 `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's."
+      readOnly: true
+      required:
+        - invoice_id
+        - invoice_number
+        - invoice_gross
+        - credited
+        - attempted
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+          description: The invoice the credit names (its `reference_invoice_id`).
+        invoice_number:
+          type: string
+          description: That invoice's document number.
+        invoice_gross:
+          $ref: "#/components/schemas/Money"
+          description: That invoice's gross amount (`gross_amount`), the limit.
+        credited:
+          $ref: "#/components/schemas/Money"
+          description: "The gross amounts of the posted credit memos and subsequent credits naming that invoice; a reversed one is not counted."
+        attempted:
+          $ref: "#/components/schemas/Money"
+          description: The gross amount (`gross_amount`) of the credit refused.
+      additionalProperties: false
+      examples:
+        - invoice_id: 018f3c1e-7b2a-7c44-9d1e-2f6a5b0c9e11
+          invoice_number: "5100000042"
+          invoice_gross:
+            amount: "119.00"
+            currency: EUR
+          credited:
+            amount: "100.00"
+            currency: EUR
+          attempted:
+            amount: "19.01"
+            currency: EUR
     CodeTax:
       type: object
       description: The tax calculated at one tax code's rates.

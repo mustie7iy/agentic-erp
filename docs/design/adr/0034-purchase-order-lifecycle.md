@@ -684,3 +684,62 @@ purpose and this ADR's rules for released items settle the rest.
 - **Not carried yet.** `PurchaseOrderReleased` and the order's document
   for the supplier (ADR-0054) do not show it, and a migration run loads
   none: nothing asked for either.
+
+## As built (crlimit): credits naming an invoice stay within its gross (product owner 2026-11-10)
+
+A credit memo without a purchase order is not matched, so nothing held it
+to the invoice it names: an invoice of 119.00 took credit memos of 119.00
+and then 1,190.00 (review:batch62). The order-based rules hold quantities
+(`quantity_exceeds_invoiced`), not amounts. The product owner decided the
+rule on 2026-11-10:
+
+- **The rule.** The gross amounts of the posted credit memos and
+  subsequent credits naming an invoice, plus that of the one being posted,
+  may not exceed that invoice's gross amount; otherwise `:post` is refused
+  (422 `payables.credit_exceeds_invoice`) and the document stays parked.
+  The refusal carries its figures as `credit_limit` (04 §4.6, ADR-0052
+  decision D3): the invoice's id and number, its gross, the amount already
+  credited and the amount refused, each with the currency.
+- **Under the invoice's lock.** `:post` reads the named invoice `FOR
+  UPDATE` (ADR-0008; `FOR SHARE` before, which let two credits through
+  together) and sums the posted credits under it, so of two credits
+  posted at once the second waits and then counts the first. The
+  correction's row is locked before its invoice's and the invoice's
+  reversal does not lock the corrections, so the lock adds no cycle; the
+  order items are locked after both, as before.
+- **A reversed credit frees its amount**; a paid invoice is still
+  credited, since the limit is the gross and not the open amount.
+- **Every credit naming an invoice**, on a purchase order or not; the
+  order-based quantity rules are unchanged and apply in addition.
+- **A credit naming no invoice stays unlimited**, explicitly: no amount
+  limit applies to it.
+- No tolerance and no approval hold.
+
+**Decided by default**, each settled by what is already built:
+
+- *Only posted credits count.* A parked, held or approval-pending credit
+  is not counted; it is checked when it posts, under the lock, which is
+  where every other posting rule is decided again (`payables.match_outdated`
+  re-matches at `:post` for the same reason).
+- *A subsequent debit naming the invoice neither counts nor raises the
+  limit*: the rule names credit memos and subsequent credits, and the
+  limit is the invoice's own gross.
+- *Migrated documents count as posted documents do.* A correction SAP
+  held parked loads as a supplier invoice of its kind (T72b) and is
+  checked and counted like any other once posted here. SAP's posted
+  documents come over as journal entries (T72b2) and name no supplier
+  invoice, so there is none for them to count against.
+- *One currency.* A correction is in its invoice's currency
+  (`payables.invalid_reference_invoice`), so the amounts compare in
+  minor units without conversion.
+- *An application rule, no database constraint.* A constraint would need
+  a trigger summing other rows and would refuse rows that exist; credits
+  posted past their invoice before this rule stand as they are and count
+  against it, so nothing further posts against such an invoice. No
+  migration.
+- *`TestVAT201Golden`* credited 442,050.21 against an invoice of
+  21,000.00. Its credit memos of 31 March now name no invoice: credits
+  naming late invoices of one period can never take back more VAT than
+  those invoices carry, so they cannot make that period's shortfall, and
+  an invoice in the filed first quarter would change the signed-off
+  worked set (ADR-0049). The figures are unchanged.

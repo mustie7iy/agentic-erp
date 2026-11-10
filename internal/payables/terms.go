@@ -57,7 +57,7 @@ func (s storedTerms) terms() *ledger.ItemTerms {
 // payables.unknown_payment_term).
 func (e *Endpoints) invoiceTerms(ctx context.Context, tx pgx.Tx, v Invoice, sup partner.Supplier, order *procurement.Order) (*ledger.ItemTerms, error) {
 	if v.ReferenceInvoiceID != nil {
-		ref, err := load(ctx, tx, *v.ReferenceInvoiceID, false) // held FOR SHARE by requireReference
+		ref, err := load(ctx, tx, *v.ReferenceInvoiceID, false) // held FOR UPDATE by requireReference
 		return ref.Terms, err
 	}
 	if credits(v.Kind) {

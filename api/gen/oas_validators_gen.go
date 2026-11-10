@@ -22011,6 +22011,51 @@ func (s *CreateYearCloseUnprocessableEntity) Validate() error {
 	return nil
 }
 
+func (s *CreditLimit) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.InvoiceGross.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "invoice_gross",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Credited.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "credited",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Attempted.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "attempted",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
 func (s *CurrentPrincipal) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -46312,6 +46357,24 @@ func (s *Problem) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "failing_checks",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.CreditLimit.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "credit_limit",
 			Error: err,
 		})
 	}
