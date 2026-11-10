@@ -1654,7 +1654,18 @@ func (UnimplementedHandler) GetAssetAcquisition(ctx context.Context, params GetA
 // `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
 // token is issued only by asset. Read from one database state (a repeatable-read snapshot), so
 // `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
-// 404. Reads only.
+// 404. Reads only. Every row and `totals` reconcile for cost, for accumulated depreciation and for the
+// carrying amount: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`;
+// `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` +
+// `transfers_accumulated`; a net book value is its cost plus its accumulated depreciation. These are
+// the lines of IAS 16.73(d) and (e) the system holds data for (accounting specialist, 2026-11-09,
+// B14): the gross carrying amount and accumulated depreciation at the beginning and end of the year,
+// additions, disposals with the cost and the accumulated depreciation they removed, depreciation for
+// the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed
+// (none are posted), acquisitions through business combinations (none are recorded), and net exchange
+// differences on translation, which belong to a consolidated sheet in the group's presentation
+// currency; the sheet is one company's in its local currency. An asset classified as held for sale
+// stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired.
 //
 // GET /v1/asset-history-sheet
 func (UnimplementedHandler) GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (r GetAssetHistorySheetRes, _ error) {

@@ -1040,7 +1040,9 @@ and useful lives or rates per class, usually notes text. The sheet above
 already has the opening and closing cost and accumulated depreciation, the
 year's depreciation and what retirements and transfers took; the question
 put to the specialist named fewer columns than are built. Missing are the
-impairment, business combination and translation lines (a tracker leaf).
+impairment and translation lines (a tracker leaf each) and the business
+combination line (left out while the pilot's subsidiaries are incorporated,
+not acquired); the product owner's decision is under As built (B14).
 
 ### 10. API and events (contract first)
 Paths, in `api/openapi.yaml` (problem codes as `x-problem-codes`; writes
@@ -2709,3 +2711,50 @@ the product owner to overrule:
   §8), whose period counts in full, and the sender's share leaves at the
   start of that period; the test proves the month is depreciated once.
 
+**B14 (the history sheet's available IAS 16.73 lines, po:2026-11-09).**
+The product owner decided the specialist's list "as recommended": build
+now, from data the system holds, the opening accumulated depreciation, the
+depreciation for the year and disposals showing the cost and the
+accumulated depreciation removed, so each class and asset reconciles from
+opening to closing for cost and for accumulated depreciation, and to the
+carrying amount; impairment and the consolidated sheet later.
+- **No column was added.** T57i's sheet already carries the three:
+  `opening_accumulated`, `depreciation`, and `retirements` (cost removed,
+  negative) with `retirements_accumulated` (accumulated depreciation
+  removed, positive), per row and in `totals`, read from the year totals
+  (§9; the tracker leaf of 2026-11-09 said so). The names stay: a rename
+  would break the contract for no new figure. Decided by default
+  (ADR-0053 d), for the product owner to overrule.
+- **Built:** the contract states the reconciliation (`closing_cost` =
+  `opening_cost` + `acquisitions` + `retirements` + `transfers`;
+  `closing_accumulated` = `opening_accumulated` + `depreciation` +
+  `retirements_accumulated` + `transfers_accumulated`; a net book value is
+  cost plus accumulated depreciation), which lines of IAS 16.73(d) and (e)
+  the sheet carries and which it does not (`getAssetHistorySheet`,
+  `AssetHistorySheetRow`, `AssetHistorySheetValues`; descriptions only);
+  `TestAssetHistorySheetReconciles` proves it for every row by class and by
+  asset and for the totals over two fiscal years, with an asset acquired in
+  the year, one sold in it, one with a change in estimate (T57j) and one
+  held for sale (T57k), each row also equal to its movements by column and
+  a year opening with the closing values of the one before; walkthrough
+  steps 34 (`sheet_reconciles` by class and by asset, the retired press's
+  row) and 45 (the lathe's and the milling machine's rows after the change
+  in estimate and the classification). The sheet's queries are unchanged.
+- **Held for sale stays on its row.** T57k stops the depreciation and
+  moves no value (As built, T57k), so the sheet shows a held-for-sale asset
+  in its class with the cost unchanged until its retirement, whose line is
+  `retirements`; no separate line for a reclassification to held for sale
+  is built (IAS 16.73(e)(ii) names the two together, in the specialist's
+  list; the presentation of held-for-sale assets apart from property,
+  plant and equipment is IFRS 5's, from memory, for a specialist).
+- **Not built, a tracker leaf each (po:2026-11-09), both before the
+  pilot's first year end:** impairment postings (losses recognised and
+  reversed) with their sheet lines; a consolidated sheet in the group's
+  presentation currency with net exchange differences on translation.
+- **The business combination line is left out** while the pilot
+  customer's planning default D11 holds (the subsidiaries incorporated by
+  the parent, not acquired; ADR-0059): no asset then enters through a
+  business combination. If a subsidiary is acquired, the line is needed.
+- **IAS 16.73(a)-(c)** (measurement basis, methods, useful lives or rates
+  per class, usually notes text) stays an open tracker leaf: the decision
+  on B14 does not name it.

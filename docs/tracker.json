@@ -1275,9 +1275,30 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The asset history sheet's available IAS 16.73 lines (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): opening accumulated depreciation, depreciation for the year, and disposals showing the cost and the accumulated depreciation removed, so every class and asset reconciles from opening to closing for cost, for accumulated depreciation and to the carrying amount. The columns were built by T57i (opening_accumulated, depreciation, retirements, retirements_accumulated); this step states the reconciliation and the lines left out in the contract and proves it for an asset acquired in the year, one disposed of in it, one with a change in estimate (T57j) and one held for sale (T57k)",
+        "r": "GET /v1/asset-history-sheet (getAssetHistorySheet, AssetHistorySheetRow, AssetHistorySheetValues: the reconciliation and the lines not carried, described; no column added or renamed) · TestAssetHistorySheetReconciles · walkthrough step_asset_history_sheet (step 34, sheet_reconciles by class and by asset, the retired press's row) and step_asset_held_for_sale (step 45, the lathe's and the milling machine's rows) · ADR-0057 §9, As built (B14) · 04-api-design",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "The asset history sheet's missing IAS 16.73 lines (accounting specialist, po:2026-11-09, B14): impairment losses recognised and reversed, acquisitions through business combinations, and net exchange differences on translation for the consolidated schedule in the group's presentation currency; and IAS 16.73(a)-(c) per class (measurement basis, methods, useful lives or rates) as notes text. The opening accumulated depreciation, the year's depreciation and the cost and accumulated depreciation retirements remove, which the answer lists as missing, are already columns (ADR-0057 §9: the question named fewer lines than are built)",
-        "r": "ADR-0057 §9 (answered) · GET /v1/asset-history-sheet",
+        "t": "Impairment of assets and its history sheet lines, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): postings of impairment losses recognised and reversed on an asset per ledger, and the sheet's lines for them, accumulated depreciation shown with accumulated impairment. Not built: the assets context posts no impairment today (ADR-0057 §1)",
+        "r": "ADR-0057 §1, §9, As built (B14) · GET /v1/asset-history-sheet",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A consolidated asset history sheet in the group's presentation currency with net exchange differences on translation, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(e)): today's sheet is one company's in its local currency",
+        "r": "ADR-0057 §9, As built (B14) · ADR-0059 · GET /v1/asset-history-sheet",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "IAS 16.73(a)-(c) per asset class as notes text (accounting specialist, po:2026-11-09, B14): the measurement basis, the depreciation methods and the useful lives or rates, the remainder of the leaf on the sheet's missing lines; the product owner's decision of 2026-11-09 on B14 names neither a date nor a form for it",
+        "r": "ADR-0057 §9 (answered), As built (B14) · GET /v1/asset-classes",
         "src": "po:2026-11-09",
         "c": []
        }

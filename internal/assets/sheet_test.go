@@ -334,3 +334,113 @@ func TestAssetHistorySheetRefused(t *testing.T) {
 	e.Problem(400, "request.invalid_page_token", "GET", path+"&group_by=asset&class=LAND&page_token="+token, "", "")
 	e.Problem(400, "request.invalid_parameter", "GET", path+"&group_by=ledger", "", "")
 }
+
+// reconcileScene is company 2000's machines as IAS 16.73(e) names their
+// lines (po:2026-11-09, B14), in 0L over two fiscal years, 1,200.00 each
+// from June 2026 at 10.00 a month:
+//   - the mill, with a change in estimate from September 2026 (T57j: 60
+//     months, residual 180.00, so 17.37 a month from then);
+//   - the press, held for sale from September 2026 (T57k: nothing from
+//     then);
+//   - the lathe, sold in July 2026 (disposed of in the year);
+//   - the saw, depreciating as planned;
+//   - the drill, acquired in February 2027 (600.00).
+//
+// June's run, then December's (July to December caught up on the terms
+// in force in each period), then January 2027's.
+type reconcileScene struct {
+	assetEnv
+	mill, press, lathe, saw, drill string
+}
+
+func newReconcileScene(t *testing.T) reconcileScene {
+	t.Helper()
+	s := reconcileScene{assetEnv: newRunsWith(t, withNextYear)}
+	s.mill, _ = s.depreciable(t, "Mill")
+	s.press, _ = s.depreciable(t, "Press")
+	s.lathe, _ = s.depreciable(t, "Lathe")
+	s.saw, _ = s.depreciable(t, "Saw")
+	_, run := s.start(t, s.l0, 6)
+	s.carry(t, run)
+	_, tag := s.Must(200, "GET", "/v1/assets/"+s.mill, "", "")
+	s.Must(200, "PATCH", "/v1/assets/"+s.mill, estimate(s.l0, 9, `, "useful_life_months": 60, "residual_value": {"amount": "180.00", "currency": "EUR"}`), tag)
+	_, tag = s.Must(200, "GET", "/v1/assets/"+s.press, "", "")
+	s.Must(200, "PATCH", "/v1/assets/"+s.press, heldForSale(s.l0, 9), tag)
+	s.retire(t, s.lathe, `"kind": "sale", "proceeds": {"amount": "700.00", "currency": "EUR"}, "posting_date": "2026-07-15"`)
+	_, run = s.start(t, s.l0, 12)
+	s.carry(t, run)
+	_, run = s.startIn(t, s.l0, 2027, 1)
+	s.carry(t, run)
+	entry := s.post(t, "2000", "2027-02-10", "EUR", nil, line{"169000", "600.00"}, line{"100000", "-600.00"})
+	drill, _ := s.create(t, fmt.Sprintf(`{"legal_entity_id": %q, "class_code": "MACHINES", "description": "Drill", "cost_center_id": %q}`, s.DE, s.c.Admin))
+	s.drill = drill["id"].(string)
+	s.acquire(t, s.drill, entry, 1, `, "posting_date": "2027-02-10"`)
+	return s
+}
+
+// reconciles checks a row's (or the totals') reconciliation from opening
+// to closing: cost, accumulated depreciation and the net book values.
+func reconciles(t *testing.T, what string, v map[string]any) {
+	t.Helper()
+	c := func(column string) int64 { return cents(t, amount(v[column])) }
+	want(t, what+": closing cost, the opening cost plus the year's movements", c("closing_cost"),
+		c("opening_cost")+c("acquisitions")+c("retirements")+c("transfers"))
+	want(t, what+": closing accumulated depreciation, the opening plus the year's movements", c("closing_accumulated"),
+		c("opening_accumulated")+c("depreciation")+c("retirements_accumulated")+c("transfers_accumulated"))
+	want(t, what+": opening net book value, cost plus accumulated depreciation", c("opening_net_book_value"), c("opening_cost")+c("opening_accumulated"))
+	want(t, what+": closing net book value, cost plus accumulated depreciation", c("closing_net_book_value"), c("closing_cost")+c("closing_accumulated"))
+}
+
+// TestAssetHistorySheetReconciles (po:2026-11-09, B14; IAS 16.73(d), (e)):
+// every row of the sheet, by class and by asset, and its totals reconcile
+// from opening to closing for cost, for accumulated depreciation and for
+// the carrying amount, with an asset acquired in the year, one disposed
+// of in it (the cost and the accumulated depreciation removed), one with
+// a change in estimate and one held for sale; the rows are the movements'
+// by column, and a year opens with the closing values of the one before.
+func TestAssetHistorySheetReconciles(t *testing.T) {
+	s := newReconcileScene(t)
+	for _, year := range []int{2026, 2027} {
+		for _, by := range []string{"class", "asset"} {
+			t.Run(fmt.Sprint(year, " by ", by), func(t *testing.T) {
+				sheet := s.sheet(t, fmt.Sprintf("&fiscal_year=%d&group_by=%s", year, by))
+				for i, it := range sheet["items"].([]any) {
+					reconciles(t, fmt.Sprint("row ", i+1), it.(map[string]any))
+				}
+				reconciles(t, "the totals", sheet["totals"].(map[string]any))
+			})
+		}
+	}
+	first := s.sheet(t, "&fiscal_year=2026&group_by=asset")
+	want(t, "2026 by asset: all acquired in the year; the mill's change in estimate, the press held for sale, the lathe sold",
+		strings.Join(sheetRows(first), "; "), strings.Join([]string{
+			"1 MACHINES: 0.00 1200.00 0.00 0.00 1200.00 0.00 -99.48 0.00 0.00 -99.48 0.00 1100.52",
+			"2 MACHINES: 0.00 1200.00 0.00 0.00 1200.00 0.00 -30.00 0.00 0.00 -30.00 0.00 1170.00",
+			"3 MACHINES: 0.00 1200.00 -1200.00 0.00 0.00 0.00 -10.00 10.00 0.00 0.00 0.00 0.00",
+			"4 MACHINES: 0.00 1200.00 0.00 0.00 1200.00 0.00 -70.00 0.00 0.00 -70.00 0.00 1130.00"}, "; "))
+	second := s.sheet(t, "&fiscal_year=2027&group_by=asset")
+	want(t, "2027 by asset: opening with 2026's closing values, the lathe gone, the press not depreciated, the drill acquired",
+		strings.Join(sheetRows(second), "; "), strings.Join([]string{
+			"1 MACHINES: 1200.00 0.00 0.00 0.00 1200.00 -99.48 -17.37 0.00 0.00 -116.85 1100.52 1083.15",
+			"2 MACHINES: 1200.00 0.00 0.00 0.00 1200.00 -30.00 0.00 0.00 0.00 -30.00 1170.00 1170.00",
+			"4 MACHINES: 1200.00 0.00 0.00 0.00 1200.00 -70.00 -10.00 0.00 0.00 -80.00 1130.00 1120.00",
+			"5 MACHINES: 0.00 600.00 0.00 0.00 600.00 0.00 0.00 0.00 0.00 0.00 0.00 600.00"}, "; "))
+	for year, sheet := range map[int]map[string]any{2026: first, 2027: second} {
+		rows := sheetRows(sheet)
+		for i, a := range s.shown(year) {
+			want(t, fmt.Sprint(year, ": row ", i+1, ", its movements by column"), rows[i][strings.Index(rows[i], ": ")+2:], s.expected(t, s.l0, year, a))
+		}
+		want(t, fmt.Sprint(year, ": the totals, every asset's movements"), sheetLine(sheet["totals"].(map[string]any)),
+			s.expected(t, s.l0, year, s.mill, s.press, s.lathe, s.saw, s.drill))
+	}
+	want(t, "year totals that differ from their movements' sums", totalsDiffer(t, s.Tenant.ID), 0)
+}
+
+// shown are the assets on the year's sheet by number: all but the drill
+// in 2026, all but the lathe, sold, in 2027.
+func (s reconcileScene) shown(year int) []string {
+	if year == 2026 {
+		return []string{s.mill, s.press, s.lathe, s.saw}
+	}
+	return []string{s.mill, s.press, s.saw, s.drill}
+}

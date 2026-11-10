@@ -6320,7 +6320,12 @@ func (s *AssetHistorySheet) SetNextPageToken(val OptString) {
 
 func (*AssetHistorySheet) getAssetHistorySheetRes() {}
 
-// One row of the asset history sheet: an asset class, or an asset with its class, and its values.
+// One row of the asset history sheet: an asset class, or an asset with its class, and its values, the
+// columns of `AssetHistorySheetValues` with the same signs. The row reconciles: `closing_cost` =
+// `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` =
+// `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`;
+// `opening_net_book_value` = `opening_cost` + `opening_accumulated`; `closing_net_book_value` =
+// `closing_cost` + `closing_accumulated`.
 // Ref: #/components/schemas/AssetHistorySheetRow
 type AssetHistorySheetRow struct {
 	// The asset class (`GET /v1/asset-classes`).
@@ -6534,7 +6539,8 @@ func (s *AssetHistorySheetRow) SetClosingNetBookValue(val Money) {
 // (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing
 // cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated
 // depreciation retirements took (positive) and transfers moved, closing accumulated depreciation;
-// opening and closing net book value.
+// opening and closing net book value. They reconcile as each row does: a closing value is its opening
+// value plus the year's columns, and a net book value is its cost plus its accumulated depreciation.
 // Ref: #/components/schemas/AssetHistorySheetValues
 type AssetHistorySheetValues struct {
 	OpeningCost            Money `json:"opening_cost"`

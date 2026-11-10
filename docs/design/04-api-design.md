@@ -342,7 +342,12 @@ currency, a movement counted in the fiscal year it was posted in. By class
 in the year nor an opening value is left out. `totals` sums every row the
 filters (`class`) select, on every page, and the closing values of a
 company's classes equal the ledger's balances of their asset accounts. It
-reads year totals the postings keep, so it is exact at the read.
+reads year totals the postings keep, so it is exact at the read. Every row
+and the totals reconcile from opening to closing for cost and for
+accumulated depreciation, and a net book value is cost plus accumulated
+depreciation (IAS 16.73(d), (e); po:2026-11-09, B14); the impairment,
+business combination and translation lines are not on it (ADR-0057, As
+built, B14).
 
 Tax registrations (ADR-0049 §10, T61g) are the tax filing context's,
 read-only: the configuration sets them up. `GET /v1/tax-registrations`

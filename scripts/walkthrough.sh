@@ -5099,6 +5099,12 @@ step_asset_held_for_sale() {
   api 200 '.periods[] | select(.period == '"$next"') | "  the machine, \(.fiscal_year)/\(.period): planned \(.planned.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
     getAssetSchedule -p "id=$mill" -p "fiscal_year=$year"
   expect "no depreciation from the next period" "$(field ".periods[] | select(.period == $next) | .planned.amount")" 0.00
+  say "The asset history sheet keeps both on their rows, the lathe with its change in estimate (step 44) and the machine"
+  say "held for sale, each reconciling from opening to closing (po:2026-11-09, B14):"
+  api 200 '.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
+  expect "the lathe and the machine on the sheet" "$(field '[.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | .description] | unique | join(", ")')" "CNC lathe, CNC milling machine"
+  sheet_reconciles "by asset, after the change in estimate and the classification"
   passed
 }
 
@@ -6363,9 +6369,24 @@ step_cash_orders() {
   passed
 }
 
+# sheet_reconciles WHAT checks the asset history sheet just read (ADR-0057
+# §9; po:2026-11-09, B14; IAS 16.73(d), (e)): every row and the totals
+# reconcile from opening to closing for cost and for accumulated
+# depreciation, and each net book value is its cost plus its accumulated
+# depreciation.
+sheet_reconciles() {
+  expect "$1: rows and totals that do not reconcile from opening to closing" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
+    [(.items[], .totals) | select(
+      (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) != (.closing_cost | c)
+      or (.opening_accumulated | c) + (.depreciation | c) + (.retirements_accumulated | c) + (.transfers_accumulated | c) != (.closing_accumulated | c)
+      or (.opening_cost | c) + (.opening_accumulated | c) != (.opening_net_book_value | c)
+      or (.closing_cost | c) + (.closing_accumulated | c) != (.closing_net_book_value | c))] | length')" 0
+}
+
 # step_asset_history_sheet reads the year's asset history sheet by class and by
 # asset and checks its closing values against the trial balance (T57i,
-# ADR-0057 §9).
+# ADR-0057 §9), and that every row reconciles from opening to closing
+# (po:2026-11-09, B14).
 step_asset_history_sheet() {
   heading "Step 34 — The asset history sheet: the year's acquisitions, depreciation, retirements and transfers by class; its closing values the trial balance's asset accounts"
   as carla
@@ -6384,6 +6405,9 @@ step_asset_history_sheet() {
   expect "the tool set's cost, transferred from the milling machine" \
     "$(field '[.items[] | .transfers.amount] | join(" ")')" "$(field '"-\(.items[1].transfers.amount) \(.items[1].transfers.amount)"')"
   expect "the year's depreciation" "$(field '.totals.depreciation.amount | startswith("-")')" true
+  say "Each class reconciles from opening to closing, for cost and for accumulated depreciation, and so do the totals"
+  say "(IAS 16.73(d), (e); po:2026-11-09, B14): closing = opening + the year's columns, net book value = cost + accumulated."
+  sheet_reconciles "by class"
   cp "$WORK/last.json" "$WORK/sheet.json"
   say "Only assets post to the acquisition cost and accumulated depreciation accounts (step 19), so the sheet's closing"
   say "values are those accounts' balances in the trial balance: debits less credits of every period so far (the"
@@ -6409,6 +6433,13 @@ step_asset_history_sheet() {
   api 200 '.items[] | "  \(.asset_number) \(.description) (\(.class_code), \(.status)): cost \(.closing_cost.amount), accumulated \(.closing_accumulated.amount), net \(.closing_net_book_value.amount)"' \
     getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
   expect "one page of assets" "$(field '.next_page_token // "none"')" none
+  say "Every asset reconciles too: the press of step 31, disposed of this year, shows the cost and the accumulated"
+  say "depreciation its retirement removed, and closes with neither:"
+  field '.items[] | select(.status == "retired") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + acquired \(.acquisitions.amount) + retired \(.retirements.amount) + transferred \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + retired \(.retirements_accumulated.amount) + transferred \(.transfers_accumulated.amount) = \(.closing_accumulated.amount)"'
+  expect "the retired assets' closing values" "$(field '[.items[] | select(.status == "retired") | "\(.closing_cost.amount) \(.closing_accumulated.amount)"] | unique | join(", ")')" "0.00 0.00"
+  expect "an asset acquired this year: no opening cost, its acquisition its closing cost less what left it" \
+    "$(field '[.items[] | select(.opening_cost.amount == "0.00" and .acquisitions.amount != "0.00")] | length > 0')" true
+  sheet_reconciles "by asset"
   for cols in closing_cost closing_accumulated; do
     expect "the assets' $cols, the total" "$(field "[.items[].$cols.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")" \
       "$(field ".totals.$cols.amount | sub(\"\\\\.\"; \"\") | tonumber")"
