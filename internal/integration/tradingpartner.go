@@ -208,7 +208,7 @@ func (q *qualityCheck) otherLines() {
 		"company that is no legal entity"
 	if q.t.balances {
 		outcome = "They load without one in the opening entry, whose account balances take none whatever its vendor items name; in a document " +
-			"that posts on its own (a down payment's, an item in a foreign currency) with the trading partner its vendors share, or without " +
+			"that posts on its own (a down payment's, an item in a foreign currency) they load with the trading partner its vendors share, or without " +
 			"one where those name different ones, none or a company that is no legal entity"
 	}
 	for _, cc := range sortedKeys(differing) {

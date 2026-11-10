@@ -145,7 +145,7 @@ func TestTradingPartnersReported(t *testing.T) {
 				tpLine("0100000050", "000002", "0000100000", "10.00", "", "001000")}, want: []string{
 				"ACDOCA 2000: journal lines of company 2000 that carry another trading partner (ACDOCA-RASSC) than their document's vendor lines give " +
 					"them: lines 1, documents 1. They load without one in the opening entry, whose account balances take none whatever its vendor " +
-					"items name; in a document that posts on its own (a down payment's, an item in a foreign currency) with the trading partner " +
+					"items name; in a document that posts on its own (a down payment's, an item in a foreign currency) they load with the trading partner " +
 					"its vendors share, or without one where those name different ones, none or a company that is no legal entity"}},
 		{name: "none anywhere", lines: []sap.ACDOCA{tpLine("0100000050", "000001", "0000211000", "-10.00", "0000000001", ""),
 			tpLine("0100000050", "000002", "0000100000", "10.00", "", "")}},
@@ -240,7 +240,9 @@ func (r partnerPayables) OpenPayablesByTradingPartner(context.Context, uuid.UUID
 // legal entity or is none counts for no trading partner; a failed read
 // fails the reconciliation.
 func TestTradingPartnerReconciliation(t *testing.T) {
-	us, de, other := uuid.New(), uuid.New(), uuid.New()
+	// other sorts after "trading partner 1000" whatever the ids drawn: the
+	// differences come in key order.
+	us, de, other := uuid.New(), uuid.New(), uuid.MustParse("f0000000-0000-7000-8000-000000000001")
 	tg := target{year: 2026, partners: map[string]groupCompany{"1000": {code: "1000", id: us}, "2000": {code: "2000", id: de},
 		"6000": {code: "6000", why: "is company code 6000, which is no legal entity of the tenant"}}}
 	s := companyScope{cc: "2000", le: de, cur: "EUR", format: func(v money.Minor) string { return v.Plain(2) + " EUR" }}
