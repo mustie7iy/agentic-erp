@@ -11,6 +11,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"slices"
@@ -603,18 +604,16 @@ type PaymentMethod struct {
 // then the others as the document lists them. Validation keeps the orders
 // given distinct, so the order is total.
 func (c *Company) MethodsInRunOrder() []PaymentMethod {
-	out := slices.Clone(c.PaymentMethods)
-	slices.SortStableFunc(out, func(a, b PaymentMethod) int {
-		switch {
-		case a.Order != 0 && b.Order != 0:
-			return cmp.Compare(a.Order, b.Order)
-		case a.Order != 0:
-			return -1
-		case b.Order != 0:
-			return 1
+	// A method without an order sorts as if it had the last one; the sort
+	// is stable, so those keep the document's order among themselves.
+	place := func(m PaymentMethod) int {
+		if m.Order == 0 {
+			return math.MaxInt
 		}
-		return 0
-	})
+		return m.Order
+	}
+	out := slices.Clone(c.PaymentMethods)
+	slices.SortStableFunc(out, func(a, b PaymentMethod) int { return cmp.Compare(place(a), place(b)) })
 	return out
 }
 

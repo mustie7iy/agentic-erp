@@ -1843,8 +1843,10 @@ method_order() {
     "$(field '.items[] | select(.supplier_name == "Laurentian Paper") | "\(.payment_method) \(.house_bank_code)"')" "W RBC"
   expect "the methods of the suppliers allowing bank transfer alone" \
     "$(field '[.items[] | select(.supplier_name != "Laurentian Paper") | "\(.payment_method) \(.house_bank_code)"] | unique | join(", ")')" "T MAIN"
-  say "A supplier no method of the run can pay is left out, with the reason:"
+  say "The run's exclusions, each with its reason (a supplier no ranked bank could pay by a method of its own"
+  say "would be here with no_house_bank; every supplier of this run allows T or W):"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_name)"' listPaymentExclusions -p "id=$run" -p page_size=100
+  expect "suppliers left out for want of a ranked house bank" "$(field '[.items[] | select(.reason_code == "no_house_bank")] | length')" 0
   say "The pilot pays from its RBC account, so Tara, who releases runs, rejects this one; its items are free again."
   as tara
   api 200 '"run \(.document_number): \(.status)"' rejectPaymentRun -p "id=$run" -if-match "$etag" -body '{"reason": "Shown for the method order; the run from RBC pays these"}'
