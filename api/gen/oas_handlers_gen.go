@@ -19847,17 +19847,18 @@ func (s *Server) handleFileTaxReturnRequest(args [1]string, argsEscaped bool, w 
 // `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
 // sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
 // `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
-// moved since the run read its figures, so run the group again). The first final run including a
-// member freezes its acquisition figures (its `acquisition`), which every later run of the group reads
-// instead of measuring them; finalizing a run whose figures for a member differ from those another
-// final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the
-// group again). Finalizations of one group and period wait for each other, so the second sees the
-// first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch`
-// when it or its differences moved since). Each run that changes is published as
-// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
-// act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the
-// caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403
-// `identity.permission_missing` otherwise). Human-only.
+// moved since the run read its figures, or the previous fiscal year's last period was finalized after
+// the run started, so that its translation reserve no longer opens from the group's final run of it;
+// run the group again). The first final run including a member freezes its acquisition figures (its
+// `acquisition`), which every later run of the group reads instead of measuring them; finalizing a run
+// whose figures for a member differ from those another final run froze since it was computed is
+// refused (409 `consolidation.acquisition_changed`: run the group again). Finalizations of one group
+// and period wait for each other, so the second sees the first's final run and supersedes it.
+// `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved
+// since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group
+// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+// Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows
+// figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
 //
 // POST /v1/consolidation-runs/{id}:finalize
 func (s *Server) handleFinalizeConsolidationRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

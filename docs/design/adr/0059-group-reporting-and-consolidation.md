@@ -664,7 +664,10 @@ locked but at another version, so the period changed since the figures
 were read and they may no longer be the ledger's (the version also moves
 on an unlock request and its rejection, which post nothing: stale then
 errs on the safe side, and `consolidation.run_stale`'s detail names a
-pending unlock request when there is one). A stale run cannot be finalized, and a stale final run says so
+pending unlock request when there is one); and when the group's final
+run of the previous fiscal year's period 12 is no longer the one its
+translation reserve opens from (As built: other comprehensive income).
+A stale run cannot be finalized, and a stale final run says so
 on every read; a new run after the relock supersedes it.
 
 ### 11. Consolidated statements
@@ -1951,7 +1954,14 @@ to overrule:
   it is final when named) and the statement shows (`opening_run_id`).
   Recorded rather than looked up at each read, so a run's statement never
   changes when that period is finalized again or its final run
-  superseded: the statement reads stored rows alone (§11, §14). Without
+  superseded: the statement reads stored rows alone (§11, §14). It says
+  so instead: a run is stale (§10) when the group's final run of that
+  period now is not the one it opened from (finalized after the run
+  started, as when January is run before December is final; finalized
+  again, superseding it; or missed by a finalization racing the run's
+  start), on the run's reads and its statements, and its finalization is
+  refused (409 `consolidation.run_stale`, naming both runs) until the
+  group is run again. Without
   such a run the reserve opens at zero and the year's difference is the
   whole reserve: the first fiscal year a group is consolidated in, as the
   product owner decided for go-live (po:2026-11-05, question 4: the

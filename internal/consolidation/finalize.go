@@ -91,8 +91,9 @@ func moved(r Run, ms []Member, now map[periodKey]Period) []Member {
 	return out
 }
 
-// staleOf reads whether a run is stale; ok is false while a company of it
-// is not translated.
+// staleOf reads whether a run is stale: a company's period changed
+// (moved) or the run its reserve opens from did (reopened); ok is false
+// while a company of it is not translated.
 func (e *Endpoints) staleOf(ctx context.Context, tx pgx.Tx, r Run) (stale, ok bool, err error) {
 	ms, err := members(ctx, tx, []uuid.UUID{r.ID})
 	if err != nil {
@@ -102,7 +103,11 @@ func (e *Endpoints) staleOf(ctx context.Context, tx pgx.Tx, r Run) (stale, ok bo
 	if err != nil || !translated(ms[r.ID]) {
 		return false, false, err
 	}
-	return len(moved(r, ms[r.ID], now)) > 0, true, nil
+	openings, err := openingsNow(ctx, tx, []Run{r})
+	if err != nil {
+		return false, false, err
+	}
+	return len(moved(r, ms[r.ID], now)) > 0 || reopened(r, openings), true, nil
 }
 
 // FinalizeConsolidationRun implements POST
@@ -190,7 +195,16 @@ func (e *Endpoints) finalizable(ctx context.Context, tx pgx.Tx, r Run) error {
 	if err := locked(r, ms[r.ID], now); err != nil {
 		return err
 	}
-	return fresh(r, ms[r.ID], now)
+	if err := fresh(r, ms[r.ID], now); err != nil {
+		return err
+	}
+	openings, err := openingsNow(ctx, tx, []Run{r})
+	if err != nil || !reopened(r, openings) {
+		return err
+	}
+	return problem.Conflict("consolidation.run_stale", fmt.Sprintf("The final run of group %s for %d/12, which the translation reserve of run %s opens "+
+		"from, changed since the run started: it opened from %s, and the final run is now %s. Run the group again and finalize the new run.",
+		r.GroupCode, r.FiscalYear-1, r.ID, runOrNone(r.OpeningRunID), runOrNone(openings[r.ID])))
 }
 
 // locked refuses a run a company's period was not locked in when the run

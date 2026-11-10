@@ -21716,7 +21716,9 @@ type ConsolidatedStatement struct {
 	// accept and preserve values not listed here; values may be added within /v1.
 	RunStatus string `json:"run_status"`
 	// The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read
-	// its figures, so they may no longer be the ledger's (ADR-0059 §10).
+	// its figures, so they may no longer be the ledger's, or the group's final run of the previous fiscal
+	// year's last period is no longer `opening_run_id`, so other comprehensive income is no longer the
+	// year's change (ADR-0059 §10).
 	Stale bool `json:"stale"`
 	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
@@ -21730,7 +21732,8 @@ type ConsolidatedStatement struct {
 	// (`GET /v1/consolidation-runs/{id}`) as this run found it when it started, whose translation
 	// differences are the reserve's opening balances; absent when the group had none, so the reserve opens
 	// at zero (the first fiscal year the group is consolidated in; a run started before the statement
-	// showed other comprehensive income), and on the balance sheet.
+	// showed other comprehensive income). When that period is finalized, or finalized again, after this
+	// run started, the run is `stale`. Absent on the balance sheet.
 	OpeningRunID OptUUID `json:"opening_run_id"`
 	// The profit and loss's: the translation reserve of every company of the run, by company code, on
 	// every page; their `difference`s sum to the `reported` column of `totals.other_comprehensive_income`.
@@ -23372,9 +23375,12 @@ type ConsolidationRun struct {
 	DifferenceCounts []ConsolidationDifferenceCount `json:"difference_counts"`
 	// Whether a company's leading-ledger period changed since the run read its figures: its version now
 	// differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and
-	// a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final
-	// but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent
-	// until every company of the run is translated.
+	// a relock, or an unlock request; or whether the group's final run of the previous fiscal year's last
+	// period is no longer the one the run's translation reserve opens from
+	// (`ConsolidatedStatement.opening_run_id`): that period was finalized, or finalized again, after the
+	// run started, so its other comprehensive income is no longer the year's change. A stale run cannot be
+	// finalized, and a stale final run stays final but no longer shows the ledger's figures; a new run of
+	// the period, finalized, supersedes it. Absent until every company of the run is translated.
 	Stale OptBool `json:"stale"`
 	// Who finalized it (`:finalize`); absent unless it is final or superseded.
 	FinalizedBy OptUUID `json:"finalized_by"`

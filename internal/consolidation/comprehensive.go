@@ -65,7 +65,9 @@ type comprehensive struct {
 // openingRun finds the run a run's translation reserve opens from: the
 // group's final run of the previous fiscal year's last period, if any,
 // kept from being superseded until the run that names it has recorded it
-// (FOR SHARE; a finalization locks its period's runs FOR UPDATE).
+// (FOR SHARE; a finalization locks its period's runs FOR UPDATE). A
+// finalization of that period after this read makes the run stale
+// (reopened).
 func openingRun(ctx context.Context, tx pgx.Tx, r Run) (*uuid.UUID, error) {
 	year, period := previousPeriod(r.FiscalYear, 1)
 	var id uuid.UUID
@@ -75,6 +77,49 @@ func openingRun(ctx context.Context, tx pgx.Tx, r Run) (*uuid.UUID, error) {
 		return nil, nil
 	}
 	return &id, errs.Wrapf(err, "consolidation: the opening run of run %s", r.ID)
+}
+
+// openingsNow are, by run, the group's final run of the previous fiscal
+// year's last period as it is now, for the runs that have one: what a
+// run started now would open from (openingRun).
+func openingsNow(ctx context.Context, tx pgx.Tx, rs []Run) (map[uuid.UUID]*uuid.UUID, error) {
+	ids := make([]uuid.UUID, len(rs))
+	for i, r := range rs {
+		ids[i] = r.ID
+	}
+	rows, _ := tx.Query(ctx, `SELECT r.id, o.id FROM consolidation.run r
+		JOIN consolidation.run o ON o.tenant_id = r.tenant_id AND o.group_code = r.group_code AND o.fiscal_year = r.fiscal_year - 1
+			AND o.fiscal_period = 12 AND o.status = 'final'
+		WHERE r.id = ANY($1)`, ids)
+	out := map[uuid.UUID]*uuid.UUID{}
+	var run, opening uuid.UUID
+	_, err := pgx.ForEachRow(rows, []any{&run, &opening}, func() error {
+		id := opening
+		out[run] = &id
+		return nil
+	})
+	return out, errs.Wrapf(err, "consolidation: the opening runs of %d runs now", len(rs))
+}
+
+// reopened reports whether the run a run's reserve opens from is no
+// longer the one a run started now would open from (ADR-0059 §10): the
+// previous fiscal year's last period was finalized, or finalized again,
+// after the run started, so its other comprehensive income is the change
+// from a reserve that is not the group's opening any more.
+func reopened(r Run, now map[uuid.UUID]*uuid.UUID) bool {
+	current := now[r.ID]
+	if r.OpeningRunID == nil || current == nil {
+		return r.OpeningRunID != current
+	}
+	return *r.OpeningRunID != *current
+}
+
+// runOrNone names a run, or none.
+func runOrNone(id *uuid.UUID) string {
+	if id == nil {
+		return "none"
+	}
+	return id.String()
 }
 
 // reserveFigures are a run's translation reserve as its rows hold it,
@@ -112,8 +157,9 @@ func (e *Endpoints) opening(ctx context.Context, tx pgx.Tx, r Run) (map[uuid.UUI
 	if r.OpeningRunID == nil {
 		return nil, 0, nil
 	}
-	// Read whoever may act in its companies: it is the same group's, and
-	// only the figures of this run's companies are shown from it.
+	// Read without readRun's access check (§12): it is a run of the same
+	// group, and only the figures of this run's companies, which the
+	// caller may all act in, are shown from it.
 	o, err := scanRun(tx.QueryRow(ctx, runSelect+` WHERE id = $1`, *r.OpeningRunID))
 	if err != nil {
 		return nil, 0, fmt.Errorf("consolidation: the opening run %s of run %s: %w", *r.OpeningRunID, r.ID, err)

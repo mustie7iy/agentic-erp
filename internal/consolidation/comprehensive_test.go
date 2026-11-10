@@ -166,11 +166,15 @@ func statements(t *testing.T, e fixture.Env, run uuid.UUID) (bs, pl map[string]a
 // income: the loss of 170.00 and the gain. The balance sheet keeps the
 // accumulated reserve and balances, and its consolidated reserve is the
 // opening run's and the year's other comprehensive income. The statement
-// does not change when the opening run is superseded; a run started then
-// finds no final run of 2025 and opens at zero; the balance sheet shows
-// neither the opening run nor the reserves.
+// does not change when the opening run is superseded, but the run is
+// stale from then on; a run started then, from locked periods, finds no
+// final run of 2025, opens at zero and is not stale until December 2025
+// is finalized again, after which it says so on its reads and its
+// finalization is refused; the balance sheet shows neither the opening
+// run nor the reserves.
 func TestOtherComprehensiveIncome(t *testing.T) {
 	e := reserveEnv(t)
+	e.Tenant.Grant(t, "consolidation.run.finalize", e.Tenant.Human)
 	h := app.Consolidation(app.Config{})
 	first := startPeriod(t, e, 2025, 12)
 	carryOut(t, e, h, first)
@@ -216,6 +220,9 @@ func TestOtherComprehensiveIncome(t *testing.T) {
 	if got, w := statementRow(bs, "G3900"), "G3900 Currency translation reserve equity (cta): -140.00 EUR / 7.00 EUR / -133.00 EUR"; got != w {
 		t.Errorf("2026's reserve on the balance sheet: got %s, want %s (2025's -29.00 and the year's -104.00)", got, w)
 	}
+	if got := staleness(t, e, run, pl); got != "false false" {
+		t.Errorf("the run opening from the final run of 2025: got stale %s, want false on the run and its statement", got)
+	}
 	if _, shown := bs["translation_reserve"]; shown || bs["opening_run_id"] != nil {
 		t.Errorf("the balance sheet: got reserves %v and opening run %v, want neither", bs["translation_reserve"], bs["opening_run_id"])
 	}
@@ -235,6 +242,10 @@ func TestOtherComprehensiveIncome(t *testing.T) {
 	if got := reserveLines(after) + "\n" + statementTotals(after, comprehensiveNames...); got != reserves+"\n"+totals {
 		t.Errorf("the profit and loss once its opening run is superseded: got\n%s\nwant it unchanged", got)
 	}
+	if got := staleness(t, e, run, after); got != "true true" {
+		t.Errorf("the run once its opening run is superseded: got stale %s, want true on the run and its statement", got)
+	}
+	setPeriod(t, e, []uuid.UUID{e.US, e.DE}, "closed", "locked")
 	later, _ := start(t, e)
 	carryOut(t, e, h, later)
 	bs, pl = statements(t, e, later)
@@ -246,4 +257,36 @@ func TestOtherComprehensiveIncome(t *testing.T) {
 	if got, w := columnsOf(pl["totals"].(map[string]any)["other_comprehensive_income"]), "-140.00 EUR / 7.00 EUR / -133.00 EUR"; got != w {
 		t.Errorf("its other comprehensive income: got %s, want %s", got, w)
 	}
+	if got := staleness(t, e, later, pl); got != "false false" {
+		t.Errorf("the run without an opening run: got stale %s, want false while 2025 has no final run", got)
+	}
+	again := startPeriod(t, e, 2025, 12)
+	carryOut(t, e, h, again)
+	pgtest.Exec(t, `UPDATE consolidation.run SET status = 'final', finalized_by = $2, finalized_at = now(), version = version + 1 WHERE id = $1`, again,
+		e.Tenant.Human.ID)
+	_, pl = statements(t, e, later)
+	if got := staleness(t, e, later, pl); got != "true true" {
+		t.Errorf("the run once December 2025 is finalized after it started: got stale %s, want true on the run and its statement", got)
+	}
+	_, tag := e.Must(200, "GET", runsPath+"/"+later.String(), "", "")
+	p := e.Problem(409, "consolidation.run_stale", "POST", runsPath+"/"+later.String()+":finalize", "", tag)
+	if w := "it opened from none, and the final run is now " + again.String(); !strings.Contains(fmt.Sprint(p["detail"]), w) {
+		t.Errorf("the refusal: got %v, want it to say %q", p["detail"], w)
+	}
+	list, _ := e.Must(200, "GET", runsPath+"?status=computed&fiscal_year=2026", "", "")
+	var stale []string
+	for _, it := range list["items"].([]any) {
+		r := it.(map[string]any)
+		stale = append(stale, fmt.Sprint(r["id"] == run.String() || r["id"] == later.String(), " ", r["stale"]))
+	}
+	if got, w := strings.Join(stale, ", "), "true true, true true"; got != w {
+		t.Errorf("the computed runs of 2026 in the list: got %s, want %s (both, stale)", got, w)
+	}
+}
+
+// staleness shows a run's stale on its own read and on a statement of it.
+func staleness(t *testing.T, e fixture.Env, run uuid.UUID, statement map[string]any) string {
+	t.Helper()
+	r, _ := e.Must(200, "GET", runsPath+"/"+run.String(), "", "")
+	return fmt.Sprint(r["stale"], " ", statement["stale"])
 }

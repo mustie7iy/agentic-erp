@@ -31,6 +31,7 @@ type runView struct {
 	members     map[uuid.UUID][]Member
 	differences map[uuid.UUID][]gen.ConsolidationDifferenceCount
 	periods     map[periodKey]Period
+	openings    map[uuid.UUID]*uuid.UUID // the runs their reserves would open from now
 	people      map[uuid.UUID]string
 	supersedes  map[uuid.UUID]uuid.UUID
 	acquired    map[memberKey]gen.ConsolidationAcquisition
@@ -65,6 +66,9 @@ func (e *Endpoints) viewOf(ctx context.Context, tx pgx.Tx, rs []Run) (runView, e
 		return runView{}, err
 	}
 	if v.periods, err = e.periodsNow(ctx, rs, v.members); err != nil {
+		return runView{}, err
+	}
+	if v.openings, err = openingsNow(ctx, tx, rs); err != nil {
 		return runView{}, err
 	}
 	if v.people, err = idref.Resolve(ctx, e.People.Named, idref.Of(rs, func(r Run) *uuid.UUID { return r.FinalizedBy }), personRef); err != nil {
@@ -145,7 +149,7 @@ func (v runView) runAPI(r Run) gen.ConsolidationRun {
 // and which run superseded it or it superseded.
 func (v runView) finalization(r Run, out *gen.ConsolidationRun) {
 	if ms := v.members[r.ID]; translated(ms) {
-		out.Stale = gen.NewOptBool(len(moved(r, ms, v.periods)) > 0)
+		out.Stale = gen.NewOptBool(len(moved(r, ms, v.periods)) > 0 || reopened(r, v.openings))
 	}
 	if r.FinalizedBy != nil {
 		out.FinalizedBy, out.FinalizedByName = gen.NewOptUUID(*r.FinalizedBy), gen.NewOptString(v.people[*r.FinalizedBy])
