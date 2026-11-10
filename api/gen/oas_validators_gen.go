@@ -17490,6 +17490,24 @@ func (s *ConsolidatedStatementTotals) Validate() error {
 		})
 	}
 	if err := func() error {
+		if value, ok := s.NetInvestment.Get(); ok {
+			if err := func() error {
+				if err := value.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "net_investment",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if value, ok := s.TotalComprehensiveIncome.Get(); ok {
 			if err := func() error {
 				if err := value.Validate(); err != nil {
@@ -17596,6 +17614,17 @@ func (s *ConsolidatedTranslationReserve) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "revaluation_translation",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.NetInvestment.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "net_investment",
 			Error: err,
 		})
 	}
@@ -18238,6 +18267,42 @@ func (s *ConsolidationGroup) Validate() error {
 			Error: err,
 		})
 	}
+	if err := func() error {
+		if s.NetInvestments == nil {
+			return errors.New("nil is invalid value")
+		}
+		if err := (validate.Array{
+			MinLength:    0,
+			MinLengthSet: false,
+			MaxLength:    200,
+			MaxLengthSet: true,
+		}).ValidateLength(len(s.NetInvestments)); err != nil {
+			return errors.Wrap(err, "array")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.NetInvestments {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "net_investments",
+			Error: err,
+		})
+	}
 	if len(failures) > 0 {
 		return &validate.Error{Fields: failures}
 	}
@@ -18361,6 +18426,40 @@ func (s *ConsolidationMember) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "first_fiscal_period",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *ConsolidationNetInvestment) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Company.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "company",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Partner.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "partner",
 			Error: err,
 		})
 	}

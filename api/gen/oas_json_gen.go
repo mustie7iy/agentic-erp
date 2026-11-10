@@ -51330,6 +51330,12 @@ func (s *ConsolidatedStatementTotals) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.NetInvestment.Set {
+			e.FieldStart("net_investment")
+			s.NetInvestment.Encode(e)
+		}
+	}
+	{
 		if s.TotalComprehensiveIncome.Set {
 			e.FieldStart("total_comprehensive_income")
 			s.TotalComprehensiveIncome.Encode(e)
@@ -51349,7 +51355,7 @@ func (s *ConsolidatedStatementTotals) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidatedStatementTotals = [13]string{
+var jsonFieldsNameOfConsolidatedStatementTotals = [14]string{
 	0:  "assets",
 	1:  "liabilities",
 	2:  "equity",
@@ -51360,9 +51366,10 @@ var jsonFieldsNameOfConsolidatedStatementTotals = [13]string{
 	7:  "owners_of_the_parent",
 	8:  "other_comprehensive_income",
 	9:  "revaluation_translation",
-	10: "total_comprehensive_income",
-	11: "comprehensive_income_non_controlling_interests",
-	12: "comprehensive_income_owners_of_the_parent",
+	10: "net_investment",
+	11: "total_comprehensive_income",
+	12: "comprehensive_income_non_controlling_interests",
+	13: "comprehensive_income_owners_of_the_parent",
 }
 
 // Decode decodes ConsolidatedStatementTotals from json.
@@ -51473,6 +51480,16 @@ func (s *ConsolidatedStatementTotals) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"revaluation_translation\"")
+			}
+		case "net_investment":
+			if err := func() error {
+				s.NetInvestment.Reset()
+				if err := s.NetInvestment.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_investment\"")
 			}
 		case "total_comprehensive_income":
 			if err := func() error {
@@ -51609,6 +51626,10 @@ func (s *ConsolidatedTranslationReserve) encodeFields(e *jx.Encoder) {
 		s.RevaluationTranslation.Encode(e)
 	}
 	{
+		e.FieldStart("net_investment")
+		s.NetInvestment.Encode(e)
+	}
+	{
 		e.FieldStart("non_controlling_interests")
 		s.NonControllingInterests.Encode(e)
 	}
@@ -51618,7 +51639,7 @@ func (s *ConsolidatedTranslationReserve) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidatedTranslationReserve = [11]string{
+var jsonFieldsNameOfConsolidatedTranslationReserve = [12]string{
 	0:  "legal_entity_id",
 	1:  "company_code",
 	2:  "company_name",
@@ -51628,8 +51649,9 @@ var jsonFieldsNameOfConsolidatedTranslationReserve = [11]string{
 	6:  "difference",
 	7:  "closing",
 	8:  "revaluation_translation",
-	9:  "non_controlling_interests",
-	10: "owners_of_the_parent",
+	9:  "net_investment",
+	10: "non_controlling_interests",
+	11: "owners_of_the_parent",
 }
 
 // Decode decodes ConsolidatedTranslationReserve from json.
@@ -51739,8 +51761,18 @@ func (s *ConsolidatedTranslationReserve) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"revaluation_translation\"")
 			}
-		case "non_controlling_interests":
+		case "net_investment":
 			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				if err := s.NetInvestment.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_investment\"")
+			}
+		case "non_controlling_interests":
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				if err := s.NonControllingInterests.Decode(d); err != nil {
 					return err
@@ -51750,7 +51782,7 @@ func (s *ConsolidatedTranslationReserve) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"non_controlling_interests\"")
 			}
 		case "owners_of_the_parent":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.OwnersOfTheParent.Decode(d); err != nil {
 					return err
@@ -51770,7 +51802,7 @@ func (s *ConsolidatedTranslationReserve) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11101111,
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -53702,14 +53734,23 @@ func (s *ConsolidationGroup) encodeFields(e *jx.Encoder) {
 		}
 		e.ArrEnd()
 	}
+	{
+		e.FieldStart("net_investments")
+		e.ArrStart()
+		for _, elem := range s.NetInvestments {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
 }
 
-var jsonFieldsNameOfConsolidationGroup = [5]string{
+var jsonFieldsNameOfConsolidationGroup = [6]string{
 	0: "code",
 	1: "name",
 	2: "group_currency",
 	3: "parent",
 	4: "members",
+	5: "net_investments",
 }
 
 // Decode decodes ConsolidationGroup from json.
@@ -53785,6 +53826,24 @@ func (s *ConsolidationGroup) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"members\"")
 			}
+		case "net_investments":
+			requiredBitSet[0] |= 1 << 5
+			if err := func() error {
+				s.NetInvestments = make([]ConsolidationNetInvestment, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ConsolidationNetInvestment
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.NetInvestments = append(s.NetInvestments, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"net_investments\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -53795,7 +53854,7 @@ func (s *ConsolidationGroup) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00011111,
+		0b00111111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -54191,6 +54250,130 @@ func (s *ConsolidationMember) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ConsolidationMember) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *ConsolidationNetInvestment) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ConsolidationNetInvestment) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("company")
+		s.Company.Encode(e)
+	}
+	{
+		e.FieldStart("account")
+		s.Account.Encode(e)
+	}
+	{
+		e.FieldStart("partner")
+		s.Partner.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfConsolidationNetInvestment = [3]string{
+	0: "company",
+	1: "account",
+	2: "partner",
+}
+
+// Decode decodes ConsolidationNetInvestment from json.
+func (s *ConsolidationNetInvestment) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ConsolidationNetInvestment to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "company":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				if err := s.Company.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"company\"")
+			}
+		case "account":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				if err := s.Account.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account\"")
+			}
+		case "partner":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.Partner.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"partner\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ConsolidationNetInvestment")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfConsolidationNetInvestment) {
+					name = jsonFieldsNameOfConsolidationNetInvestment[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ConsolidationNetInvestment) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ConsolidationNetInvestment) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

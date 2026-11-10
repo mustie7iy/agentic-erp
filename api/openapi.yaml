@@ -14843,7 +14843,7 @@ paths:
       tags:
         - consolidation
       summary: Get a consolidated statement of a run
-      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit with its attribution, and, below the profit, other comprehensive income (`other_comprehensive_income`: the fiscal year's translation differences through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B), with the translation reserve per company (`translation_reserve`: its opening, the year's difference, its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes it out of the profit's rows and into the reserve, so other comprehensive income holds it (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The reserve opens at what the group's final run of the previous fiscal year's last period showed when this run started (`opening_run_id`), at zero without one. The eliminations are the run's elimination entries' lines on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance between the run's companies on an elimination's accounts and put each pair's difference on the elimination's difference account; the investment's elimination follows with T68h. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes; `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit with its attribution, and, below the profit, other comprehensive income (`other_comprehensive_income`: the fiscal year's translation differences through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B), with the translation reserve per company (`translation_reserve`: its opening, the year's difference, its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes it out of the profit's rows and into the reserve, so other comprehensive income holds it (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The exchange differences on a monetary item designated as part of a net investment in a foreign operation (`ConsolidationGroup.net_investments`) go the same way, whole (`net_investment`, per company and in the totals; IAS 21.32). The reserve opens at what the group's final run of the previous fiscal year's last period showed when this run started (`opening_run_id`), at zero without one. The eliminations are the run's elimination entries' lines on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance between the run's companies on an elimination's accounts and put each pair's difference on the elimination's difference account; the investment's elimination follows with T68h. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes; `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -41580,6 +41580,7 @@ components:
         - group_currency
         - parent
         - members
+        - net_investments
       properties:
         code:
           type: string
@@ -41603,6 +41604,13 @@ components:
             $ref: "#/components/schemas/ConsolidationMember"
           description: "The subsidiaries, by company code."
           readOnly: true
+        net_investments:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/ConsolidationNetInvestment"
+          description: "The monetary items designated as part of a net investment in a foreign operation of the group (IAS 21.32), by company code, account number and trading partner code; empty when the group designates none."
+          readOnly: true
       examples:
         - code: MAPLE
           name: Maple group
@@ -41622,6 +41630,35 @@ components:
               first_fiscal_year: 2026
               first_fiscal_period: 11
               investment_account: {number: "1700", name: Investment in Acme Corp US}
+          net_investments:
+            - company:
+                legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+                company_code: "3000"
+                company_name: Maple Industries Canada
+                local_currency: CAD
+              account: {number: "1250", name: Intercompany receivables}
+              partner:
+                legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+                company_code: "1000"
+                company_name: Acme Corp US
+                local_currency: USD
+    ConsolidationNetInvestment:
+      type: object
+      description: "A monetary item designated as part of a net investment in a foreign operation (ADR-0059 As built: a net investment's exchange differences; IAS 21.32): a company's account with a trading partner, a long-term intercompany loan not expected to be settled, say. It is configuration (`consolidation.groups[].net_investments[]`: `company`, `account`, `partner`), changed through a change request as the group is; no flag on the company's account and nothing on a posting says it. A consolidation run takes the exchange differences the company's revaluation runs book on the account's balance with the partner (ADR-0042) out of the consolidated profit and into the company's translation reserve, in other comprehensive income (`ConsolidatedTranslationReserve.net_investment`), from the period the run consolidates the partner in; the company's own ledger and reports are unchanged. The counterparty's exchange differences on the same item move only when its own account with this company is designated too."
+      required:
+        - company
+        - account
+        - partner
+      properties:
+        company:
+          $ref: "#/components/schemas/ConsolidationCompany"
+          description: "The company whose ledger carries the item and its exchange differences: the group's parent or a member."
+        account:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The company's account holding the item: an asset or a liability of its chart of accounts."
+        partner:
+          $ref: "#/components/schemas/ConsolidationCompany"
+          description: "The trading partner the balance is with: another company of the group."
     ConsolidationCompany:
       type: object
       description: "A company of a consolidation group: its legal entity, company code, name and local currency."
@@ -41921,7 +41958,7 @@ components:
         trading_partner: {$ref: "#/components/schemas/TradingPartner"}
         amount_lc: {$ref: "#/components/schemas/Money", description: "The local amount, in the company's local currency; absent on a `cta` row."}
         amount_gc_booked: {$ref: "#/components/schemas/Money", description: "The group amount as booked, each line at its posting date's rate; absent on a `cta` row."}
-        amount_gc: {$ref: "#/components/schemas/Money", description: "The translated group amount: the local amount at the closing rate for asset and liability accounts, rounded once half away from zero; the booked group amount otherwise, less, on a profit and loss account's row and on `prior_results`, the translation part of the company's group-currency revaluation differences (ADR-0042; `ConsolidatedTranslationReserve.revaluation_translation`), which is in the translation difference instead (IAS 21.39(c)), so `amount_gc_booked` less `amount_gc` is the part moved off the row; the translation difference on a `cta` row."}
+        amount_gc: {$ref: "#/components/schemas/Money", description: "The translated group amount: the local amount at the closing rate for asset and liability accounts, rounded once half away from zero; the booked group amount otherwise, less, on a profit and loss account's row and on `prior_results`, the translation part of the company's group-currency revaluation differences (ADR-0042; `ConsolidatedTranslationReserve.revaluation_translation`), which is in the translation difference instead (IAS 21.39(c)), and less the rest of the exchange differences on a monetary item designated as part of a net investment in a foreign operation (`ConsolidatedTranslationReserve.net_investment`; IAS 21.32), so `amount_gc_booked` less `amount_gc` is what the run moved off the row; the translation difference on a `cta` row."}
         closing_rate: {type: string, description: "The closing rate the row was translated at, where one applied (asset and liability accounts).", readOnly: true}
       examples:
         - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
@@ -42187,7 +42224,7 @@ components:
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
     ConsolidatedStatementTotals:
       type: object
-      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`, `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`, then `other_comprehensive_income`, `total_comprehensive_income` (their sum with the profit) and its attribution to `comprehensive_income_non_controlling_interests` and `comprehensive_income_owners_of_the_parent`, and `revaluation_translation`, the part of other comprehensive income moved out of the profit."
+      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`, `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`, then `other_comprehensive_income`, `total_comprehensive_income` (their sum with the profit) and its attribution to `comprehensive_income_non_controlling_interests` and `comprehensive_income_owners_of_the_parent`, and `revaluation_translation` and `net_investment`, the parts of other comprehensive income moved out of the profit."
       required: [profit]
       properties:
         assets: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's asset accounts summed; absent on the profit and loss."}
@@ -42198,15 +42235,16 @@ components:
         profit: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The fiscal year's profit through the period: the revenue and expense accounts summed, debit positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement: assets, liabilities, equity and profit sum to zero."}
         non_controlling_interests: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to non-controlling interests (IAS 1.81B), read from the run's non-controlling interest entries, so zero reported; zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance sheet."}
         owners_of_the_parent: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to the owners of the parent, the profit less `non_controlling_interests` in each column. Absent on the balance sheet."}
-        other_comprehensive_income: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the fiscal year's translation differences through the period, recognised in other comprehensive income and not in the profit (IAS 21.39(c), 21.41), debit positive, so a gain is negative. Reported: each company's translation difference at the run's period (its `cta` row) less its opening (`translation_reserve[].difference` summed). Eliminations: the run's elimination entries' lines on the `cta` account less the opening run's, the non-controlling interests' entries left out, which attribute the reserve and do not change it. The consolidated figure is the year's change of the group's translation reserve. It holds `revaluation_translation`, which the profit does not. Absent on the balance sheet."}
+        other_comprehensive_income: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the fiscal year's translation differences through the period, recognised in other comprehensive income and not in the profit (IAS 21.39(c), 21.41), debit positive, so a gain is negative. Reported: each company's translation difference at the run's period (its `cta` row) less its opening (`translation_reserve[].difference` summed). Eliminations: the run's elimination entries' lines on the `cta` account less the opening run's, the non-controlling interests' entries left out, which attribute the reserve and do not change it. The consolidated figure is the year's change of the group's translation reserve. It holds `revaluation_translation` and `net_investment`, which the profit does not. Absent on the balance sheet."}
         revaluation_translation: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: of `other_comprehensive_income`, the translation part of the companies' group-currency revaluation differences, moved out of the fiscal year's profit through the period (IAS 21.39(c); ADR-0042): `translation_reserve[].revaluation_translation` summed, reported by the companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked group amounts less it. Absent on the balance sheet."}
+        net_investment: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: of `other_comprehensive_income`, the companies' exchange differences on monetary items designated as part of a net investment in a foreign operation, moved out of the fiscal year's profit through the period (IAS 21.32): `translation_reserve[].net_investment` summed, reported by the companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked group amounts less it and less `revaluation_translation`. Absent on the balance sheet."}
         total_comprehensive_income: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: `profit` and `other_comprehensive_income` summed in each column. Absent on the balance sheet."}
         comprehensive_income_non_controlling_interests: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: total comprehensive income's share attributable to non-controlling interests (IAS 1.81B): `non_controlling_interests` and their share of each member's translation difference (`translation_reserve[].non_controlling_interests` summed), an attribution and so zero reported; zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance sheet."}
         comprehensive_income_owners_of_the_parent: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: total comprehensive income's share attributable to the owners of the parent, `total_comprehensive_income` less `comprehensive_income_non_controlling_interests` in each column. Absent on the balance sheet."}
     ConsolidatedTranslationReserve:
       type: object
       description: "A company's translation reserve in a consolidation run (ADR-0059 §7, §11; IAS 21.41, 21.52(b)): the accumulated translation difference of the company's figures, kept per company for its reclassification on a disposal (IAS 21.48), with the fiscal year's change through the period, which is other comprehensive income, and that change's attribution. Every amount is in the group currency, debit positive, so a gain is negative; `opening` and `difference` sum to `closing`, and the two shares to `difference`."
-      required: [legal_entity_id, company_code, company_name, role, opening, difference, closing, revaluation_translation, non_controlling_interests, owners_of_the_parent]
+      required: [legal_entity_id, company_code, company_name, role, opening, difference, closing, revaluation_translation, net_investment, non_controlling_interests, owners_of_the_parent]
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
         company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
@@ -42221,6 +42259,7 @@ components:
         difference: {$ref: "#/components/schemas/Money", description: "The fiscal year's translation difference through the period, `closing` less `opening`: the company's part of other comprehensive income."}
         closing: {$ref: "#/components/schemas/Money", description: "The reserve at the run's period: the company's translation difference in this run (its `cta` row of `listConsolidationBalances`; zero without one)."}
         revaluation_translation: {$ref: "#/components/schemas/Money", description: "The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part of `closing`: the translation part of the company's group-currency revaluation differences (IAS 21.39(c)). A revaluation run values group currency on its own (ADR-0042), so a line of its entries on a profit and loss account books a group amount that is not its local amount translated; the profit keeps the line's local amount at its entry's local-to-group rate, the rate a posting of that date converts at, rounded once per line to the group currency's minor unit, half away from zero, and the rest of its booked group amount is here. Debit positive, so a gain moved out of the profit is negative, and the profit's revenue and expense rows are their booked group amounts less it. Zero for a company without revaluation entries in the year, and in a run started before the statement showed it, whose profit holds the booked group amounts."}
+        net_investment: {$ref: "#/components/schemas/Money", description: "The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part of `closing` and beside `revaluation_translation`: the exchange differences on the company's monetary items designated as part of a net investment in a foreign operation (`ConsolidationGroup.net_investments`; IAS 21.32). Of each line of the company's revaluation runs' entries on a profit and loss account that offsets a difference on a designated account's balance with its trading partner, this is the local amount at the entry's local-to-group rate, rounded once per line to the group currency's minor unit, half away from zero: what the profit would keep after `revaluation_translation`, so the two together are the line's whole booked group amount. Debit positive, so a gain moved out of the profit is negative. Zero for a company without a designated item revalued in the year, and in a run started before the statement showed it."}
         non_controlling_interests: {$ref: "#/components/schemas/Money", description: "The part of `difference` attributable to non-controlling interests (IAS 21.41): `difference` times (100 - `ownership_percent`) / 100, rounded once to the group currency's minor unit, half away from zero. Zero for the parent and for a member held whole."}
         owners_of_the_parent: {$ref: "#/components/schemas/Money", description: "The part of `difference` attributable to the owners of the parent: `difference` less `non_controlling_interests`, so the rounding remainder is the owners'."}
       examples:
@@ -42233,6 +42272,7 @@ components:
           difference: {amount: "-40.00", currency: CAD}
           closing: {amount: "-100.00", currency: CAD}
           revaluation_translation: {amount: "-4.00", currency: CAD}
+          net_investment: {amount: "0.00", currency: CAD}
           non_controlling_interests: {amount: "0.00", currency: CAD}
           owners_of_the_parent: {amount: "-40.00", currency: CAD}
     GroupAccountRef:

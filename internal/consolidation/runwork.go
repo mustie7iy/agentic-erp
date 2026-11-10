@@ -47,11 +47,15 @@ type Member struct {
 	// year's group-currency revaluation differences the run moved from
 	// the company's profit to its translation reserve (movedInYear).
 	RevaluationTranslation money.Minor
+	// NetInvestment is the rest of the fiscal year's exchange differences
+	// on the company's designated net investments, their local amounts
+	// translated, which the run moved there too (movedInYear).
+	NetInvestment money.Minor
 }
 
 // memberColumns are a run member's columns, as scanMember reads them.
 const memberColumns = `legal_entity_id, company_code, role, ownership_percent::text, first_fiscal_year, first_fiscal_period, local_currency,
-	closing_rate::text, rate_valid_from, period_status, period_version, translated_at, revaluation_translation_gc`
+	closing_rate::text, rate_valid_from, period_status, period_version, translated_at, revaluation_translation_gc, net_investment_gc`
 
 // memberSelect reads a run's members.
 const memberSelect = `SELECT ` + memberColumns + ` FROM consolidation.run_member`
@@ -59,7 +63,7 @@ const memberSelect = `SELECT ` + memberColumns + ` FROM consolidation.run_member
 // fields are where a member's columns are read into.
 func (m *Member) fields() []any {
 	return []any{&m.LegalEntityID, &m.CompanyCode, &m.Role, &m.OwnershipPercent, &m.FirstYear, &m.FirstPeriod, &m.LocalCurrency, &m.ClosingRate,
-		&m.RateValidFrom, &m.PeriodStatus, &m.PeriodVersion, &m.TranslatedAt, &m.RevaluationTranslation}
+		&m.RateValidFrom, &m.PeriodStatus, &m.PeriodVersion, &m.TranslatedAt, &m.RevaluationTranslation, &m.NetInvestment}
 }
 
 func scanMember(r pgx.CollectableRow) (Member, error) {
@@ -191,7 +195,8 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 // version recorded is never newer than the figures read and a change
 // between the two reads makes the run stale (T68g), never wrongly fresh; writes its translated rows; records the period,
 // when, and what it moved from the year's profit to the translation
-// reserve (movedInYear); and reports the run's progress. A company already translated, or
+// reserve (movedInYear: a group-currency revaluation's translation part
+// and a net investment's exchange differences); and reports the run's progress. A company already translated, or
 // a run no longer running, is left alone.
 func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) error {
 	tx, p, err := reqctx.Request(ctx)
@@ -229,9 +234,10 @@ func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) 
 	if err := writeRows(ctx, tx, p, r.ID, company, out); err != nil {
 		return err
 	}
+	moved, net := movedInYear(out)
 	if _, err := tx.Exec(ctx, `UPDATE consolidation.run_member SET period_status = $3, period_version = $4, translated_at = now(),
-			revaluation_translation_gc = $5
-		WHERE run_id = $1 AND legal_entity_id = $2`, id, company, per.Status, per.Version, movedInYear(out)); err != nil {
+			revaluation_translation_gc = $5, net_investment_gc = $6
+		WHERE run_id = $1 AND legal_entity_id = $2`, id, company, per.Status, per.Version, moved, net); err != nil {
 		return fmt.Errorf("consolidation: record the translation of %s in run %s: %w", m.CompanyCode, id, err)
 	}
 	return e.progress(ctx, tx, r)
@@ -275,8 +281,9 @@ func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member, y
 	for _, c := range entities {
 		f.partners[c.ID] = c.Code
 	}
+	f.netInvestments = netInvestments(doc.Consolidation, r, m.CompanyCode, f.accounts, f.partners)
 	// One read, so the revaluation lines are those the balances hold.
-	f.balances, f.revaluations, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, year, period)
+	f.balances, f.revaluations, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, year, period, f.valuedAccounts())
 	return f, errs.Wrapf(err, "consolidation: balances of %s through %d/%d", m.CompanyCode, year, period)
 }
 

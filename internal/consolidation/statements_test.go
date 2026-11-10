@@ -129,7 +129,7 @@ func TestConsolidatedStatements(t *testing.T) {
 		"0.00 EUR / 0.00 EUR / 0.00 EUR, owners_of_the_parent -355.00 EUR / 0.00 EUR / -355.00 EUR, other_comprehensive_income -155.00 EUR / 0.00 EUR / "+
 		"-155.00 EUR, total_comprehensive_income -510.00 EUR / 0.00 EUR / -510.00 EUR, comprehensive_income_non_controlling_interests 0.00 EUR / "+
 		"0.00 EUR / 0.00 EUR, comprehensive_income_owners_of_the_parent -510.00 EUR / 0.00 EUR / -510.00 EUR, "+
-		"revaluation_translation 0.00 EUR / 0.00 EUR / 0.00 EUR"; got != w {
+		"revaluation_translation 0.00 EUR / 0.00 EUR / 0.00 EUR, net_investment 0.00 EUR / 0.00 EUR / 0.00 EUR"; got != w {
 		t.Errorf("the profit and loss's totals: got %s, want %s", got, w)
 	}
 	for _, page := range []map[string]any{bs, pl} {

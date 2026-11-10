@@ -21993,8 +21993,8 @@ func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
 // `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`, then
 // `other_comprehensive_income`, `total_comprehensive_income` (their sum with the profit) and its
 // attribution to `comprehensive_income_non_controlling_interests` and
-// `comprehensive_income_owners_of_the_parent`, and `revaluation_translation`, the part of other
-// comprehensive income moved out of the profit.
+// `comprehensive_income_owners_of_the_parent`, and `revaluation_translation` and `net_investment`, the
+// parts of other comprehensive income moved out of the profit.
 // Ref: #/components/schemas/ConsolidatedStatementTotals
 type ConsolidatedStatementTotals struct {
 	// The balance sheet's asset accounts summed; absent on the profit and loss.
@@ -22026,8 +22026,8 @@ type ConsolidatedStatementTotals struct {
 	// its opening (`translation_reserve[].difference` summed). Eliminations: the run's elimination
 	// entries' lines on the `cta` account less the opening run's, the non-controlling interests' entries
 	// left out, which attribute the reserve and do not change it. The consolidated figure is the year's
-	// change of the group's translation reserve. It holds `revaluation_translation`, which the profit does
-	// not. Absent on the balance sheet.
+	// change of the group's translation reserve. It holds `revaluation_translation` and `net_investment`,
+	// which the profit does not. Absent on the balance sheet.
 	OtherComprehensiveIncome OptConsolidatedFigures `json:"other_comprehensive_income"`
 	// The profit and loss's: of `other_comprehensive_income`, the translation part of the companies'
 	// group-currency revaluation differences, moved out of the fiscal year's profit through the period
@@ -22035,6 +22035,13 @@ type ConsolidatedStatementTotals struct {
 	// companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked
 	// group amounts less it. Absent on the balance sheet.
 	RevaluationTranslation OptConsolidatedFigures `json:"revaluation_translation"`
+	// The profit and loss's: of `other_comprehensive_income`, the companies' exchange differences on
+	// monetary items designated as part of a net investment in a foreign operation, moved out of the
+	// fiscal year's profit through the period (IAS 21.32): `translation_reserve[].net_investment` summed,
+	// reported by the companies, so no elimination. Debit positive: the profit's revenue and expense rows
+	// are their booked group amounts less it and less `revaluation_translation`. Absent on the balance
+	// sheet.
+	NetInvestment OptConsolidatedFigures `json:"net_investment"`
 	// The profit and loss's: `profit` and `other_comprehensive_income` summed in each column. Absent on
 	// the balance sheet.
 	TotalComprehensiveIncome OptConsolidatedFigures `json:"total_comprehensive_income"`
@@ -22098,6 +22105,11 @@ func (s *ConsolidatedStatementTotals) GetOtherComprehensiveIncome() OptConsolida
 // GetRevaluationTranslation returns the value of RevaluationTranslation.
 func (s *ConsolidatedStatementTotals) GetRevaluationTranslation() OptConsolidatedFigures {
 	return s.RevaluationTranslation
+}
+
+// GetNetInvestment returns the value of NetInvestment.
+func (s *ConsolidatedStatementTotals) GetNetInvestment() OptConsolidatedFigures {
+	return s.NetInvestment
 }
 
 // GetTotalComprehensiveIncome returns the value of TotalComprehensiveIncome.
@@ -22165,6 +22177,11 @@ func (s *ConsolidatedStatementTotals) SetRevaluationTranslation(val OptConsolida
 	s.RevaluationTranslation = val
 }
 
+// SetNetInvestment sets the value of NetInvestment.
+func (s *ConsolidatedStatementTotals) SetNetInvestment(val OptConsolidatedFigures) {
+	s.NetInvestment = val
+}
+
 // SetTotalComprehensiveIncome sets the value of TotalComprehensiveIncome.
 func (s *ConsolidatedStatementTotals) SetTotalComprehensiveIncome(val OptConsolidatedFigures) {
 	s.TotalComprehensiveIncome = val
@@ -22221,6 +22238,17 @@ type ConsolidatedTranslationReserve struct {
 	// a company without revaluation entries in the year, and in a run started before the statement showed
 	// it, whose profit holds the booked group amounts.
 	RevaluationTranslation Money `json:"revaluation_translation"`
+	// The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part
+	// of `closing` and beside `revaluation_translation`: the exchange differences on the company's
+	// monetary items designated as part of a net investment in a foreign operation
+	// (`ConsolidationGroup.net_investments`; IAS 21.32). Of each line of the company's revaluation runs'
+	// entries on a profit and loss account that offsets a difference on a designated account's balance
+	// with its trading partner, this is the local amount at the entry's local-to-group rate, rounded once
+	// per line to the group currency's minor unit, half away from zero: what the profit would keep after
+	// `revaluation_translation`, so the two together are the line's whole booked group amount. Debit
+	// positive, so a gain moved out of the profit is negative. Zero for a company without a designated
+	// item revalued in the year, and in a run started before the statement showed it.
+	NetInvestment Money `json:"net_investment"`
 	// The part of `difference` attributable to non-controlling interests (IAS 21.41): `difference` times
 	// (100 - `ownership_percent`) / 100, rounded once to the group currency's minor unit, half away from
 	// zero. Zero for the parent and for a member held whole.
@@ -22273,6 +22301,11 @@ func (s *ConsolidatedTranslationReserve) GetClosing() Money {
 // GetRevaluationTranslation returns the value of RevaluationTranslation.
 func (s *ConsolidatedTranslationReserve) GetRevaluationTranslation() Money {
 	return s.RevaluationTranslation
+}
+
+// GetNetInvestment returns the value of NetInvestment.
+func (s *ConsolidatedTranslationReserve) GetNetInvestment() Money {
+	return s.NetInvestment
 }
 
 // GetNonControllingInterests returns the value of NonControllingInterests.
@@ -22328,6 +22361,11 @@ func (s *ConsolidatedTranslationReserve) SetClosing(val Money) {
 // SetRevaluationTranslation sets the value of RevaluationTranslation.
 func (s *ConsolidatedTranslationReserve) SetRevaluationTranslation(val Money) {
 	s.RevaluationTranslation = val
+}
+
+// SetNetInvestment sets the value of NetInvestment.
+func (s *ConsolidatedTranslationReserve) SetNetInvestment(val Money) {
+	s.NetInvestment = val
 }
 
 // SetNonControllingInterests sets the value of NonControllingInterests.
@@ -22518,8 +22556,10 @@ type ConsolidationBalance struct {
 	// rounded once half away from zero; the booked group amount otherwise, less, on a profit and loss
 	// account's row and on `prior_results`, the translation part of the company's group-currency
 	// revaluation differences (ADR-0042; `ConsolidatedTranslationReserve.revaluation_translation`), which
-	// is in the translation difference instead (IAS 21.39(c)), so `amount_gc_booked` less `amount_gc` is
-	// the part moved off the row; the translation difference on a `cta` row.
+	// is in the translation difference instead (IAS 21.39(c)), and less the rest of the exchange
+	// differences on a monetary item designated as part of a net investment in a foreign operation
+	// (`ConsolidatedTranslationReserve.net_investment`; IAS 21.32), so `amount_gc_booked` less `amount_gc`
+	// is what the run moved off the row; the translation difference on a `cta` row.
 	AmountGc Money `json:"amount_gc"`
 	// The closing rate the row was translated at, where one applied (asset and liability accounts).
 	ClosingRate OptString `json:"closing_rate"`
@@ -23165,6 +23205,10 @@ type ConsolidationGroup struct {
 	Parent        ConsolidationCompany `json:"parent"`
 	// The subsidiaries, by company code.
 	Members []ConsolidationMember `json:"members"`
+	// The monetary items designated as part of a net investment in a foreign operation of the group (IAS
+	// 21.32), by company code, account number and trading partner code; empty when the group designates
+	// none.
+	NetInvestments []ConsolidationNetInvestment `json:"net_investments"`
 }
 
 // GetCode returns the value of Code.
@@ -23192,6 +23236,11 @@ func (s *ConsolidationGroup) GetMembers() []ConsolidationMember {
 	return s.Members
 }
 
+// GetNetInvestments returns the value of NetInvestments.
+func (s *ConsolidationGroup) GetNetInvestments() []ConsolidationNetInvestment {
+	return s.NetInvestments
+}
+
 // SetCode sets the value of Code.
 func (s *ConsolidationGroup) SetCode(val string) {
 	s.Code = val
@@ -23215,6 +23264,11 @@ func (s *ConsolidationGroup) SetParent(val ConsolidationCompany) {
 // SetMembers sets the value of Members.
 func (s *ConsolidationGroup) SetMembers(val []ConsolidationMember) {
 	s.Members = val
+}
+
+// SetNetInvestments sets the value of NetInvestments.
+func (s *ConsolidationGroup) SetNetInvestments(val []ConsolidationNetInvestment) {
+	s.NetInvestments = val
 }
 
 func (*ConsolidationGroup) getConsolidationGroupRes() {}
@@ -23368,6 +23422,58 @@ func (s *ConsolidationMember) SetFirstFiscalPeriod(val int32) {
 // SetInvestmentAccount sets the value of InvestmentAccount.
 func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
 	s.InvestmentAccount = val
+}
+
+// A monetary item designated as part of a net investment in a foreign operation (ADR-0059 As built: a
+// net investment's exchange differences; IAS 21.32): a company's account with a trading partner, a
+// long-term intercompany loan not expected to be settled, say. It is configuration
+// (`consolidation.groups[].net_investments[]`: `company`, `account`, `partner`), changed through a
+// change request as the group is; no flag on the company's account and nothing on a posting says it. A
+// consolidation run takes the exchange differences the company's revaluation runs book on the
+// account's balance with the partner (ADR-0042) out of the consolidated profit and into the company's
+// translation reserve, in other comprehensive income
+// (`ConsolidatedTranslationReserve.net_investment`), from the period the run consolidates the partner
+// in; the company's own ledger and reports are unchanged. The counterparty's exchange differences on
+// the same item move only when its own account with this company is designated too.
+// Ref: #/components/schemas/ConsolidationNetInvestment
+type ConsolidationNetInvestment struct {
+	// The company whose ledger carries the item and its exchange differences: the group's parent or a
+	// member.
+	Company ConsolidationCompany `json:"company"`
+	// The company's account holding the item: an asset or a liability of its chart of accounts.
+	Account AssetAccountRef `json:"account"`
+	// The trading partner the balance is with: another company of the group.
+	Partner ConsolidationCompany `json:"partner"`
+}
+
+// GetCompany returns the value of Company.
+func (s *ConsolidationNetInvestment) GetCompany() ConsolidationCompany {
+	return s.Company
+}
+
+// GetAccount returns the value of Account.
+func (s *ConsolidationNetInvestment) GetAccount() AssetAccountRef {
+	return s.Account
+}
+
+// GetPartner returns the value of Partner.
+func (s *ConsolidationNetInvestment) GetPartner() ConsolidationCompany {
+	return s.Partner
+}
+
+// SetCompany sets the value of Company.
+func (s *ConsolidationNetInvestment) SetCompany(val ConsolidationCompany) {
+	s.Company = val
+}
+
+// SetAccount sets the value of Account.
+func (s *ConsolidationNetInvestment) SetAccount(val AssetAccountRef) {
+	s.Account = val
+}
+
+// SetPartner sets the value of Partner.
+func (s *ConsolidationNetInvestment) SetPartner(val ConsolidationCompany) {
+	s.Partner = val
 }
 
 // A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the

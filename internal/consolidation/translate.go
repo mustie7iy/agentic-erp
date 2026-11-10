@@ -22,7 +22,9 @@ import (
 // and trading partner rounded once, half away from zero; income, expenses
 // and equity at their booked group amounts, the profit and loss accounts
 // less the translation part of the company's group-currency revaluation
-// differences (revaluationPart); the results of earlier fiscal
+// differences (revaluationPart) and less the exchange differences on a
+// monetary item designated as part of a net investment in a foreign
+// operation (netInvestment); the results of earlier fiscal
 // years, and for a member in the fiscal year of its first period those of
 // the periods before it, as one row on the retained earnings account; and
 // the translation difference, minus the sum of the other rows, on the cta
@@ -42,19 +44,20 @@ func one() *big.Rat { return big.NewRat(1, 1) }
 // company account and trading partner (kind balance) or computed (prior
 // results, the translation difference, whose local and booked amounts are
 // nil). moved is the part of its booked group amount that is a
-// group-currency revaluation's translation effect (revaluationPart),
-// which its translated amount leaves to the translation difference;
-// revaluationOnly marks a row revaluation lines alone made, of an account
-// and trading partner without a balance.
+// group-currency revaluation's translation effect (revaluationPart), and
+// net the rest of the booked group amount of its revaluation lines on a
+// net investment (netInvestment): its translated amount leaves both to
+// the translation difference. revaluationOnly marks a row revaluation
+// lines alone made, of an account and trading partner without a balance.
 type row struct {
-	groupAccount  string
-	account       *Account
-	partner       *uuid.UUID
-	partnerCode   string
-	kind          string
-	lc, gcBooked  *money.Minor
-	gc, moved     money.Minor
-	atClosingRate bool
+	groupAccount   string
+	account        *Account
+	partner        *uuid.UUID
+	partnerCode    string
+	kind           string
+	lc, gcBooked   *money.Minor
+	gc, moved, net money.Minor
+	atClosingRate  bool
 
 	revaluationOnly bool
 }
@@ -63,8 +66,9 @@ type row struct {
 // its accounts by id with their group accounts (the configuration's
 // mapping), the group chart, the trading partners' codes, the closing rate
 // and both currencies' minor units, its balances through the run's
-// period, and the lines of its revaluation runs' entries on profit and
-// loss accounts through it.
+// period, the lines of its revaluation runs' entries on profit and
+// loss accounts through it, and its accounts' balances with trading
+// partners designated as part of a net investment (netInvestments).
 type figures struct {
 	company           Company
 	year              int16 // the run's fiscal year
@@ -77,6 +81,76 @@ type figures struct {
 	expLC, expGC      int
 	balances          []Balance
 	revaluations      []RevaluationLine
+	netInvestments    map[netItem]bool
+}
+
+// netItem is a company account's balance with a trading partner.
+type netItem struct{ account, partner uuid.UUID }
+
+// netInvestments are the company's accounts with trading partners that
+// the run's group designates as part of a net investment in a foreign
+// operation (config.NetInvestment), by the ids of the accounts given and
+// of the companies by their codes. A designation counts only while its
+// trading partner is a company the run consolidates, its parent or a
+// member whose first period has come (included): before that the group's
+// statements hold no foreign operation the item could be an investment
+// in. One naming an account the ledger does not give the company, or a
+// trading partner tenancy does not list, designates nothing, since no
+// line can name it.
+func netInvestments(cs config.Consolidation, r Run, company string, accounts map[uuid.UUID]Account, partners map[uuid.UUID]string) map[netItem]bool {
+	byNumber, byCode := map[string]uuid.UUID{}, map[string]uuid.UUID{}
+	for id, a := range accounts {
+		byNumber[a.Number] = id
+	}
+	for id, code := range partners {
+		byCode[code] = id
+	}
+	out := map[netItem]bool{}
+	for _, g := range cs.Groups {
+		if g.Code != r.GroupCode {
+			continue
+		}
+		for _, n := range g.NetInvestments {
+			account, known := byNumber[n.Account]
+			partner, listed := byCode[n.Partner]
+			if n.Company == company && known && listed && included(g, n.Partner, r.FiscalYear, r.Period) {
+				out[netItem{account: account, partner: partner}] = true
+			}
+		}
+	}
+	return out
+}
+
+// included reports whether a run of the group's period consolidates the
+// company: its parent, or a member from its first period on (include).
+func included(g config.ConsolidationGroup, company string, year, period int16) bool {
+	for _, m := range g.Members {
+		if m.Company == company {
+			y, p, _ := m.First() // validated: well formed
+			return y < int(year) || (y == int(year) && p <= int(period))
+		}
+	}
+	return company == g.Parent
+}
+
+// valuedAccounts are the accounts the company's designations name: those
+// whose revaluation lines the ledger is asked to name (Ledger).
+func (f figures) valuedAccounts() []uuid.UUID {
+	var out []uuid.UUID
+	for n := range f.netInvestments {
+		if !slices.Contains(out, n.account) {
+			out = append(out, n.account)
+		}
+	}
+	slices.SortFunc(out, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) })
+	return out
+}
+
+// netInvestment reports whether a revaluation line offsets an exchange
+// difference on a designated net investment: on the valued account's
+// balance with the line's trading partner.
+func (f figures) netInvestment(l RevaluationLine) bool {
+	return l.ValuedAccountID != nil && l.TradingPartnerID != nil && f.netInvestments[netItem{account: *l.ValuedAccountID, partner: *l.TradingPartnerID}]
 }
 
 // priorResults reports whether a profit and loss figure of the fiscal
@@ -99,14 +173,15 @@ func unmapped(co Company, a Account) *problem.Problem {
 // translation is a company's translation under way: its balance rows by
 // company account and trading partner, in the order first seen; its
 // earlier results, local and booked group; and the translation part of
-// its revaluation lines (revaluationPart), per row for the fiscal year's
-// and summed for the earlier results'.
+// its revaluation lines (revaluationPart) and the rest of those on a net
+// investment (netInvestment), per row for the fiscal year's and summed
+// for the earlier results'.
 type translation struct {
-	f          figures
-	byKey      map[string]*row
-	rows       []*row
-	prior      [2]money.Minor
-	priorMoved money.Minor
+	f                    figures
+	byKey                map[string]*row
+	rows                 []*row
+	prior                [2]money.Minor
+	priorMoved, priorNet money.Minor
 }
 
 // mapped is a company account with figures and its group account.
@@ -171,8 +246,14 @@ func (f figures) revaluationPart(l RevaluationLine) (money.Minor, error) {
 }
 
 // revaluation takes a revaluation line's translation part off its row, or
-// off the earlier results. A part of zero adds no row, and a row the
-// lines alone made is left out once their parts cancel (translate).
+// off the earlier results, and, of a line on a designated net investment
+// (the accounting specialist's B4 correction 2, po:2026-11-09; IAS
+// 21.32), the rest of its booked group amount too: its local amount
+// translated, the exchange difference the profit would keep. So the
+// whole difference on a net investment leaves the profit for the
+// translation difference, where the company's ledger books it. A line
+// that moves nothing adds no row, and a row the lines alone made is left
+// out once what they move cancels (translate).
 func (t *translation) revaluation(l RevaluationLine) error {
 	a, group, err := t.f.mapped(l.AccountID)
 	if err != nil {
@@ -182,13 +263,20 @@ func (t *translation) revaluation(l RevaluationLine) error {
 		return fmt.Errorf("consolidation: revaluation line on account %s of company %s, which is not a profit and loss account", a.Number, t.f.company.Code)
 	}
 	part, err := t.f.revaluationPart(l)
-	switch {
-	case err != nil || part == 0:
+	if err != nil {
 		return err
+	}
+	var net money.Minor
+	if t.f.netInvestment(l) {
+		net = l.GC - part
+	}
+	switch {
+	case part == 0 && net == 0:
 	case t.f.priorResults(l.FiscalYear, l.Period):
-		t.priorMoved += part
+		t.priorMoved, t.priorNet = t.priorMoved+part, t.priorNet+net
 	default:
-		t.row(a, group, l.TradingPartnerID, true).moved += part
+		r := t.row(a, group, l.TradingPartnerID, true)
+		r.moved, r.net = r.moved+part, r.net+net
 	}
 	return nil
 }
@@ -212,14 +300,14 @@ func translate(f figures) ([]row, error) {
 		if err := f.value(r); err != nil {
 			return nil, err
 		}
-		if !r.revaluationOnly || r.moved != 0 {
+		if !r.revaluationOnly || r.moved != 0 || r.net != 0 {
 			out = append(out, *r)
 		}
 	}
-	if t.prior != [2]money.Minor{} || t.priorMoved != 0 {
+	if t.prior != [2]money.Minor{} || t.priorMoved != 0 || t.priorNet != 0 {
 		lc, gc := t.prior[0], t.prior[1]
-		out = append(out, row{groupAccount: f.role(config.RoleRetainedEarnings), kind: kindPriorResults, lc: &lc, gcBooked: &gc, gc: gc - t.priorMoved,
-			moved: t.priorMoved})
+		out = append(out, row{groupAccount: f.role(config.RoleRetainedEarnings), kind: kindPriorResults, lc: &lc, gcBooked: &gc,
+			gc: gc - t.priorMoved - t.priorNet, moved: t.priorMoved, net: t.priorNet})
 	}
 	var sum money.Minor
 	for _, r := range out {
@@ -232,25 +320,26 @@ func translate(f figures) ([]row, error) {
 	return out, nil
 }
 
-// movedInYear is the translation part of the fiscal year's revaluation
-// lines the rows leave to the translation difference: what the run moves
-// from the year's profit to other comprehensive income.
-func movedInYear(rows []row) money.Minor {
-	var sum money.Minor
+// movedInYear is what the rows of the fiscal year's revaluation lines
+// leave to the translation difference, which the run moves from the
+// year's profit to other comprehensive income: their translation part,
+// and the rest of those on a net investment.
+func movedInYear(rows []row) (moved, net money.Minor) {
 	for _, r := range rows {
 		if r.kind == kindBalance {
-			sum += r.moved
+			moved, net = moved+r.moved, net+r.net
 		}
 	}
-	return sum
+	return moved, net
 }
 
 // value sets a balance row's translated amount: its local amount at the
 // closing rate for an asset or liability, rounded once; its booked group
-// amount otherwise, less the translation part of its revaluation lines.
+// amount otherwise, less the translation part of its revaluation lines
+// and the rest of those on a net investment.
 func (f figures) value(r *row) error {
 	if !r.atClosingRate {
-		r.gc = *r.gcBooked - r.moved
+		r.gc = *r.gcBooked - r.moved - r.net
 		return nil
 	}
 	gc, err := money.ConvertAt(*r.lc, f.rate, f.expLC, f.expGC)

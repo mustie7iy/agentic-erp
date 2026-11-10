@@ -1651,15 +1651,18 @@ type Invoker interface {
 	// its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's
 	// difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes
 	// it out of the profit's rows and into the reserve, so other comprehensive income holds it
-	// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The reserve opens at what
-	// the group's final run of the previous fiscal year's last period showed when this run started
-	// (`opening_run_id`), at zero without one. The eliminations are the run's elimination entries' lines
-	// on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
-	// which leave no balance between the run's companies on an elimination's accounts and put each pair's
-	// difference on the elimination's difference account; the investment's elimination follows with T68h.
-	// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-	// never changes; `stale` says whether a company's period changed since the run read its figures
-	// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
+	// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The exchange differences
+	// on a monetary item designated as part of a net investment in a foreign operation
+	// (`ConsolidationGroup.net_investments`) go the same way, whole (`net_investment`, per company and in
+	// the totals; IAS 21.32). The reserve opens at what the group's final run of the previous fiscal
+	// year's last period showed when this run started (`opening_run_id`), at zero without one. The
+	// eliminations are the run's elimination entries' lines on the account summed
+	// (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance
+	// between the run's companies on an elimination's accounts and put each pair's difference on the
+	// elimination's difference account; the investment's elimination follows with T68h. The statement is
+	// read from the run's stored rows alone, so a computed, final or superseded run's never changes;
+	// `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10,
+	// T68g). Refused for a run that is queued, running, failed or discarded (409
 	// `consolidation.run_not_computed`) and for a statement other than these two (404
 	// `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 	// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -24517,15 +24520,18 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 // its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's
 // difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes
 // it out of the profit's rows and into the reserve, so other comprehensive income holds it
-// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The reserve opens at what
-// the group's final run of the previous fiscal year's last period showed when this run started
-// (`opening_run_id`), at zero without one. The eliminations are the run's elimination entries' lines
-// on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
-// which leave no balance between the run's companies on an elimination's accounts and put each pair's
-// difference on the elimination's difference account; the investment's elimination follows with T68h.
-// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-// never changes; `stale` says whether a company's period changed since the run read its figures
-// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
+// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The exchange differences
+// on a monetary item designated as part of a net investment in a foreign operation
+// (`ConsolidationGroup.net_investments`) go the same way, whole (`net_investment`, per company and in
+// the totals; IAS 21.32). The reserve opens at what the group's final run of the previous fiscal
+// year's last period showed when this run started (`opening_run_id`), at zero without one. The
+// eliminations are the run's elimination entries' lines on the account summed
+// (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance
+// between the run's companies on an elimination's accounts and put each pair's difference on the
+// elimination's difference account; the investment's elimination follows with T68h. The statement is
+// read from the run's stored rows alone, so a computed, final or superseded run's never changes;
+// `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10,
+// T68g). Refused for a run that is queued, running, failed or discarded (409
 // `consolidation.run_not_computed`) and for a statement other than these two (404
 // `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 // (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not

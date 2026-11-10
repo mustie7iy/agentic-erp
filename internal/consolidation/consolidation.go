@@ -132,10 +132,12 @@ type Balance struct {
 // (ADR-0059 §4a, BalancesThrough): its local and booked group amounts and
 // the local-to-group rate its entry records, the posting date's, with the
 // fiscal year and period of a profit and loss Balance (Period 0 in an
-// earlier fiscal year).
+// earlier fiscal year). ValuedAccountID is the account whose difference
+// the line offsets, when it is one of those the read was asked to name.
 type RevaluationLine struct {
 	AccountID          uuid.UUID
 	TradingPartnerID   *uuid.UUID
+	ValuedAccountID    *uuid.UUID
 	FiscalYear, Period int16
 	LC, GC             money.Minor
 	Rate               *big.Rat
@@ -160,8 +162,10 @@ type Ledger interface {
 	Accounts(ctx context.Context, company uuid.UUID) ([]Account, error)
 	// BalancesThrough are the company's balances through the period and,
 	// read with them from one database state, the lines of its
-	// revaluation runs' entries on profit and loss accounts through it.
-	BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16) ([]Balance, []RevaluationLine, error)
+	// revaluation runs' entries on profit and loss accounts through it,
+	// each naming the account it values when that is one of valued (the
+	// accounts designated as part of a net investment).
+	BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16, valued []uuid.UUID) ([]Balance, []RevaluationLine, error)
 	// RateOn is the latest rate of the type valid on the date; ok is
 	// false when there is none.
 	RateOn(ctx context.Context, rateType, from, to string, date time.Time) (Rate, bool, error)

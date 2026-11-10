@@ -3738,7 +3738,13 @@ fiscal year's group-currency revaluation differences a run moved from the
 company's profit to its translation reserve, in the group currency's
 minor units, debit positive, zero by default, recorded with the
 company's translation and not before (`run_member_revaluation_translation`;
-As built: the group-currency revaluation's translation part).
+As built: the group-currency revaluation's translation part)); migration 000249
+adds `run_member.net_investment_gc` beside it, the rest of the fiscal
+year's exchange differences on the company's monetary items designated as
+part of a net investment in a foreign operation (the configuration's
+`consolidation.groups[].net_investments[]`), which the run moved there
+too, under the same rule (`run_member_net_investment`; As built: a net
+investment's exchange differences).
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as

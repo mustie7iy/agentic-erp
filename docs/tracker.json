@@ -2015,10 +2015,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "Exchange differences on a net investment in a foreign operation in other comprehensive income (accounting specialist, po:2026-11-09, B4 correction 2; IAS 21.32, 21.45): a monetary item forming part of the net investment in a foreign operation (a long-term intercompany loan not expected to be settled) is designated as such, how decided in the step, and the consolidation moves its exchange differences to other comprehensive income; other intragroup monetary items keep theirs in profit or loss",
-        "r": "ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, §8, question 1 (answered) · consolidation run",
-        "src": "po:2026-11-09",
+        "s": "D",
+        "t": "Exchange differences on a net investment in a foreign operation in other comprehensive income (accounting specialist, po:2026-11-09, B4 correction 2; IAS 21.32, 21.45): a monetary item forming part of the net investment in a foreign operation (a long-term intercompany loan not expected to be settled) is designated as such, per account and trading partner in the group's consolidation configuration (po:2026-11-10, option b: no flag on the company's account, no designation per open item, no change to posting or to a member's ledger), and the consolidation moves its exchange differences to other comprehensive income; other intragroup monetary items keep theirs in profit or loss. Built for the differences a company's revaluation runs book, where they arise; not built: realised differences on a settled open item and the reclassification on a disposal (IAS 21.48), both listed for the specialist in the ADR",
+        "r": "db/migrations/000249 · consolidation.run_member.net_investment_gc · config consolidation.groups[].net_investments[] (NetInvestment) · ledger.ConsolidationReads.BalancesThrough (RevaluationLine.ValuedAccountID) · internal/consolidation translate.go (netInvestment) · GET /v1/consolidation-groups/{code} (net_investments) · GET /v1/consolidation-runs/{id}/statements/profit_and_loss (net_investment) · TestNetInvestmentExchangeDifferences · TestNetInvestmentParts · TestNetInvestmentsOfARun · TestRevaluationLinesNameTheirValuedAccount · TestConsolidationNetInvestmentRules · walkthrough consolidation_revaluation · ADR-0059 As built (a net investment's exchange differences) · ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, §8, question 1 (answered) · consolidation run",
+        "src": "po:2026-11-09 · po:2026-11-10",
         "c": []
        },
        {

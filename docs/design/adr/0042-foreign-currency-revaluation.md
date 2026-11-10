@@ -216,4 +216,13 @@ po:2026-11-09):
   forms part of the net investment in a foreign operation (a long-term
   intercompany loan not expected to be settled) go to other comprehensive
   income in the consolidated statements (IAS 21.32); other intragroup
-  monetary items keep theirs in profit or loss (IAS 21.45).
+  monetary items keep theirs in profit or loss (IAS 21.45). Built
+  (ADR-0059 As built: a net investment's exchange differences): the
+  group's configuration designates a company's account with a trading
+  partner (po:2026-11-10), and a consolidation run takes this run's
+  differences on that balance out of the consolidated profit and into
+  the company's translation reserve. This run, its entries and a
+  company's own ledger and reports are unchanged; the ledger tells
+  consolidation which account each of a run's profit and loss lines
+  values, from the run's items and its entries' line order
+  (`ConsolidationReads.BalancesThrough`).

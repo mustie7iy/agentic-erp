@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,7 +88,11 @@ func TestRevaluationParts(t *testing.T) {
 			if r.gcBooked != nil {
 				booked = fmt.Sprintf("%d/%d", *r.lc, *r.gcBooked)
 			}
-			out = append(out, fmt.Sprintf("%s %s %s tp%s %s -> %d moved %d", r.groupAccount, number, r.kind, r.partnerCode, booked, r.gc, r.moved))
+			line := fmt.Sprintf("%s %s %s tp%s %s -> %d moved %d", r.groupAccount, number, r.kind, r.partnerCode, booked, r.gc, r.moved)
+			if r.net != 0 {
+				line += fmt.Sprintf(" net %d", r.net)
+			}
+			out = append(out, line)
 		}
 		return strings.Join(out, " | ")
 	}
@@ -130,8 +135,8 @@ func TestRevaluationParts(t *testing.T) {
 			if got := show(rows); got != c.want {
 				t.Errorf("rows:\ngot  %s\nwant %s", got, c.want)
 			}
-			if got := movedInYear(rows); got != c.moved {
-				t.Errorf("moved in the year: got %d, want %d", got, c.moved)
+			if got, net := movedInYear(rows); got != c.moved || net != 0 {
+				t.Errorf("moved in the year: got %d and %d of net investments, want %d and 0", got, net, c.moved)
 			}
 		})
 	}
@@ -155,5 +160,154 @@ func TestRevaluationParts(t *testing.T) {
 				t.Errorf("got %v, want an error containing %q", err, c.want)
 			}
 		})
+	}
+}
+
+// TestNetInvestmentParts (ADR-0059 As built: a net investment's exchange
+// differences; IAS 21.32): a revaluation line that offsets a difference
+// on a designated account's balance with its trading partner leaves the
+// profit whole, its translation part as every line's and the rest, its
+// local amount translated, beside it; a line valuing the account with
+// another trading partner or none, or naming no valued account, keeps
+// the rest in the profit; an earlier year's comes off the earlier
+// results; and a valuation and its reset that cancel add no row. A row
+// the run takes whole out of the profit is zero, so these figures, which
+// leave the balance sheet side out, need no translation difference.
+func TestNetInvestmentParts(t *testing.T) {
+	gain := Account{ID: uuid.New(), Number: "480000", Name: "Unrealised gains", Type: config.Revenue}
+	loan := Account{ID: uuid.New(), Number: "130000", Name: "Loans to group companies", Type: config.Asset}
+	partner, other := uuid.New(), uuid.New()
+	half := big.NewRat(1, 2)
+	base := func() figures {
+		return figures{company: Company{Code: "1000"}, year: 2026, accounts: map[uuid.UUID]Account{gain.ID: gain, loan.ID: loan},
+			mapping:  map[string]string{"480000": "G4000", "130000": "G1000"},
+			chart:    config.Consolidation{Accounts: []config.GroupAccount{{Number: "G3800", Role: config.RoleRetainedEarnings}, {Number: "G3900", Role: config.RoleCTA}}},
+			partners: map[uuid.UUID]string{partner: "2000", other: "3000"}, rate: big.NewRat(2, 1), expLC: 2, expGC: 2,
+			netInvestments: map[netItem]bool{{account: loan.ID, partner: partner}: true}}
+	}
+	show := func(rows []row) string {
+		var out []string
+		for _, r := range rows {
+			number := "-"
+			if r.account != nil {
+				number = r.account.Number
+			}
+			out = append(out, fmt.Sprintf("%s %s %s tp%s -> %d moved %d net %d", r.groupAccount, number, r.kind, r.partnerCode, r.gc, r.moved, r.net))
+		}
+		return strings.Join(out, " | ")
+	}
+	cases := []struct {
+		name       string
+		balances   []Balance
+		lines      []RevaluationLine
+		want       string
+		moved, net money.Minor
+	}{
+		{"a gain on the designated balance leaves the profit whole",
+			[]Balance{{AccountID: gain.ID, TradingPartnerID: &partner, FiscalYear: 2026, Period: 10, LC: -100, GC: -90}},
+			[]RevaluationLine{{AccountID: gain.ID, TradingPartnerID: &partner, ValuedAccountID: &loan.ID, FiscalYear: 2026, Period: 10, LC: -100, GC: -90, Rate: half}},
+			"G4000 480000 balance tp2000 -> 0 moved -40 net -50", -40, -50},
+		{"a gain booked at its local amount translated has no translation part",
+			[]Balance{{AccountID: gain.ID, TradingPartnerID: &partner, FiscalYear: 2026, Period: 10, LC: -100, GC: -50}},
+			[]RevaluationLine{{AccountID: gain.ID, TradingPartnerID: &partner, ValuedAccountID: &loan.ID, FiscalYear: 2026, Period: 10, LC: -100, GC: -50, Rate: half}},
+			"G4000 480000 balance tp2000 -> 0 moved 0 net -50", 0, -50},
+		{"the account's balance with another trading partner, with none, and a line naming no valued account keep the rest",
+			[]Balance{{AccountID: gain.ID, FiscalYear: 2026, Period: 10, LC: -100, GC: -90}, {AccountID: gain.ID, TradingPartnerID: &partner, FiscalYear: 2026, Period: 10, LC: -100, GC: -90},
+				{AccountID: gain.ID, TradingPartnerID: &other, FiscalYear: 2026, Period: 10, LC: -100, GC: -90}},
+			[]RevaluationLine{{AccountID: gain.ID, ValuedAccountID: &loan.ID, FiscalYear: 2026, Period: 10, LC: -100, GC: -90, Rate: half},
+				{AccountID: gain.ID, TradingPartnerID: &partner, FiscalYear: 2026, Period: 10, LC: -100, GC: -90, Rate: half},
+				{AccountID: gain.ID, TradingPartnerID: &other, ValuedAccountID: &loan.ID, FiscalYear: 2026, Period: 10, LC: -100, GC: -90, Rate: half}},
+			"G3900 - cta tp -> 150 moved 0 net 0 | G4000 480000 balance tp -> -50 moved -40 net 0 | G4000 480000 balance tp2000 -> -50 moved -40 net 0 | " +
+				"G4000 480000 balance tp3000 -> -50 moved -40 net 0", -120, 0},
+		{"an earlier year's, off the earlier results", []Balance{{AccountID: gain.ID, TradingPartnerID: &partner, FiscalYear: 2025, LC: -100, GC: -90}},
+			[]RevaluationLine{{AccountID: gain.ID, TradingPartnerID: &partner, ValuedAccountID: &loan.ID, FiscalYear: 2025, LC: -100, GC: -90, Rate: half}},
+			"G3800 - prior_results tp -> 0 moved -40 net -50", 0, 0},
+		{"an earlier year's without earlier results or a translation part", nil,
+			[]RevaluationLine{{AccountID: gain.ID, TradingPartnerID: &partner, ValuedAccountID: &loan.ID, FiscalYear: 2025, LC: -100, GC: -50, Rate: half}},
+			"G3800 - prior_results tp -> 50 moved 0 net -50 | G3900 - cta tp -> -50 moved 0 net 0", 0, 0},
+		{"a valuation and its reset without a balance cancel: no row", nil,
+			[]RevaluationLine{{AccountID: gain.ID, TradingPartnerID: &partner, ValuedAccountID: &loan.ID, FiscalYear: 2026, Period: 9, LC: -100, GC: -50, Rate: half},
+				{AccountID: gain.ID, TradingPartnerID: &partner, ValuedAccountID: &loan.ID, FiscalYear: 2026, Period: 10, LC: 100, GC: 50, Rate: half}},
+			"", 0, 0},
+		{"a valuation alone without a balance makes a row of its own", nil,
+			[]RevaluationLine{{AccountID: gain.ID, TradingPartnerID: &partner, ValuedAccountID: &loan.ID, FiscalYear: 2026, Period: 10, LC: -100, GC: -50, Rate: half}},
+			"G3900 - cta tp -> -50 moved 0 net 0 | G4000 480000 balance tp2000 -> 50 moved 0 net -50", 0, -50},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := base()
+			f.balances, f.revaluations = c.balances, c.lines
+			rows, err := translate(f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := show(rows); got != c.want {
+				t.Errorf("rows:\ngot  %s\nwant %s", got, c.want)
+			}
+			if moved, net := movedInYear(rows); moved != c.moved || net != c.net {
+				t.Errorf("moved in the year: got %d and %d of net investments, want %d and %d", moved, net, c.moved, c.net)
+			}
+		})
+	}
+}
+
+// TestNetInvestmentsOfARun: a company's designations are those of the
+// run's group naming it, by the ids of its accounts and of the trading
+// partners; one counts from the period the run consolidates its trading
+// partner in (the parent always, a member from its first period), and
+// one naming an account the ledger does not give the company, or a
+// trading partner tenancy does not list (company 4000), designates
+// nothing. The accounts the ledger is asked to name are each once, in
+// one order.
+func TestNetInvestmentsOfARun(t *testing.T) {
+	loan, payable, second := uuid.New(), uuid.New(), uuid.New()
+	parent, us, late := uuid.New(), uuid.New(), uuid.New()
+	cs := config.Consolidation{Groups: []config.ConsolidationGroup{
+		{Code: "OTHER", Parent: "2000", NetInvestments: []config.NetInvestment{{Company: "2000", Account: "131000", Partner: "1000"}}},
+		{Code: "ACME", Parent: "2000",
+			Members: []config.GroupMember{{Company: "1000", FirstPeriod: "2026-11"}, {Company: "3000", FirstPeriod: "2027-01"}, {Company: "4000", FirstPeriod: "2026-01"}},
+			NetInvestments: []config.NetInvestment{{Company: "2000", Account: "130000", Partner: "1000"}, {Company: "2000", Account: "130000", Partner: "3000"},
+				{Company: "2000", Account: "999999", Partner: "1000"}, {Company: "1000", Account: "230000", Partner: "2000"},
+				{Company: "2000", Account: "131000", Partner: "3000"}, {Company: "2000", Account: "131000", Partner: "4000"}}}}}
+	accounts := map[uuid.UUID]Account{loan: {ID: loan, Number: "130000"}, payable: {ID: payable, Number: "230000"}, second: {ID: second, Number: "131000"}}
+	partners := map[uuid.UUID]string{parent: "2000", us: "1000", late: "3000"}
+	show := func(company string, year, period int16) string {
+		f := figures{netInvestments: netInvestments(cs, Run{GroupCode: "ACME", FiscalYear: year, Period: period}, company, accounts, partners)}
+		var out []string
+		for _, id := range f.valuedAccounts() {
+			var with []string
+			for _, code := range []string{"1000", "2000", "3000"} {
+				for tp, c := range partners {
+					if c == code && f.netInvestments[netItem{account: id, partner: tp}] {
+						with = append(with, code)
+					}
+				}
+			}
+			out = append(out, accounts[id].Number+" with "+strings.Join(with, ","))
+		}
+		slices.Sort(out)
+		return fmt.Sprintf("%d: %s", len(f.netInvestments), strings.Join(out, "; "))
+	}
+	for _, c := range []struct {
+		name         string
+		company      string
+		year, period int16
+		want         string
+	}{
+		{"the parent before any member's first period", "2000", 2026, 10, "0: "},
+		{"the parent in a member's first period", "2000", 2026, 11, "1: 130000 with 1000"},
+		{"the parent once both members are consolidated", "2000", 2027, 1, "3: 130000 with 1000,3000; 131000 with 3000"},
+		{"a member, with its parent", "1000", 2026, 11, "1: 230000 with 2000"},
+		{"a company without designations", "3000", 2027, 1, "0: "},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := show(c.company, c.year, c.period); got != c.want {
+				t.Errorf("designations: got %s, want %s", got, c.want)
+			}
+		})
+	}
+	ids := figures{netInvestments: netInvestments(cs, Run{GroupCode: "ACME", FiscalYear: 2027, Period: 1}, "2000", accounts, partners)}.valuedAccounts()
+	if !slices.IsSortedFunc(ids, func(a, b uuid.UUID) int { return strings.Compare(a.String(), b.String()) }) || len(ids) != 2 {
+		t.Errorf("the valued accounts: got %v, want the two accounts once each, in order", ids)
 	}
 }
