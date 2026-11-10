@@ -43,11 +43,15 @@ type Member struct {
 	PeriodStatus               *string
 	PeriodVersion              *int32
 	TranslatedAt               *time.Time
+	// RevaluationTranslation is the translation part of the fiscal
+	// year's group-currency revaluation differences the run moved from
+	// the company's profit to its translation reserve (movedInYear).
+	RevaluationTranslation money.Minor
 }
 
 // memberColumns are a run member's columns, as scanMember reads them.
 const memberColumns = `legal_entity_id, company_code, role, ownership_percent::text, first_fiscal_year, first_fiscal_period, local_currency,
-	closing_rate::text, rate_valid_from, period_status, period_version, translated_at`
+	closing_rate::text, rate_valid_from, period_status, period_version, translated_at, revaluation_translation_gc`
 
 // memberSelect reads a run's members.
 const memberSelect = `SELECT ` + memberColumns + ` FROM consolidation.run_member`
@@ -55,7 +59,7 @@ const memberSelect = `SELECT ` + memberColumns + ` FROM consolidation.run_member
 // fields are where a member's columns are read into.
 func (m *Member) fields() []any {
 	return []any{&m.LegalEntityID, &m.CompanyCode, &m.Role, &m.OwnershipPercent, &m.FirstYear, &m.FirstPeriod, &m.LocalCurrency, &m.ClosingRate,
-		&m.RateValidFrom, &m.PeriodStatus, &m.PeriodVersion, &m.TranslatedAt}
+		&m.RateValidFrom, &m.PeriodStatus, &m.PeriodVersion, &m.TranslatedAt, &m.RevaluationTranslation}
 }
 
 func scanMember(r pgx.CollectableRow) (Member, error) {
@@ -185,8 +189,9 @@ func (e *Endpoints) prepare(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 // period in the company's leading ledger first and then its balances
 // through it (two statements of a read-committed transaction), so the
 // version recorded is never newer than the figures read and a change
-// between the two reads makes the run stale (T68g), never wrongly fresh; writes its translated rows; records the period and
-// when; and reports the run's progress. A company already translated, or
+// between the two reads makes the run stale (T68g), never wrongly fresh; writes its translated rows; records the period,
+// when, and what it moved from the year's profit to the translation
+// reserve (movedInYear); and reports the run's progress. A company already translated, or
 // a run no longer running, is left alone.
 func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) error {
 	tx, p, err := reqctx.Request(ctx)
@@ -224,8 +229,9 @@ func (e *Endpoints) TranslateMember(ctx context.Context, id, company uuid.UUID) 
 	if err := writeRows(ctx, tx, p, r.ID, company, out); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE consolidation.run_member SET period_status = $3, period_version = $4, translated_at = now()
-		WHERE run_id = $1 AND legal_entity_id = $2`, id, company, per.Status, per.Version); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE consolidation.run_member SET period_status = $3, period_version = $4, translated_at = now(),
+			revaluation_translation_gc = $5
+		WHERE run_id = $1 AND legal_entity_id = $2`, id, company, per.Status, per.Version, movedInYear(out)); err != nil {
 		return fmt.Errorf("consolidation: record the translation of %s in run %s: %w", m.CompanyCode, id, err)
 	}
 	return e.progress(ctx, tx, r)
@@ -269,8 +275,11 @@ func (e *Endpoints) figuresOf(ctx context.Context, tx pgx.Tx, r Run, m Member, y
 	for _, c := range entities {
 		f.partners[c.ID] = c.Code
 	}
-	f.balances, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, year, period)
-	return f, errs.Wrapf(err, "consolidation: balances of %s through %d/%d", m.CompanyCode, year, period)
+	if f.balances, err = e.Ledger.BalancesThrough(ctx, m.LegalEntityID, year, period); err != nil {
+		return figures{}, fmt.Errorf("consolidation: balances of %s through %d/%d: %w", m.CompanyCode, year, period, err)
+	}
+	f.revaluations, err = e.Ledger.RevaluationLines(ctx, m.LegalEntityID, year, period)
+	return f, errs.Wrapf(err, "consolidation: revaluation lines of %s through %d/%d", m.CompanyCode, year, period)
 }
 
 // writeRows writes a company's translated rows, numbered in their order,

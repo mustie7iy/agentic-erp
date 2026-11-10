@@ -1648,15 +1648,18 @@ type Invoker interface {
 	// through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive
 	// income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B),
 	// with the translation reserve per company (`translation_reserve`: its opening, the year's difference,
-	// its closing and the difference's two shares; IAS 21.52(b)). The reserve opens at what the group's
-	// final run of the previous fiscal year's last period showed when this run started (`opening_run_id`),
-	// at zero without one. The eliminations are the run's elimination entries' lines on the account summed
-	// (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance
-	// between the run's companies on an elimination's accounts and put each pair's difference on the
-	// elimination's difference account; the investment's elimination follows with T68h. The statement is
-	// read from the run's stored rows alone, so a computed, final or superseded run's never changes;
-	// `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10,
-	// T68g). Refused for a run that is queued, running, failed or discarded (409
+	// its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's
+	// difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes
+	// it out of the profit's rows and into the reserve, so other comprehensive income holds it
+	// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The reserve opens at what
+	// the group's final run of the previous fiscal year's last period showed when this run started
+	// (`opening_run_id`), at zero without one. The eliminations are the run's elimination entries' lines
+	// on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
+	// which leave no balance between the run's companies on an elimination's accounts and put each pair's
+	// difference on the elimination's difference account; the investment's elimination follows with T68h.
+	// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
+	// never changes; `stale` says whether a company's period changed since the run read its figures
+	// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
 	// `consolidation.run_not_computed`) and for a statement other than these two (404
 	// `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 	// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -2632,18 +2635,20 @@ type Invoker interface {
 	// booked group amount and the translated group amount, and the closing rate where one applied: on
 	// asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
 	// account (`prior_results`, translated at their booked group amounts) and the translation difference
-	// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
-	// account's number and name, the company account's number and name and the trading partner's code and
-	// name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within
-	// a company the rows follow the group account's number, the company account's (none first), the
-	// trading partner's code (none first) and the kind, so two runs of the same figures number them alike.
-	// With totals over the filter: the local amounts per local currency, and the booked and translated
-	// group amounts in the group currency (each company's translated rows sum to zero). Filters: company,
-	// group account, company account, trading partner and kind. A run still queued shows none, a running
-	// one those of the companies translated so far. Besides `consolidation.read` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may
-	// not act in is not found (404), as a run that does not exist. Read from one database state (a
-	// repeatable-read snapshot), so its page and totals agree.
+	// on the `cta` account (`cta`, a group amount alone), where a profit and loss account's row and
+	// `prior_results` leave the translation part of the company's group-currency revaluation differences
+	// to the translation difference (`ConsolidationBalance.amount_gc`; IAS 21.39(c)), each with the
+	// company's code and name, the group account's number and name, the company account's number and name
+	// and the trading partner's code and name (to a caller who may act in that company; its id alone
+	// otherwise, as a journal line's). Within a company the rows follow the group account's number, the
+	// company account's (none first), the trading partner's code (none first) and the kind, so two runs of
+	// the same figures number them alike. With totals over the filter: the local amounts per local
+	// currency, and the booked and translated group amounts in the group currency (each company's
+	// translated rows sum to zero). Filters: company, group account, company account, trading partner and
+	// kind. A run still queued shows none, a running one those of the companies translated so far. Besides
+	// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group
+	// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+	// Read from one database state (a repeatable-read snapshot), so its page and totals agree.
 	//
 	// GET /v1/consolidation-runs/{id}/balances
 	ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error)
@@ -24509,15 +24514,18 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 // through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive
 // income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B),
 // with the translation reserve per company (`translation_reserve`: its opening, the year's difference,
-// its closing and the difference's two shares; IAS 21.52(b)). The reserve opens at what the group's
-// final run of the previous fiscal year's last period showed when this run started (`opening_run_id`),
-// at zero without one. The eliminations are the run's elimination entries' lines on the account summed
-// (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance
-// between the run's companies on an elimination's accounts and put each pair's difference on the
-// elimination's difference account; the investment's elimination follows with T68h. The statement is
-// read from the run's stored rows alone, so a computed, final or superseded run's never changes;
-// `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10,
-// T68g). Refused for a run that is queued, running, failed or discarded (409
+// its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's
+// difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes
+// it out of the profit's rows and into the reserve, so other comprehensive income holds it
+// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The reserve opens at what
+// the group's final run of the previous fiscal year's last period showed when this run started
+// (`opening_run_id`), at zero without one. The eliminations are the run's elimination entries' lines
+// on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
+// which leave no balance between the run's companies on an elimination's accounts and put each pair's
+// difference on the elimination's difference account; the investment's elimination follows with T68h.
+// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
+// never changes; `stale` says whether a company's period changed since the run read its figures
+// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
 // `consolidation.run_not_computed`) and for a statement other than these two (404
 // `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 // (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -41228,18 +41236,20 @@ func (c *Client) sendListConnectors(ctx context.Context, params ListConnectorsPa
 // booked group amount and the translated group amount, and the closing rate where one applied: on
 // asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
 // account (`prior_results`, translated at their booked group amounts) and the translation difference
-// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
-// account's number and name, the company account's number and name and the trading partner's code and
-// name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within
-// a company the rows follow the group account's number, the company account's (none first), the
-// trading partner's code (none first) and the kind, so two runs of the same figures number them alike.
-// With totals over the filter: the local amounts per local currency, and the booked and translated
-// group amounts in the group currency (each company's translated rows sum to zero). Filters: company,
-// group account, company account, trading partner and kind. A run still queued shows none, a running
-// one those of the companies translated so far. Besides `consolidation.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may
-// not act in is not found (404), as a run that does not exist. Read from one database state (a
-// repeatable-read snapshot), so its page and totals agree.
+// on the `cta` account (`cta`, a group amount alone), where a profit and loss account's row and
+// `prior_results` leave the translation part of the company's group-currency revaluation differences
+// to the translation difference (`ConsolidationBalance.amount_gc`; IAS 21.39(c)), each with the
+// company's code and name, the group account's number and name, the company account's number and name
+// and the trading partner's code and name (to a caller who may act in that company; its id alone
+// otherwise, as a journal line's). Within a company the rows follow the group account's number, the
+// company account's (none first), the trading partner's code (none first) and the kind, so two runs of
+// the same figures number them alike. With totals over the filter: the local amounts per local
+// currency, and the booked and translated group amounts in the group currency (each company's
+// translated rows sum to zero). Filters: company, group account, company account, trading partner and
+// kind. A run still queued shows none, a running one those of the companies translated so far. Besides
+// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group
+// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+// Read from one database state (a repeatable-read snapshot), so its page and totals agree.
 //
 // GET /v1/consolidation-runs/{id}/balances
 func (c *Client) ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error) {

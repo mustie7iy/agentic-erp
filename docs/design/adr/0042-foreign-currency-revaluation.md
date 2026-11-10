@@ -203,7 +203,15 @@ po:2026-11-09):
   difference translated. The part beyond the functional-currency
   difference, translated, is a translation effect, which belongs in other
   comprehensive income and the translation reserve (IAS 21.39(c)), not in
-  profit or loss: the consolidation run is to move it there.
+  profit or loss: the consolidation run is to move it there. Built
+  (ADR-0059 As built: the group-currency revaluation's translation
+  part): the run keeps each line of a revaluation run's entries on a
+  profit and loss account at its local amount converted at the entry's
+  recorded local-to-group rate and takes the rest of its booked group
+  amount to the company's translation reserve. This run, its entries
+  and a company's own ledger and reports are unchanged; the ledger
+  publishes the lines to consolidation
+  (`ConsolidationReads.RevaluationLines`).
 - **Net investment items.** Exchange differences on a monetary item that
   forms part of the net investment in a foreign operation (a long-term
   intercompany loan not expected to be settled) go to other comprehensive

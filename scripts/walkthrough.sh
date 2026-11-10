@@ -3569,17 +3569,20 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 | .companies += [{"code": "1000", "name": "Acme Corp US", "currency": "USD", "country": "US", "fiscal_year_start_month": 1,
     "time_zone": "America/New_York",
     "chart_of_accounts": [
-      {"number": "100000", "name": "Bank - Operating", "type": "asset"},
+      {"number": "100000", "name": "Bank - Operating", "type": "asset", "revalue_foreign_currency": true},
       {"number": "140000", "name": "Input Tax", "type": "asset"},
       {"number": "211000", "name": "Accounts Payable - Domestic", "type": "liability", "vendor_reconciliation": true},
       {"number": "225000", "name": "Intercompany payables", "type": "liability", "vendor_reconciliation": true},
       {"number": "300000", "name": "Share Capital", "type": "equity"},
       {"number": "400000", "name": "Sales Revenue", "type": "revenue"},
       {"number": "480000", "name": "Purchase discounts received", "type": "revenue"},
+      {"number": "490000", "name": "Unrealised exchange gains", "type": "revenue"},
       {"number": "510000", "name": "Raw Materials Consumed", "type": "expense"},
       {"number": "520000", "name": "Office Supplies", "type": "expense"},
       {"number": "525000", "name": "Intercompany services", "type": "expense"},
-      {"number": "530000", "name": "IT Services", "type": "expense"}],
+      {"number": "530000", "name": "IT Services", "type": "expense"},
+      {"number": "690000", "name": "Unrealised exchange losses", "type": "expense"}],
+    "fx_valuation": {"rate_type": "bank_selling", "accounts": [{"account": "100000", "unrealised_gain": "490000", "unrealised_loss": "690000"}]},
     "account_determination": {"ap_reconciliation": "211000", "input_tax": "140000", "bank": "100000", "cash_discount": "480000"},
     "tax_codes": [{"code": "V0", "description": "Input tax exempt", "rate_percent": "0", "account": "140000"}],
     "invoice_tolerance": {"price_percent": 2, "price_absolute": "5.00"},
@@ -3600,7 +3603,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations, its consolidated statements, an intercompany balance revalued by trading partner and its open difference accepted"
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations, its consolidated statements, an intercompany balance revalued by trading partner, a group-currency revaluation's translation part moved out of the profit and its open difference accepted"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3672,6 +3675,7 @@ step_consolidation() {
   consolidation_eliminations
   consolidation_statements
   consolidation_revaluation
+  consolidation_revaluation_translation
   consolidation_accept
   as tom
   passed
@@ -4082,6 +4086,104 @@ consolidation_revaluation() {
   api 200 '"revaluation run \(.id[0:8])…: \(.status)"' cancelRevaluationRun -p "id=$reval" -if-match "$ETAG" \
     -body '{"reason": "The month is still running; it is revalued at its end"}'
   expect "the revaluation run" "$(field .status)" cancelled
+}
+
+# consolidation_revaluation_translation is the translation part of a
+# group-currency revaluation, moved out of the profit (the accounting
+# specialist's B4 correction 1, po:2026-11-09; IAS 21.39(c); ADR-0042, the
+# group-currency difference in consolidation; ADR-0059 As built), part of
+# step_consolidation. Acme Corp US, whose books are in USD, sold EUR
+# 1,000.00 of engineering on the last day of the period before the
+# group's first, booked at the day's average rates: USD 1,100.00 at 1.10
+# and, in group currency, that at the day's USD/CAD rate. Carla revalues
+# Acme Corp US's euros at that day's bank selling rates: 1.12 in USD, a
+# gain of USD 20.00, and 1.50 in CAD on its own (ADR-0042), CAD 1,500.00
+# against the booked group amount. So the gain's entries book a group
+# amount that is not USD 20.00 translated. The reset, on the first day of
+# the group's period, is in the year's profit: a new run of the group
+# keeps its USD 20.00 at the entry's 1.35, CAD 27.00, there and shows the
+# rest of its booked group amount on Acme Corp US's translation reserve
+# (revaluation_translation), in other comprehensive income; the valuation
+# itself is before the group's first period, so its part comes off the
+# earlier results. Then Carla discards the run, cancels the revaluation
+# and reverses the sale, so the steps that follow see the month as
+# booked.
+consolidation_revaluation_translation() {
+  local first="${TODAY:0:7}-01" end period=$((10#${TODAY:5:2})) rate=135 us booked difference moved earlier sale reval run row
+  local cents='(.amount | tonumber * 100 | round)'
+  end=$(date_add "$first" -1)
+  [ "${TODAY:5:2}" = 01 ] && rate=138
+  booked=$((1100 * rate))             # USD 1,100.00 at the day's USD/CAD rate, in cents
+  difference=$((150000 - booked))     # the group difference: EUR 1,000.00 at 1.50 less the booked group amount
+  moved=$((difference - 2700))        # the reset's group amount less its USD 20.00 at the reset's 1.35
+  earlier=$((20 * rate - difference)) # the valuation's: its USD 20.00 at the day's rate less its group amount, a credit
+  as tom
+  say "Acme Corp US sells in euros too. Tom records the euro's rates from $end: the average rate in USD, which a posting"
+  say "converts at, and the bank selling rates in USD and in CAD, which Acme Corp US's revaluation values at (ADR-0042):"
+  for row in "average USD 1.10" "bank_selling USD 1.12" "bank_selling CAD 1.50"; do
+    # shellcheck disable=SC2086 # three words: the rate type, the currency and the rate
+    set -- $row
+    api 201 '"\(.rate_type) \(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+      -body "{\"rate_type\": \"$1\", \"from_currency\": \"EUR\", \"to_currency\": \"$2\", \"valid_from\": \"$end\", \"rate\": \"$3\", \"source\": \"ECB\"}"
+  done
+  as carla
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Acme Corp US sold EUR 1,000.00 of engineering on $end, paid into its bank: USD 1,100.00, and in group currency"
+  say "that at the day's USD/CAD rate:"
+  api 201 '"journal entry \(.document_number) of \(.posting_date): \([.lines[] | "\(.amount.amount) \(.amount.currency) = \(.amount_lc.amount) \(.amount_lc.currency) = \(.amount_gc.amount) \(.amount_gc.currency)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$us\", \"document_date\": \"$end\", \"posting_date\": \"$end\", \"currency\": \"EUR\", \"header_text\": \"Engineering sold in euros\", \"lines\": [{\"account_id\": \"$(jq -r '.items[] | select(.number == "100000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"EUR\"}}, {\"account_id\": \"$(jq -r '.items[] | select(.number == "400000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"-1000.00\", \"currency\": \"EUR\"}}]}"
+  sale=$(field .id)
+  expect "the sale's local and group amounts" "$(field '.lines[0] | "\(.amount_lc.amount) \(.amount_gc.amount)"')" "1100.00 $(amount "$booked")"
+  say "Carla revalues Acme Corp US's foreign-currency items at $end. The euros are worth USD 1,120.00 at the bank selling"
+  say "rate, a gain of USD 20.00; group currency is valued on its own, CAD 1,500.00 against the booked $(amount "$booked"):"
+  api 201 '"run \(.id[0:8])… at \(.key_date): \(.status), \(.item_count) item",
+    (.totals[] | "  \(.currency) \(.amount.amount): \(.direction) \(.difference_lc.amount) \(.difference_lc.currency), in group currency \(.difference_gc.amount) \(.difference_gc.currency)")' \
+    postRevaluationRun -body "{\"legal_entity_id\": \"$us\", \"key_date\": \"$end\"}"
+  reval=$(field .id)
+  expect "the euros' differences" "$(field '[.totals[] | "\(.direction) \(.amount.amount) \(.difference_lc.amount) \(.difference_gc.amount)"] | join(", ")')" \
+    "gain 1000.00 20.00 $(amount "$difference")"
+  say "USD 20.00 translated is not CAD $(amount "$difference"): the rest of the group difference is a translation effect, which"
+  say "belongs in other comprehensive income (IAS 21.39(c)). Carla runs the group again:"
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  say "The reset of the gain, dated $first, is in the year's profit. Its row keeps USD 20.00 at the entry's 1.35, CAD 27.00,"
+  say "where CAD $(amount "$difference") is booked:"
+  api 200 '.items[] | "  \(.company_code) \(.account.number) \(.account.name): \(.amount_lc.amount) \(.amount_lc.currency), booked \(.amount_gc_booked.amount), translated \(.amount_gc.amount) \(.amount_gc.currency)"' \
+    listConsolidationBalances -p "id=$run" -p "legal_entity_id=$us" -p "account_id=$(jq -r '.items[] | select(.number == "490000") | .id' "$WORK/us-accounts.json")"
+  expect "the reset's row" "$(field '[.items[] | "\(.amount_lc.amount) \(.amount_gc_booked.amount) \(.amount_gc.amount)"] | join(", ")')" "20.00 $(amount "$difference") 27.00"
+  expect "the part moved off the row" "$(field "[.items[] | (.amount_gc_booked | $cents) - (.amount_gc | $cents)] | add")" "$moved"
+  say "The valuation itself, on $end, is a result before the group's first period: the earlier results keep its USD 20.00"
+  say "at that day's rate."
+  QUIET=1 api 200 '' listConsolidationBalances -p "id=$run" -p "legal_entity_id=$us" -p kind=prior_results
+  expect "the part moved off the earlier results" "$(field "[.items[] | (.amount_gc_booked | $cents) - (.amount_gc | $cents)] | add")" "$earlier"
+  say "The profit and loss shows what the run moved out of the profit, per company and in its totals. The profit is"
+  say "CAD 27.00 more debit than the first run's, the reset as the run keeps it; as booked it would be CAD $(amount "$difference"):"
+  api 200 '(.translation_reserve[] | "  \(.company_code) \(.company_name): reserve \(.closing.amount), moved out of the profit \(.revaluation_translation.amount) \(.revaluation_translation.currency)"),
+    (.totals | "  total revaluation_translation: reported \(.revaluation_translation.reported.amount), eliminations \(.revaluation_translation.eliminations.amount), consolidated \(.revaluation_translation.consolidated.amount)",
+      "  total profit: consolidated \(.profit.consolidated.amount); other comprehensive income \(.other_comprehensive_income.consolidated.amount)")' \
+    getConsolidatedStatement -p "id=$run" -p statement=profit_and_loss -p page_size=500
+  expect "what each company moved out of its profit" "$(field '[.translation_reserve[] | "\(.company_code) \(.revaluation_translation.amount)"] | join(", ")')" \
+    "1000 $(amount "$moved"), $CC 0.00"
+  expect "the total moved out of the profit" \
+    "$(field '.totals.revaluation_translation | "\(.reported.amount) \(.eliminations.amount) \(.consolidated.amount)"')" "$(amount "$moved") 0.00 $(amount "$moved")"
+  expect "the profit against the first run's" \
+    "$(($(field ".totals.profit.consolidated | $cents") - $(jq -r ".totals.profit.consolidated | $cents" "$WORK/profit-and-loss.json")))" 2700
+  expect "the booked group amount is what the profit keeps and what the run moved" "$((2700 + moved))" "$difference"
+  QUIET=1 api 200 '' getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
+  expect "assets, liabilities, equity and the profit, consolidated" "$(field "[.totals[].consolidated | $cents] | add")" 0
+  say "Carla discards this run, cancels the revaluation and reverses the sale: the steps that follow see the month as booked."
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$run"
+  api 200 '"run \(.id[0:8])…: \(.status)"' discardConsolidationRun -p "id=$run" -if-match "$ETAG"
+  expect "the group run" "$(field .status)" discarded
+  QUIET=1 api 200 '' getRevaluationRun -p "id=$reval"
+  api 200 '"revaluation run \(.id[0:8])…: \(.status)"' cancelRevaluationRun -p "id=$reval" -if-match "$ETAG" \
+    -body '{"reason": "Shown for the group run; the euros are revalued at the month end"}'
+  expect "the revaluation run" "$(field .status)" cancelled
+  QUIET=1 api 200 '' getJournalEntry -p "id=$sale"
+  api 200 '"journal entry \(.document_number) of \(.posting_date): the sale reversed"' reverseJournalEntry -p "id=$sale" -if-match "$ETAG" \
+    -body '{"header_text": "The sale in euros, shown for the group run"}'
 }
 
 # next_year_open has, in December only, Ada set up next fiscal year (a

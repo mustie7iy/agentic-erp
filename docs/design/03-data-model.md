@@ -3732,7 +3732,13 @@ previous fiscal year's period 12 when the run started running, which its
 translation reserve opens from for other comprehensive income (no
 foreign key, as `superseded_by`; named once, as the run starts, and then
 that final run, by the trigger `run_opening`, but by an import; As built:
-other comprehensive income).
+other comprehensive income); migration 000248 adds
+`run_member.revaluation_translation_gc`, the translation part of the
+fiscal year's group-currency revaluation differences a run moved from the
+company's profit to its translation reserve, in the group currency's
+minor units, debit positive, zero by default, recorded with the
+company's translation and not before (`run_member_revaluation_translation`;
+As built: the group-currency revaluation's translation part).
 The ledger gained, in T68b, `journal_line.trading_partner_id` (the legal
 entity on the other side of an intercompany line, nullable, no foreign key)
 and the projection `ledger.trading_partner_balance`, maintained as

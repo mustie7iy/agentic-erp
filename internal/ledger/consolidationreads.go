@@ -18,7 +18,8 @@ import (
 // ConsolidationReads is what the ledger publishes to the consolidation
 // context (ADR-0059 §4a, T68d): the leading ledger, a company's posting
 // period with its status and version, its accounts, its balances through a
-// period per account and per account and trading partner, and a rate of a
+// period per account and per account and trading partner, the lines of its
+// revaluation runs' entries on profit and loss accounts, and a rate of a
 // type valid on a date. Each runs in the request's or activity's
 // transaction under row-level security (ADR-0003); consolidation reads no
 // ledger table itself, and the composition root adapts these to its
@@ -204,6 +205,54 @@ func (ConsolidationReads) BalancesThrough(ctx context.Context, legalEntity, ledg
 		return b, r.Scan(&b.AccountID, &b.TradingPartnerID, &b.FiscalYear, &b.Period, &b.LC, &b.GC)
 	})
 	return out, errs.Wrapf(err, "ledger: balances of %s through %d/%d", legalEntity, year, period)
+}
+
+// RevaluationLine is a line of one of a company's revaluation runs'
+// entries (ADR-0042) on a profit and loss account: its local and booked
+// group amounts, debit positive, and the local-to-group rate its entry
+// records, the posting date's, at which a posting in local currency
+// converts. A run values group currency on its own, so GC is not LC at
+// Rate; consolidation takes the rest out of the profit (ADR-0059 §7).
+// FiscalYear and Period are a profit and loss balance's (BalanceThrough):
+// the line's fiscal year, and its period in the year read through, 0 in
+// an earlier one.
+type RevaluationLine struct {
+	AccountID          uuid.UUID
+	TradingPartnerID   *uuid.UUID
+	FiscalYear, Period int16
+	LC, GC             money.Minor
+	Rate               *big.Rat
+}
+
+// RevaluationLines are the lines on profit and loss accounts of the
+// entries of the company's revaluation runs in the ledger through the
+// fiscal year's period: each run's valuation entry and its reset, and, of
+// a cancelled run, their reversals, which keep the run as their source
+// and the rates of the entries they reverse (postReversal). In entry and
+// line order.
+func (ConsolidationReads) RevaluationLines(ctx context.Context, legalEntity, ledgerID uuid.UUID, year, period int16) ([]RevaluationLine, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.account_id, l.trading_partner_id, l.fiscal_year,
+			(CASE WHEN l.fiscal_year = $3 THEN l.fiscal_period ELSE 0 END)::smallint, l.amount_lc, l.amount_gc, e.rate_lc_gc::text
+		FROM ledger.revaluation_run r
+		JOIN ledger.journal_entry e ON e.tenant_id = r.tenant_id AND e.source_context = 'ledger' AND e.source_document_id = r.id
+			AND e.ledger_id = r.ledger_id
+		JOIN ledger.journal_line l ON l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id
+		JOIN ledger.gl_account a ON a.id = l.account_id
+		WHERE r.legal_entity_id = $1 AND r.ledger_id = $2 AND NOT a.is_balance_sheet
+			AND (l.fiscal_year < $3 OR (l.fiscal_year = $3 AND l.fiscal_period <= $4))
+		ORDER BY l.fiscal_year, l.journal_entry_id, l.line_no`, legalEntity, ledgerID, year, period)
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (RevaluationLine, error) {
+		var l RevaluationLine
+		var rate string
+		err := r.Scan(&l.AccountID, &l.TradingPartnerID, &l.FiscalYear, &l.Period, &l.LC, &l.GC, &rate)
+		l.Rate = money.ParseRat(rate) // a numeric(28,12) above zero, always a decimal
+		return l, errs.Wrapf(err, "scan revaluation line")
+	})
+	return out, errs.Wrapf(err, "ledger: revaluation lines of %s through %d/%d", legalEntity, year, period)
 }
 
 // RateOn is the latest rate of the type from one currency to another

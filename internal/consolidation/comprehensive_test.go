@@ -107,7 +107,8 @@ func reserveLines(pl map[string]any) string {
 
 // comprehensiveNames are the profit and loss's totals in order.
 var comprehensiveNames = []string{"revenue", "expenses", "profit", "non_controlling_interests", "owners_of_the_parent", "other_comprehensive_income",
-	"total_comprehensive_income", "comprehensive_income_non_controlling_interests", "comprehensive_income_owners_of_the_parent"}
+	"total_comprehensive_income", "comprehensive_income_non_controlling_interests", "comprehensive_income_owners_of_the_parent",
+	"revaluation_translation"}
 
 // minorOf is a figure's column in minor units of a currency of two.
 func minorOf(t *testing.T, figure any, column string) int64 {
@@ -213,7 +214,7 @@ func TestOtherComprehensiveIncome(t *testing.T) {
 		"non_controlling_interests 0.00 EUR / 0.00 EUR / 0.00 EUR, owners_of_the_parent 170.00 EUR / 0.00 EUR / 170.00 EUR, " +
 		"other_comprehensive_income -110.00 EUR / 6.00 EUR / -104.00 EUR, total_comprehensive_income 60.00 EUR / 6.00 EUR / 66.00 EUR, " +
 		"comprehensive_income_non_controlling_interests 0.00 EUR / 0.00 EUR / 0.00 EUR, " +
-		"comprehensive_income_owners_of_the_parent 60.00 EUR / 6.00 EUR / 66.00 EUR"
+		"comprehensive_income_owners_of_the_parent 60.00 EUR / 6.00 EUR / 66.00 EUR, revaluation_translation 0.00 EUR / 0.00 EUR / 0.00 EUR"
 	if got := statementTotals(pl, comprehensiveNames...); got != totals {
 		t.Errorf("2026's totals: got %s, want %s", got, totals)
 	}

@@ -21993,7 +21993,8 @@ func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
 // `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`, then
 // `other_comprehensive_income`, `total_comprehensive_income` (their sum with the profit) and its
 // attribution to `comprehensive_income_non_controlling_interests` and
-// `comprehensive_income_owners_of_the_parent`.
+// `comprehensive_income_owners_of_the_parent`, and `revaluation_translation`, the part of other
+// comprehensive income moved out of the profit.
 // Ref: #/components/schemas/ConsolidatedStatementTotals
 type ConsolidatedStatementTotals struct {
 	// The balance sheet's asset accounts summed; absent on the profit and loss.
@@ -22025,8 +22026,15 @@ type ConsolidatedStatementTotals struct {
 	// its opening (`translation_reserve[].difference` summed). Eliminations: the run's elimination
 	// entries' lines on the `cta` account less the opening run's, the non-controlling interests' entries
 	// left out, which attribute the reserve and do not change it. The consolidated figure is the year's
-	// change of the group's translation reserve. Absent on the balance sheet.
+	// change of the group's translation reserve. It holds `revaluation_translation`, which the profit does
+	// not. Absent on the balance sheet.
 	OtherComprehensiveIncome OptConsolidatedFigures `json:"other_comprehensive_income"`
+	// The profit and loss's: of `other_comprehensive_income`, the translation part of the companies'
+	// group-currency revaluation differences, moved out of the fiscal year's profit through the period
+	// (IAS 21.39(c); ADR-0042): `translation_reserve[].revaluation_translation` summed, reported by the
+	// companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked
+	// group amounts less it. Absent on the balance sheet.
+	RevaluationTranslation OptConsolidatedFigures `json:"revaluation_translation"`
 	// The profit and loss's: `profit` and `other_comprehensive_income` summed in each column. Absent on
 	// the balance sheet.
 	TotalComprehensiveIncome OptConsolidatedFigures `json:"total_comprehensive_income"`
@@ -22085,6 +22093,11 @@ func (s *ConsolidatedStatementTotals) GetOwnersOfTheParent() OptConsolidatedFigu
 // GetOtherComprehensiveIncome returns the value of OtherComprehensiveIncome.
 func (s *ConsolidatedStatementTotals) GetOtherComprehensiveIncome() OptConsolidatedFigures {
 	return s.OtherComprehensiveIncome
+}
+
+// GetRevaluationTranslation returns the value of RevaluationTranslation.
+func (s *ConsolidatedStatementTotals) GetRevaluationTranslation() OptConsolidatedFigures {
+	return s.RevaluationTranslation
 }
 
 // GetTotalComprehensiveIncome returns the value of TotalComprehensiveIncome.
@@ -22147,6 +22160,11 @@ func (s *ConsolidatedStatementTotals) SetOtherComprehensiveIncome(val OptConsoli
 	s.OtherComprehensiveIncome = val
 }
 
+// SetRevaluationTranslation sets the value of RevaluationTranslation.
+func (s *ConsolidatedStatementTotals) SetRevaluationTranslation(val OptConsolidatedFigures) {
+	s.RevaluationTranslation = val
+}
+
 // SetTotalComprehensiveIncome sets the value of TotalComprehensiveIncome.
 func (s *ConsolidatedStatementTotals) SetTotalComprehensiveIncome(val OptConsolidatedFigures) {
 	s.TotalComprehensiveIncome = val
@@ -22192,6 +22210,17 @@ type ConsolidatedTranslationReserve struct {
 	// The reserve at the run's period: the company's translation difference in this run (its `cta` row of
 	// `listConsolidationBalances`; zero without one).
 	Closing Money `json:"closing"`
+	// The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part
+	// of `closing`: the translation part of the company's group-currency revaluation differences (IAS
+	// 21.39(c)). A revaluation run values group currency on its own (ADR-0042), so a line of its entries
+	// on a profit and loss account books a group amount that is not its local amount translated; the
+	// profit keeps the line's local amount at its entry's local-to-group rate, the rate a posting of that
+	// date converts at, rounded once per line to the group currency's minor unit, half away from zero, and
+	// the rest of its booked group amount is here. Debit positive, so a gain moved out of the profit is
+	// negative, and the profit's revenue and expense rows are their booked group amounts less it. Zero for
+	// a company without revaluation entries in the year, and in a run started before the statement showed
+	// it, whose profit holds the booked group amounts.
+	RevaluationTranslation Money `json:"revaluation_translation"`
 	// The part of `difference` attributable to non-controlling interests (IAS 21.41): `difference` times
 	// (100 - `ownership_percent`) / 100, rounded once to the group currency's minor unit, half away from
 	// zero. Zero for the parent and for a member held whole.
@@ -22239,6 +22268,11 @@ func (s *ConsolidatedTranslationReserve) GetDifference() Money {
 // GetClosing returns the value of Closing.
 func (s *ConsolidatedTranslationReserve) GetClosing() Money {
 	return s.Closing
+}
+
+// GetRevaluationTranslation returns the value of RevaluationTranslation.
+func (s *ConsolidatedTranslationReserve) GetRevaluationTranslation() Money {
+	return s.RevaluationTranslation
 }
 
 // GetNonControllingInterests returns the value of NonControllingInterests.
@@ -22289,6 +22323,11 @@ func (s *ConsolidatedTranslationReserve) SetDifference(val Money) {
 // SetClosing sets the value of Closing.
 func (s *ConsolidatedTranslationReserve) SetClosing(val Money) {
 	s.Closing = val
+}
+
+// SetRevaluationTranslation sets the value of RevaluationTranslation.
+func (s *ConsolidatedTranslationReserve) SetRevaluationTranslation(val Money) {
+	s.RevaluationTranslation = val
 }
 
 // SetNonControllingInterests sets the value of NonControllingInterests.
@@ -22476,8 +22515,11 @@ type ConsolidationBalance struct {
 	// The group amount as booked, each line at its posting date's rate; absent on a `cta` row.
 	AmountGcBooked OptMoney `json:"amount_gc_booked"`
 	// The translated group amount: the local amount at the closing rate for asset and liability accounts,
-	// rounded once half away from zero; the booked group amount otherwise; the translation difference on a
-	// `cta` row.
+	// rounded once half away from zero; the booked group amount otherwise, less, on a profit and loss
+	// account's row and on `prior_results`, the translation part of the company's group-currency
+	// revaluation differences (ADR-0042; `ConsolidatedTranslationReserve.revaluation_translation`), which
+	// is in the translation difference instead (IAS 21.39(c)), so `amount_gc_booked` less `amount_gc` is
+	// the part moved off the row; the translation difference on a `cta` row.
 	AmountGc Money `json:"amount_gc"`
 	// The closing rate the row was translated at, where one applied (asset and liability accounts).
 	ClosingRate OptString `json:"closing_rate"`

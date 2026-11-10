@@ -325,6 +325,11 @@ Each is additive and built in the slice that first needs it, as ADR-0058
   `rateOfType` is unexported).
 - **T68g**: no new read: `stale` and finalization compare `PeriodOf`'s
   status and version with those the run recorded.
+- **B4 correction 1** (po:2026-11-09): `ledger.RevaluationLines(ctx,
+  company, ledger, year, period)`: the lines on profit and loss accounts
+  of the company's revaluation runs' entries through the period, each
+  with its entry's recorded local-to-group rate (As built: the
+  group-currency revaluation's translation part).
 
 ### 5. Data model
 Every table has `tenant_id` leading its keys and RLS (ADR-0003); keys are
@@ -495,7 +500,10 @@ leading-ledger local-currency figures into the group currency:
   every fiscal year (no carry-forward exists, §Context), translated per
   account and trading partner as `round(amount_lc × rate)`, half away from
   zero, once.
-- **Income and expenses** at their **booked group amounts**: the
+- **Income and expenses** at their **booked group amounts** (less the
+  translation part of a group-currency revaluation, which goes to the
+  translation difference; As built: the group-currency revaluation's
+  translation part): the
   fiscal year's group amounts through the period (for a member in the
   fiscal year of its first period, from that period on), each converted at its
   posting date's rate when it was posted (ADR-0005), as ADR-0050 sums
@@ -2006,9 +2014,10 @@ to overrule:
   entries, as the profit's share is read. B3 as the leaf states it is
   built in the statements; the equity side of the split is that entry.
   B4's two corrections (a group-currency revaluation's translation part,
-  a net investment's exchange differences) are their own leaves: until
-  them the profit holds those amounts as booked (§7) and other
-  comprehensive income is the `cta` rows' change alone.
+  a net investment's exchange differences) are their own leaves: the
+  first is built (below: the group-currency revaluation's translation
+  part), and until the second the profit holds a net investment's
+  exchange differences as §7 translates them.
 - **Database.** `run.opening_run_id`, nullable, no foreign key (as
   `superseded_by`: a run is never deleted, and an import restores runs in
   any order); the trigger `run_opening` lets it be named only as the run
@@ -2033,3 +2042,120 @@ to overrule:
   the standard's paragraph on it is not cited here, from memory only),
   and the opening of a group consolidated here from a year after its
   members' first, should one arise.
+
+**The group-currency revaluation's translation part (the accounting
+specialist's B4 correction 1; the tracker leaf of po:2026-11-09).** The
+specialist confirmed that a subsidiary's exchange differences on items in
+other currencies than its functional currency stay in profit or loss in
+consolidation (IAS 21.28) and corrected one case (po:2026-11-09, B4
+correction 1): "if ADR-0042 revalues amounts *in group currency* … that
+part is a **translation** effect and belongs in OCI / the translation
+reserve (IAS 21.39(c)), not profit or loss. Only the functional-currency
+difference, translated, stays in P&L." ADR-0042 does: "group currency is
+valued on its own", so the group amount a revaluation run's entries book
+on the unrealised gain or loss account is not their local amount
+translated, and §7 took income and expenses at their booked group
+amounts. Built in `internal/consolidation/translate.go`
+(`revaluationPart`) and migration 000248; the member's ledger is only
+read. Decided by default, for the product owner to overrule:
+- **What is moved.** Per line of a company's revaluation runs' entries on
+  a profit and loss account, in its leading ledger: its booked group
+  amount less its local amount translated. The run keeps the second in
+  the profit and takes the first's remainder, the translation part, to
+  the company's translation difference.
+- **"Translated" is at the entry's local-to-group rate.** §7 takes income
+  and expenses at each posting date's rate (B2: IAS 21.39(b)), and a
+  revaluation entry records its posting date's local-to-group rate
+  (ADR-0042: "for the record only", since its lines' group amounts are
+  valued on their own): the rate a posting of that date in local currency
+  converts at. So the profit holds what it would hold had the difference
+  been posted as any local-currency entry is. The rate is applied in the
+  12-decimal form the entry records, as the closing rate is (As built
+  T68d), so the figure can be reproduced from the entry.
+- **Rounding (ADR-0005).** Each line's local amount is converted once, in
+  exact rational arithmetic, rounded to the group currency's minor unit,
+  half away from zero (`money.ConvertAt`), as a posting rounds each line;
+  the part is the booked group amount less it, an exact subtraction, and
+  parts are summed, never rounded again.
+- **Which entries.** Every entry whose source is a revaluation run of the
+  company in the ledger: the valuation entry, its reset on the next day
+  and, of a cancelled run, both reversals, which keep the run as their
+  source and the rates of the entries they reverse (ADR-0042), so a
+  cancelled run moves nothing. The reset is a posting of its own date and
+  is translated at its own entry's rate: where the rate moved between the
+  key date and the next day, the profit keeps the local difference at the
+  two rates' difference, as translating two local-currency postings at
+  their dates' rates gives (§7).
+- **Where it goes.** A fiscal year's lines through the run's period come
+  off the row of their account and trading partner (a revaluation's
+  lines carry their items' trading partner, T68b2, so intercompany
+  matching reads the amounts the profit keeps); earlier fiscal years'
+  lines, and for a member in the fiscal year of its first period those of
+  the periods before it, come off `prior_results`, since those results
+  are in retained earnings. The `cta` row is minus the sum of the other
+  rows (§7), so it takes both: each company's rows still sum to zero and
+  the balance sheet to zero. Lines of an account and trading partner
+  without a balance (a valuation and its reset in one year) make a row of
+  their own, with zero local and booked amounts, unless their parts
+  cancel.
+- **What the statements show.** `run_member.revaluation_translation_gc`
+  (000248) records, with the company's translation, the year's part
+  through the period, debit positive. The profit and loss shows it per
+  company (`translation_reserve[].revaluation_translation`, part of
+  `closing`) and summed (`totals.revaluation_translation`, reported by
+  the companies, no elimination): the revenue and expense rows are their
+  booked group amounts less it, and other comprehensive income, the
+  year's change of the reserve, holds it. On a row of the balances list,
+  `amount_gc_booked` less `amount_gc` is the part moved off it; no column
+  was added to `run_balance`, whose rows already show both amounts. The
+  non-controlling interest's share of other comprehensive income is taken
+  on the reserve's whole difference (above), so it follows.
+- **A company in the group currency** is not special: its entries' rate is
+  1, so a line's part is its group amount less its local one, zero where
+  they are booked alike.
+- **The acquisition** (§9) is measured through the same translation, so
+  the periods before a member's first hold the parts of their own
+  revaluation entries; its net assets (the asset and liability rows) and
+  share capital rows are not profit and loss rows and do not change.
+- **A run started before this change** keeps its stored rows, which hold
+  the booked group amounts, and shows zero moved; a company it translated
+  before the change, should it finish after, likewise. Run again, the
+  period shows the amounts moved. A run whose opening run (other
+  comprehensive income, above) was translated before the change would
+  show the earlier years' parts in the year's difference; no group has a
+  final run of an earlier fiscal year yet.
+- **Ledger (§4a).** `ledger.ConsolidationReads.RevaluationLines(ctx,
+  company, ledger, year, period)`: the lines on profit and loss accounts
+  of the entries whose source is a revaluation run of the company and
+  ledger, through the period, each with its local and booked group
+  amounts, its trading partner, its fiscal year and period as
+  `BalancesThrough` gives a profit and loss balance's, and its entry's
+  recorded local-to-group rate; read through `journal_entry_source`.
+  Additive; no ledger table or posting changes, so a company's own
+  ledger, reports and revaluation runs are as they were
+  (`TestRevaluationTranslationPart` compares its lines and balances
+  before and after a run).
+- **Walkthrough.** Step 40, `consolidation_revaluation_translation`: Acme
+  Corp US (USD) sells EUR 1,000.00 on the last day of the period before
+  the group's first and revalues its euros at that day's bank selling
+  rates (a gain of USD 20.00; in group currency CAD 1,500.00 against the
+  booked amount); a new run of the group keeps the reset's USD 20.00 at
+  1.35, CAD 27.00, in the year's profit, shows the rest of its booked
+  group amount as `revaluation_translation` on Acme Corp US's reserve and
+  in the totals, the profit CAD 27.00 above the first run's, the
+  valuation's part off the earlier results, and the balance sheet at
+  zero; then the run is discarded, the revaluation cancelled and the sale
+  reversed.
+- **Tests.** `TestRevaluationTranslationPart` computes October's run by
+  hand (a gain of USD 312.50 before the first period and one of USD
+  750.00 in it, with no group amount: the profit 175.00 EUR where none
+  was booked, 175.00 moved, the reserve 525.00, each step run twice, then
+  the revaluation run cancelled); `TestRevaluationParts` has the rounding,
+  the trading partner, the rows without a balance and the refusals;
+  `TestConsolidationRevaluationTranslationRules` the column's rule.
+- **For the specialist** (built as stated above, listed so it is
+  reviewed): that "the functional-currency difference, translated" is
+  each revaluation entry's local amount at that entry's posting date's
+  rate, the reset on the next day at its own, rather than at the closing
+  rate or an average; the answer names no rate, and §7's rule for income
+  and expenses (B2) was applied.

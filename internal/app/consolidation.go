@@ -90,6 +90,20 @@ func (consolidationLedger) BalancesThrough(ctx context.Context, company uuid.UUI
 	return out, err
 }
 
+func (consolidationLedger) RevaluationLines(ctx context.Context, company uuid.UUID, year, period int16) ([]consolidation.RevaluationLine, error) {
+	leading, err := ledger.ConsolidationReads{}.LeadingLedger(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ls, err := ledger.ConsolidationReads{}.RevaluationLines(ctx, company, leading, year, period)
+	out := make([]consolidation.RevaluationLine, len(ls))
+	for i, l := range ls {
+		out[i] = consolidation.RevaluationLine{AccountID: l.AccountID, TradingPartnerID: l.TradingPartnerID, FiscalYear: l.FiscalYear, Period: l.Period,
+			LC: l.LC, GC: l.GC, Rate: l.Rate}
+	}
+	return out, err
+}
+
 func (consolidationLedger) RateOn(ctx context.Context, rateType, from, to string, date time.Time) (consolidation.Rate, bool, error) {
 	r, ok, err := ledger.ConsolidationReads{}.RateOn(ctx, rateType, from, to, date)
 	return consolidation.Rate{Rate: r.Rate, Shown: r.Shown, ValidFrom: r.ValidFrom}, ok, err

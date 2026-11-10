@@ -51324,6 +51324,12 @@ func (s *ConsolidatedStatementTotals) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.RevaluationTranslation.Set {
+			e.FieldStart("revaluation_translation")
+			s.RevaluationTranslation.Encode(e)
+		}
+	}
+	{
 		if s.TotalComprehensiveIncome.Set {
 			e.FieldStart("total_comprehensive_income")
 			s.TotalComprehensiveIncome.Encode(e)
@@ -51343,7 +51349,7 @@ func (s *ConsolidatedStatementTotals) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidatedStatementTotals = [12]string{
+var jsonFieldsNameOfConsolidatedStatementTotals = [13]string{
 	0:  "assets",
 	1:  "liabilities",
 	2:  "equity",
@@ -51353,9 +51359,10 @@ var jsonFieldsNameOfConsolidatedStatementTotals = [12]string{
 	6:  "non_controlling_interests",
 	7:  "owners_of_the_parent",
 	8:  "other_comprehensive_income",
-	9:  "total_comprehensive_income",
-	10: "comprehensive_income_non_controlling_interests",
-	11: "comprehensive_income_owners_of_the_parent",
+	9:  "revaluation_translation",
+	10: "total_comprehensive_income",
+	11: "comprehensive_income_non_controlling_interests",
+	12: "comprehensive_income_owners_of_the_parent",
 }
 
 // Decode decodes ConsolidatedStatementTotals from json.
@@ -51456,6 +51463,16 @@ func (s *ConsolidatedStatementTotals) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"other_comprehensive_income\"")
+			}
+		case "revaluation_translation":
+			if err := func() error {
+				s.RevaluationTranslation.Reset()
+				if err := s.RevaluationTranslation.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"revaluation_translation\"")
 			}
 		case "total_comprehensive_income":
 			if err := func() error {
@@ -51588,6 +51605,10 @@ func (s *ConsolidatedTranslationReserve) encodeFields(e *jx.Encoder) {
 		s.Closing.Encode(e)
 	}
 	{
+		e.FieldStart("revaluation_translation")
+		s.RevaluationTranslation.Encode(e)
+	}
+	{
 		e.FieldStart("non_controlling_interests")
 		s.NonControllingInterests.Encode(e)
 	}
@@ -51597,17 +51618,18 @@ func (s *ConsolidatedTranslationReserve) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfConsolidatedTranslationReserve = [10]string{
-	0: "legal_entity_id",
-	1: "company_code",
-	2: "company_name",
-	3: "role",
-	4: "ownership_percent",
-	5: "opening",
-	6: "difference",
-	7: "closing",
-	8: "non_controlling_interests",
-	9: "owners_of_the_parent",
+var jsonFieldsNameOfConsolidatedTranslationReserve = [11]string{
+	0:  "legal_entity_id",
+	1:  "company_code",
+	2:  "company_name",
+	3:  "role",
+	4:  "ownership_percent",
+	5:  "opening",
+	6:  "difference",
+	7:  "closing",
+	8:  "revaluation_translation",
+	9:  "non_controlling_interests",
+	10: "owners_of_the_parent",
 }
 
 // Decode decodes ConsolidatedTranslationReserve from json.
@@ -51707,8 +51729,18 @@ func (s *ConsolidatedTranslationReserve) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"closing\"")
 			}
-		case "non_controlling_interests":
+		case "revaluation_translation":
 			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.RevaluationTranslation.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"revaluation_translation\"")
+			}
+		case "non_controlling_interests":
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				if err := s.NonControllingInterests.Decode(d); err != nil {
 					return err
@@ -51718,7 +51750,7 @@ func (s *ConsolidatedTranslationReserve) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"non_controlling_interests\"")
 			}
 		case "owners_of_the_parent":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				if err := s.OwnersOfTheParent.Decode(d); err != nil {
 					return err
@@ -51738,7 +51770,7 @@ func (s *ConsolidatedTranslationReserve) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11101111,
-		0b00000011,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

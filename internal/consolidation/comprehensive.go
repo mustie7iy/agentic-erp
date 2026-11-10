@@ -40,7 +40,11 @@ import (
 // reserve is a company's translation reserve in a run's statement, in
 // the group currency's minor units, debit positive: at the end of the
 // previous fiscal year and at the run's period, with the part of the
-// change between them attributable to non-controlling interests.
+// change between them attributable to non-controlling interests. The
+// closing reserve holds what the run moved out of the company's profit of
+// the year, the translation part of its group-currency revaluation
+// differences (member.RevaluationTranslation; translate's
+// revaluationPart).
 type reserve struct {
 	member           Member
 	opening, closing money.Minor
@@ -241,6 +245,18 @@ func (c comprehensive) total() columns {
 	return f
 }
 
+// revaluation is the part of other comprehensive income the run moved
+// out of the companies' profit of the year: the translation part of
+// their group-currency revaluation differences, reported by them, so no
+// elimination.
+func (c comprehensive) revaluation() columns {
+	var f columns
+	for _, v := range c.reserves {
+		f.reported += v.member.RevaluationTranslation
+	}
+	return f
+}
+
 // interest is other comprehensive income's share attributable to
 // non-controlling interests: an attribution, so not reported by any
 // company, as the profit's share is shown (nciProfit).
@@ -258,7 +274,7 @@ func (s statement) reservesAPI() []gen.ConsolidatedTranslationReserve {
 	for i, v := range s.oci.reserves {
 		out[i] = gen.ConsolidatedTranslationReserve{LegalEntityID: v.member.LegalEntityID, CompanyCode: v.member.CompanyCode,
 			CompanyName: s.oci.names[v.member.LegalEntityID], Role: v.member.Role, Opening: s.money(v.opening), Difference: s.money(v.difference()),
-			Closing: s.money(v.closing), NonControllingInterests: s.money(v.nci), OwnersOfTheParent: s.money(v.difference() - v.nci)}
+			Closing: s.money(v.closing), RevaluationTranslation: s.money(v.member.RevaluationTranslation), NonControllingInterests: s.money(v.nci), OwnersOfTheParent: s.money(v.difference() - v.nci)}
 		if v.member.OwnershipPercent != nil {
 			out[i].OwnershipPercent = gen.NewOptString(plainRate(*v.member.OwnershipPercent))
 		}
@@ -270,11 +286,13 @@ func (s statement) reservesAPI() []gen.ConsolidatedTranslationReserve {
 // the profit: other comprehensive income, total comprehensive income and
 // its attribution to non-controlling interests (their share of the profit
 // and of the translation differences) and to the owners of the parent
-// (the rest), IAS 1.81B.
+// (the rest), IAS 1.81B; and, of other comprehensive income, what the run
+// moved out of the profit (revaluation).
 func (s statement) comprehensiveTotals(out *gen.ConsolidatedStatementTotals, profit, nciProfit columns) {
 	oci := s.oci.total()
 	total, interest := profit.add(oci), nciProfit.add(s.oci.interest())
 	out.OtherComprehensiveIncome = gen.NewOptConsolidatedFigures(s.figuresAPI(oci))
+	out.RevaluationTranslation = gen.NewOptConsolidatedFigures(s.figuresAPI(s.oci.revaluation()))
 	out.TotalComprehensiveIncome = gen.NewOptConsolidatedFigures(s.figuresAPI(total))
 	out.ComprehensiveIncomeNonControllingInterests = gen.NewOptConsolidatedFigures(s.figuresAPI(interest))
 	out.ComprehensiveIncomeOwnersOfTheParent = gen.NewOptConsolidatedFigures(s.figuresAPI(columns{reported: total.reported - interest.reported,

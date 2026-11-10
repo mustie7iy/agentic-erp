@@ -745,3 +745,53 @@ func TestConsolidationAcquisitionRules(t *testing.T) {
 		})
 	}
 }
+
+// TestConsolidationRevaluationTranslationRules (migration 000248;
+// ADR-0059 As built: the group-currency revaluation's translation part):
+// the amount a run moves from a company's profit to its translation
+// reserve is recorded with the company's translation, none before it and
+// never changed after; a company translated without one moved nothing.
+func TestConsolidationRevaluationTranslationRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, actor, parent, member, run uuid.UUID }
+	running := func(s scene) []stmt {
+		return []stmt{step(`INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start,
+				period_end, config_version, group_currency, rate_type, status, operation_id, created_by, updated_by)
+				VALUES ($1, $2, 'MAPLE', $3, ARRAY[$3, $4]::uuid[], 2026, 11, '2026-11-01', '2026-11-30', 7, 'CAD', 'average', 'queued', gen_random_uuid(), $5, $5)`,
+			s.tenant, s.run, s.parent, s.member, s.actor),
+			step(`UPDATE consolidation.run SET status = 'running', version = version + 1`),
+			step(`INSERT INTO consolidation.run_member (tenant_id, run_id, legal_entity_id, company_code, role, ownership_percent, first_fiscal_year,
+				first_fiscal_period, local_currency, closing_rate, rate_valid_from) VALUES ($1, $2, $3, '1000', 'member', 100, 2026, 11, 'USD', 1.4, '2026-11-30')`,
+				s.tenant, s.run, s.member)}
+	}
+	translated := func(moved int) stmt {
+		return step(`UPDATE consolidation.run_member SET period_status = 'open', period_version = 3, translated_at = now(), revaluation_translation_gc = $1`, moved)
+	}
+	amount := step(`UPDATE consolidation.run_member SET revaluation_translation_gc = -400`)
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a company translated with the amount moved", func(s scene) []stmt { return append(running(s), translated(-400)) }, ""},
+		{"a company translated without one", func(s scene) []stmt {
+			return append(running(s), step(`UPDATE consolidation.run_member SET period_status = 'open', period_version = 3, translated_at = now()`))
+		}, ""},
+		{"an amount before the translation", func(s scene) []stmt { return append(running(s), amount) }, "run_member_revaluation_translation"},
+		{"an amount after the translation", func(s scene) []stmt { return append(running(s), translated(0), amount) }, "records its translation once"},
+		{"an amount changed", func(s scene) []stmt { return append(running(s), translated(-300), amount) }, "records its translation once"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), parent: id(), member: id(), run: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
