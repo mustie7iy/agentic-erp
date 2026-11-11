@@ -25,6 +25,19 @@ import (
 // of the budget's group.
 const budgetAccounts = 1000
 
+// budgetRunLimit ends a budget's consolidation run that hangs; it is no
+// budget. It bounds the run alone, from after the seeding: 8 minutes is
+// twice the run's budget at the gates' ERP_BUDGET_SCALE=2 (2 x 120 s), so
+// TestConsolidationRunBudget's slow run fails on its budget, with its
+// time, before this stops it (TestConsolidatedStatementBudget measures
+// its pages and only logs its run's time), and over twenty times what
+// the run takes (19 s, and 22 s on the 5,000 group accounts,
+// 2026-11-11). Until then it was started before the
+// seeding, whose time it counted: main's run 43007697247 seeded for most
+// of the 8 minutes (seedBudgetGroup) and the run that followed was cut
+// off. The seeding is bounded by the package's limit (scripts/budgets.sh).
+const budgetRunLimit = 8 * time.Minute
+
 // budgetTypes are the account types budget accounts take in turn.
 var budgetTypes = []config.AccountType{config.Asset, config.Liability, config.Equity, config.Revenue, config.Expense}
 
@@ -82,11 +95,11 @@ func wideGroupChart(cs *config.Consolidation) {
 func TestConsolidationRunBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := fixture.NewWith(t, nil, fixture.Consolidation, "consolidation.read", "consolidation.run.manage", "ledger.entry.read")
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
 	start := time.Now()
 	seedBudgetGroup(t, e, false)
 	t.Logf("seeded a group of 100 companies with 1,000 accounts and 1,000 trading partner balances each in %v", time.Since(start))
+	ctx, cancel := context.WithTimeout(context.Background(), budgetRunLimit)
+	defer cancel()
 	c := &workflows.Consolidations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Consolidation(app.Config{}),
 		Actors: identity.Actors{}}
 	w := &workflows.Consolidator{Consolidations: c, Log: slog.New(slog.DiscardHandler)}
@@ -94,7 +107,7 @@ func TestConsolidationRunBudget(t *testing.T) {
 	s := &conScenario{e: e, c: c}
 	in := s.start(t)
 	if err := w.Consolidate(ctx, in); err != nil {
-		t.Fatalf("the run: %v", err)
+		t.Fatalf("the run, after %v: %v", time.Since(start), err)
 	}
 	elapsed := time.Since(start)
 	var got string
@@ -121,6 +134,19 @@ func TestConsolidationRunBudget(t *testing.T) {
 // seedBudgetGroup writes TestConsolidationRunBudget's group (see there);
 // wide, with wideGroupChart's group chart, each budget account mapped to
 // a group account of its own.
+//
+// Its statements must plan alike whatever the package's database already
+// holds. The second test to seed finds the first one's tenant in the
+// tables and their statistics, which know no row of the new tenant: the
+// planner then expected one row where there were 100,000 and joined by
+// nested loops, and a join on an id alone walked the whole (tenant_id,
+// id) index for every row. The company accounts' and the balances'
+// statements took 16 s and 270 s so, instead of 1.4 s and 0.9 s (329 s
+// for TestConsolidatedStatementBudget here, over 450 s on main's run
+// 43007697247, which cut the run off). So each table is analyzed once it
+// is written, before a statement reads it, and every join between
+// tables names the tenant (a row looked up by an id given as a parameter
+// needs none).
 func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 	t.Helper()
 	exec := func(sql string, args ...any) {
@@ -179,6 +205,7 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		SELECT $1, gen_random_uuid(), c.id, 'B' || lpad(n::text, 5, '0'), 'Budget account ' || n,
 			(ARRAY['asset', 'liability', 'equity', 'revenue', 'expense'])[n % 5 + 1], 'active', $2, $2
 		FROM ledger.chart_of_accounts c, generate_series(0, $3 - 1) n WHERE c.tenant_id = $1`, e.Tenant.ID, e.Tenant.Human.ID, budgetAccounts)
+	exec(`ANALYZE tenancy.legal_entity, ledger.chart_of_accounts, ledger.gl_account`)
 	exec(`INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by)
 		SELECT $1, le.id, a.id, $2, $2 FROM tenancy.legal_entity le
 		JOIN ledger.chart_of_accounts c ON c.tenant_id = le.tenant_id AND c.code = le.code
@@ -193,8 +220,9 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 		SELECT $1, gen_random_uuid(), c.id, '15' || lpad(n::text, 4, '0'), 'Investment', 'asset', 'active', $2, $2
 		FROM ledger.chart_of_accounts c, generate_series(1, 98) n WHERE c.tenant_id = $1 AND c.code = '2000'`, e.Tenant.ID, e.Tenant.Human.ID)
 	exec(`INSERT INTO ledger.company_account (tenant_id, legal_entity_id, account_id, created_by, updated_by)
-		SELECT $1, $2, a.id, $3, $3 FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.id = a.chart_id
+		SELECT $1, $2, a.id, $3, $3 FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.tenant_id = a.tenant_id AND c.id = a.chart_id
 		WHERE a.tenant_id = $1 AND c.code = '2000' AND a.number ~ '^15[0-9]{4}$' AND a.number <> '150000'`, e.Tenant.ID, e.DE, e.Tenant.Human.ID)
+	exec(`ANALYZE ledger.gl_account, ledger.company_account`)
 	exec(`INSERT INTO ledger.period_status (tenant_id, id, legal_entity_id, ledger_id, calendar_id, fiscal_year, period, status, updated_by)
 		SELECT $1, gen_random_uuid(), le.id, l.id, le.fiscal_calendar_id, 2026, p, CASE p WHEN 11 THEN 'open' ELSE 'closed' END, $2
 		FROM tenancy.legal_entity le, ledger.ledger l, (VALUES (10), (11)) AS x(p) WHERE le.tenant_id = $1 AND le.code LIKE 'C%' AND l.tenant_id = $1 AND l.is_leading`,
@@ -208,11 +236,12 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 	exec(`INSERT INTO ledger.period_balance (tenant_id, ledger_id, legal_entity_id, account_id, fiscal_year, fiscal_period, currency_tc, debit_tc,
 			credit_tc, debit_lc, credit_lc, debit_gc, credit_gc)
 		SELECT $1, l.id, ca.legal_entity_id, ca.account_id, 2026, 11, le.local_currency, d, c, d, c, d * 9 / 10, c * 9 / 10
-		FROM ledger.company_account ca JOIN ledger.gl_account a ON a.id = ca.account_id AND a.number LIKE 'B%'
-		JOIN tenancy.legal_entity le ON le.id = ca.legal_entity_id, ledger.ledger l,
+		FROM ledger.company_account ca JOIN ledger.gl_account a ON a.tenant_id = ca.tenant_id AND a.id = ca.account_id AND a.number LIKE 'B%'
+		JOIN tenancy.legal_entity le ON le.tenant_id = ca.tenant_id AND le.id = ca.legal_entity_id, ledger.ledger l,
 		LATERAL (SELECT 10000 * (substr(a.number, 2)::int / 2 + 1) AS m) x,
 		LATERAL (SELECT CASE WHEN substr(a.number, 2)::int % 2 = 0 THEN x.m ELSE 0 END AS d, CASE WHEN substr(a.number, 2)::int % 2 = 1 THEN x.m ELSE 0 END AS c) y
 		WHERE ca.tenant_id = $1 AND l.tenant_id = $1 AND l.is_leading`, e.Tenant.ID)
+	exec(`ANALYZE ledger.period_balance`)
 	exec(`INSERT INTO ledger.trading_partner_balance (tenant_id, ledger_id, legal_entity_id, account_id, trading_partner_id, fiscal_year, fiscal_period,
 			currency_tc, debit_tc, credit_tc, debit_lc, credit_lc, debit_gc, credit_gc)
 		SELECT tenant_id, ledger_id, legal_entity_id, account_id, CASE WHEN legal_entity_id = $2 THEN $3::uuid ELSE $2::uuid END, fiscal_year, fiscal_period,
@@ -223,8 +252,9 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 	// currency, every member's the same, against the parent's bank, so
 	// that each investment entry eliminates it.
 	exec(`WITH capital AS (SELECT -sum(pb.debit_gc - pb.credit_gc) AS x FROM ledger.period_balance pb
-			JOIN ledger.gl_account a ON a.id = pb.account_id AND a.account_type = 'equity' WHERE pb.tenant_id = $1 AND pb.legal_entity_id = $2),
-		amounts AS (SELECT a.id, capital.x FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.id = a.chart_id, capital
+			JOIN ledger.gl_account a ON a.tenant_id = pb.tenant_id AND a.id = pb.account_id AND a.account_type = 'equity'
+			WHERE pb.tenant_id = $1 AND pb.legal_entity_id = $2),
+		amounts AS (SELECT a.id, capital.x FROM ledger.gl_account a JOIN ledger.chart_of_accounts c ON c.tenant_id = a.tenant_id AND c.id = a.chart_id, capital
 			WHERE a.tenant_id = $1 AND c.code = '2000' AND a.number ~ '^15[0-9]{4}$' UNION ALL SELECT $4::uuid, -99 * capital.x FROM capital)
 		INSERT INTO ledger.period_balance (tenant_id, ledger_id, legal_entity_id, account_id, fiscal_year, fiscal_period, currency_tc, debit_tc,
 			credit_tc, debit_lc, credit_lc, debit_gc, credit_gc)
@@ -246,16 +276,20 @@ func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 func TestConsolidatedStatementBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := fixture.NewWith(t, nil, fixture.Consolidation, "consolidation.read", "consolidation.run.manage", "ledger.entry.read")
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Minute)
-	defer cancel()
+	start := time.Now()
 	seedBudgetGroup(t, e, true)
+	t.Logf("seeded a group of 100 companies with 1,000 accounts and 1,000 trading partner balances each on 5,000 group accounts in %v", time.Since(start))
+	ctx, cancel := context.WithTimeout(context.Background(), budgetRunLimit)
+	defer cancel()
 	c := &workflows.Consolidations{Pool: pgtest.Pool(t), AppRole: "erp_app", WorkerRole: "erp_worker", Runs: app.Consolidation(app.Config{}),
 		Actors: identity.Actors{}}
 	s := &conScenario{e: e, c: c}
 	in := s.start(t)
+	start = time.Now()
 	if err := (&workflows.Consolidator{Consolidations: c, Log: slog.New(slog.DiscardHandler)}).Consolidate(ctx, in); err != nil {
-		t.Fatalf("the run: %v", err)
+		t.Fatalf("the run, after %v: %v", time.Since(start), err)
 	}
+	t.Logf("consolidation run of 100 companies on 5,000 group accounts: %v", time.Since(start))
 	base := "/v1/consolidation-runs/" + in.RunID.String() + "/statements/"
 	for _, statement := range []string{"balance_sheet", "profit_and_loss"} {
 		pages := statementPages(t, e, base+statement+"?page_size=500")
