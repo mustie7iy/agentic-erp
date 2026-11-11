@@ -2444,3 +2444,40 @@ posting port gains one option, `Posting.Collective` (below).
   vendor line (loans, recharges between G/L accounts) and, in balances
   mode, the balances of intercompany G/L accounts load without a trading
   partner; a run that links a supplier loaded earlier; the OData mapping.
+
+**The budgets' seeding and guard (fix forward, main's run 43007697247,
+ci:batch64).** `TestConsolidatedStatementBudget` failed on main with its
+run cut off after 480 s ("share capital of C077 … context deadline
+exceeded"), though no page was over its budget. The run was not slow: it
+takes 19 s (22 s on the 5,000 group accounts) of which 1.6 s prepare,
+11-12 s translate the 100 companies (0.12 s each) and 6-8 s eliminate
+(each member's acquisition measured: its balances through the period
+before its first), and batch 64's work (the opening run, the
+revaluation's translation part, net investments) added 0.6 s to it
+(21.2 s before, 21.8 s after; measured step by step, 2026-11-11). The
+time went into the test's seeding. The test is the second of its package
+to seed a group, so the tables and their statistics held the first
+test's tenant alone; the planner expected one row of the new tenant
+where there were 100,000, joined by nested loops, and a join on an id
+without the tenant walked the whole `(tenant_id, id)` index per row: the
+company accounts' statement took 16 s and the balances' 270 s, against
+1.4 s and 0.9 s in the first test (329 s for the test locally, 451 s on
+the runner after batch 63 and over 480 s after batch 64). The 8-minute
+limit, meant to end a run that hangs, was started before the seeding and
+so counted it.
+- **Seeding.** `seedBudgetGroup` analyzes each table once it is written,
+  before a statement reads it, and every join names the tenant; it seeds
+  in 5 s whichever test runs first, and `TestConsolidatedStatementBudget`
+  takes 42 s (329 s before) and the package's budgets 156 s (about 434 s
+  before), alike at ERP_BUDGET_SCALE=1 and 2 (load averages 4-7,
+  2026-11-11); the pages' p95 0.09-0.27 s at both, against 1 s.
+- **Guard.** `budgetRunLimit`, 8 minutes, now bounds the run alone, from
+  after the seeding: twice the run's budget at the gates' scale 2
+  (2 x 120 s), so a slow run fails on its budget with its time first,
+  and over twenty times what the run takes. Both tests log their seeding
+  and run times, so a slow seeding shows. The seeding is bounded by the
+  package limit of `scripts/budgets.sh` (30 minutes).
+- **No budget changed**: the run's 120 s and the pages' 1 s stand.
+- **Not caught earlier** because the layer that measures budgets
+  (`make ci-local`, 06 §6.5) passed with the test at 5-7 minutes: nothing
+  looks at a budget test's total time, only at what it measures.
