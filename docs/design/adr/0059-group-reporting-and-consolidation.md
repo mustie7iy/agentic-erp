@@ -2466,15 +2466,17 @@ the runner after batch 63 and over 480 s after batch 64). The 8-minute
 limit, meant to end a run that hangs, was started before the seeding and
 so counted it.
 - **Seeding.** `seedBudgetGroup` analyzes each table once it is written,
-  before a statement reads it, and every join names the tenant; it seeds
+  before a statement reads it, and every join between tables names the
+  tenant; it seeds
   in 5 s whichever test runs first, and `TestConsolidatedStatementBudget`
   takes 42 s (329 s before) and the package's budgets 156 s (about 434 s
   before), alike at ERP_BUDGET_SCALE=1 and 2 (load averages 4-7,
   2026-11-11); the pages' p95 0.09-0.27 s at both, against 1 s.
 - **Guard.** `budgetRunLimit`, 8 minutes, now bounds the run alone, from
   after the seeding: twice the run's budget at the gates' scale 2
-  (2 x 120 s), so a slow run fails on its budget with its time first,
-  and over twenty times what the run takes. Both tests log their seeding
+  (2 x 120 s), so `TestConsolidationRunBudget`'s slow run fails on its
+  budget with its time first (the statement test measures its pages and
+  only logs its run's time), and over twenty times what the run takes. Both tests log their seeding
   and run times, so a slow seeding shows. The seeding is bounded by the
   package limit of `scripts/budgets.sh` (30 minutes).
 - **No budget changed**: the run's 120 s and the pages' 1 s stand.

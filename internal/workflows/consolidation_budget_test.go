@@ -28,9 +28,11 @@ const budgetAccounts = 1000
 // budgetRunLimit ends a budget's consolidation run that hangs; it is no
 // budget. It bounds the run alone, from after the seeding: 8 minutes is
 // twice the run's budget at the gates' ERP_BUDGET_SCALE=2 (2 x 120 s), so
-// a slow run fails on its budget, with its time, before this stops it,
-// and over twenty times what the run takes (19 s, and 22 s on the 5,000
-// group accounts, 2026-11-11). Until then it was started before the
+// TestConsolidationRunBudget's slow run fails on its budget, with its
+// time, before this stops it (TestConsolidatedStatementBudget measures
+// its pages and only logs its run's time), and over twenty times what
+// the run takes (19 s, and 22 s on the 5,000 group accounts,
+// 2026-11-11). Until then it was started before the
 // seeding, whose time it counted: main's run 43007697247 seeded for most
 // of the 8 minutes (seedBudgetGroup) and the run that followed was cut
 // off. The seeding is bounded by the package's limit (scripts/budgets.sh).
@@ -142,8 +144,9 @@ func TestConsolidationRunBudget(t *testing.T) {
 // statements took 16 s and 270 s so, instead of 1.4 s and 0.9 s (329 s
 // for TestConsolidatedStatementBudget here, over 450 s on main's run
 // 43007697247, which cut the run off). So each table is analyzed once it
-// is written, before a statement reads it, and every join names the
-// tenant.
+// is written, before a statement reads it, and every join between
+// tables names the tenant (a row looked up by an id given as a parameter
+// needs none).
 func seedBudgetGroup(t *testing.T, e fixture.Env, wide bool) {
 	t.Helper()
 	exec := func(sql string, args ...any) {
