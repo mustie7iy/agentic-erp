@@ -1283,6 +1283,13 @@
        },
        {
         "s": "D",
+        "t": "A GR/IR clearing (T72e, SAP MR11) of an asset's order item clears against the item's asset clearing account instead of the price difference account (product owner 2026-11-10: everything that adjusts what was paid for an asset's order item belongs on the asset): the clearing shows the account each item clears against and keeps it per item where it is not the clearing's own, the ledger judges the item again at posting and refuses a clearing approved against another account (ledger.gr_ir_clearing_outdated), other items clear as before",
+        "r": "migration 000264 (procurement.gr_ir_clearing_item offset_account_id, _number, _name; gr_ir_clearing_item_account) · GrIrClearing.items[].offset_account · ledger.Postings.AssetClearingAccounts, GRIRItem.ItemAccountID on clearing items, checkClears · internal/procurement/grir_clearing.go (clearingAccounts, clearingPosting) · TestGRIRClearingOfAssetItem, TestAssetItemCleared, TestAssetClearingAccounts, TestGRIRClearingRules · ADR-0057 As built (B10, step 3, part 2) · ADR-0034 As built · 03-data-model §3.7, §3.8",
+        "src": "po:2026-11-10",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Depreciation stopped at held-for-sale classification, and a transfer's receiving asset depreciating the transfer's month (accounting specialist, po:2026-11-09, B11; IAS 16.55, IFRS 5, IAS 8.8): the monthly convention is accepted; to add: classifying an asset as held for sale from a period, after which runs no longer depreciate it (depreciation ceases at the earlier of that classification and derecognition), and a test that the receiver of an asset transfer depreciates the month the sender gives up, so no month is lost",
         "r": "T57k · migration 000250 (asset_terms.held_for_sale_*, asset_terms_held_for_sale, asset_terms_held_for_sale_prospective) · internal/assets (Plan.Stop in the walk; estimate.go heldForSale, stopsProspectively, writeHeldForSale) · PATCH /v1/assets/{id} terms[].held_for_sale_from, AssetTerms.held_for_sale, AssetSchedule.held_for_sale · TestHeldForSale, TestTransferReceiverDepreciatesItsMonth, TestScheduleWalkWithChanges, TestAssetHeldForSaleRules · walkthrough step_asset_held_for_sale (step 45) · ADR-0057 §7 Periods, §8 (answered), As built (T57k) · 03-data-model §3.21",
         "src": "po:2026-11-09",

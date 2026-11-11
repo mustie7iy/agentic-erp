@@ -175,6 +175,14 @@ by an existing rule:
   proposal while one is pending is refused (one pending per order), and one
   after the posting finds nothing to clear (409 `procurement.nothing_to_clear`).
 
+- **An asset's order item clears against its asset clearing account**
+  (product owner 2026-11-10; ADR-0057 As built, B10 step 3; migration
+  000264): the clearing shows the account of each item
+  (`items[].offset_account`), the price difference account or, for an
+  order item on an asset clearing account of the company, that account,
+  and the ledger refuses the posting when an item no longer clears
+  against the account shown (409 `ledger.gr_ir_clearing_outdated`).
+
 Not built, for the product owner: reversing a posted clearing (no path
 here yet), and clearing positions of orders that are fully invoiced but
 not closed.

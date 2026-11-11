@@ -19,8 +19,32 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
+
+// AssetClearingAccounts are those of the accounts that are asset clearing
+// accounts of the legal entity's company, by id, with their numbers and
+// names: what a GR/IR clearing is proposed with (procurement), so that it
+// shows the account each of its items will clear against, which the
+// posting judges again (GRIRItem.Clears). A read for a proposal on an
+// order the caller was already given: it refuses nothing the proposal
+// did not refuse before, an inactive company included, whose posting is
+// refused when it is approved.
+func (p Postings) AssetClearingAccounts(ctx context.Context, legalEntity uuid.UUID, accounts []uuid.UUID) (map[uuid.UUID]AccountRef, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	le, ok, err := p.LegalEntities.Entity(ctx, legalEntity)
+	if err == nil && !ok {
+		err = fmt.Errorf("ledger: asset clearing accounts: no legal entity %s", legalEntity)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return assetClearingAccounts(ctx, tx, p.Settings, le, accounts)
+}
 
 // itemAccounts are the accounts the invoiced and clearing items name
 // (GRIRItem.ItemAccountID), each once, in order.

@@ -2947,6 +2947,41 @@ profit or loss. Built in three parts, each its own commit.
   with CAD 567.00 of British Columbia PST; the 667.00 posts on 1690, the
   worklist offers the line, and the report shows no row for the saw and
   nothing expensed.
+*Part 2: GR/IR clearings (T72e).*
+- **What posts where.** A clearing of a closed order's residual GR/IR
+  position clears an asset's order item against the item's asset clearing
+  account instead of `price_difference`: goods received and never
+  invoiced come off what the receipt put on the clearing account, an
+  invoice never received for is added to it, and the asset's cost
+  follows through the existing acquisition (a credit line as a negative
+  acquisition). Other items clear as before, in the same entry
+  (`TestGRIRClearingOfAssetItem`, `TestAssetItemCleared`).
+- **The approver sees the account of each item** (migration 000264,
+  expand only): `procurement.gr_ir_clearing_item` gains nullable
+  `offset_account_id`, `_number`, `_name` (named whole or not at all,
+  `gr_ir_clearing_item_account`), kept only where the item's account is
+  not the clearing's own, and the API shows it on every item
+  (`GrIrClearing.items[].offset_account`, required in responses; the
+  clearing's `offset_account` stays the price difference account). The
+  proposal asks the ledger which item accounts are asset clearing
+  accounts (`ledger.Postings.AssetClearingAccounts`), so the rule stays
+  the ledger's.
+- **What posts is what was approved.** The posting gives the ledger each
+  item's account and the account it was shown to clear against; the
+  ledger judges the item again and refuses a difference (409
+  `ledger.gr_ir_clearing_outdated`, the request left pending), as it does
+  a moved position. So a clearing proposed before this change for an
+  asset's item, shown against `price_difference`, is not posted there
+  after the upgrade: it is rejected or withdrawn and proposed again.
+- **The upgrade moment** (decided by default): an older replica that
+  approves a clearing proposed by a newer one reads no item account and
+  posts the asset's item against `price_difference`, the clearing's own
+  account, which its ledger accepts. That posting is in profit or loss
+  for the length of one rolling upgrade at most and is shown by the
+  report's clearing figure (part 3), for a journal entry to correct.
+- **`GrIrCleared`** is unchanged in payload; its description names the
+  accounts.
+
 - **IFRS readings, the coordinator's, to be confirmed by the accounting
   specialist** (not verified against the standard here): (a) IAS 16.16
   makes non-refundable purchase taxes and the price actually paid part of
@@ -2955,4 +2990,7 @@ profit or loss. Built in three parts, each its own commit.
   a supplier credit memo on such an item reduces the asset's cost; (c) an
   amount that reaches an asset already in use is added to its carrying
   amount and depreciated over the remaining life, by the existing
-  acquisition and change-in-estimate mechanisms.
+  acquisition and change-in-estimate mechanisms; (d) a residual GR/IR
+  position of an asset's order item that is cleared (received and never
+  invoiced, or the reverse) adjusts the asset's cost rather than profit
+  or loss.

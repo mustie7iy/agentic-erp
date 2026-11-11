@@ -11725,18 +11725,24 @@ func (s *Server) handleCreateForecastVarianceCommentRequest(args [0]string, args
 // further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each
 // open position of the order's items, or of the items named, as it stands now: its quantity and its
 // balance, cleared against the legal entity's `price_difference` account (with the item's cost center
-// when that is a primary cost account). It opens a `gr_ir_clearing` approval request (its `object_id`
-// is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding
-// `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the
-// clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
+// when that is a primary cost account) or, for an order item that is an asset's (its account is an
+// asset clearing account of the company in the active configuration), against that asset clearing
+// account: what was paid for an asset, or not paid after all, belongs to the asset's cost, not to
+// profit or loss (ADR-0057 §6; product owner 2026-11-10), and the line waits there to be capitalised
+// or taken off the asset as any line of that account (`GET /v1/asset-clearing-items`). Each item shows
+// the account it clears against (`items[].offset_account`). It opens a `gr_ir_clearing` approval
+// request (its `object_id` is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller
+// holding `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved,
+// the clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
 // which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is
-// published. The posting is checked again when it is approved: a position that moved since, or a price
-// difference account that changed, refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the
-// request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on
-// `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409
-// `procurement.invalid_status`) on an order valued through GR/IR with an open position (409
-// `procurement.nothing_to_clear`); an item named without an open position is refused (422
-// `procurement.invalid_item_no`). One pending clearing per order (409
+// published. The posting is checked again when it is approved: a position that moved since, or an item
+// whose account to clear against is no longer the one shown (the price difference account changed, or
+// the item's account became or ceased to be an asset clearing account), refuses the approval (409
+// `ledger.gr_ir_clearing_outdated`) and the request stays pending, to be rejected or withdrawn and
+// proposed again; so does a period not open on `posting_date` (409 `ledger.period_not_open`). Requires
+// status `closed` (409 `procurement.invalid_status`) on an order valued through GR/IR with an open
+// position (409 `procurement.nothing_to_clear`); an item named without an open position is refused
+// (422 `procurement.invalid_item_no`). One pending clearing per order (409
 // `procurement.gr_ir_clearing_pending`). Human-only.
 //
 // POST /v1/purchase-orders/{id}/gr-ir-clearings

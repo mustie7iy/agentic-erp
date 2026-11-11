@@ -95166,13 +95166,18 @@ func (s *GrIrClearingItem) encodeFields(e *jx.Encoder) {
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
+	{
+		e.FieldStart("offset_account")
+		s.OffsetAccount.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfGrIrClearingItem = [4]string{
+var jsonFieldsNameOfGrIrClearingItem = [5]string{
 	0: "po_item_no",
 	1: "description",
 	2: "quantity",
 	3: "amount",
+	4: "offset_account",
 }
 
 // Decode decodes GrIrClearingItem from json.
@@ -95228,6 +95233,16 @@ func (s *GrIrClearingItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "offset_account":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.OffsetAccount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"offset_account\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -95238,7 +95253,7 @@ func (s *GrIrClearingItem) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

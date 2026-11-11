@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 // documentSettings is the active configuration as a posting reads it: the
@@ -245,6 +246,98 @@ func TestAssetItemDifferencesReversed(t *testing.T) {
 			t.Errorf("recorded for the reversal: got %+v, want %+v", got, want)
 		}
 	})
+}
+
+// clearingOf clears the position of item 10 of the order, qty at balance,
+// against the account, the order item on the item's account.
+func (a assetItemEnv) clearingOf(order uuid.UUID, qty string, balance money.Minor, against uuid.UUID, item *uuid.UUID) ledger.Posting {
+	return ledger.Posting{LegalEntityID: a.de, DocumentType: "SA", DocumentDate: date("2026-03-10"), PostingDate: date("2026-03-10"), Currency: "EUR",
+		SourceContext: "procurement", SourceDocumentID: uuid.New(),
+		GRIR: []ledger.GRIRItem{{PurchaseOrderID: order, POItemNo: 10, Quantity: qty, Unit: "EA", UnitPrice: 100, PriceUnit: 1, ItemAccountID: item,
+			Clears: &ledger.GRIRClearing{Balance: balance, Account: against}}}}
+}
+
+// TestAssetItemCleared: a GR/IR clearing of an asset's order item clears
+// its position against the item's asset clearing account, keeping the
+// position's local and group amounts; it is refused as outdated when the
+// account it was approved against is not the one the item clears against
+// now (approved against the price difference account before the change,
+// or against a clearing account the item is no longer on).
+func TestAssetItemCleared(t *testing.T) {
+	a := assetItemSetup(t)
+	receive := func(t *testing.T, account uuid.UUID) uuid.UUID {
+		t.Helper()
+		order := uuid.New()
+		in := a.receiptPosting("2026-03-02", "EUR", order, "-3", price{100, 1})
+		in.GRIR[0].OffsetAccountID = &account
+		a.post(t, in)
+		return order
+	}
+	t.Run("against the asset clearing account", func(t *testing.T) {
+		entry := a.post(t, a.clearingOf(receive(t, a.clearing), "3", -300, a.clearing, &a.clearing))
+		if got, want := one(t, entry, a.clearing, "the cleared amount"), [3]money.Minor{-300, -300, -300}; got != want {
+			t.Errorf("line on the asset clearing account: got %v, want %v", got, want)
+		}
+		if got, want := one(t, entry, a.grir, "the GR/IR line"), [3]money.Minor{300, 300, 300}; got != want {
+			t.Errorf("GR/IR line: got %v, want %v", got, want)
+		}
+		if got := on(entry, a.diff); len(got) != 0 {
+			t.Errorf("lines on the price difference account: got %v, want none", got)
+		}
+	})
+	for name, c := range map[string]struct {
+		received, against uuid.UUID
+		item              *uuid.UUID
+	}{
+		"an asset's item approved against the price difference account":  {a.clearing, a.diff, &a.clearing},
+		"an item on another account approved against a clearing account": {a.expense, a.clearing, &a.expense},
+		"an item naming no account approved against a clearing account":  {a.clearing, a.clearing, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := a.clearingOf(receive(t, c.received), "3", -300, c.against, c.item)
+			err := apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) error {
+				_, err := a.postings().Post(ctx, in)
+				return err
+			})
+			if got := problem.From(err).Code; got != "ledger.gr_ir_clearing_outdated" {
+				t.Errorf("got %s (%v), want ledger.gr_ir_clearing_outdated", got, err)
+			}
+		})
+	}
+}
+
+// TestAssetClearingAccounts: the port names those of the accounts that
+// are asset clearing accounts of the company, with number and name; it
+// runs in a unit of work, for a legal entity of the tenant.
+func TestAssetClearingAccounts(t *testing.T) {
+	a := assetItemSetup(t)
+	read := func(le uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error) {
+		var out map[uuid.UUID]ledger.AccountRef
+		err := apitest.InRequest(t, a.ten, a.ten.Human, func(ctx context.Context) (err error) {
+			out, err = a.postings().AssetClearingAccounts(ctx, le, []uuid.UUID{a.clearing, a.stock, a.expense, a.clearing})
+			return err
+		})
+		return out, err
+	}
+	got, err := read(a.de)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[uuid.UUID]ledger.AccountRef{a.clearing: {ID: a.clearing, Number: "169000", Name: "Asset clearing"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if _, err := read(uuid.New()); err == nil || !strings.Contains(err.Error(), "no legal entity") {
+		t.Errorf("an unknown legal entity: got %v, want it to fail", err)
+	}
+	call := func(ctx context.Context) error {
+		_, err := a.postings().AssetClearingAccounts(ctx, a.de, []uuid.UUID{a.clearing})
+		return err
+	}
+	if err := call(context.Background()); err == nil || !strings.Contains(err.Error(), "outside a unit of work") {
+		t.Errorf("outside a unit of work: got %v, want it refused", err)
+	}
+	apitest.EveryFailure(t, a.ten, a.ten.Human, "asset clearing accounts", call)
 }
 
 // TestAssetItemDatabaseFailures: every statement of an asset's item's

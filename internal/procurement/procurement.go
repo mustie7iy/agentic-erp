@@ -160,6 +160,11 @@ type Postings interface {
 	// GRIROrder reads an order's GR/IR positions and the price difference
 	// account a GR/IR clearing proposes from (T72e).
 	GRIROrder(ctx context.Context, legalEntity, order uuid.UUID) (ledger.GRIROrder, error)
+	// AssetClearingAccounts are those of the accounts that are asset
+	// clearing accounts of the legal entity's company: an order item on
+	// one is an asset's, and its GR/IR clearing clears against it
+	// (ADR-0057 §6; product owner 2026-11-10).
+	AssetClearingAccounts(ctx context.Context, legalEntity uuid.UUID, accounts []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
 }
 
 // Invoices tells whether supplier invoices refer to a purchase order, and

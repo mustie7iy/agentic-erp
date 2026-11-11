@@ -982,9 +982,11 @@ Rules enforced in the database:
   reads clearings from the same record. Its items (`GRIRItem.Clears`)
   bring each position to zero against `price_difference` (with the item's
   cost center when that is a primary cost account, as an invoice's price
-  difference), and are refused (409 `ledger.gr_ir_clearing_outdated`)
+  difference) or, for an asset's order item (`GRIRItem.ItemAccountID` an
+  asset clearing account, ADR-0057 As built B10 step 3), against that
+  account, and are refused (409 `ledger.gr_ir_clearing_outdated`)
   unless the position still holds the quantity and transaction balance,
-  and `price_difference` is still the account, that were approved. A
+  and the item still clears against the account, that were approved. A
   clearing entry is procurement's (WE), so the ledger's `:reverse`
   refuses it; no path reverses one yet.
   A migration run takes the GR/IR positions SAP holds open over (T72f,
@@ -1629,7 +1631,11 @@ make agree. `POST /v1/purchase-orders/{id}/gr-ir-clearings` (permission
 `procurement.gr_ir.clear`, human-only) takes each open position of the
 order's items, or of the items named, as it stands (`gr_ir_clearing_item`,
 insert-only: the position's quantity, invoiced plus cleared less received,
-and its balance in the order's currency), with the legal entity's
+and its balance in the order's currency; and, since migration 000264,
+the account the item clears against where that is not the clearing's
+own: an asset's order item's asset clearing account, nullable
+`offset_account_id`, `_number`, `_name`, named whole or not at all),
+with the legal entity's
 `price_difference` account as shown then (id, number, name), and opens a
 `gr_ir_clearing` approval request, whose object is the clearing (`GET
 /v1/gr-ir-clearings/{id}`; the order's are listed under it), which a controller holding

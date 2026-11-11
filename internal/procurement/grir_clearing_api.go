@@ -24,7 +24,8 @@ func clearingToAPI(c GRIRClearing) gen.GrIrClearing {
 		ApprovalRequestID: c.ApprovalRequestID, DecisionComment: apitypes.OptString(c.DecisionComment)}
 	for i, it := range c.Items {
 		out.Items[i] = gen.GrIrClearingItem{PoItemNo: it.POItemNo, Description: it.Description, Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit},
-			Amount: apitypes.Money(it.Amount, c.Currency, c.Exponent)}
+			Amount:        apitypes.Money(it.Amount, c.Currency, c.Exponent),
+			OffsetAccount: gen.GrIrClearingAccount{ID: it.OffsetAccount.ID, Number: it.OffsetAccount.Number, Name: it.OffsetAccount.Name}}
 	}
 	if c.JournalEntryID != nil {
 		out.JournalEntry.SetTo(gen.GrIrClearingEntry{ID: *c.JournalEntryID, FiscalYear: int32(*c.JournalEntryYear), DocumentNumber: *c.JournalEntryNumber})

@@ -36941,8 +36941,9 @@ func (s *GrIrClearing) SetDecisionComment(val OptString) {
 	s.DecisionComment = val
 }
 
-// The price difference account a clearing posts against, as it was shown when the clearing was
-// proposed.
+// An account a clearing posts against, as it was shown when the clearing was proposed. On the
+// clearing: the legal entity's price difference account, which its items clear against unless they are
+// assets'. On an item: the account that item clears against.
 // Ref: #/components/schemas/GrIrClearingAccount
 type GrIrClearingAccount struct {
 	// The account.
@@ -37093,7 +37094,7 @@ func (s *GrIrClearingHeaders) SetResponse(val GrIrClearing) {
 
 func (*GrIrClearingHeaders) getGrIrClearingRes() {}
 
-// One order item's GR/IR position a clearing clears.
+// One order item's GR/IR position a clearing clears, and the account it clears against.
 // Ref: #/components/schemas/GrIrClearingItem
 type GrIrClearingItem struct {
 	// Item of the purchase order.
@@ -37105,6 +37106,12 @@ type GrIrClearingItem struct {
 	Quantity Quantity `json:"quantity"`
 	// The position's balance in the order's currency, signed as the GR/IR balances show it.
 	Amount Money `json:"amount"`
+	// The account the position clears against: the clearing's price difference account (`offset_account`
+	// of the clearing) or, for an order item on an asset clearing account of the company (an asset's,
+	// `companies[].asset_accounts[].clearing`), that asset clearing account, where what is cleared adjusts
+	// the asset's cost and is capitalised or taken off the asset as any line of that account
+	// (`GET /v1/asset-clearing-items`).
+	OffsetAccount GrIrClearingAccount `json:"offset_account"`
 }
 
 // GetPoItemNo returns the value of PoItemNo.
@@ -37127,6 +37134,11 @@ func (s *GrIrClearingItem) GetAmount() Money {
 	return s.Amount
 }
 
+// GetOffsetAccount returns the value of OffsetAccount.
+func (s *GrIrClearingItem) GetOffsetAccount() GrIrClearingAccount {
+	return s.OffsetAccount
+}
+
 // SetPoItemNo sets the value of PoItemNo.
 func (s *GrIrClearingItem) SetPoItemNo(val int32) {
 	s.PoItemNo = val
@@ -37145,6 +37157,11 @@ func (s *GrIrClearingItem) SetQuantity(val Quantity) {
 // SetAmount sets the value of Amount.
 func (s *GrIrClearingItem) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetOffsetAccount sets the value of OffsetAccount.
+func (s *GrIrClearingItem) SetOffsetAccount(val GrIrClearingAccount) {
+	s.OffsetAccount = val
 }
 
 // One page of GR/IR clearings.
