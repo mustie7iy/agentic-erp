@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -114,6 +116,100 @@ func TestWalkthroughDates(t *testing.T) {
 	if got, want := strings.Fields(string(out)), []string{"2027-01-01", "2026-02-28"}; strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("date_add: got %v, want %v", got, want)
 	}
+}
+
+// TestWalkthroughWorkingDays: the walkthrough's step 35 records a receipt
+// on the first working day among a week, a month (30 days) and no days
+// from today, and step 38 expects today's snapshot to forecast one of
+// today, a week and a month on exactly when one of them is a working day
+// (first_working_day, scripts/walkthrough/dates.sh). The forecast moves
+// every flow to a working day, so on Remembrance Day 2026, a Wednesday,
+// the story had a flow on none of the three and the walkthrough stopped
+// (ci:batch64); it had one on other days only by their weekday. The
+// script's working days are the product's, config.BusinessDay, on the
+// Canada pack's holidays of the winter (packs/ca, calendar.yaml).
+func TestWalkthroughWorkingDays(t *testing.T) {
+	canada := &config.Calendar{Company: "3000", Holidays: []config.Holiday{{Date: "2026-11-11", Name: "Remembrance Day"},
+		{Date: "2026-12-25", Name: "Christmas Day"}, {Date: "2026-12-26", Name: "Boxing Day"}, {Date: "2027-01-01", Name: "New Year's Day"}}}
+	gulf := &config.Calendar{Company: "3000", Weekend: []string{"friday", "saturday"}, Holidays: []config.Holiday{}}
+	receipt, read := []int{7, 30, 0}, []int{0, 7, 30}
+	for name, c := range map[string]struct {
+		calendar *config.Calendar
+		day      string
+		lags     []int
+		want     string
+	}{
+		"a Monday":                                    {canada, "2026-11-09", receipt, "2026-11-16"},
+		"a Friday":                                    {canada, "2026-11-13", receipt, "2026-11-20"},
+		"a Saturday, its month a Monday":              {canada, "2026-11-14", receipt, "2026-12-14"},
+		"a Sunday, its month a Tuesday":               {canada, "2026-11-15", receipt, "2026-12-15"},
+		"a month's end":                               {canada, "2026-11-30", receipt, "2026-12-07"},
+		"Remembrance Day":                             {canada, "2026-11-11", receipt, "2026-11-18"},
+		"Remembrance Day, as step 38 reads":           {canada, "2026-11-11", read, "2026-11-18"},
+		"New Year's Eve":                              {canada, "2026-12-31", receipt, "2027-01-07"},
+		"a week before Christmas, its month a Sunday": {canada, "2026-12-18", receipt, "2026-12-18"},
+		"Christmas Day, no working day":               {canada, "2026-12-25", receipt, ""},
+		"Christmas Day, as step 38 reads":             {canada, "2026-12-25", read, ""},
+		"a weekend of Friday and Saturday":            {gulf, "2026-11-13", []int{0, 1, 2}, "2026-11-15"},
+		"no calendar":                                 {nil, "2026-11-14", []int{0, 1, 2}, "2026-11-16"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			doc, file := &config.Config{}, []byte("{}")
+			if c.calendar != nil {
+				doc.Calendars = []config.Calendar{*c.calendar}
+				var err error
+				if file, err = json.Marshal(c.calendar); err != nil {
+					t.Fatalf("the calendar as JSON: %v", err)
+				}
+			}
+			if got := firstBusinessDay(t, doc, c.day, c.lags); got != c.want {
+				t.Fatalf("config.BusinessDay from %s at %v: got %q, want %q (the case's own want is wrong)", c.day, c.lags, got, c.want)
+			}
+			path := filepath.Join(t.TempDir(), "calendar.json")
+			if err := os.WriteFile(path, file, 0o600); err != nil {
+				t.Fatalf("write the calendar: %v", err)
+			}
+			args := []string{"-c", `. ../../scripts/walkthrough/dates.sh && first_working_day "$@"`, "dates", path, c.day}
+			for _, lag := range c.lags {
+				args = append(args, strconv.Itoa(lag))
+			}
+			// A machine in another language names its weekdays differently
+			// (jq's strftime follows the locale; a Saturday counted as a
+			// working day under de_DE): the helper must not. A locale the
+			// machine lacks reads as C, and bash then warns on standard
+			// error, which is why only standard output is the answer (the
+			// GitHub runner has no de_DE; pull request 112's check).
+			for _, locale := range []string{"C", "de_DE.UTF-8"} {
+				run := exec.CommandContext(t.Context(), "bash", args...)
+				run.Env = append(os.Environ(), "LC_ALL="+locale)
+				var stderr strings.Builder
+				run.Stderr = &stderr
+				out, err := run.Output()
+				if err != nil {
+					t.Fatalf("first_working_day under LC_ALL=%s: %v\n%s", locale, err, stderr.String())
+				}
+				if got := strings.TrimSpace(string(out)); got != c.want {
+					t.Errorf("first_working_day from %s at %v under LC_ALL=%s: got %q, want %q", c.day, c.lags, locale, got, c.want)
+				}
+			}
+		})
+	}
+}
+
+// firstBusinessDay is the first of the days lags days after day on which
+// company 3000 does business by the product's rule, or "".
+func firstBusinessDay(t *testing.T, doc *config.Config, day string, lags []int) string {
+	t.Helper()
+	from, err := time.Parse(time.DateOnly, day)
+	if err != nil {
+		t.Fatalf("the day %q: %v", day, err)
+	}
+	for _, lag := range lags {
+		if d := from.AddDate(0, 0, lag); doc.BusinessDay("3000", d) {
+			return d.Format(time.DateOnly)
+		}
+	}
+	return ""
 }
 
 // walkthroughListeners are the variables naming every address

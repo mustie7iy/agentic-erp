@@ -2,7 +2,7 @@ module github.com/mustie7iy/agentic-erp/temporal
 
 go 1.26.8
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
