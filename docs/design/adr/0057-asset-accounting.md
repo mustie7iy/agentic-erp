@@ -2982,6 +2982,10 @@ profit or loss. Built in three parts, each its own commit.
   report's clearing figure (part 3), for a journal entry to correct.
 - **`GrIrCleared`** is unchanged in payload; its description names the
   accounts.
+- **Walkthrough step 46**, extended (review round 1): a dust extractor
+  ordered on 1690 is received, never invoiced and its order closed; the
+  clearing shows 1690 for the item, its entry credits 1690, and the
+  report's `gr_ir_cleared` stays zero.
 
 *Part 3: the report (`GET /v1/asset-order-expenses`).*
 - **History only.** The rows and `unattributed` are what postings made
@@ -3004,7 +3008,8 @@ profit or loss. Built in three parts, each its own commit.
 - **What cannot be attributed, said in the contract:** clearings made in
   a source system before migration (the migrated documents do not say
   which were clearings), and manual entries on the price difference
-  account, which name no order item. A clearing has no split into tax and
+  account, which name no order item. The report's totals are summed with
+  `money.Sum` and fail rather than wrap. A clearing has no split into tax and
   price difference. Nothing of this ledger's own clearings is
   unattributed, and since a clearing is never reversed (no path), none
   nets out.

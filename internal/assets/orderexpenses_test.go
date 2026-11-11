@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -367,7 +368,13 @@ func (l lostPurchases) Recorded(ctx context.Context, le uuid.UUID, year int16) (
 	if l.fails == "recorded" {
 		return nil, errLost
 	}
-	return l.Purchases.Recorded(ctx, le, year)
+	rows, err := l.Purchases.Recorded(ctx, le, year)
+	if l.fails == "totals" { // amounts whose total is out of range
+		for i := range rows {
+			rows[i].Amount = math.MaxInt64
+		}
+	}
+	return rows, err
 }
 
 func (l lostPurchases) Unrecorded(ctx context.Context, le uuid.UUID, year int16) ([]assets.UnrecordedExpense, error) {
@@ -446,6 +453,19 @@ func TestAssetOrderExpensesFailures(t *testing.T) {
 			}
 		})
 	}
+	t.Run("totals out of range", func(t *testing.T) {
+		other := e.order(t, "PO-B")
+		e.earlier(t, 2026, other, expensed(1, 300, 0))
+		huge := *h
+		huge.Purchases = lostPurchases{Purchases: h.Purchases, fails: "totals"}
+		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := huge.GetAssetOrderExpenses(ctx, params)
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "totals of 2 asset order items") {
+			t.Errorf("got %v, want the totals refused", err)
+		}
+	})
 	t.Run("a configuration that does not load", func(t *testing.T) {
 		lost := *h
 		lost.Settings = settingsLost{}

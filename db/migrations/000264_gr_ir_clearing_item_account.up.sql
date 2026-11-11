@@ -12,7 +12,10 @@
 -- NULL: the clearing's own account (procurement.gr_ir_clearing
 -- .offset_account_*), which is what every item proposed before, and every
 -- item the previous version proposes, clears against; nothing is
--- backfilled.
+-- backfilled. The check is added validated, not NOT VALID first (06
+-- §6.4): every existing row has the three new columns NULL and satisfies
+-- it, and the table holds a handful of rows per cleared order, so the
+-- validating scan under the ALTER's lock is short (as 000250's).
 ALTER TABLE procurement.gr_ir_clearing_item
   ADD COLUMN offset_account_id     uuid,   -- ledger context
   ADD COLUMN offset_account_number text,

@@ -122,13 +122,15 @@ func TestAssetItemDifferences(t *testing.T) {
 	})
 	t.Run("an item on another account", func(t *testing.T) {
 		for name, account := range map[string]*uuid.UUID{"an expense account": &a.expense, "an asset account that is no clearing account": &a.stock} {
-			entry := a.post(t, a.invoiceOf("2026-03-02", uuid.New(), "1", 140, 25, account))
-			if got, want := one(t, entry, a.diff, "the difference"), [3]money.Minor{40, 40, 40}; got != want {
-				t.Errorf("%s: line on the price difference account: got %v, want %v", name, got, want)
-			}
-			if got := on(entry, *account); len(got) != 0 {
-				t.Errorf("%s: lines on the item's account: got %v, want none", name, got)
-			}
+			t.Run(name, func(t *testing.T) {
+				entry := a.post(t, a.invoiceOf("2026-03-02", uuid.New(), "1", 140, 25, account))
+				if got, want := one(t, entry, a.diff, "the difference"), [3]money.Minor{40, 40, 40}; got != want {
+					t.Errorf("line on the price difference account: got %v, want %v", got, want)
+				}
+				if got := on(entry, *account); len(got) != 0 {
+					t.Errorf("lines on the item's account: got %v, want none", got)
+				}
+			})
 		}
 	})
 	t.Run("a company without asset accounts in the configuration", func(t *testing.T) {

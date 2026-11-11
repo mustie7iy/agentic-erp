@@ -1284,7 +1284,7 @@
        {
         "s": "D",
         "t": "A GR/IR clearing (T72e, SAP MR11) of an asset's order item clears against the item's asset clearing account instead of the price difference account (product owner 2026-11-10: everything that adjusts what was paid for an asset's order item belongs on the asset): the clearing shows the account each item clears against and keeps it per item where it is not the clearing's own, the ledger judges the item again at posting and refuses a clearing approved against another account (ledger.gr_ir_clearing_outdated), other items clear as before",
-        "r": "migration 000264 (procurement.gr_ir_clearing_item offset_account_id, _number, _name; gr_ir_clearing_item_account) · GrIrClearing.items[].offset_account · ledger.Postings.AssetClearingAccounts, GRIRItem.ItemAccountID on clearing items, checkClears · internal/procurement/grir_clearing.go (clearingAccounts, clearingPosting) · TestGRIRClearingOfAssetItem, TestAssetItemCleared, TestAssetClearingAccounts, TestGRIRClearingRules · ADR-0057 As built (B10, step 3, part 2) · ADR-0034 As built · 03-data-model §3.7, §3.8",
+        "r": "migration 000264 (procurement.gr_ir_clearing_item offset_account_id, _number, _name; gr_ir_clearing_item_account) · GrIrClearing.items[].offset_account · ledger.Postings.AssetClearingAccounts, GRIRItem.ItemAccountID on clearing items, checkClears · internal/procurement/grir_clearing.go (clearingAccounts, clearingPosting) · TestGRIRClearingOfAssetItem, TestAssetItemCleared, TestAssetClearingAccounts, TestGRIRClearingRules · walkthrough step_asset_order_expenses (step 46) · ADR-0057 As built (B10, step 3, part 2) · ADR-0034 As built · 03-data-model §3.7, §3.8",
         "src": "po:2026-11-10",
         "c": []
        },

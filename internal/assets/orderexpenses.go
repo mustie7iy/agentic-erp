@@ -3,6 +3,7 @@ package assets
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -105,13 +106,22 @@ type orderExpenseRow struct {
 	cleared money.Minor
 }
 
-// orderExpenseTotals sums the rows.
-func orderExpenseTotals(rows []orderExpenseRow) (total orderExpenseRow) {
-	for _, r := range rows {
-		total.expense.Amount, total.expense.TaxBorne = total.expense.Amount+r.expense.Amount, total.expense.TaxBorne+r.expense.TaxBorne
-		total.cleared += r.cleared
+// orderExpenseTotals sums the rows; a total out of an amount's range
+// fails the report rather than wrapping.
+func orderExpenseTotals(rows []orderExpenseRow) (orderExpenseRow, error) {
+	amounts, taxes, cleared := make([]money.Minor, len(rows)), make([]money.Minor, len(rows)), make([]money.Minor, len(rows))
+	for i, r := range rows {
+		amounts[i], taxes[i], cleared[i] = r.expense.Amount, r.expense.TaxBorne, r.cleared
 	}
-	return total
+	var total orderExpenseRow
+	var errAmount, errTax, errCleared error
+	total.expense.Amount, errAmount = money.Sum(amounts...)
+	total.expense.TaxBorne, errTax = money.Sum(taxes...)
+	total.cleared, errCleared = money.Sum(cleared...)
+	if err := errors.Join(errAmount, errTax, errCleared); err != nil {
+		return total, fmt.Errorf("assets: totals of %d asset order items: %w", len(rows), err)
+	}
+	return total, nil
 }
 
 func (r orderExpenseRow) key() orderExpenseKey {
@@ -153,7 +163,10 @@ func (e *Endpoints) GetAssetOrderExpenses(ctx context.Context, params gen.GetAss
 		return nil, fmt.Errorf("assets: currency %s: %w", co.Currency, err)
 	}
 	m := func(a money.Minor) gen.Money { return apitypes.Money(a, co.Currency, exp) }
-	total := orderExpenseTotals(rows)
+	total, err := orderExpenseTotals(rows)
+	if err != nil {
+		return nil, err
+	}
 	out := &gen.AssetOrderExpenses{LegalEntityID: co.ID, CompanyCode: co.Code, CompanyName: co.Name, FiscalYear: params.FiscalYear,
 		StartDate: periods[0].Start, EndDate: periods[len(periods)-1].End, Currency: co.Currency, Items: []gen.AssetOrderExpenseItem{},
 		Totals: gen.AssetOrderExpenseAmounts{TaxNotRecovered: m(total.expense.TaxBorne), PriceDifference: m(total.expense.Amount - total.expense.TaxBorne),
