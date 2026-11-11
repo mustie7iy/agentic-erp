@@ -451,7 +451,7 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 		page.Items[i] = gen.OpenItem{FiscalYear: int32(o.FiscalYear), JournalEntryID: o.EntryID, LineNo: o.LineNo, LegalEntityID: o.LegalEntityID,
 			AccountID: o.AccountID, PartnerID: apitypes.OptUUID(o.PartnerID), PostingDate: o.PostingDate, Amount: apitypes.Money(o.TC, o.CurrencyTC, o.ExpTC),
 			AmountLc: apitypes.Money(o.LC, o.CurrencyLC, o.ExpLC), DocumentNumber: o.DocumentNumber, Reference: apitypes.OptString(o.Reference),
-			SpecialGl: apitypes.OptString(o.SpecialGL)}
+			SpecialGl: apitypes.OptString(o.SpecialGL), PaymentMethod: apitypes.OptString(o.PaymentMethod)}
 		if o.Terms != nil {
 			page.Items[i].PaymentTerms.SetTo(TermsToAPI(*o.Terms))
 		}

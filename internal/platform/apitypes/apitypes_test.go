@@ -25,6 +25,26 @@ func TestPtr(t *testing.T) {
 	}
 }
 
+func TestSamePtr(t *testing.T) {
+	s, same, other := "S", "S", "T"
+	for name, c := range map[string]struct {
+		a, b *string
+		want bool
+	}{
+		"both absent":      {nil, nil, true},
+		"the same value":   {&s, &same, true},
+		"another value":    {&s, &other, false},
+		"one absent":       {&s, nil, false},
+		"the other absent": {nil, &s, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := apitypes.SamePtr(c.a, c.b); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestOptUUID(t *testing.T) {
 	if got := apitypes.OptUUID(nil); got.Set {
 		t.Errorf("nil: got %v, want unset", got)

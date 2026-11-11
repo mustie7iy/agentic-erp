@@ -42,7 +42,7 @@ func toAPI(v Invoice) gen.SupplierInvoice {
 		SupplierReference: v.SupplierReference, InvoiceDate: v.InvoiceDate, GrossAmount: apitypes.Money(v.Gross, v.Currency, v.Exponent),
 		TaxAmount: apitypes.Money(v.Tax, v.Currency, v.Exponent), Status: v.Status, Source: v.Source, Extensions: apitypes.EncodeObject(v.Extensions),
 		Kind: gen.NewOptString(v.Kind), ReferenceInvoiceID: apitypes.OptUUID(v.ReferenceInvoiceID), Items: make([]gen.SupplierInvoiceItem, len(v.Items)),
-		DocumentaryWarnings: make([]gen.DocumentaryWarning, len(v.DocumentaryWarnings))}
+		DocumentaryWarnings: make([]gen.DocumentaryWarning, len(v.DocumentaryWarnings)), PaymentMethod: apitypes.OptString(v.PaymentMethod)}
 	for i, w := range v.DocumentaryWarnings {
 		out.DocumentaryWarnings[i] = gen.DocumentaryWarning{Code: w.Code, Requirement: w.Requirement, Threshold: apitypes.Money(w.Threshold, w.Currency, w.Exponent),
 			ThresholdInclusive: w.Inclusive, Source: w.Source, PendingSignOff: w.PendingSignOff, Unassessed: w.Unassessed,
@@ -154,7 +154,8 @@ func (e *Endpoints) CreateSupplierInvoice(ctx context.Context, req *gen.Supplier
 		InvoiceDate: req.InvoiceDate, PostingDate: apitypes.Ptr[time.Time](req.PostingDate), TaxDate: apitypes.Ptr[time.Time](req.TaxDate),
 		Gross: Amount{req.GrossAmount.Amount, req.GrossAmount.Currency},
 		Tax:   Amount{req.TaxAmount.Amount, req.TaxAmount.Currency}, PurchaseOrderID: apitypes.Ptr[uuid.UUID](req.PurchaseOrderID), Items: fromItems(req.Items),
-		Extensions: apitypes.DecodeObject(req.Extensions.Value), Kind: req.Kind.Or(KindInvoice), ReferenceInvoiceID: apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID)},
+		Extensions: apitypes.DecodeObject(req.Extensions.Value), Kind: req.Kind.Or(KindInvoice), ReferenceInvoiceID: apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID),
+		PaymentMethod: apitypes.Ptr[string](req.PaymentMethod)},
 		req.Source.Or("manual"))
 	if err != nil {
 		return nil, err
@@ -282,6 +283,10 @@ func (e *Endpoints) UpdateSupplierInvoice(ctx context.Context, req *gen.Supplier
 	if req.ReferenceInvoiceID.Set {
 		ref := apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID)
 		ch.ReferenceInvoiceID = &ref
+	}
+	if req.PaymentMethod.Set {
+		method := apitypes.Ptr[string](req.PaymentMethod)
+		ch.PaymentMethod = &method
 	}
 	if g, ok := req.GrossAmount.Get(); ok {
 		ch.Gross = &Amount{g.Amount, g.Currency}

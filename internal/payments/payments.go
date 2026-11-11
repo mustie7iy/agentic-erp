@@ -343,6 +343,7 @@ type Item struct {
 	terms       *ledger.ItemTerms    // the terms it was posted with, while proposing
 	withholding []ledger.Withholding // its withholding taxes deducted at payment, while proposing
 	until       *time.Time           // the last day of the tier its discount is taken in, while proposing
+	method      string               // the payment method it fixes, or "", while proposing
 }
 
 // Payment is a row of payments.payment with its items.
@@ -369,6 +370,10 @@ type Payment struct {
 	// in one proposed for a bank, whose bank pays it (payingBank).
 	HouseBankID *uuid.UUID
 	Method      *string
+	// MethodFixed says its items fix Method (ADR-0038; product owner
+	// 2026-11-10): it pays the supplier's items fixing that method alone,
+	// beside the payment of the supplier's items that fix none.
+	MethodFixed bool
 }
 
 // Payment kinds: a supplier's open items, netted, or one down payment
@@ -383,14 +388,22 @@ const (
 // dropped says whether payment p was dropped by its run's release: a
 // payment of open items whose supplier has an exclusion, which such a
 // payment otherwise never has (a proposal pays or excludes each supplier's
-// items). It relies on one items payment per supplier and run, which the
-// unique index payment_items_once holds (000083). A down payment's payment
+// items): of the supplier's items that fix no method for a payment of
+// those (payment_exclusion), of the items fixing the payment's method for
+// a payment of those (method_exclusion), so the exclusion of one group
+// never marks the other's payment. It relies on one items payment per
+// supplier and run for the items that fix no method and one per fixed
+// method, which the unique indexes payment_items_once_unfixed and
+// payment_items_once_per_method hold (000254, 000255). A down payment's payment
 // is never dropped: the release drops payments whose items are no longer
 // open, and it has none; it is paid even when the supplier's items are
 // excluded for a debit balance (payRequests). A request left out has its
 // exclusion in payments.request_exclusion, which leaves the items paid.
-const dropped = `(p.kind = 'items' AND EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id
-		AND x.payment_run_id = p.payment_run_id AND x.supplier_id = p.supplier_id))`
+const dropped = `(p.kind = 'items' AND CASE WHEN p.method_fixed
+		THEN EXISTS (SELECT FROM payments.method_exclusion x WHERE x.tenant_id = p.tenant_id
+			AND x.payment_run_id = p.payment_run_id AND x.supplier_id = p.supplier_id AND x.payment_method = p.payment_method)
+		ELSE EXISTS (SELECT FROM payments.payment_exclusion x WHERE x.tenant_id = p.tenant_id
+			AND x.payment_run_id = p.payment_run_id AND x.supplier_id = p.supplier_id) END)`
 
 const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_account_id, p.amount, p.discount_amount, p.withholding_amount, p.discount_until, p.end_to_end_id, p.journal_entry_year,
 		p.journal_entry_id, (SELECT json_agg(json_build_object('fiscal_year', i.item_fiscal_year, 'journal_entry_id', i.item_entry_id,
@@ -398,13 +411,13 @@ const paymentSelect = `SELECT p.id, p.payment_run_id, p.supplier_id, p.bank_acco
 			'is_active', i.is_active)
 			ORDER BY i.item_fiscal_year, i.item_entry_id, i.item_line_no)
 		 FROM payments.payment_item i WHERE i.tenant_id = p.tenant_id AND i.payment_id = p.id), p.created_at, p.created_by,
-		` + dropped + ` AS is_dropped, p.kind, p.down_payment_request_id, p.house_bank_id, p.payment_method
+		` + dropped + ` AS is_dropped, p.kind, p.down_payment_request_id, p.house_bank_id, p.payment_method, p.method_fixed
 	FROM payments.payment p`
 
 func scanPayment(row pgx.Row) (Payment, error) {
 	var p Payment
 	err := row.Scan(&p.ID, &p.RunID, &p.SupplierID, &p.BankAccountID, &p.Amount, &p.Discount, &p.Withholding, &p.DiscountUntil, &p.EndToEndID, &p.JournalEntryYear, &p.JournalEntryID,
-		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded, &p.Kind, &p.RequestID, &p.HouseBankID, &p.Method)
+		&p.Items, &p.CreatedAt, &p.CreatedBy, &p.Excluded, &p.Kind, &p.RequestID, &p.HouseBankID, &p.Method, &p.MethodFixed)
 	return p, errs.Wrapf(err, "scan payment")
 }
 
@@ -421,9 +434,10 @@ func paymentsOf(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Payment, error
 
 // Exclusion is a supplier left out of a run.
 type Exclusion struct {
-	ID         uuid.UUID // the supplier, or the request of a request's exclusion: the listing's key
+	ID         uuid.UUID // the supplier, the request of a request's exclusion, or the row of one of items fixing a method: the listing's key
 	SupplierID uuid.UUID
 	RequestID  *uuid.UUID // the down payment request left out, or nil for the supplier's items
+	Method     *string    // the payment method the items left out fix, or nil
 	Reason     string
 	Amount     money.Minor
 	// TaxCode and the rates in percent name why a request was left out

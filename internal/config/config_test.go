@@ -181,6 +181,12 @@ func TestValidationRules(t *testing.T) {
 			c.Companies[0].PaymentMethods = append(c.Companies[0].PaymentMethods, c.Companies[0].PaymentMethods[0])
 		}, "companies[1000].payment_methods[T]"},
 		{"payment method description", method(func(m *PaymentMethod) { m.Description = " " }), "companies[1000].payment_methods[T].description"},
+		{"payment method order below one", method(func(m *PaymentMethod) { m.Order = -1 }), "companies[1000].payment_methods[T].order"},
+		{"payment method order taken", func(c *Config) {
+			first := &c.Companies[0].PaymentMethods[0]
+			first.Order = 2
+			c.Companies[0].PaymentMethods = append(c.Companies[0].PaymentMethods, PaymentMethod{Code: "C", Description: "Cheque", Order: 2, Ranking: first.Ranking})
+		}, "companies[1000].payment_methods[C].order"},
 		{"payment method without a ranking", method(func(m *PaymentMethod) { m.Ranking = nil }), "companies[1000].payment_methods[T].ranking"},
 		{"ranking currency unknown", method(func(m *PaymentMethod) { m.Ranking[0].Currency = "XXY" }), "companies[1000].payment_methods[T].ranking[XXY]"},
 		{"ranking currency twice", method(func(m *PaymentMethod) { m.Ranking = append(m.Ranking, m.Ranking[0]) }), "companies[1000].payment_methods[T].ranking[USD]"},

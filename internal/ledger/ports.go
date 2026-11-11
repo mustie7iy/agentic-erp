@@ -112,6 +112,11 @@ type Posting struct {
 	// item (T46f), kept with it (ledger.open_item_withholding): what was
 	// withheld at invoice is among Lines already, on the code's account.
 	Withholding []Withholding
+	// PaymentMethod is the payment method the document fixes for the
+	// entry's supplier open items (ADR-0038, SAP BSEG-ZLSCH), kept with
+	// them (ledger.open_item_payment_method): a payment run pays them by
+	// it alone. nil: none, paid by the company's run order.
+	PaymentMethod *string
 	// Rate is the rate from the entry's currency into the local one that a
 	// source system converted the lines at, recorded on the entry instead
 	// of the average rate valid on the posting date: a document migrated
@@ -415,10 +420,13 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	return posted, keepItemData(ctx, tx, posted, in)
 }
 
-// keepItemData keeps the payment terms and withholding taxes of a posted
-// entry's supplier open item.
+// keepItemData keeps the payment terms, the fixed payment method and the
+// withholding taxes of a posted entry's supplier open item.
 func keepItemData(ctx context.Context, tx pgx.Tx, entry Entry, in Posting) error {
 	if err := keepTerms(ctx, tx, entry, in.Terms); err != nil {
+		return err
+	}
+	if err := keepPaymentMethod(ctx, tx, entry, in.PaymentMethod); err != nil {
 		return err
 	}
 	return keepWithholding(ctx, tx, entry, in.Withholding)

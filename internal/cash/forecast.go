@@ -49,6 +49,12 @@ type Payable struct {
 	// method ranks for its currency and that method; "" when none fits,
 	// which has no value days.
 	BankCode, Method string
+	// FixedMethod is the payment method its document fixes, "" for none
+	// (ADR-0038): a run pays a supplier's items fixing a method in a
+	// payment of their own, so they net among themselves alone (netting),
+	// and BankCode and Method are that method's, or "" when it cannot pay
+	// the item.
+	FixedMethod string
 	// Dates are the days a run would pay it on, in the order the forecast
 	// tries them: the last day of each cash discount tier of an invoice,
 	// earliest first, then its net due date (a credit memo's is its
@@ -515,11 +521,14 @@ func paymentParts(amount money.Minor, paying Paying) []part {
 
 // netting is what one run payment pays (ADR-0051 §5): a supplier's
 // documents of one source and certainty in one currency, which a run nets
-// into one payment; a down payment request alone (request > 0), which a
+// into one payment, those fixing a payment method apart from those that
+// fix none, per method (ADR-0038; product owner 2026-11-10: never netted
+// across methods); a down payment request alone (request > 0), which a
 // run pays whole and never nets.
 type netting struct {
 	supplier                    uuid.UUID
 	currency, source, certainty string
+	method                      string // the payment method the documents fix, or ""
 	request                     int
 }
 
@@ -571,7 +580,7 @@ func (r reader) supplierFlows(payables []Payable) ([]datedFlow, error) {
 // date (the read date when overdue), a down payment request on its due
 // date, any other on its payment day (payDay).
 func (r reader) expected(p Payable) (netting, time.Time) {
-	k := netting{supplier: p.Supplier, currency: p.Currency, source: p.Source, certainty: CertaintyExpected}
+	k := netting{supplier: p.Supplier, currency: p.Currency, source: p.Source, certainty: CertaintyExpected, method: p.FixedMethod}
 	if p.Source == SourceInvoiceUnposted || p.Source == SourcePurchaseOrder {
 		k.certainty = CertaintyPlanned
 	}

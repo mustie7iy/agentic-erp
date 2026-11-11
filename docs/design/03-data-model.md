@@ -595,7 +595,7 @@ erDiagram
     text payment_term_code
     bool is_posting_blocked
     bool is_payment_blocked
-    text_array payment_methods "in order; T45b"
+    text_array payment_methods "allowed methods; T45b"
     text planning_group "cash.planning_groups; T53b" }
   bank_account { uuid id PK
     uuid partner_id
@@ -1152,6 +1152,13 @@ indexed: `GET /v1/open-items` filters by it (`due_date_to`, leaving out
 the items without terms) and ages the items it selects on a key date
 (`aging_key_date`, `aging_days`), summed per local currency on its first
 page (ADR-0052 G4, T73j).
+
+It keeps the payment method its document fixed, when it fixed one
+(`open_item_payment_method`, migration 000253; ADR-0038 As built, an
+item's fixed payment method; SAP BSEG-ZLSCH): one row per supplier open
+item of the entry, insert-only, the code as the payables context checked
+it against the company's active methods. A payment run pays such an item
+by that method alone; `GET /v1/open-items` shows it (`payment_method`).
 
 It keeps its supplier's withholding taxes too (`open_item_withholding`,
 migration 000088, T46f, ADR-0037; SAP WITH_ITEM), one row per code of the
@@ -1753,6 +1760,7 @@ erDiagram
     uuid journal_entry_id
     uuid reversal_entry_id
     uuid workflow_request_id
+    text payment_method "the method it fixes for its open item, or null (ADR-0038)"
     int exception_version
     int version }
   supplier_invoice_item { uuid supplier_invoice_id PK
@@ -2121,6 +2129,7 @@ erDiagram
   payment_run ||--o{ payment : contains
   payment ||--|{ payment_item : settles
   payment_run ||--o{ payment_exclusion : excludes
+  payment_run ||--o{ method_exclusion : "excludes items fixing a method"
   payment_run ||--o{ bank_file : produces
   house_bank ||--o{ bank_statement : "statements of its account"
   bank_statement ||--|{ bank_statement_line : books
@@ -2129,6 +2138,7 @@ erDiagram
   payment_method { uuid legal_entity_id PK
     text code PK "one character; T45b"
     text description
+    int run_order "place in the run order; ADR-0038"
     bool is_active }
   bank_ranking { text method PK
     char currency PK
@@ -2155,6 +2165,7 @@ erDiagram
     char currency
     uuid house_bank_id "null: the run's (T45c)"
     text payment_method "null in a run proposed for one bank"
+    bool method_fixed "its items fix payment_method (ADR-0038)"
     uuid journal_entry_id }
   payment_item { uuid payment_id PK
     smallint item_fiscal_year PK
@@ -2164,6 +2175,11 @@ erDiagram
     bool is_active }
   payment_exclusion { uuid payment_run_id PK
     uuid supplier_id PK
+    text reason_code }
+  method_exclusion { uuid id PK
+    uuid payment_run_id
+    uuid supplier_id
+    text payment_method "the method the items left out fix"
     text reason_code }
   house_bank { uuid id PK
     uuid legal_entity_id
@@ -2327,19 +2343,45 @@ twice and a refused or changed file is reported once.
 A company's payment methods (`payments.payment_method`, SAP T042Z) rank,
 per currency, the house banks that pay with them, first preferred
 (`payments.bank_ranking.house_banks`, codes of the company's house banks;
-SAP T042A, generated with the methods of T042E/T042Z: ADR-0038 As built). A supplier's company data lists the methods it may be
-paid by, in order (`partner.supplier_company.payment_methods`, SAP
-LFB1-ZWELS): active methods of its company, which the configuration cannot
+SAP T042A, generated with the methods of T042E/T042Z: ADR-0038 As built). Each method has its place in the order a payment run tries the
+company's methods in (`payment_method.run_order`, from the configuration's
+`order`, else the order it lists them in; null, tried last by code, for a
+method a replica of the release before 000251 wrote). A supplier's company
+data lists the methods it may be
+paid by (`partner.supplier_company.payment_methods`, SAP
+LFB1-ZWELS; its order decides nothing): active methods of its company, which the configuration cannot
 take away while a supplier, or a pending partner change, has them (T45b).
 
 A run is proposed for one house bank, which pays every supplier, or without
 one in a currency (T45c): then each supplier, its items and its down
-payment requests, is paid through the first of its methods whose ranking
-for the currency names an active house bank, the first such bank; a
+payment requests, is paid through the first method of the company's run
+order that the supplier may be paid by and whose ranking for the currency
+names an active house bank, the first such bank (SAP's payment run takes
+the order from its own parameters, not from LFB1-ZWELS: SAP specialist
+2026-11-09, A4(c), ADR-0038 As built); a
 supplier none can pay is excluded with `no_house_bank`. The payment names
 the bank and method (`payment.house_bank_id`, `payment_method`; null in a
 run proposed for one bank, whose bank pays), posts to that bank's account,
-and the release writes one bank file per house bank and method. At most one
+and the release writes one bank file per house bank and method.
+
+A supplier invoice may fix the payment method its open item is paid by
+(`payables.supplier_invoice.payment_method`, kept with the item at
+posting; ADR-0038 As built, an item's fixed payment method; product owner
+2026-11-10). A proposal splits a supplier's due items by the method they
+fix: those that fix none are one payment by the run order, as before, and
+each fixed method's items a payment of their own by that method
+(`payment.method_fixed`), a credit memo netting within its own group
+alone. One items payment per run and supplier for the items that fix none
+(`payment_items_once_unfixed`) and one per fixed method
+(`payment_items_once_per_method`) replace `payment_items_once`
+(000254-000257). A group whose fixed method cannot pay it (not an active
+method of the company, not among the supplier's methods, no ranked house
+bank, or a run proposed for one house bank, which pays by no method) is
+left out with the reason, as is one a release drops, in
+`payments.method_exclusion` (one row per run, supplier and method),
+beside `payment_exclusion`, which keeps the supplier's items that fix
+none; a payment counts as dropped when its own group has an exclusion.
+At most one
 active house bank of a legal entity is on a ledger account
 (`house_bank_account_once`, a deferrable unique constraint on
 `active_gl_account_id`, checked at commit so banks may swap accounts;
@@ -2418,8 +2460,10 @@ earned; a release being resumed is not refused, since some of its
 payments may have posted.
 
 Down payment requests (T46c, ADR-0037). A `payment` has a `kind`: `items`,
-the supplier's open items netted, at most one per supplier and run
-(`payment_items_once`), or `down_payment`, one down payment request
+the supplier's open items netted, at most one per supplier and run for its
+items that fix no payment method and one per method its items fix
+(`payment_items_once_unfixed`, `payment_items_once_per_method`; first
+`payment_items_once`, one per supplier and run), or `down_payment`, one down payment request
 (`down_payment_request_id`, `payment_request_once`), paid whole and never
 netted with the supplier's items, as SAP pays special G/L items
 separately. A proposal pays every open request of the legal entity due by
@@ -2432,8 +2476,10 @@ date is left out with reason `tax_code_invalid`, and the supplier's items
 are still paid. A request left out has an exclusion of its own, in
 `payments.request_exclusion` (key run and request, its supplier, reason and
 amount), beside `payment_exclusion`, which keeps one row per run and
-supplier for the items (the release's drop and the dropped check use it
-alone); the listing returns both. During the upgrade an application
+supplier for the items that fix no payment method (the release's drop and
+the dropped check use it for a payment of those, and
+`payments.method_exclusion` for a payment of items fixing a method); the
+listing returns all three. During the upgrade an application
 version from before T46c must not release a run a newer one proposed with
 request payments, which it would settle as items payments without items. A
 proposed run whose
@@ -2847,7 +2893,7 @@ line or reservation. An agent's budget is identity's
 | REGUH/REGUP (F110) | `payments.payment_run`, `payment`, `payment_item` |
 | T012K | `payments.house_bank`; a Canadian one, without an IBAN, by `institution_number`, `transit_number` (from the bank key, as for LFBK) and `account_number` (BANKN) (T72d); `currency` from WAERS, empty for the company's, refused when missing (ADR-0038 As built, T53a review) |
 | T042Z/T042E (payment methods per country and company code), T042A (bank selection) | configuration `companies[].payment_methods` and their `ranking`, `payments.payment_method`, `bank_ranking`; T042E amount limits and T042I bank subaccounts noted for the reviewers (ADR-0038 As built) |
-| LFB1-ZWELS | `supplier_company.payment_methods`, in order; a method the company does not have stops the load (ADR-0038 As built) |
+| LFB1-ZWELS | `supplier_company.payment_methods`, the methods allowed (its letter order is not a preference: A4(c)); a method the company does not have stops the load (ADR-0038 As built) |
 | T052 | `partner.payment_term` |
 | T007A, KONP/A003 (tax rates per condition), T030K (account keys MWS, VST, NVV, ESA/ESE) | `ledger.tax_code_definition`, `tax_component`, `tax_rate` (T61a) |
 | T030 | `ledger.account_determination` (VST, BNK, WRX, PRD, SKE) |

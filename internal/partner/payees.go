@@ -33,8 +33,9 @@ type Payee struct {
 	// the partner was created, which starts the payment hold.
 	BankChanged       bool
 	BankChangePending bool
-	// PaymentMethods are the methods it may be paid by in the legal entity,
-	// in order of preference (SAP LFB1-ZWELS; ADR-0038).
+	// PaymentMethods are the methods it may be paid by in the legal entity
+	// (SAP LFB1-ZWELS; ADR-0038): they restrict the methods a payment run
+	// tries in the company's order, and their own order decides nothing.
 	PaymentMethods []string
 	// PlanningGroup is its planning group in the legal entity, "" for none
 	// (ADR-0051 §4): what the liquidity forecast classifies its payments by

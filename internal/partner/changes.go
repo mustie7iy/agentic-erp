@@ -45,8 +45,8 @@ type SupplierCompanyInput struct {
 	// supplier in the legal entity (SAP LFBW; T46e), codes of its company.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes,omitempty"`
 	// PaymentMethods are the methods the supplier may be paid by in the
-	// legal entity, in order (SAP LFB1-ZWELS; ADR-0038), methods of its
-	// company.
+	// legal entity (SAP LFB1-ZWELS; ADR-0038), methods of its company; a
+	// payment run tries them in the company's order, not this list's.
 	PaymentMethods []string `json:"payment_methods,omitempty"`
 	// PlanningGroup is the supplier's planning group in the legal entity
 	// (SAP LFB1-FDGRV; ADR-0051 §4), a code of the configuration's

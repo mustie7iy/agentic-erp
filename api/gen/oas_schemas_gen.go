@@ -16967,8 +16967,9 @@ type CashSnapshotFlow struct {
 	ValueDate time.Time `json:"value_date"`
 	// The last day a bucket's sum covers; absent at document level.
 	BucketEnd OptDate `json:"bucket_end"`
-	// The house bank the flow was expected on; absent when none (a supplier item takes the bank its
-	// supplier's first payment method ranks).
+	// The house bank the flow was expected on; absent when none (a supplier item takes the bank ranked for
+	// the first payment method of the company's run order that its supplier may be paid by, and one that
+	// fixes a payment method the bank ranked for that method, or none when the method cannot pay it).
 	HouseBankID OptUUID `json:"house_bank_id"`
 	// The house bank's code; present exactly when `house_bank_id` is.
 	HouseBankCode OptString `json:"house_bank_code"`
@@ -47032,6 +47033,11 @@ type OpenItem struct {
 	// The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others,
 	// which are due by their supplier's current terms.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
+	// The payment method the item's document fixed when it posted (SAP BSEG-ZLSCH; ADR-0038), on a
+	// supplier item: a payment run pays the item by this method alone, in a payment of its own, and leaves
+	// it out with the reason when the method cannot pay it. Absent on an item that fixes none, which is
+	// paid by the company's run order.
+	PaymentMethod OptString `json:"payment_method"`
 	// Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never
 	// netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and
 	// preserve values not listed here; values may be added within /v1.
@@ -47098,6 +47104,11 @@ func (s *OpenItem) GetPaymentTerms() OptItemPaymentTerms {
 	return s.PaymentTerms
 }
 
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *OpenItem) GetPaymentMethod() OptString {
+	return s.PaymentMethod
+}
+
 // GetSpecialGl returns the value of SpecialGl.
 func (s *OpenItem) GetSpecialGl() OptString {
 	return s.SpecialGl
@@ -47161,6 +47172,11 @@ func (s *OpenItem) SetReference(val OptString) {
 // SetPaymentTerms sets the value of PaymentTerms.
 func (s *OpenItem) SetPaymentTerms(val OptItemPaymentTerms) {
 	s.PaymentTerms = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *OpenItem) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetSpecialGl sets the value of SpecialGl.
@@ -53685,9 +53701,10 @@ type Payment struct {
 	// The payment journal entry's document number; present exactly when `journal_entry_id` is.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// What the payment pays: `items`, the supplier's open items netted (at most one such payment per
-	// supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never
-	// netted, whose posting puts the down payment on the down payment account. Open enumeration: clients
-	// must accept and preserve values not listed here; values may be added within /v1.
+	// supplier and run for its items that fix no payment method, and one per payment method its items fix,
+	// `payment_method_source`), or `down_payment`, one down payment request (ADR-0037), paid whole and
+	// never netted, whose posting puts the down payment on the down payment account. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind OptString `json:"kind"`
 	// The down payment request a payment of kind `down_payment` pays.
 	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
@@ -53700,6 +53717,13 @@ type Payment struct {
 	HouseBankCode OptString `json:"house_bank_code"`
 	// Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank.
 	PaymentMethod OptString `json:"payment_method"`
+	// Why the payment is paid by its `payment_method`; present exactly when `payment_method` is.
+	// `run_order`: the first method of the company's run order that the supplier may be paid by and a
+	// ranked house bank pays with. `item`: its items fix the method (their invoices' `payment_method`),
+	// which wins over the run order; such a payment holds the supplier's items fixing that method alone.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	PaymentMethodSource OptString `json:"payment_method_source"`
 	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
 }
@@ -53832,6 +53856,11 @@ func (s *Payment) GetHouseBankCode() OptString {
 // GetPaymentMethod returns the value of PaymentMethod.
 func (s *Payment) GetPaymentMethod() OptString {
 	return s.PaymentMethod
+}
+
+// GetPaymentMethodSource returns the value of PaymentMethodSource.
+func (s *Payment) GetPaymentMethodSource() OptString {
+	return s.PaymentMethodSource
 }
 
 // GetItems returns the value of Items.
@@ -53969,6 +53998,11 @@ func (s *Payment) SetPaymentMethod(val OptString) {
 	s.PaymentMethod = val
 }
 
+// SetPaymentMethodSource sets the value of PaymentMethodSource.
+func (s *Payment) SetPaymentMethodSource(val OptString) {
+	s.PaymentMethodSource = val
+}
+
 // SetItems sets the value of Items.
 func (s *Payment) SetItems(val []PaymentItem) {
 	s.Items = val
@@ -53990,8 +54024,21 @@ type PaymentExclusion struct {
 	// `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`,
 	// `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves
 	// out a supplier, or a request, of a run proposed without a house bank when none of the supplier's
-	// payment methods has a house bank ranked for the run currency (T45c).
+	// payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a
+	// payment method are judged apart from its others, per fixed method (`payment_method`), for every
+	// reason here, and are left out when the method cannot pay them, never paid by another:
+	// `method_not_active` (the method is not an active payment method of the company),
+	// `method_not_allowed` (it is not among the supplier's `payment_methods` in the company),
+	// `no_house_bank` (no active house bank in the run currency is ranked for it) and
+	// `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method:
+	// propose a run without a house bank to pay them).
 	ReasonCode string `json:"reason_code"`
+	// The payment method the items left out fix (their invoices' `payment_method`; ADR-0038): the
+	// exclusion is of the supplier's items fixing this method alone, and `amount` what they would have
+	// been paid. Absent on the exclusion of the supplier's items that fix none, and on a request's. A run
+	// lists at most one exclusion per supplier for its items without a fixed method and one per fixed
+	// method, so a supplier may appear more than once.
+	PaymentMethod OptString `json:"payment_method"`
 	// The down payment request left out, when the exclusion is a request's (T46c): a run lists one
 	// exclusion per supplier for its items and one per request left out, so a supplier may appear more
 	// than once, not necessarily next to each other (the listing is ordered by supplier for items and by
@@ -54025,6 +54072,11 @@ func (s *PaymentExclusion) GetSupplierName() string {
 // GetReasonCode returns the value of ReasonCode.
 func (s *PaymentExclusion) GetReasonCode() string {
 	return s.ReasonCode
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *PaymentExclusion) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetDownPaymentRequestID returns the value of DownPaymentRequestID.
@@ -54070,6 +54122,11 @@ func (s *PaymentExclusion) SetSupplierName(val string) {
 // SetReasonCode sets the value of ReasonCode.
 func (s *PaymentExclusion) SetReasonCode(val string) {
 	s.ReasonCode = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *PaymentExclusion) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetDownPaymentRequestID sets the value of DownPaymentRequestID.
@@ -54636,9 +54693,14 @@ type PaymentRunPropose struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// House bank to pay every supplier from; its currency is the run currency. Without it, each supplier
-	// is paid through the first of its payment methods that a house bank ranked for the method and the run
-	// currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with
-	// `no_house_bank`.
+	// is paid through the first payment method of the company's run order (the configuration's
+	// `payment_methods`, by their `order`, else as listed) that the supplier may be paid by and that a
+	// house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked
+	// bank can pay by a method of theirs are excluded with `no_house_bank`. A supplier's items that fix a
+	// payment method (`payment_method` of their invoice) are paid by that method alone, in one payment per
+	// fixed method beside the payment of its other items, and never net with items of another method; a
+	// run proposed for one house bank pays by no method, so it leaves such items out
+	// (`fixed_method_in_bank_run`) and pays the others.
 	HouseBankID OptUUID `json:"house_bank_id"`
 	// The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house
 	// bank's currency.
@@ -66371,8 +66433,9 @@ type SupplierCompany struct {
 	// The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the
 	// company's `withholding_tax_codes` in the configuration.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
-	// The methods the supplier may be paid by in this legal entity, in order of preference (SAP
-	// LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration.
+	// The methods the supplier may be paid by in this legal entity (SAP LFB1-ZWELS; ADR-0038): codes of
+	// the company's `payment_methods` in the configuration. The list restricts the methods a payment run
+	// pays the supplier by; the order they are tried in is the company's, not this list's.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the
 	// configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when
@@ -66473,11 +66536,12 @@ type SupplierCompanyInput struct {
 	// company's configuration, each once. The list replaces the supplier's codes in the legal entity:
 	// leaving it out takes every code off the supplier there, as the other company data is replaced too.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
-	// The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038):
-	// active payment methods of the company's configuration, each once. A payment proposal pays the
-	// supplier through the first method a ranked house bank can pay. The list replaces the supplier's
-	// methods in the legal entity: leaving it out takes every method off the supplier there, as the other
-	// company data is replaced too.
+	// The methods the supplier may be paid by in this legal entity (ADR-0038): active payment methods of
+	// the company's configuration, each once. A payment proposal pays the supplier through the first
+	// method of the company's run order (the configuration's `payment_methods`, by their `order`, else as
+	// listed) that is in this list and that a ranked house bank can pay; the order of this list decides
+	// nothing. The list replaces the supplier's methods in the legal entity: leaving it out takes every
+	// method off the supplier there, as the other company data is replaced too.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the
 	// configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the
@@ -66607,6 +66671,14 @@ type SupplierInvoice struct {
 	// before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount),
 	// and on invoices posted before terms were kept.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
+	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
+	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
+	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
+	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// (`listPaymentExclusions`), never paid by another method. Absent: the item is paid by the company's
+	// run order. Changed while the document is parked (`updateSupplierInvoice`); its open item keeps the
+	// method it posted with.
+	PaymentMethod OptString `json:"payment_method"`
 	// Journal entry that reversed the posting (status `reversed`).
 	ReversalEntryID OptUUID `json:"reversal_entry_id"`
 	// Approval request for an invoice exception, if any.
@@ -66744,6 +66816,11 @@ func (s *SupplierInvoice) GetJournalEntryID() OptUUID {
 // GetPaymentTerms returns the value of PaymentTerms.
 func (s *SupplierInvoice) GetPaymentTerms() OptItemPaymentTerms {
 	return s.PaymentTerms
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *SupplierInvoice) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetReversalEntryID returns the value of ReversalEntryID.
@@ -66896,6 +66973,11 @@ func (s *SupplierInvoice) SetPaymentTerms(val OptItemPaymentTerms) {
 	s.PaymentTerms = val
 }
 
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *SupplierInvoice) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
+}
+
 // SetReversalEntryID sets the value of ReversalEntryID.
 func (s *SupplierInvoice) SetReversalEntryID(val OptUUID) {
 	s.ReversalEntryID = val
@@ -67012,6 +67094,14 @@ type SupplierInvoiceCreate struct {
 	// The posted invoice a credit memo or subsequent debit/credit corrects (optional); never on an
 	// invoice.
 	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
+	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
+	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
+	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// (`listPaymentExclusions`), never paid by another method. A code that is not an active payment method
+	// of the legal entity is 422 `payables.unknown_payment_method`. Left out: the item is paid by the
+	// company's run order.
+	PaymentMethod OptString `json:"payment_method"`
 	// How the invoice entered the system; scanned documents use `:capture`. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	Source OptString `json:"source"`
@@ -67074,6 +67164,11 @@ func (s *SupplierInvoiceCreate) GetKind() OptString {
 // GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
 func (s *SupplierInvoiceCreate) GetReferenceInvoiceID() OptUUID {
 	return s.ReferenceInvoiceID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *SupplierInvoiceCreate) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetSource returns the value of Source.
@@ -67144,6 +67239,11 @@ func (s *SupplierInvoiceCreate) SetKind(val OptString) {
 // SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
 func (s *SupplierInvoiceCreate) SetReferenceInvoiceID(val OptUUID) {
 	s.ReferenceInvoiceID = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *SupplierInvoiceCreate) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetSource sets the value of Source.
@@ -67466,6 +67566,10 @@ type SupplierInvoiceUpdate struct {
 	PurchaseOrderID OptNilUUID `json:"purchase_order_id"`
 	// The posted invoice a credit memo or subsequent debit/credit corrects. Send null to clear.
 	ReferenceInvoiceID OptNilUUID `json:"reference_invoice_id"`
+	// The payment method the document fixes (ADR-0038), an active payment method of the legal entity (422
+	// `payables.unknown_payment_method` otherwise). Send null to clear: the item is paid by the company's
+	// run order.
+	PaymentMethod OptNilString `json:"payment_method"`
 	// Complete list of items.
 	Items []SupplierInvoiceItem `json:"items"`
 	// Custom fields.
@@ -67510,6 +67614,11 @@ func (s *SupplierInvoiceUpdate) GetPurchaseOrderID() OptNilUUID {
 // GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
 func (s *SupplierInvoiceUpdate) GetReferenceInvoiceID() OptNilUUID {
 	return s.ReferenceInvoiceID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *SupplierInvoiceUpdate) GetPaymentMethod() OptNilString {
+	return s.PaymentMethod
 }
 
 // GetItems returns the value of Items.
@@ -67560,6 +67669,11 @@ func (s *SupplierInvoiceUpdate) SetPurchaseOrderID(val OptNilUUID) {
 // SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
 func (s *SupplierInvoiceUpdate) SetReferenceInvoiceID(val OptNilUUID) {
 	s.ReferenceInvoiceID = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *SupplierInvoiceUpdate) SetPaymentMethod(val OptNilString) {
+	s.PaymentMethod = val
 }
 
 // SetItems sets the value of Items.

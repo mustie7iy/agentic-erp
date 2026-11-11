@@ -93,12 +93,14 @@ type LFB1 struct {
 	ZTERM string `json:"ZTERM"` // payment terms key
 	// ZWELS is the list of the payment methods to be considered (data
 	// element DZWELS, CHAR 10): one character per method (ZLSCH). The
-	// partner migration loads it, in its order, as the supplier's methods
-	// in the company (ADR-0038). The field and its data element are the
-	// ABAP dictionary's as a published mirror shows them
-	// (https://leanx.eu/en/sap/table/lfb1.html); that the order of its
-	// characters is SAP's order of preference is to be confirmed by an SAP
-	// specialist.
+	// partner migration loads it as the supplier's methods in the company
+	// (ADR-0038). The field and its data element are the ABAP dictionary's
+	// as a published mirror shows them
+	// (https://leanx.eu/en/sap/table/lfb1.html). The order of its
+	// characters is not an order of preference: the payment run tries the
+	// methods in the order of its own parameters per company code,
+	// restricted to those ZWELS allows (SAP specialist, po:2026-11-09,
+	// A4(c), [M], to verify on the pilot system).
 	ZWELS string `json:"ZWELS,omitempty"`
 }
 

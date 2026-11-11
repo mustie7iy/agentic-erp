@@ -8,10 +8,13 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	// The zone database is built in so that the standard IANA names load
@@ -581,11 +584,37 @@ func (c *Company) HouseBankAccount(hb HouseBank) string {
 
 // PaymentMethod is a way of paying suppliers, such as a SEPA credit
 // transfer, identified by a one-character code as in SAP (ZLSCH). A
-// supplier's company data lists the methods it may be paid by, in order.
+// supplier's company data lists the methods it may be paid by; the order
+// they are tried in is the company's (Order), as SAP's payment run takes
+// it from its own parameters, never from the supplier (SAP specialist,
+// 2026-11-09, A4(c); ADR-0038).
 type PaymentMethod struct {
-	Code        string        `yaml:"code" json:"code"`
-	Description string        `yaml:"description" json:"description"`
-	Ranking     []BankRanking `yaml:"ranking" json:"ranking"`
+	Code        string `yaml:"code" json:"code"`
+	Description string `yaml:"description" json:"description"`
+	// Order is the method's place in the order a payment run tries the
+	// company's methods in, lowest first. Methods without one (0) are
+	// tried after those with one, in the order the document lists them
+	// (MethodsInRunOrder).
+	Order   int           `yaml:"order,omitempty" json:"order,omitempty"`
+	Ranking []BankRanking `yaml:"ranking" json:"ranking"`
+}
+
+// MethodsInRunOrder are the company's payment methods in the order a
+// payment run tries them (ADR-0038): those given an order, lowest first,
+// then the others as the document lists them. Validation keeps the orders
+// given distinct, so the order is total.
+func (c *Company) MethodsInRunOrder() []PaymentMethod {
+	// A method without an order sorts as if it had the last one; the sort
+	// is stable, so those keep the document's order among themselves.
+	place := func(m PaymentMethod) int {
+		if m.Order == 0 {
+			return math.MaxInt
+		}
+		return m.Order
+	}
+	out := slices.Clone(c.PaymentMethods)
+	slices.SortStableFunc(out, func(a, b PaymentMethod) int { return cmp.Compare(place(a), place(b)) })
+	return out
 }
 
 // BankRanking is, for payments in a currency, the house banks that pay
