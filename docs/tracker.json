@@ -10370,7 +10370,7 @@
      {
       "s": "D",
       "t": "Go 1.26.11 for GO-2026-6859 (net/http, found in go1.26.10, which govulncheck reported on main's full run 42954490011 after batch 64): the toolchain in go.mod and temporal/go.mod, and erp-analytics's builder pin (ADR-0032 reviewed bump) to docker.io/library/golang:1.26.11-bookworm at sha256:dc40a13b…",
-      "r": "go.mod · temporal/go.mod · deploy/images/erp-analytics.Dockerfile ARG GO_IMAGE · scripts/test-images.sh · ADR-0032",
+      "r": "go.mod · temporal/go.mod · deploy/images/erp-analytics.Dockerfile ARG GO_IMAGE · scripts/test-images.sh · ADR-0032 · ADR-0044",
       "src": "ci:batch64",
       "c": []
      },
