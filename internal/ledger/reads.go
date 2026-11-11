@@ -105,10 +105,11 @@ type OpenItem struct {
 // openItemSelect takes the caller's company access as $1 and $2.
 const openItemSelect = `SELECT * FROM (SELECT l.fiscal_year, l.journal_entry_id, l.line_no, md5(l.journal_entry_id::text || '/' || l.line_no)::uuid AS id,
 		l.legal_entity_id, l.account_id, l.partner_id, l.posting_date, l.amount_tc, l.amount_lc, e.currency_tc, e.currency_lc,
-		ctc.exponent AS exp_tc, clc.exponent AS exp_lc, e.document_number, e.reference, l.special_gl, ` + methodColumn + ` AS payment_method, ` + termsColumns + `
+		ctc.exponent AS exp_tc, clc.exponent AS exp_lc, e.document_number, e.reference, l.special_gl, ` + methodColumn + `, ` + termsColumns + `
 	FROM ledger.journal_line l
 	LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 		AND t.line_no = l.line_no
+	` + methodJoin + `
 	JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind IN ('supplier', 'customer')
 	JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading -- open items are the leading ledger's (ADR-0045)
 	JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id

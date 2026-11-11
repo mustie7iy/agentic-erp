@@ -8,9 +8,15 @@ import (
 )
 
 // methodColumn is the payment method an open item fixes (ADR-0038, SAP
-// BSEG-ZLSCH), null for none, for ledger.journal_line l.
-const methodColumn = `(SELECT pm.payment_method FROM ledger.open_item_payment_method pm WHERE pm.tenant_id = l.tenant_id
-			AND pm.fiscal_year = l.fiscal_year AND pm.journal_entry_id = l.journal_entry_id AND pm.line_no = l.line_no)`
+// BSEG-ZLSCH), null for none, from ledger.open_item_payment_method joined
+// as pm by methodJoin to ledger.journal_line l. A join, as the terms are
+// joined, rather than a subquery per line: a proposal and the liquidity
+// forecast read 100,000 items, few of which fix a method.
+const (
+	methodColumn = `pm.payment_method`
+	methodJoin   = `LEFT JOIN ledger.open_item_payment_method pm ON pm.tenant_id = l.tenant_id AND pm.fiscal_year = l.fiscal_year
+			AND pm.journal_entry_id = l.journal_entry_id AND pm.line_no = l.line_no`
+)
 
 // keepPaymentMethod keeps the payment method the document fixes with the
 // entry's supplier open items, as keepTerms keeps their terms: each line

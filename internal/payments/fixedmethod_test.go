@@ -116,8 +116,11 @@ func wantAll(t *testing.T, what string, got, want map[string]string) {
 // (ADR-0038; SAP specialist 2026-11-09, A4(c); product owner 2026-11-10:
 // one payment per supplier and method). A credit memo nets within its own
 // group alone. A supplier none of whose items fixes a method is paid as
-// before, in one payment by the run order. Each payment says why it is
-// paid by its method, and the release writes each to its bank's file.
+// before, in one payment by the run order. A group is what its items fix,
+// so a supplier whose run-order method is also the method one of its
+// items fixes gets two payments by it, each netted apart (ADR-0038 As
+// built, the same method twice). Each payment says why it is paid by its
+// method, and the release writes each to its bank's file.
 func TestFixedMethodPaidApart(t *testing.T) {
 	e, db := methodSetup(t)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")

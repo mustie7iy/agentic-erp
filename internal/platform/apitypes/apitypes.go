@@ -1,8 +1,9 @@
 // Package apitypes converts between domain values and the types ogen
 // generates from the contract (api/gen): optional fields, custom-field
 // extensions, money and list paging (ADR-0014, docs/design/04-api-design.md
-// §4.4–4.5). It holds only the conversions every context needs alike; a
-// context keeps the ones particular to its own resources. It imports no
+// §4.4–4.5), and compares the optional values they carry (SamePtr). It
+// holds only the conversions every context needs alike; a context keeps
+// the ones particular to its own resources. It imports no
 // context, so contexts may use it without the cycle httpapi would bring.
 package apitypes
 
