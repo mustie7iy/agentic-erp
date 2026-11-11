@@ -3,6 +3,7 @@ package assets
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -23,7 +24,12 @@ import (
 // that are assets, the tax not recovered apart from the price difference.
 // Exact for the lines the ledger records with their order item
 // (ledger.price_difference_item); what earlier postings expensed is
-// stated as one amount whose split is unknown. Nothing is posted.
+// stated as one amount whose split is unknown; and, a figure of its own,
+// what GR/IR clearings of those items put in profit or loss. The report
+// is history (product owner 2026-11-10): a document or clearing posted
+// now puts an asset's item's amounts on its asset clearing account, and
+// correcting an earlier posting is a journal the accountants decide from
+// this report. Nothing is posted here.
 
 // OrderItemKey names a purchase order item.
 type OrderItemKey struct {
@@ -37,6 +43,14 @@ type OrderItemKey struct {
 type OrderItemExpense struct {
 	OrderItemKey
 	Amount, TaxBorne money.Minor
+}
+
+// OrderItemCleared is what a company's GR/IR clearings of a fiscal year
+// put in profit or loss for an order item, in local currency, debit
+// positive.
+type OrderItemCleared struct {
+	OrderItemKey
+	Amount money.Minor
 }
 
 // UnrecordedExpense is what one invoice or credit memo entry put on the
@@ -66,12 +80,13 @@ type OrderItem struct {
 // Purchases reads what purchase order items expensed (ledger context) and
 // the items themselves (procurement context), ADR-0057 §2: the recorded
 // price differences of a company and fiscal year per order item; what its
-// invoice entries expensed without a recorded order item, per entry; and
-// the items of orders, removed ones included, an unknown order having
-// none.
+// invoice entries expensed without a recorded order item, per entry; what
+// its GR/IR clearings put in profit or loss per order item; and the items
+// of orders, removed ones included, an unknown order having none.
 type Purchases interface {
 	Recorded(ctx context.Context, legalEntity uuid.UUID, year int16) ([]OrderItemExpense, error)
 	Unrecorded(ctx context.Context, legalEntity uuid.UUID, year int16) ([]UnrecordedExpense, error)
+	Cleared(ctx context.Context, legalEntity uuid.UUID, year int16) ([]OrderItemCleared, error)
 	Items(ctx context.Context, orders []uuid.UUID) ([]OrderItem, error)
 }
 
@@ -82,11 +97,31 @@ type orderExpenseKey struct {
 	Item   int32     `json:"i"`
 }
 
-// orderExpenseRow is an asset order item with what was expensed on it.
+// orderExpenseRow is an asset order item with what was expensed on it
+// and what its GR/IR clearings put in profit or loss.
 type orderExpenseRow struct {
 	item    OrderItem
 	account *config.Account
 	expense OrderItemExpense
+	cleared money.Minor
+}
+
+// orderExpenseTotals sums the rows; a total out of an amount's range
+// fails the report rather than wrapping.
+func orderExpenseTotals(rows []orderExpenseRow) (orderExpenseRow, error) {
+	amounts, taxes, cleared := make([]money.Minor, len(rows)), make([]money.Minor, len(rows)), make([]money.Minor, len(rows))
+	for i, r := range rows {
+		amounts[i], taxes[i], cleared[i] = r.expense.Amount, r.expense.TaxBorne, r.cleared
+	}
+	var total orderExpenseRow
+	var errAmount, errTax, errCleared error
+	total.expense.Amount, errAmount = money.Sum(amounts...)
+	total.expense.TaxBorne, errTax = money.Sum(taxes...)
+	total.cleared, errCleared = money.Sum(cleared...)
+	if err := errors.Join(errAmount, errTax, errCleared); err != nil {
+		return total, fmt.Errorf("assets: totals of %d asset order items: %w", len(rows), err)
+	}
+	return total, nil
 }
 
 func (r orderExpenseRow) key() orderExpenseKey {
@@ -128,13 +163,14 @@ func (e *Endpoints) GetAssetOrderExpenses(ctx context.Context, params gen.GetAss
 		return nil, fmt.Errorf("assets: currency %s: %w", co.Currency, err)
 	}
 	m := func(a money.Minor) gen.Money { return apitypes.Money(a, co.Currency, exp) }
-	var total OrderItemExpense
-	for _, r := range rows {
-		total.Amount, total.TaxBorne = total.Amount+r.expense.Amount, total.TaxBorne+r.expense.TaxBorne
+	total, err := orderExpenseTotals(rows)
+	if err != nil {
+		return nil, err
 	}
 	out := &gen.AssetOrderExpenses{LegalEntityID: co.ID, CompanyCode: co.Code, CompanyName: co.Name, FiscalYear: params.FiscalYear,
 		StartDate: periods[0].Start, EndDate: periods[len(periods)-1].End, Currency: co.Currency, Items: []gen.AssetOrderExpenseItem{},
-		Totals: gen.AssetOrderExpenseAmounts{TaxNotRecovered: m(total.TaxBorne), PriceDifference: m(total.Amount - total.TaxBorne), Expensed: m(total.Amount)},
+		Totals: gen.AssetOrderExpenseAmounts{TaxNotRecovered: m(total.expense.TaxBorne), PriceDifference: m(total.expense.Amount - total.expense.TaxBorne),
+			Expensed: m(total.expense.Amount), GrIrCleared: m(total.cleared)},
 		Unattributed: gen.AssetOrderExpensesUnattributed{Expensed: m(un.debits + un.credits), Debits: m(un.debits), Credits: m(un.credits),
 			Entries: int32(un.entries)}}
 	rows = rowsAfter(rows, after)
@@ -147,7 +183,7 @@ func (e *Endpoints) GetAssetOrderExpenses(ctx context.Context, params gen.GetAss
 		out.Items = append(out.Items, gen.AssetOrderExpenseItem{PurchaseOrderID: r.item.OrderID, PurchaseOrderNumber: r.item.OrderNumber,
 			PoItemNo: r.item.ItemNo, Description: r.item.Description, AccountID: r.item.AccountID, AccountNumber: r.account.Number,
 			AccountName: r.account.Name, TaxNotRecovered: m(r.expense.TaxBorne), PriceDifference: m(r.expense.Amount - r.expense.TaxBorne),
-			Expensed: m(r.expense.Amount)})
+			Expensed: m(r.expense.Amount), GrIrCleared: m(r.cleared)})
 	}
 	return out, nil
 }
@@ -176,13 +212,83 @@ func rowsAfter(rows []orderExpenseRow, after *orderExpenseKey) []orderExpenseRow
 	return rows[next:]
 }
 
+// orderExpenseReads are the ledger's reads the report is built from.
+type orderExpenseReads struct {
+	recorded   []OrderItemExpense
+	unrecorded []UnrecordedExpense
+	cleared    []OrderItemCleared
+}
+
+// readOrderExpenses reads what the company's order items expensed in the
+// year, recorded and not, and what its GR/IR clearings put in profit or
+// loss.
+func (e *Endpoints) readOrderExpenses(ctx context.Context, co Company, year int16) (r orderExpenseReads, err error) {
+	if r.recorded, err = e.Purchases.Recorded(ctx, co.ID, year); err != nil {
+		return r, fmt.Errorf("assets: recorded price differences of %s in %d: %w", co.Code, year, err)
+	}
+	if r.unrecorded, err = e.Purchases.Unrecorded(ctx, co.ID, year); err != nil {
+		return r, fmt.Errorf("assets: unrecorded price differences of %s in %d: %w", co.Code, year, err)
+	}
+	if r.cleared, err = e.Purchases.Cleared(ctx, co.ID, year); err != nil {
+		return r, fmt.Errorf("assets: GR/IR clearings of %s in %d: %w", co.Code, year, err)
+	}
+	return r, nil
+}
+
+// orders are the orders the reads name, each once.
+func (r orderExpenseReads) orders() []uuid.UUID {
+	var orders []uuid.UUID
+	for _, x := range r.recorded {
+		orders = append(orders, x.OrderID)
+	}
+	for _, u := range r.unrecorded {
+		for _, k := range u.Items {
+			orders = append(orders, k.OrderID)
+		}
+	}
+	for _, x := range r.cleared {
+		orders = append(orders, x.OrderID)
+	}
+	slices.SortFunc(orders, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
+	return slices.Compact(orders)
+}
+
+// rows are the asset order items (assets) with a recorded price
+// difference line or a GR/IR clearing in profit or loss, in the report's
+// order.
+func (r orderExpenseReads) rows(assets map[OrderItemKey]orderExpenseRow) []orderExpenseRow {
+	byItem := map[OrderItemKey]*orderExpenseRow{}
+	row := func(k OrderItemKey) *orderExpenseRow {
+		asset, ok := assets[k]
+		if !ok {
+			return &orderExpenseRow{} // not an asset's item: its amounts go nowhere
+		}
+		if byItem[k] == nil {
+			byItem[k] = &asset
+		}
+		return byItem[k]
+	}
+	for _, x := range r.recorded {
+		row(x.OrderItemKey).expense = x
+	}
+	for _, x := range r.cleared {
+		row(x.OrderItemKey).cleared = x.Amount
+	}
+	rows := make([]orderExpenseRow, 0, len(byItem))
+	for _, x := range byItem {
+		rows = append(rows, *x)
+	}
+	slices.SortFunc(rows, func(a, b orderExpenseRow) int { return compareOrderExpenseKeys(a.key(), b.key()) })
+	return rows
+}
+
 // orderExpenses reads the company's asset order items with a recorded
-// price difference line in the year, in the report's order, and what its
-// invoice entries clearing GR/IR for an asset order item expensed without
-// a recorded order item. An order item
-// is an asset's when its account is an asset clearing account of the
-// company in the active document (ADR-0057 §6): the account an asset
-// bought on an order is received on.
+// price difference line or a GR/IR clearing in profit or loss in the
+// year, in the report's order, and what its invoice entries clearing
+// GR/IR for an asset order item expensed without a recorded order item.
+// An order item is an asset's when its account is an asset clearing
+// account of the company in the active document (ADR-0057 §6): the
+// account an asset bought on an order is received on.
 func (e *Endpoints) orderExpenses(ctx context.Context, co Company, year int16) ([]orderExpenseRow, unattributedExpenses, error) {
 	doc, _, err := e.Settings.Document(ctx)
 	if err != nil {
@@ -192,25 +298,11 @@ func (e *Endpoints) orderExpenses(ctx context.Context, co Company, year int16) (
 	if err != nil {
 		return nil, unattributedExpenses{}, err
 	}
-	recorded, err := e.Purchases.Recorded(ctx, co.ID, year)
+	reads, err := e.readOrderExpenses(ctx, co, year)
 	if err != nil {
-		return nil, unattributedExpenses{}, fmt.Errorf("assets: recorded price differences of %s in %d: %w", co.Code, year, err)
+		return nil, unattributedExpenses{}, err
 	}
-	unrecorded, err := e.Purchases.Unrecorded(ctx, co.ID, year)
-	if err != nil {
-		return nil, unattributedExpenses{}, fmt.Errorf("assets: unrecorded price differences of %s in %d: %w", co.Code, year, err)
-	}
-	var orders []uuid.UUID
-	for _, r := range recorded {
-		orders = append(orders, r.OrderID)
-	}
-	for _, u := range unrecorded {
-		for _, k := range u.Items {
-			orders = append(orders, k.OrderID)
-		}
-	}
-	slices.SortFunc(orders, func(a, b uuid.UUID) int { return slices.Compare(a[:], b[:]) })
-	items, err := e.Purchases.Items(ctx, slices.Compact(orders))
+	items, err := e.Purchases.Items(ctx, reads.orders())
 	if err != nil {
 		return nil, unattributedExpenses{}, fmt.Errorf("assets: order items of %s: %w", co.Code, err)
 	}
@@ -221,19 +313,11 @@ func (e *Endpoints) orderExpenses(ctx context.Context, co Company, year int16) (
 			assets[it.OrderItemKey] = orderExpenseRow{item: it, account: account}
 		}
 	}
-	var rows []orderExpenseRow
-	for _, r := range recorded {
-		if row, ok := assets[r.OrderItemKey]; ok {
-			row.expense = r
-			rows = append(rows, row)
-		}
-	}
-	slices.SortFunc(rows, func(a, b orderExpenseRow) int { return compareOrderExpenseKeys(a.key(), b.key()) })
 	var un unattributedExpenses
-	for _, u := range unrecorded {
+	for _, u := range reads.unrecorded {
 		if slices.ContainsFunc(u.Items, func(k OrderItemKey) bool { _, ok := assets[k]; return ok }) {
 			un.debits, un.credits, un.entries = un.debits+u.Debits, un.credits+u.Credits, un.entries+1
 		}
 	}
-	return rows, un, nil
+	return reads.rows(assets), un, nil
 }

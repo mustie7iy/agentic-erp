@@ -534,6 +534,13 @@ ACDOCA, so no plan filter is needed.
   payments), in total and per vendor, in that currency, where either side has
   any: the controls in company currency cannot tell an item loaded with the
   wrong document amount
+- Open items fixing a payment method (SAP ZLSCH), per method, where either
+  side has any: their number, their total in company currency and the
+  vendors that differ (differences listed by `payment method <M> items of
+  vendor <LIFNR>`, each side as `2 items, -1250.00 EUR`). The open payables
+  agree whether or not an item's method came over; these show an item the
+  platform holds without the method SAP fixed, which a run would pay by
+  the company's run order (ADR-0038)
 - Open payables by trading partner (ordinary items and down payments), in
   total and per trading partner, where either side has any: SAP's open
   vendor items under the company their vendor's master names (LFA1-VBUND,
@@ -795,12 +802,29 @@ others record a confirmation.
   account are tracker leaves of their own; verify both on the pilot system.
   The platform honours a method fixed on an invoice entered here (ADR-0038
   As built, an item's fixed payment method): its item is paid by that
-  method alone, in a payment of its own, and left out of a run, with the
-  reason, when the method cannot pay it. Taking ZLSCH over onto migrated
-  open items is not built yet (its own leaf): until it is, a migrated item
-  that fixed a method in SAP is paid by the company's run order here, so
-  list the open items with a ZLSCH before the first run. Fixed methods
-  are entered only once an upgrade of the cell has completed.
+  method alone, in a payment of its own, whether or not the supplier's
+  methods (ZWELS) include it, as in SAP (product owner 2026-11-10), and
+  left out of a run, with the reason, when the method cannot pay it (it
+  is no longer active in the company, or no house bank is ranked for it).
+  A file extract's journal lines
+  carry ZLSCH, and the load keeps it with a vendor's open ordinary item,
+  in either mode (ADR-0038 As built, a migrated item's fixed payment
+  method): the method of the same code among the company's, as a vendor's
+  ZWELS is mapped, whether or not the vendor's own list holds it (SAP pays
+  the item by it anyway, and so does the platform, product owner
+  2026-11-10). The quality gate refuses an open item's method the
+  company's configuration lacks; a cleared item's is ignored, and one on
+  an open special G/L item (a down payment) is not taken over, with a
+  warning. An item loaded earlier keeps what it was loaded with: a ZLSCH
+  set or changed in SAP afterwards is not taken over, and the
+  reconciliation's controls per method show the difference. **Check on
+  the pilot system (to confirm with the SAP specialist):** that ACDOCA
+  carries ZLSCH on the vendor line in the pilot's release, or that the
+  extract's converter takes it from BSEG (the specialist names the field
+  "BSEG/ACDOCA-ZLSCH"); and the OData property for it, without which an
+  OData extract's items load without a fixed method and are paid by the
+  company's run order. Fixed methods are entered, and migrated, only once
+  an upgrade of the cell has completed.
 - Vendor addresses: the load first took the vendor's street with house
   number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
   REGIO (product owner 2026-11-04, ADR-0054 As built), field names written

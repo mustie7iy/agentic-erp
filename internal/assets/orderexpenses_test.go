@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -14,16 +16,19 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/assets"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // withOrderExpenses is withNextYear (2026 and 2027) with company 2000 valuing receipts
 // through GR/IR (219000, price differences on 590000, which takes no
-// cost object: an asset order item has no cost center to give its price
-// difference line) and the tax code B0: input tax of 5%, none of it
+// cost object, so the toner's price difference needs no cost center) and
+// the tax code B0: input tax of 5%, none of it
 // recovered, borne by the item.
 func withOrderExpenses(doc *config.Config) {
 	withNextYear(doc)
@@ -73,14 +78,10 @@ func orderItem(po uuid.UUID, item int, qty, amount, code string) string {
 }
 
 // document enters, matches and posts a supplier document of the kind on
-// 2026-03-21 and returns its id.
+// 2026-03-21 and returns its id. An asset's order item's difference goes
+// to its asset clearing account (product owner 2026-11-10): nothing of it
+// is expensed.
 func (e expensesEnv) document(t *testing.T, kind, ref, gross, tax string, items ...string) string {
-	t.Helper()
-	return e.documentOn(t, "2026-03-21", kind, ref, gross, tax, items...)
-}
-
-// documentOn is document posted on the day.
-func (e expensesEnv) documentOn(t *testing.T, day, kind, ref, gross, tax string, items ...string) string {
 	t.Helper()
 	inv, tag := e.Must(201, "POST", "/v1/supplier-invoices", fmt.Sprintf(`{"legal_entity_id": %q, "supplier_id": %q, "supplier_reference": %q,
 		"invoice_date": "2026-03-20", "kind": %q, "gross_amount": {"amount": %q, "currency": "EUR"}, "tax_amount": {"amount": %q, "currency": "EUR"},
@@ -91,24 +92,38 @@ func (e expensesEnv) documentOn(t *testing.T, day, kind, ref, gross, tax string,
 		t.Fatalf("match of %s: got issues %v, want clean", ref, m["issues"])
 	}
 	_, tag = e.Must(200, "GET", "/v1/supplier-invoices/"+id, "", "")
-	e.Must(200, "POST", "/v1/supplier-invoices/"+id+":post", fmt.Sprintf(`{"posting_date": %q}`, day), tag)
+	e.Must(200, "POST", "/v1/supplier-invoices/"+id+":post", `{"posting_date": "2026-03-21"}`, tag)
 	return id
 }
 
 // earlierItem is an order item of an earlier posting: one piece of it
 // cleared on the account (default the GR/IR account 219000) for 10.00,
-// with diff on the price difference account.
+// with diff on the price difference account; recorded: the line is
+// recorded with the order item and tax of it as the tax the item bore.
 type earlierItem struct {
-	item    int32
-	diff    int64
-	account string
+	item     int32
+	diff     int64
+	account  string
+	recorded bool
+	tax      int64
 }
 
-// earlier posts, as an invoice did before the ledger recorded order
-// items on price difference lines, an entry of company 2000 dated 10
-// February of the year in the leading ledger: per item Dr its account
-// 10.00 naming the order item and Dr price differences its diff, then Cr
-// the supplier.
+// expensed is an order item of a posting made while the ledger recorded
+// order items on price difference lines and still expensed an asset's
+// item's difference there (before the product owner's decision of
+// 2026-11-10): diff on the price difference account, tax of it the tax
+// the item bore.
+func expensed(item int32, diff, tax int64) earlierItem {
+	return earlierItem{item: item, diff: diff, recorded: true, tax: tax}
+}
+
+// earlier posts, as an invoice, credit memo or reversal did before an
+// asset's item's difference went to its asset clearing account, an entry
+// of company 2000 dated 10 February of the year in the leading ledger:
+// per item Dr its account 10.00 naming the order item and Dr price
+// differences its diff, then Cr the supplier; the price difference lines
+// recorded with their order item (expensed) or, as before the ledger
+// recorded them, not.
 func (e expensesEnv) earlier(t *testing.T, year int, po uuid.UUID, items ...earlierItem) {
 	t.Helper()
 	je := uuid.Must(uuid.NewV7())
@@ -140,15 +155,53 @@ func (e expensesEnv) earlier(t *testing.T, year int, po uuid.UUID, items ...earl
 			NULL, NULL`,
 		e.Tenant.ID, je, e.DE, e.l0, po, nos, diffs, accounts, e.Account(t, "2000", "590000"), e.Account(t, "2000", "211000"), e.Supplier,
 		je.String()[24:], e.Tenant.Human.ID, year, day, total)
+	for n, it := range items {
+		if it.recorded {
+			pgtest.Exec(t, `INSERT INTO ledger.price_difference_item (tenant_id, fiscal_year, journal_entry_id, line_no, purchase_order_id, po_item_no,
+				tax_borne_tc, tax_borne_lc) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`, e.Tenant.ID, year, je, 2*(n+1), po, it.item, it.tax)
+		}
+	}
+}
+
+// clear posts a GR/IR clearing of the order's fully received, never
+// invoiced items on 2026-03-25: the machine (item 1, 10 EA at 12.00) and
+// the toner (item 2, 5 EA at 3.00). before: as the version before the
+// product owner's decision of 2026-11-10 posted it, every item against
+// the price difference account; else as now, the machine against its
+// asset clearing account.
+func (e expensesEnv) clear(t *testing.T, po uuid.UUID, before bool) {
+	t.Helper()
+	diff, clearing, toner := e.Account(t, "2000", "590000"), e.Account(t, "2000", "169000"), e.Account(t, "2000", "520000")
+	machine := ledger.GRIRItem{PurchaseOrderID: po, POItemNo: 1, Quantity: "10", Unit: "EA", UnitPrice: 1200, PriceUnit: 1,
+		Clears: &ledger.GRIRClearing{Balance: -12000, Account: diff}}
+	other := ledger.GRIRItem{PurchaseOrderID: po, POItemNo: 2, Quantity: "5", Unit: "EA", UnitPrice: 300, PriceUnit: 1,
+		Clears: &ledger.GRIRClearing{Balance: -1500, Account: diff}}
+	if !before {
+		machine.ItemAccountID, machine.Clears.Account, other.ItemAccountID = &clearing, clearing, &toner
+	}
+	day := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		_, err := ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+			Settings: configuration.Settings{}}.Post(ctx, ledger.Posting{LegalEntityID: e.DE, DocumentType: procurement.WEDocumentType, DocumentDate: day,
+			PostingDate: day, Currency: "EUR", SourceContext: "procurement", SourceDocumentID: uuid.Must(uuid.NewV7()), GRIR: []ledger.GRIRItem{machine, other}})
+		return err
+	}); err != nil {
+		t.Fatalf("clear %s: %v", po, err)
+	}
 }
 
 // expenses reads the report of company 2000 and shows it as one line:
-// each row, the totals and what is unattributed.
+// each row, the totals and what is unattributed; what GR/IR clearings put
+// in profit or loss where it is not zero.
 func (e expensesEnv) expenses(t *testing.T, query string) (string, map[string]any) {
 	t.Helper()
 	r, _ := e.Must(200, "GET", "/v1/asset-order-expenses?legal_entity_id="+e.DE.String()+query, "", "")
 	amounts := func(m map[string]any) string {
-		return fmt.Sprintf("tax %s + difference %s = %s", moneyOf(m["tax_not_recovered"]), moneyOf(m["price_difference"]), moneyOf(m["expensed"]))
+		s := fmt.Sprintf("tax %s + difference %s = %s", moneyOf(m["tax_not_recovered"]), moneyOf(m["price_difference"]), moneyOf(m["expensed"]))
+		if c := moneyOf(m["gr_ir_cleared"]); !strings.HasPrefix(c, "0.00 ") {
+			s += ", cleared " + c
+		}
+		return s
 	}
 	var parts []string
 	for _, it := range r["items"].([]any) {
@@ -169,6 +222,12 @@ func (e expensesEnv) expenses(t *testing.T, query string) (string, map[string]an
 // a recorded order item are stated as unattributed, their debits and
 // credits apart, when their entry clears GR/IR for an asset order item; a
 // reversal nets out; a posting counts in its own fiscal year alone (B10).
+// What GR/IR clearings of an asset's item put in profit or loss is a
+// figure of its own, per item and in the totals; a clearing against the
+// asset clearing account shows nothing.
+// It is history: a document posted now puts an asset's item's difference
+// on its asset clearing account, recorded as before, and shows nothing
+// (product owner 2026-11-10).
 func TestAssetOrderExpenses(t *testing.T) {
 	e := newOrderExpenses(t)
 	const none = "unattributed: 0.00 EUR (debits 0.00 EUR, credits 0.00 EUR) in 0 entries"
@@ -178,23 +237,34 @@ func TestAssetOrderExpenses(t *testing.T) {
 	want(t, "the head", fmt.Sprint(head["company_code"], " ", head["company_name"] != "", " ", head["fiscal_year"], " ", head["start_date"], " ",
 		head["end_date"], " ", head["currency"], " ", head["next_page_token"]), "2000 true 2026 2026-01-01 2026-12-31 EUR <nil>")
 	a, b := e.order(t, "PO-A"), e.order(t, "PO-B")
-	// PO-A: the machine at 12.50 for 12.00 with 6.25 of blocked tax; the
-	// toner at 3.20 for 3.00, its tax recovered, on an expense account.
+	// PO-A invoiced now: the machine at 12.50 for 12.00 with 6.25 of
+	// blocked tax, capitalised on 169000 and recorded there; the toner at
+	// 3.20 for 3.00, its tax recovered, expensed on an expense account's
+	// item. Neither is an expense on an asset order item.
 	e.document(t, "invoice", "INV-A", "150.29", "9.29", orderItem(a, 1, "10", "125.00", "B0"), orderItem(a, 2, "5", "16.00", "V1"))
+	var capitalised string
+	pgtest.Scan(t, `SELECT string_agg(a.number || ' ' || l.amount_lc || ' tax ' || i.tax_borne_lc, '; ' ORDER BY a.number)
+		FROM ledger.price_difference_item i
+		JOIN ledger.journal_line l ON l.fiscal_year = i.fiscal_year AND l.journal_entry_id = i.journal_entry_id AND l.line_no = i.line_no
+		JOIN ledger.gl_account a ON a.id = l.account_id WHERE i.purchase_order_id = $1`, []any{a}, &capitalised)
+	want(t, "recorded for the invoice posted now", capitalised, "169000 1125 tax 625; 590000 100 tax 0")
+	got, _ = e.expenses(t, "&fiscal_year=2026")
+	want(t, "an invoice posted now", got, nothing)
+	// The same invoice as it posted before: 11.25 on price differences.
+	e.earlier(t, 2026, a, expensed(1, 1125, 625))
 	const invoiced = "PO-A/1 Milling machine on 169000 Asset clearing: tax 6.25 EUR + difference 5.00 EUR = 11.25 EUR"
 	got, _ = e.expenses(t, "&fiscal_year=2026")
 	want(t, "an invoice", got, invoiced+"; totals: tax 6.25 EUR + difference 5.00 EUR = 11.25 EUR; "+none)
-	// A credit memo of two machines at 12.50 gives 1.00 and 1.25 of tax back.
-	memo := e.document(t, "credit_memo", "CM-A", "26.25", "1.25", orderItem(a, 1, "2", "25.00", "B0"))
+	// A credit memo of two machines at 12.50 gave 1.00 and 1.25 of tax back.
+	e.earlier(t, 2026, a, expensed(1, -225, -125))
 	const credited = "PO-A/1 Milling machine on 169000 Asset clearing: tax 5.00 EUR + difference 4.00 EUR = 9.00 EUR"
 	got, _ = e.expenses(t, "&fiscal_year=2026")
 	want(t, "a credit memo", got, credited+"; totals: tax 5.00 EUR + difference 4.00 EUR = 9.00 EUR; "+none)
-	_, tag := e.Must(200, "GET", "/v1/supplier-invoices/"+memo, "", "")
-	e.Must(200, "POST", "/v1/supplier-invoices/"+memo+":reverse", `{"reason": "wrong"}`, tag)
+	e.earlier(t, 2026, a, expensed(1, 225, 125)) // its reversal
 	got, _ = e.expenses(t, "&fiscal_year=2026")
 	want(t, "the credit memo reversed", got, invoiced+"; totals: tax 6.25 EUR + difference 5.00 EUR = 11.25 EUR; "+none)
 	// PO-B: the machine below the order price, its tax recovered.
-	e.document(t, "invoice", "INV-B", "136.85", "21.85", orderItem(b, 1, "10", "115.00", "V1"))
+	e.earlier(t, 2026, b, expensed(1, -500, 0))
 	// Earlier postings: one on PO-B's machine, 7.00 over, and its toner,
 	// 3.00 under (the net understates the machine's share; the debits
 	// bound it); one on PO-A's toner alone (no asset order item: not
@@ -208,7 +278,7 @@ func TestAssetOrderExpenses(t *testing.T) {
 	// The next fiscal year's postings are its own: a third order's machine
 	// invoiced 3.00 over in 2027, and an earlier posting dated 2027.
 	c := e.order(t, "PO-C")
-	e.documentOn(t, "2027-01-15", "invoice", "INV-C", "146.37", "23.37", orderItem(c, 1, "10", "123.00", "V1"))
+	e.earlier(t, 2027, c, expensed(1, 300, 0))
 	e.earlier(t, 2027, c, earlierItem{item: 1, diff: 400})
 	got, _ = e.expenses(t, "&fiscal_year=2027")
 	want(t, "the next year", got, "PO-C/1 Milling machine on 169000 Asset clearing: tax 0.00 EUR + difference 3.00 EUR = 3.00 EUR; "+
@@ -222,6 +292,22 @@ func TestAssetOrderExpenses(t *testing.T) {
 	got, page = e.expenses(t, "&fiscal_year=2026&page_size=1&page_token="+page["next_page_token"].(string))
 	want(t, "the second page", got, second+"; "+totals)
 	want(t, "the last page's token", page["next_page_token"], nil)
+	// GR/IR clearings, a figure of their own. PO-D, received and never
+	// invoiced, cleared as before the change: the machine's 120.00 was
+	// credited to profit or loss (the toner's 15.00 is no asset's). PO-B's
+	// machine likewise, beside what its invoice expensed. PO-E cleared as
+	// now: the machine against its asset clearing account, nothing in
+	// profit or loss.
+	d, f := e.order(t, "PO-D"), e.order(t, "PO-E")
+	e.clear(t, d, true)
+	e.clear(t, b, true)
+	e.clear(t, f, false)
+	got, _ = e.expenses(t, "&fiscal_year=2026")
+	want(t, "with GR/IR clearings", got, invoiced+"; "+second+", cleared -120.00 EUR; "+
+		"PO-D/1 Milling machine on 169000 Asset clearing: tax 0.00 EUR + difference 0.00 EUR = 0.00 EUR, cleared -120.00 EUR; "+
+		"totals: tax 6.25 EUR + difference 0.00 EUR = 6.25 EUR, cleared -240.00 EUR; unattributed: 4.00 EUR (debits 7.00 EUR, credits -3.00 EUR) in 1 entries")
+	got, _ = e.expenses(t, "&fiscal_year=2027")
+	want(t, "the next year has none of them", strings.Contains(got, "cleared"), false)
 	us, _ := e.Must(200, "GET", "/v1/asset-order-expenses?fiscal_year=2026&legal_entity_id="+e.US.String(), "", "")
 	want(t, "a company without a price difference account", fmt.Sprint(len(us["items"].([]any)), " ", moneyOf(us["totals"].(map[string]any)["expensed"]), " ",
 		moneyOf(us["unattributed"].(map[string]any)["expensed"])), "0 0.00 USD 0.00 USD")
@@ -234,7 +320,7 @@ func TestAssetOrderExpenses(t *testing.T) {
 func TestAssetOrderExpensesRefused(t *testing.T) {
 	e := newOrderExpenses(t)
 	po := e.order(t, "PO-A")
-	e.document(t, "invoice", "INV-A", "131.25", "6.25", orderItem(po, 1, "10", "125.00", "B0"))
+	e.earlier(t, 2026, po, expensed(1, 1125, 625))
 	path := "/v1/asset-order-expenses?legal_entity_id=" + e.DE.String()
 	e.Problem(422, "ledger.no_fiscal_period", "GET", path+"&fiscal_year=2030", "", "")
 	e.Problem(400, "request.invalid_page_token", "GET", path+"&fiscal_year=2026&page_token=nonsense", "", "")
@@ -282,7 +368,13 @@ func (l lostPurchases) Recorded(ctx context.Context, le uuid.UUID, year int16) (
 	if l.fails == "recorded" {
 		return nil, errLost
 	}
-	return l.Purchases.Recorded(ctx, le, year)
+	rows, err := l.Purchases.Recorded(ctx, le, year)
+	if l.fails == "totals" { // amounts whose total is out of range
+		for i := range rows {
+			rows[i].Amount = math.MaxInt64
+		}
+	}
+	return rows, err
 }
 
 func (l lostPurchases) Unrecorded(ctx context.Context, le uuid.UUID, year int16) ([]assets.UnrecordedExpense, error) {
@@ -290,6 +382,13 @@ func (l lostPurchases) Unrecorded(ctx context.Context, le uuid.UUID, year int16)
 		return nil, errLost
 	}
 	return l.Purchases.Unrecorded(ctx, le, year)
+}
+
+func (l lostPurchases) Cleared(ctx context.Context, le uuid.UUID, year int16) ([]assets.OrderItemCleared, error) {
+	if l.fails == "cleared" {
+		return nil, errLost
+	}
+	return l.Purchases.Cleared(ctx, le, year)
 }
 
 func (l lostPurchases) Items(ctx context.Context, orders []uuid.UUID) ([]assets.OrderItem, error) {
@@ -306,8 +405,9 @@ func (l lostPurchases) Items(ctx context.Context, orders []uuid.UUID) ([]assets.
 func TestAssetOrderExpensesFailures(t *testing.T) {
 	e := newOrderExpenses(t)
 	po := e.order(t, "PO-A")
-	e.document(t, "invoice", "INV-A", "131.25", "6.25", orderItem(po, 1, "10", "125.00", "B0"))
+	e.earlier(t, 2026, po, expensed(1, 1125, 625))
 	e.earlier(t, 2026, po, earlierItem{item: 1, diff: 700})
+	e.clear(t, po, true)
 	h := app.Assets(app.Config{})
 	params := gen.GetAssetOrderExpensesParams{LegalEntityID: e.DE, FiscalYear: 2026}
 	report := func(ctx context.Context) error {
@@ -324,6 +424,10 @@ func TestAssetOrderExpensesFailures(t *testing.T) {
 			_, err := ledger.AssetReads{}.UnrecordedExpenses(ctx, e.DE, 2026)
 			return err
 		},
+		"the ledger's GR/IR clearings in profit or loss": func(ctx context.Context) error {
+			_, err := ledger.AssetReads{}.ClearedExpenses(ctx, e.DE, 2026)
+			return err
+		},
 		"the orders' items": func(ctx context.Context) error {
 			_, err := procurement.Orders{}.ItemAccounts(ctx, []uuid.UUID{po})
 			return err
@@ -336,7 +440,7 @@ func TestAssetOrderExpensesFailures(t *testing.T) {
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, fn)
 		})
 	}
-	for _, fails := range []string{"recorded", "unrecorded", "items"} {
+	for _, fails := range []string{"recorded", "unrecorded", "cleared", "items"} {
 		t.Run("a lost read: "+fails, func(t *testing.T) {
 			lost := *h
 			lost.Purchases = lostPurchases{Purchases: h.Purchases, fails: fails}
@@ -349,6 +453,19 @@ func TestAssetOrderExpensesFailures(t *testing.T) {
 			}
 		})
 	}
+	t.Run("totals out of range", func(t *testing.T) {
+		other := e.order(t, "PO-B")
+		e.earlier(t, 2026, other, expensed(1, 300, 0))
+		huge := *h
+		huge.Purchases = lostPurchases{Purchases: h.Purchases, fails: "totals"}
+		err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+			_, err := huge.GetAssetOrderExpenses(ctx, params)
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "totals of 2 asset order items") {
+			t.Errorf("got %v, want the totals refused", err)
+		}
+	})
 	t.Run("a configuration that does not load", func(t *testing.T) {
 		lost := *h
 		lost.Settings = settingsLost{}

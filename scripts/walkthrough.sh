@@ -879,6 +879,7 @@ step_migrate() {
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
+    'Open items fixing payment method T' 'Open items fixing payment method T total' 'Open items fixing payment method T: vendors with differences' \
     'Open payables by trading partner total' 'Open payables by trading partner: trading partners with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
@@ -1129,8 +1130,10 @@ migrated_groups() {
 # (the mock's foreignInvoice) as it loaded, in its document currency
 # (ADR-0005 As built, product owner 2026-10-31): an open item of USD
 # 1,000.00 worth CAD 1,350.00 as SAP booked it, its entry in USD at the
-# rate SAP's amounts imply, and the reconciliation's USD controls. Step 9
-# revalues it. It keeps the item's entry in FX_ENTRY.
+# rate SAP's amounts imply, and the reconciliation's USD controls; and
+# the payment method SAP fixed on it (ZLSCH), kept with the open item
+# (ADR-0038 As built), with the reconciliation's controls per method. Step
+# 9 revalues it. It keeps the item's entry in FX_ENTRY.
 migrated_foreign_item() {
   local lifnr name supplier
   lifnr=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .RWCUR == "USD" and .LIFNR != "" and .AUGBL == "")] | first | .LIFNR' "$WORK/data/extract.json")
@@ -1151,6 +1154,16 @@ migrated_foreign_item() {
   expect "the USD invoice's entry rate, SAP's" "$(field .rate_tc_lc)" 1.350000000000
   say "The reconciliation agreed in CAD and compared the USD items in USD:"
   grep -E 'Open items in USD' "$WORK/migrate.out" | sed 's/^/     /'
+  say "SAP fixed the invoice's payment method on the item (ZLSCH, ADR-0038): bank transfer T, whatever order the"
+  say "company's runs try their methods in. It came over with the open item, so a payment run pays the item by T"
+  say "alone, in a payment of its own, as it pays an invoice entered here that fixes its method (step 7):"
+  jq -r --arg cc "$CC" --arg v "$lifnr" '.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR == $v and .RWCUR == "USD" and .AUGBL == "")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): vendor \(.LIFNR), \(.WSL) \(.RWCUR), ZLSCH \(.ZLSCH)"' "$WORK/data/extract.json"
+  api 200 '.items[] | select(.amount.currency != "CAD") | "open item \(.document_number): \(.amount.amount) \(.amount.currency), fixed payment method \(.payment_method // "none")"' \
+    listOpenItems -p "partner_id=$supplier" -p page_size=100
+  expect "the payment method the migrated USD item fixes" "$(field '[.items[] | select(.amount.currency != "CAD") | .payment_method // "none"] | join(", ")')" T
+  say "The reconciliation counted and summed the open items fixing each method on both sides:"
+  grep -E 'Open items fixing payment method' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # parallel_run_extract splits SAP's receipt of the eight shelving units
@@ -1902,10 +1915,12 @@ receipt_held() {
 # product owner 2026-11-10): Laurentian's freight invoice fixes T, so the
 # run pays Laurentian twice, its other items by W from RBC and the
 # freight invoice by T from MAIN, each payment saying why it is paid by
-# its method. Tara rejects the run, so its items are free for the run
-# from RBC.
+# its method. It wins over the supplier's own methods too (product owner
+# 2026-11-10, as SAP's ZLSCH over ZWELS): Muskoka Office Supply may be
+# paid by T alone, and its express charge, which fixes W, is paid by
+# wire. Tara rejects the run, so its items are free for the run from RBC.
 method_order() {
-  local laurentian company change run etag
+  local laurentian muskoka company change run etag
   as ben
   QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Laurentian
   laurentian=$(field '.items[0].id')
@@ -1947,6 +1962,19 @@ method_order() {
   api 200 '.items[] | select(.payment_method) | "open item \(.document_number): \(.amount.amount) \(.amount.currency), payment method fixed: \(.payment_method)"' \
     listOpenItems -p "partner_id=$laurentian" -p page_size=100
   expect "the open item's fixed payment method" "$(field "[.items[] | select(.journal_entry_id == \"$FIXED_ENTRY\") | .payment_method] | join(\" \")")" T
+  QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Muskoka
+  muskoka=$(field '.items[0].id')
+  if [ -z "$muskoka" ] || [ "$muskoka" = null ]; then fail "the migrated supplier Muskoka Office Supply is not there"; fi
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$muskoka"
+  expect "Muskoka Office Supply's payment methods: bank transfer alone" \
+    "$(field '.supplier_companies[] | select(.legal_entity_id == "'"$LE"'") | .payment_methods | join(" ")')" T
+  say "Muskoka Office Supply may be paid by bank transfer alone, yet asks for its express charge MO-EXPRESS-1, CAD 180.00,"
+  say "by wire. The method an invoice fixes wins over its supplier's list, which restricts the run's order alone:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), payment method fixed: \(.payment_method)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$muskoka\", \"supplier_reference\": \"MO-EXPRESS-1\", \"invoice_date\": \"$TODAY\", \"payment_method\": \"W\", \"gross_amount\": {\"amount\": \"180.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Express delivery\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"180.00\", \"currency\": \"CAD\"}}]}"
+  WIRED_INVOICE=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$WIRED_INVOICE" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  WIRED_ENTRY=$(field .journal_entry_id)
   as tom
   say "Tom proposes a run in CAD without a house bank: each supplier is paid by the first method of that order"
   say "it may be paid by, through the bank ranked for the method; items that fix a method are paid by it, apart."
@@ -1965,8 +1993,13 @@ method_order() {
     "$(field '.items[] | select(.supplier_name == "Laurentian Paper" and .payment_method_source == "item") | "\(.payment_method) \(.house_bank_code) \(.amount.amount) \([.items[].journal_entry_id] | join(" "))"')" "T MAIN 250.00 $FIXED_ENTRY"
   expect "the freight invoice in no other payment" \
     "$(field "[.items[] | select(.payment_method_source != \"item\") | .items[] | select(.journal_entry_id == \"$FIXED_ENTRY\")] | length")" 0
-  expect "the methods of the suppliers allowing bank transfer alone" \
-    "$(field '[.items[] | select(.supplier_name != "Laurentian Paper") | "\(.payment_method) \(.house_bank_code)"] | unique | join(", ")')" "T MAIN"
+  say "Muskoka Office Supply's express charge is paid by wire, the method it fixes, though Muskoka's own methods lack it:"
+  expect "Muskoka Office Supply's express charge, paid by the method it fixes" \
+    "$(field '.items[] | select(.supplier_name == "Muskoka Office Supply" and .payment_method_source == "item") | "\(.payment_method) \(.house_bank_code) \(.amount.amount) \([.items[].journal_entry_id] | join(" "))"')" "W RBC 180.00 $WIRED_ENTRY"
+  expect "the express charge in no other payment" \
+    "$(field "[.items[] | select(.payment_method_source != \"item\") | .items[] | select(.journal_entry_id == \"$WIRED_ENTRY\")] | length")" 0
+  expect "the methods the run order pays the suppliers allowing bank transfer alone by" \
+    "$(field '[.items[] | select(.supplier_name != "Laurentian Paper" and .payment_method_source == "run_order") | "\(.payment_method) \(.house_bank_code)"] | unique | join(", ")')" "T MAIN"
   say "The run's exclusions, each with its reason (a supplier no ranked bank could pay by a method of its own"
   say "would be here with no_house_bank; every supplier of this run allows T or W):"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_name)"' listPaymentExclusions -p "id=$run" -p page_size=100
@@ -2004,19 +2037,23 @@ step_payment() {
     "$(jq -r --arg a "$INVOICE_ENTRY" '.items[].items[] | select(.journal_entry_id == $a) | .document_number' "$WORK/payments.json")" "$(field .document_number)"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_name)\(if .payment_method then ", its items fixing payment method \(.payment_method)" else "" end)"' listPaymentExclusions -p "id=$RUN" -p page_size=100
   expect "the blocked supplier left out, named by the API" "$(field '[.items[] | select(.reason_code == "supplier_blocked") | .supplier_name] | join(", ")')" "Massive Dynamic"
-  say "A run for one house bank pays by no method, so it leaves Laurentian's freight invoice, which fixes T, out with"
-  say "the reason, rather than pay it another way; Laurentian's other items are in the run."
-  expect "the freight invoice left out of the run for one house bank" \
-    "$(field '[.items[] | select(.reason_code == "fixed_method_in_bank_run") | "\(.supplier_name) \(.payment_method) \(.amount.amount)"] | join(", ")')" "Laurentian Paper T 250.00"
+  say "A run for one house bank pays by no method, so it leaves Laurentian's freight invoice, which fixes T, and Muskoka's"
+  say "express charge, which fixes W, out with the reason, rather than pay them another way; their other items are in the run."
+  expect "the invoices fixing a method left out of the run for one house bank" \
+    "$(field '[.items[] | select(.reason_code == "fixed_method_in_bank_run") | "\(.supplier_name) \(.payment_method) \(.amount.amount)"] | sort | join(", ")')" \
+    "Laurentian Paper T 250.00, Muskoka Office Supply W 180.00"
   expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
   # After the checks that read the exclusions: field reads the last answer.
   as alex
-  say "Laurentian withdraws the freight charge the same day; Alex reverses the invoice, so nothing waits for a run"
-  say "without a house bank."
-  QUIET=1 api 200 '' getSupplierInvoice -p "id=$FIXED_INVOICE"
-  api 200 '"\(.document_number): \(.status), reversal entry \(.reversal_entry_id)"' reverseSupplierInvoice -p "id=$FIXED_INVOICE" -if-match "$ETAG" \
-    -body "{\"reason\": \"Freight charge withdrawn by the supplier\", \"posting_date\": \"$TODAY\"}"
-  expect "the freight invoice" "$(field .status)" reversed
+  say "Laurentian and Muskoka withdraw their charges the same day; Alex reverses both invoices, so nothing waits for"
+  say "a run without a house bank."
+  local withdrawn
+  for withdrawn in "$FIXED_INVOICE" "$WIRED_INVOICE"; do
+    QUIET=1 api 200 '' getSupplierInvoice -p "id=$withdrawn"
+    api 200 '"\(.document_number): \(.status), reversal entry \(.reversal_entry_id)"' reverseSupplierInvoice -p "id=$withdrawn" -if-match "$ETAG" \
+      -body "{\"reason\": \"Charge withdrawn by the supplier\", \"posting_date\": \"$TODAY\"}"
+    expect "the withdrawn invoice" "$(field .status)" reversed
+  done
   as tom
   say "$DP_NAME's open down payment from SAP is not netted: the run pays the supplier's open invoices in full (T72c)."
   expect "the payment to $DP_NAME" "$(jq -r --arg n "$DP_NAME" '[.items[] | select(.supplier_name == $n) | .amount.amount] | join(" ")' "$WORK/payments.json")" "$DP_PAYABLE"
@@ -5535,16 +5572,19 @@ step_asset_held_for_sale() {
   passed
 }
 
-# step_asset_order_expenses is the materiality report on asset purchase
-# orders (accounting specialist B10, po:2026-11-10; ADR-0057 §6; IAS
-# 16.16(a), IAS 8.8): a machine ordered on the asset clearing account is
+# step_asset_order_expenses is an asset bought on a purchase order at its
+# full cost (accounting specialist B10, product owner 2026-11-10; ADR-0057
+# §6; IAS 16.16): a machine ordered on the asset clearing account is
 # invoiced above the order price with British Columbia PST, which is not
-# recovered; both are expensed on the price difference account, and the
-# report shows them apart, exact as recorded at posting.
+# recovered; both post to the asset clearing account beside the receipt's
+# order price, to be capitalised with it, and the materiality report on
+# what earlier postings expensed shows nothing newly expensed. A second
+# machine, received and never invoiced, has its GR/IR position cleared
+# (T72e) against the asset clearing account too, not into profit or loss.
 step_asset_order_expenses() {
-  heading "Step 46 — What was expensed on asset purchase orders: the tax not recovered and the price difference of a machine bought on an order"
+  heading "Step 46 — An asset bought on an order at its full cost: the tax not recovered and the price difference of a machine land on the asset clearing account, not in profit or loss"
   as ben
-  local item po invoice
+  local item po invoice entry extractor clearing request
   item="{\"description\": \"Band saw\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"8000.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 1690)\", \"tax_code\": \"PBC\"}"
   say "Ben orders a band saw from Tyrell at CAD 8,000.00 on the asset clearing account 1690, with British Columbia PST"
   say "(PBC, 7%, not recoverable), and receives it: the receipt debits 1690 at the order price (ADR-0057 §6)."
@@ -5563,27 +5603,72 @@ step_asset_order_expenses() {
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
   as alex
   say "Tyrell invoices CAD 8,100.00, 100.00 above the order, plus 567.00 PST. The invoice clears GR/IR at the order price;"
-  say "the 100.00 and the 567.00 post as one line on the price difference account, an expense, not on the asset:"
+  say "the 100.00 and the 567.00 are part of what the saw cost (IAS 16.16), so they post as one line on the asset"
+  say "clearing account 1690, where the receipt put the order price, and not on the price difference account:"
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-SAW-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"8667.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"567.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"8100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"PBC\"}]}"
   invoice=$(field .id)
   api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
   api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
   expect "invoice status" "$(field .status)" posted
-  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  entry=$(field .journal_entry_id)
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
   expect "one line for both, beside the GR/IR line and the supplier's" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-8667.00 667.00 8000.00"
+  expect "the 667.00 on the asset clearing account" "$(field "[.lines[] | select(.account_id == \"$(account 1690)\") | .amount.amount] | join(\" \")")" "667.00"
   as carla
-  say "IAS 16 counts both in the asset's cost. Until they are capitalised, the auditor judges whether what was expensed"
-  say "is material; Carla reads the year's report, which tells the tax from the price difference, as recorded at posting:"
+  say "Carla's worklist of the clearing account offers the invoice's line beside the receipt's, to capitalise onto the saw"
+  say "as any line there (createAssetAcquisition, steps 20-22):"
+  api 200 '.items[] | select(.entry_id == "'"$entry"'") | "  entry \(.document_number) line \(.line_no), \(.supplier_invoice.supplier_name // .source_context) \(.supplier_invoice.supplier_reference // ""): \(.amount.amount) \(.amount.currency), left \(.remaining.amount)"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the invoice's line on the worklist" "$(field "[.items[] | select(.entry_id == \"$entry\") | \"\(.supplier_invoice.supplier_reference) \(.remaining.amount)\"] | join(\" \")")" \
+    "TY-SAW-1 667.00"
+  say "The year's report on what was expensed on asset purchase orders is history now: it shows what earlier postings"
+  say "put on the price difference account, for the accountants to judge and correct by journal. This invoice adds nothing:"
   api 200 '(.items[] | "  order \(.purchase_order_number) item \(.po_item_no) \(.description) on \(.account_number) \(.account_name): tax not recovered \(.tax_not_recovered.amount), price difference \(.price_difference.amount), expensed \(.expensed.amount) \(.expensed.currency)"),
-    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency)",
+    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency); put in profit or loss by GR/IR clearings \(.totals.gr_ir_cleared.amount)",
     "  unattributed (earlier postings, split unknown): \(.unattributed.expensed.amount) \(.unattributed.expensed.currency) (debits \(.unattributed.debits.amount), credits \(.unattributed.credits.amount)) in \(.unattributed.entries) entries"' \
     getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
-  expect "the band saw's row" "$(field "[.items[] | select(.purchase_order_id == \"$po\") | \"\(.po_item_no) \(.description) \(.account_number) \(.tax_not_recovered.amount) \(.price_difference.amount) \(.expensed.amount) \(.expensed.currency)\"] | join(\"; \")")" \
-    "1 Band saw 1690 567.00 100.00 667.00 CAD"
-  expect "the totals, the sums of the rows" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
-    [.totals.tax_not_recovered, .totals.price_difference, .totals.expensed | c] == [([.items[].tax_not_recovered | c] | add), ([.items[].price_difference | c] | add), ([.items[].expensed | c] | add)]')" true
-  expect "nothing unattributed: every posting is recorded" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.debits.amount) \(.unattributed.credits.amount) \(.unattributed.entries)"')" "0.00 0.00 0.00 0"
+  expect "no row for the band saw: nothing of it was expensed" "$(field "[.items[] | select(.purchase_order_id == \"$po\")] | length")" 0
+  expect "nothing expensed on asset order items, by invoices or by GR/IR clearings" "$(field '"\(.totals.tax_not_recovered.amount) \(.totals.price_difference.amount) \(.totals.expensed.amount) \(.totals.gr_ir_cleared.amount) \(.totals.expensed.currency)"')" "0.00 0.00 0.00 0.00 CAD"
+  expect "nothing unattributed" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.debits.amount) \(.unattributed.credits.amount) \(.unattributed.entries)"')" "0.00 0.00 0.00 0"
+  as ben
+  say "Ben also ordered a dust extractor at CAD 1,200.00 on 1690 and received it; Tyrell then gave it as a free addition"
+  say "to the saw and will not invoice it, so Ben closes the order."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Dust extractor\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 1690)\", \"tax_code\": \"PBC\"}]}"
+  extractor=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$extractor" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted dust extractor"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$extractor"
+  fi
+  expect "the extractor's order status" "$(field .status)" released
+  expect "the extractor's order valued through GR/IR" "$(field .valuation)" gr_ir
+  api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$extractor\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$extractor"
+  api 200 '"purchase order \(.document_number): \(.status)"' closePurchaseOrder -p "id=$extractor" -if-match "$ETAG"
+  expect "order status" "$(field .status)" closed
+  as alex
+  say "The receipt's CAD 1,200.00 stays open on GR/IR. Alex proposes clearing it (SAP MR11, step 15). The extractor is an"
+  say "asset's order item, so the clearing shows the asset clearing account 1690 for it, not the price difference account:"
+  api 201 '"GR/IR clearing of \(.purchase_order_number): \(.status), \(.total.amount) \(.total.currency)\([.items[] | "\n  item \(.po_item_no) \(.description): \(.quantity.value) \(.quantity.unit), \(.amount.amount) \(.amount.currency) against \(.offset_account.number) \(.offset_account.name)"] | join(""))"' \
+    createGrIrClearing -p "id=$extractor" -body "{\"reason\": \"Free addition to the band saw; Tyrell will not invoice it\", \"posting_date\": \"$TODAY\"}"
+  clearing=$(field .id)
+  request=$(field .approval_request_id)
+  expect "the item clears against the asset clearing account" "$(field '[.items[] | "\(.po_item_no) \(.amount.amount) \(.offset_account.number)"] | join("; ")')" "1 -1200.00 1690"
+  approve carla "$request" "Not invoiced: off the asset's cost"
+  as alex
+  api 200 '"GR/IR clearing: \(.status), journal entry \(.journal_entry.document_number) of \(.journal_entry.fiscal_year)"' getGrIrClearing -p "id=$clearing"
+  expect "clearing status" "$(field .status)" posted
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry.id)"
+  expect "the clearing credits the asset clearing account" "$(field "[.lines[] | select(.account_id == \"$(account 1690)\") | .amount.amount] | join(\" \")")" "-1200.00"
+  as carla
+  say "The extractor cost nothing, and nothing went to profit or loss: the report's figure for GR/IR clearings stays zero."
+  api 200 '"  put in profit or loss by GR/IR clearings of asset order items: \(.totals.gr_ir_cleared.amount) \(.totals.gr_ir_cleared.currency)"' \
+    getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "nothing put in profit or loss by the clearing" "$(field '"\(.totals.gr_ir_cleared.amount) \([.items[] | select(.purchase_order_id == "'"$extractor"'")] | length)"')" "0.00 0"
   passed
 }
 

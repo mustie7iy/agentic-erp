@@ -7151,13 +7151,15 @@ func (s *AssetOffsetAccount) SetName(val string) {
 	s.Name = val
 }
 
-// Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` +
-// `price_difference`.
+// Amounts in profit or loss, debit positive (an expense). By invoices and credit memos, on the price
+// difference account: `expensed` = `tax_not_recovered` + `price_difference`. By GR/IR clearings, a
+// figure of its own that `expensed` does not include: `gr_ir_cleared`.
 // Ref: #/components/schemas/AssetOrderExpenseAmounts
 type AssetOrderExpenseAmounts struct {
 	TaxNotRecovered Money `json:"tax_not_recovered"`
 	PriceDifference Money `json:"price_difference"`
 	Expensed        Money `json:"expensed"`
+	GrIrCleared     Money `json:"gr_ir_cleared"`
 }
 
 // GetTaxNotRecovered returns the value of TaxNotRecovered.
@@ -7175,6 +7177,11 @@ func (s *AssetOrderExpenseAmounts) GetExpensed() Money {
 	return s.Expensed
 }
 
+// GetGrIrCleared returns the value of GrIrCleared.
+func (s *AssetOrderExpenseAmounts) GetGrIrCleared() Money {
+	return s.GrIrCleared
+}
+
 // SetTaxNotRecovered sets the value of TaxNotRecovered.
 func (s *AssetOrderExpenseAmounts) SetTaxNotRecovered(val Money) {
 	s.TaxNotRecovered = val
@@ -7190,7 +7197,13 @@ func (s *AssetOrderExpenseAmounts) SetExpensed(val Money) {
 	s.Expensed = val
 }
 
-// What was expensed on one asset purchase order item in the year, as recorded at posting.
+// SetGrIrCleared sets the value of GrIrCleared.
+func (s *AssetOrderExpenseAmounts) SetGrIrCleared(val Money) {
+	s.GrIrCleared = val
+}
+
+// What was expensed on one asset purchase order item in the year, as recorded at posting, and what
+// GR/IR clearings of it put in profit or loss.
 // Ref: #/components/schemas/AssetOrderExpenseItem
 type AssetOrderExpenseItem struct {
 	// The purchase order.
@@ -7210,6 +7223,7 @@ type AssetOrderExpenseItem struct {
 	TaxNotRecovered Money  `json:"tax_not_recovered"`
 	PriceDifference Money  `json:"price_difference"`
 	Expensed        Money  `json:"expensed"`
+	GrIrCleared     Money  `json:"gr_ir_cleared"`
 }
 
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
@@ -7262,6 +7276,11 @@ func (s *AssetOrderExpenseItem) GetExpensed() Money {
 	return s.Expensed
 }
 
+// GetGrIrCleared returns the value of GrIrCleared.
+func (s *AssetOrderExpenseItem) GetGrIrCleared() Money {
+	return s.GrIrCleared
+}
+
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *AssetOrderExpenseItem) SetPurchaseOrderID(val uuid.UUID) {
 	s.PurchaseOrderID = val
@@ -7312,10 +7331,18 @@ func (s *AssetOrderExpenseItem) SetExpensed(val Money) {
 	s.Expensed = val
 }
 
+// SetGrIrCleared sets the value of GrIrCleared.
+func (s *AssetOrderExpenseItem) SetGrIrCleared(val Money) {
+	s.GrIrCleared = val
+}
+
 // What supplier invoices and credit memos expensed on a company's asset purchase order items in a
 // fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered
 // and the price difference, exact as posted, with their totals, and the amounts whose order item and
-// split were not recorded. In the company's local currency.
+// split were not recorded. What GR/IR clearings of those items put in profit or loss is a figure of
+// its own (`gr_ir_cleared`). History: a document or clearing posted now puts these amounts on the
+// item's asset clearing account, as part of the asset's cost, and adds nothing here. In the company's
+// local currency.
 // Ref: #/components/schemas/AssetOrderExpenses
 type AssetOrderExpenses struct {
 	// The company.
@@ -7332,7 +7359,8 @@ type AssetOrderExpenses struct {
 	EndDate time.Time `json:"end_date"`
 	// The company's local currency, every amount's.
 	Currency string `json:"currency"`
-	// This page's asset order items with a recorded posting in the year, by order number and item number.
+	// This page's asset order items with a recorded posting or a GR/IR clearing in profit or loss in the
+	// year, by order number and item number.
 	Items        []AssetOrderExpenseItem        `json:"items"`
 	Totals       AssetOrderExpenseAmounts       `json:"totals"`
 	Unattributed AssetOrderExpensesUnattributed `json:"unattributed"`
@@ -36939,8 +36967,9 @@ func (s *GrIrClearing) SetDecisionComment(val OptString) {
 	s.DecisionComment = val
 }
 
-// The price difference account a clearing posts against, as it was shown when the clearing was
-// proposed.
+// An account a clearing posts against, as it was shown when the clearing was proposed. On the
+// clearing: the legal entity's price difference account, which its items clear against unless they are
+// assets'. On an item: the account that item clears against.
 // Ref: #/components/schemas/GrIrClearingAccount
 type GrIrClearingAccount struct {
 	// The account.
@@ -37091,7 +37120,7 @@ func (s *GrIrClearingHeaders) SetResponse(val GrIrClearing) {
 
 func (*GrIrClearingHeaders) getGrIrClearingRes() {}
 
-// One order item's GR/IR position a clearing clears.
+// One order item's GR/IR position a clearing clears, and the account it clears against.
 // Ref: #/components/schemas/GrIrClearingItem
 type GrIrClearingItem struct {
 	// Item of the purchase order.
@@ -37103,6 +37132,12 @@ type GrIrClearingItem struct {
 	Quantity Quantity `json:"quantity"`
 	// The position's balance in the order's currency, signed as the GR/IR balances show it.
 	Amount Money `json:"amount"`
+	// The account the position clears against: the clearing's price difference account (`offset_account`
+	// of the clearing) or, for an order item on an asset clearing account of the company (an asset's,
+	// `companies[].asset_accounts[].clearing`), that asset clearing account, where what is cleared adjusts
+	// the asset's cost and is capitalised or taken off the asset as any line of that account
+	// (`GET /v1/asset-clearing-items`).
+	OffsetAccount GrIrClearingAccount `json:"offset_account"`
 }
 
 // GetPoItemNo returns the value of PoItemNo.
@@ -37125,6 +37160,11 @@ func (s *GrIrClearingItem) GetAmount() Money {
 	return s.Amount
 }
 
+// GetOffsetAccount returns the value of OffsetAccount.
+func (s *GrIrClearingItem) GetOffsetAccount() GrIrClearingAccount {
+	return s.OffsetAccount
+}
+
 // SetPoItemNo sets the value of PoItemNo.
 func (s *GrIrClearingItem) SetPoItemNo(val int32) {
 	s.PoItemNo = val
@@ -37143,6 +37183,11 @@ func (s *GrIrClearingItem) SetQuantity(val Quantity) {
 // SetAmount sets the value of Amount.
 func (s *GrIrClearingItem) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetOffsetAccount sets the value of OffsetAccount.
+func (s *GrIrClearingItem) SetOffsetAccount(val GrIrClearingAccount) {
+	s.OffsetAccount = val
 }
 
 // One page of GR/IR clearings.
@@ -45974,11 +46019,14 @@ type MigrationDiff struct {
 	// `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050
 	// §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
 	// `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center
-	// reports', documents mode).
+	// reports', documents mode), or `payment method <method> items of vendor <LIFNR>` or
+	// `payment method <method> items of partner <id> (<name>)` (the open items that fix that payment
+	// method, SAP ZLSCH: their number and total, as `2 items, -1250.00 EUR`).
 	Key string `json:"key"`
-	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
-	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load
-	// writes it, or a center's periods
+	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items,
+	// the open items fixing a payment method as their number and total (`2 items, -1250.00 EUR`), a GR/IR
+	// position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load writes
+	// it, or a center's periods
 	// (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`,
 	// a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's
 	// slices that do not read).
@@ -47910,10 +47958,10 @@ type OpenItem struct {
 	// The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others,
 	// which are due by their supplier's current terms.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
-	// The payment method the item's document fixed when it posted (SAP BSEG-ZLSCH; ADR-0038), on a
-	// supplier item: a payment run pays the item by this method alone, in a payment of its own, and leaves
-	// it out with the reason when the method cannot pay it. Absent on an item that fixes none, which is
-	// paid by the company's run order.
+	// The payment method the item's document fixed when it posted, or that a migration run took over from
+	// the SAP item (SAP BSEG-ZLSCH; ADR-0038), on a supplier item: a payment run pays the item by this
+	// method alone, in a payment of its own, and leaves it out with the reason when the method cannot pay
+	// it. Absent on an item that fixes none, which is paid by the company's run order.
 	PaymentMethod OptString `json:"payment_method"`
 	// Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never
 	// netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and
@@ -54825,9 +54873,9 @@ type Payment struct {
 	// Why the payment is paid by its `payment_method`; present exactly when `payment_method` is.
 	// `run_order`: the first method of the company's run order that the supplier may be paid by and a
 	// ranked house bank pays with. `item`: its items fix the method (their invoices' `payment_method`),
-	// which wins over the run order; such a payment holds the supplier's items fixing that method alone.
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// which wins over the run order and over the supplier's `payment_methods`; such a payment holds the
+	// supplier's items fixing that method alone. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
 	PaymentMethodSource OptString `json:"payment_method_source"`
 	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
@@ -55132,11 +55180,11 @@ type PaymentExclusion struct {
 	// payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a
 	// payment method are judged apart from its others, per fixed method (`payment_method`), for every
 	// reason here, and are left out when the method cannot pay them, never paid by another:
-	// `method_not_active` (the method is not an active payment method of the company),
-	// `method_not_allowed` (it is not among the supplier's `payment_methods` in the company),
-	// `no_house_bank` (no active house bank in the run currency is ranked for it) and
-	// `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method:
-	// propose a run without a house bank to pay them).
+	// `method_not_active` (the method is not an active payment method of the company), `no_house_bank` (no
+	// active house bank in the run currency is ranked for it) and `fixed_method_in_bank_run` (the run was
+	// proposed for one house bank, which pays by no method: propose a run without a house bank to pay
+	// them). The supplier's `payment_methods` do not restrict a fixed method: they restrict the run order
+	// alone, and an item fixing a method they lack is paid by it.
 	ReasonCode string `json:"reason_code"`
 	// The payment method the items left out fix (their invoices' `payment_method`; ADR-0038): the
 	// exclusion is of the supplier's items fixing this method alone, and `amount` what they would have
@@ -67552,8 +67600,10 @@ type SupplierCompany struct {
 	// company's `withholding_tax_codes` in the configuration.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
 	// The methods the supplier may be paid by in this legal entity (SAP LFB1-ZWELS; ADR-0038): codes of
-	// the company's `payment_methods` in the configuration. The list restricts the methods a payment run
-	// pays the supplier by; the order they are tried in is the company's, not this list's.
+	// the company's `payment_methods` in the configuration. The list restricts the methods of the
+	// company's run order that a payment run pays the supplier's items by; the order they are tried in is
+	// the company's, not this list's. It does not restrict an item that fixes its payment method (an
+	// invoice's `payment_method`): such an item is paid by that method whether or not this list has it.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the
 	// configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when
@@ -67658,8 +67708,10 @@ type SupplierCompanyInput struct {
 	// the company's configuration, each once. A payment proposal pays the supplier through the first
 	// method of the company's run order (the configuration's `payment_methods`, by their `order`, else as
 	// listed) that is in this list and that a ranked house bank can pay; the order of this list decides
-	// nothing. The list replaces the supplier's methods in the legal entity: leaving it out takes every
-	// method off the supplier there, as the other company data is replaced too.
+	// nothing. An item that fixes its payment method (an invoice's `payment_method`) is paid by that
+	// method whether or not this list has it. The list replaces the supplier's methods in the legal
+	// entity: leaving it out takes every method off the supplier there, as the other company data is
+	// replaced too.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the
 	// configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the
@@ -67792,7 +67844,8 @@ type SupplierInvoice struct {
 	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
 	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
 	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
-	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// company's run order and whether or not the method is among the supplier's `payment_methods` in the
+	// legal entity; when the method cannot pay it the item is left out of the run with the reason
 	// (`listPaymentExclusions`), never paid by another method. Absent: the item is paid by the company's
 	// run order. Changed while the document is parked (`updateSupplierInvoice`); its open item keeps the
 	// method it posted with.
@@ -68215,7 +68268,8 @@ type SupplierInvoiceCreate struct {
 	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
 	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
 	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
-	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// company's run order and whether or not the method is among the supplier's `payment_methods` in the
+	// legal entity; when the method cannot pay it the item is left out of the run with the reason
 	// (`listPaymentExclusions`), never paid by another method. A code that is not an active payment method
 	// of the legal entity is 422 `payables.unknown_payment_method`. Left out: the item is paid by the
 	// company's run order.

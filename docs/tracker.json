@@ -1097,30 +1097,93 @@
      {
       "s": "T",
       "t": "Customer open items",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An AR accountant enters a customer invoice without a sales order (customer, items by revenue account with output tax code) and reads it back with its calculated tax and totals; the receivables context and its ADR",
+        "r": "T75a · docs/design/plan-breadth-week1.md §T75a",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "An AR accountant posts the customer invoice: it is the customer's open item with its payment terms and net due date in GET /v1/open-items; the ledger's reader of customer open items",
+        "r": "T75b · docs/design/plan-breadth-week1.md §T75b",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: customer open item variants: reversal through the document, changing or cancelling a draft, parked invoices and approval, invoices created by billing, the customer account statement, down payments received, attachments and custom fields, sending e-invoices, taking customer open items over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75b, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Incoming payment posting and clearing",
-      "r": "clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047)",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An AR accountant applies an incoming payment on a house bank's incoming payments clearing account to a customer's open items in full: one entry clears the payment and the items",
+        "r": "T75c · docs/design/plan-breadth-week1.md §T75c · clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047)",
+        "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: incoming payment variants: partial payments and residual items, payments on account, payment differences and tolerances, one receipt for several customers, a receipt in another currency than the items, undoing an application, matching by rule and agent proposals from statement lines, receipts without a statement, direct debits, refunds (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75c, Later",
+        "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Credit memos",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An AR accountant enters and posts a credit memo to a customer naming the invoice it credits: an open credit item that clears against the invoice or nets when a payment is applied",
+        "r": "T75d · docs/design/plan-breadth-week1.md §T75d",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: customer credit memo variants: debit memos, credit memos from returns and credit memo requests, paying a credit out, reversal (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75d, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "AR aging report",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A credit controller reads the aging of a company's customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue (GET /v1/receivables-aging)",
+        "r": "T75e · docs/design/plan-breadth-week1.md §T75e",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: AR aging variants: aging as at a past date, by document date, by profit center or segment and in group currency, export, analytics metrics, an allowance for expected credit losses (IFRS 9, needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75e, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -1275,10 +1338,31 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a)): the posting change itself, after the materiality report; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment (ADR-0057's question on price differences and non-recovered tax)",
-        "r": "ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 1) · ledger price difference · payables input tax",
-        "src": "po:2026-11-09",
+        "s": "D",
+        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a); product owner 2026-11-10, follow best accounting practice): for an order item on an asset clearing account, what an invoice, credit memo or subsequent debit or credit differs from the GR/IR line, the tax not recovered included, posts to that clearing account instead of the price difference account, without a cost center (so no longer refused with ledger.cost_center_required), recorded with its order item and tax as before; entry totals, tax lines and the payable unchanged; reversals mirror what was posted, documents posted before included; capitalised from the clearing account by the existing acquisition mechanism; no backfill or reposting, the report being history; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment",
+        "r": "ledger.GRIRItem.ItemAccountID, ledger.Postings.Settings, internal/ledger/assetitem.go (assetClearingAccounts), grir.go (difference, differenceAccount) · ledger.AssetReads.OrderItemExpenses (profit and loss lines only) · config.Company.AssetClearingAccounts · internal/payables/post.go (grirItem) · TestAssetItemDifferences, TestAssetItemDifferencesReversed, TestAssetItemDatabaseFailures, TestAssetOrderItemCapitalised, TestAssetOrderExpenses · walkthrough step_asset_order_expenses (step 46) · ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 3) · ADR-0049 §8 · 03-data-model §3.7 · 04-api-design",
+        "src": "po:2026-11-10 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A GR/IR clearing (T72e, SAP MR11) of an asset's order item clears against the item's asset clearing account instead of the price difference account (product owner 2026-11-10: everything that adjusts what was paid for an asset's order item belongs on the asset): the clearing shows the account each item clears against and keeps it per item where it is not the clearing's own, the ledger judges the item again at posting and refuses a clearing approved against another account (ledger.gr_ir_clearing_outdated), other items clear as before",
+        "r": "migration 000264 (procurement.gr_ir_clearing_item offset_account_id, _number, _name; gr_ir_clearing_item_account) · GrIrClearing.items[].offset_account · ledger.Postings.AssetClearingAccounts, GRIRItem.ItemAccountID on clearing items, checkClears · internal/procurement/grir_clearing.go (clearingAccounts, clearingPosting) · TestGRIRClearingOfAssetItem, TestAssetItemCleared, TestAssetClearingAccounts, TestGRIRClearingRules · walkthrough step_asset_order_expenses (step 46) · ADR-0057 As built (B10, step 3, part 2) · ADR-0034 As built · 03-data-model §3.7, §3.8",
+        "src": "po:2026-11-10",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The report on asset purchase orders is history, with GR/IR clearings as a figure of their own (product owner 2026-11-10): postings since the capitalisation do not appear as expensed; what GR/IR clearings of an asset's order item put in profit or loss before is shown per order item and in the totals (gr_ir_cleared), exact where the clearing's line names the order item; the contract says what cannot be attributed (clearings made in a source system before migration, manual entries) and that nothing is reposted or backfilled, correcting history being a journal entry the accountants decide from the report",
+        "r": "GET /v1/asset-order-expenses (AssetOrderExpenseItem.gr_ir_cleared, AssetOrderExpenseAmounts.gr_ir_cleared, description) · ledger.AssetReads.ClearedExpenses · assets.Purchases.Cleared, internal/assets/orderexpenses.go · TestAssetOrderExpenses, TestAssetOrderExpensesFailures · walkthrough step_asset_order_expenses (step 46) · ADR-0057 As built (B10, step 3, part 3) · 04-api-design",
+        "src": "po:2026-11-10",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A budget test for the report on asset purchase orders (GET /v1/asset-order-expenses), which had none: its rows are aggregated and paged in memory, so every page reads the company's whole year",
+        "r": "TestAssetOrderExpensesBudget (p95 1 s, the asset history sheet's report budget, over 2,000 asset order items among 22,000 with recorded lines, 1,000 unrecorded entries and 1,000 clearings) · ADR-0057 As built (B10, step 3, part 3)",
+        "src": "review:batch64",
         "c": []
        },
        {
@@ -2684,9 +2768,23 @@
      {
       "s": "T",
       "t": "Credit limits",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A credit manager sets a customer's credit limit in a company, and any API consumer reads the customer's exposure and whether an amount is within the limit (GET /v1/credit-exposure); the credit context and its ADR",
+        "r": "T77a · docs/design/plan-breadth-week1.md §T77a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: credit limit variants: open orders, deliveries and billing in the exposure, limits across the group, validity dates and reviews, approval of limit changes, risk classes (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T77a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -2712,16 +2810,51 @@
      {
       "s": "T",
       "t": "Collection worklists",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A collections specialist reads a company's worklist: the customers with overdue items, the largest overdue amount first, with open and overdue totals, oldest due date, highest dunning level and last dunning date (GET /v1/collection-worklist)",
+        "r": "T76c · docs/design/plan-breadth-week1.md §T76c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: collection worklist variants: assigning customers to collectors, strategies and priorities, promises to pay, contact notes and resubmission dates (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T76c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Dunning",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A credit controller starts a dunning run for a company at a key date and reads its proposal: per customer, the overdue items and the dunning level each would reach; the collections context, its ADR and the company's dunning levels in configuration",
+        "r": "T76a · docs/design/plan-breadth-week1.md §T76a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A credit controller confirms a dunning run: each item's level and dunning date are recorded, one event per customer is published, and the next run proposes the next level",
+        "r": "T76b · docs/design/plan-breadth-week1.md §T76b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: dunning variants: charges and interest, letters and e-mails, grace days and minimum amounts, dunning blocks, procedures per customer, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T76b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -3106,23 +3239,72 @@
      {
       "s": "T",
       "t": "Order master",
-      "r": "T60",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller creates an internal order (code, name, company, responsible cost center) and releases it for posting; the controlling II ADR that ADR-0050 asks T60 for",
+        "r": "T60a · docs/design/plan-breadth-week1.md §T60a",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A GL accountant posts a cost to a released internal order on a journal entry line (a second real cost object beside the cost center), and a controller reads the order's actual costs by account and period",
+        "r": "T60b · docs/design/plan-breadth-week1.md §T60b",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: internal order master variants: order types and number ranges, statistical orders, orders on requisition, purchase order and supplier invoice items with commitments, order groups, plan values on orders, changes by approval, reopening, taking orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T60b, Later",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Order budget",
-      "r": "T60",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller sets an internal order's budget, one overall amount in the company's currency, and reads budget, actual and what remains; exceeding it is shown, not refused",
+        "r": "T60c · docs/design/plan-breadth-week1.md §T60c",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: order budget variants: budgets per year, supplements, returns and transfers, availability control with tolerances, commitments counted, approval of budget changes (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T60c, Later",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Settlement",
-      "r": "T60",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller settles an internal order's actual costs up to a period to its receiving cost center, on the original accounts, and closes the settled order",
+        "r": "T60e · docs/design/plan-breadth-week1.md §T60e",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: order settlement variants: settling many orders in one run, reversing a settlement, settlement to assets under construction and G/L accounts, settlement through a settlement cost element, settlement as a close task (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T60e, Later",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -3134,16 +3316,51 @@
      {
       "s": "T",
       "t": "Assessment and distribution cycles",
-      "r": "T60",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller defines a distribution cycle (one sender cost center, receivers with fixed percentages) and runs it for a period: the sender's primary costs move to the receivers on their original accounts",
+        "r": "T60f · docs/design/plan-breadth-week1.md §T60f",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A controller runs an assessment cycle: the sender's costs of the period are charged to the receivers on the cycle's assessment account, a secondary cost element",
+        "r": "T60g · docs/design/plan-breadth-week1.md §T60g",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: allocation cycle variants: shares from statistical key figures or actual or plan values, fixed amounts, several senders and segments, iterative cycles, simulating and reversing a run, plan allocations, overhead rates and activity allocation, receivers other than cost centers (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T60g, Later",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Settlement rules",
-      "r": "T60",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller gives an internal order its settlement rule: one receiver, a cost center of the order's company, taking the whole",
+        "r": "T60d · docs/design/plan-breadth-week1.md §T60d",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: settlement rule variants: several receivers by percentage, equivalence number or amount, receivers other than cost centers, validity periods, settlement cost elements, source structures (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T60d, Later",
+        "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -4042,9 +4259,23 @@
      {
       "s": "T",
       "t": "Customer master with company data",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An AR accountant creates a customer (a business partner with the role customer) with its company data (reconciliation account, payment term, posting block) through the partner change and its approval, and reads it back",
+        "r": "T74a · docs/design/plan-breadth-week1.md §T74a",
+        "src": "po:2026-11-10 · design:03 §3.6",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: customer master variants: sales-area data and partner functions, contact persons, customer payment methods and direct debit mandates, planning group, custom fields on the company data, taking customers over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T74a, Later",
+        "src": "po:2026-11-10 · design:03 §3.6",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -9452,16 +9683,16 @@
      },
      {
       "s": "D",
-      "t": "An item's fixed payment method honoured by payment runs, the platform's side (SAP specialist, po:2026-11-09, A4(c), to verify on the pilot system; product owner 2026-11-10; second part of the leaf on the payment method order, split once more): a supplier invoice or credit memo may fix its payment method (SAP BSEG-ZLSCH), an active method of its company, changed while parked and kept with its open item at posting. A proposal pays a supplier's items fixing a method in a payment of their own by that method, beside the payment of its items that fix none by the company's run order; a credit memo nets within its own group alone, and a group left in debit is excluded while the other is paid. A fixed method that cannot pay its items leaves them out of the run with the reason, never paid by another method: method_not_active, method_not_allowed (stricter than SAP, where ZLSCH wins over ZWELS: asked of the product owner), no_house_bank, and fixed_method_in_bank_run in a run proposed for one house bank, which pays by no method. The liquidity forecast routes and nets such items the same way. Items that fix no method are proposed as before",
-      "r": "ADR-0038 Decision (amended), As built (an item's fixed payment method) · ADR-0051 §5 · 03-data-model §3.7, §3.10 · api/openapi.yaml: payment_method on SupplierInvoice, SupplierInvoiceCreate, SupplierInvoiceUpdate, OpenItem and PaymentExclusion, payment_method_source on Payment, three exclusion reasons, 422 payables.unknown_payment_method · migrations 000253 (payables.supplier_invoice.payment_method, ledger.open_item_payment_method, payments.payment.method_fixed, payments.method_exclusion), 000254-000255 (payment_items_once_per_method, payment_items_once_unfixed), 000256 (checks validated), 000257 (payment_items_once dropped) · payables fixedMethod, Change.PaymentMethod · ledger.Posting.PaymentMethod, keepPaymentMethod, PayableItem.PaymentMethod · payments byMethod, router.fixed, router.items, proposal.excludeItems, dropped, dropPayment, CashPayable.FixedMethod · cash netting.method · TestFixedPaymentMethod (db, payables), TestFixedMethodKeptOnOpenItems, TestFixedMethodPaidApart, TestFixedMethodGroupsNetApart, TestFixedMethodThatCannotPay, TestFixedMethodPaymentDropped, TestRouteItemsFixingAMethod, TestItemsWithoutAFixedMethodAreProposedAsBefore, TestLiquidityForecastFixedMethod · walkthrough step 7 (method_order, step_payment) · docs/migration.md",
+      "t": "An item's fixed payment method honoured by payment runs, the platform's side (SAP specialist, po:2026-11-09, A4(c), to verify on the pilot system; product owner 2026-11-10; second part of the leaf on the payment method order, split once more): a supplier invoice or credit memo may fix its payment method (SAP BSEG-ZLSCH), an active method of its company, changed while parked and kept with its open item at posting. A proposal pays a supplier's items fixing a method in a payment of their own by that method, beside the payment of its items that fix none by the company's run order; a credit memo nets within its own group alone, and a group left in debit is excluded while the other is paid. A fixed method that cannot pay its items leaves them out of the run with the reason, never paid by another method: method_not_active, no_house_bank, and fixed_method_in_bank_run in a run proposed for one house bank, which pays by no method. The supplier's own methods do not restrict a fixed method (product owner 2026-11-10, as SAP's ZLSCH wins over ZWELS): an item fixing a method they lack is paid by it, and the first build's exclusion method_not_allowed is gone from the contract and the code. The liquidity forecast routes and nets such items the same way. Items that fix no method are proposed as before",
+      "r": "ADR-0038 Decision (amended), As built (an item's fixed payment method) · ADR-0051 §5 · 03-data-model §3.7, §3.10 · api/openapi.yaml: payment_method on SupplierInvoice, SupplierInvoiceCreate, SupplierInvoiceUpdate, OpenItem and PaymentExclusion, payment_method_source on Payment, two exclusion reasons (method_not_active, fixed_method_in_bank_run), 422 payables.unknown_payment_method · migrations 000253 (payables.supplier_invoice.payment_method, ledger.open_item_payment_method, payments.payment.method_fixed, payments.method_exclusion), 000254-000255 (payment_items_once_per_method, payment_items_once_unfixed), 000256 (checks validated), 000257 (payment_items_once dropped) · payables fixedMethod, Change.PaymentMethod · ledger.Posting.PaymentMethod, keepPaymentMethod, PayableItem.PaymentMethod · payments byMethod, router.fixed, router.items, proposal.excludeItems, dropped, dropPayment, CashPayable.FixedMethod · cash netting.method · TestFixedPaymentMethod (db, payables), TestFixedMethodKeptOnOpenItems, TestFixedMethodPaidApart, TestFixedMethodGroupsNetApart, TestFixedMethodThatCannotPay, TestFixedMethodPaymentDropped, TestRouteItemsFixingAMethod, TestItemsWithoutAFixedMethodAreProposedAsBefore, TestLiquidityForecastFixedMethod · walkthrough step 7 (method_order, step_payment) · docs/migration.md",
       "src": "split:T45b · po:2026-11-09 · po:2026-11-10",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
      },
      {
-      "s": "T",
-      "t": "A migrated open item's fixed payment method taken over from SAP (SAP specialist, po:2026-11-09, A4, to verify on the pilot system; the SAP side of the leaf on an item's fixed payment method, split from it): the extract carries ACDOCA/BSEG-ZLSCH on supplier open items, the quality gate refuses a method the company's active configuration lacks, as it refuses a vendor's unknown method, and the load keeps it with the migrated open item (ledger.Posting.PaymentMethod), so a payment run pays it by that method alone. Until then a migrated item that fixed a method in SAP is paid by the company's run order (docs/migration.md check list). Follows the trading-partner change of the ACDOCA load",
-      "r": "ADR-0038 As built (an item's fixed payment method, still open) · internal/sap (ZLSCH on open items), internal/integration (quality gate, load) · ledger.Posting.PaymentMethod · docs/migration.md",
+      "s": "D",
+      "t": "A migrated open item's fixed payment method taken over from SAP (SAP specialist, po:2026-11-09, A4, to verify on the pilot system; the SAP side of the leaf on an item's fixed payment method, split from it): the extract carries ACDOCA/BSEG-ZLSCH on supplier open items, the quality gate refuses a method the company's active configuration lacks, as it refuses a vendor's unknown method, and the load keeps it with the migrated open item (ledger.Posting.PaymentMethod), so a payment run pays it by that method alone. Built: an open ordinary vendor item's ZLSCH is kept with its open item in both modes, through a line's own method in the ledger's posting (the opening entry holds many vendors' items), whether or not the vendor's ZWELS lists it (po:2026-11-10); a cleared item's is ignored and one on an open special G/L item is not taken over, with a warning; an item loaded earlier keeps what it was loaded with; the reconciliation counts and sums the open items fixing each method on both sides. An OData extract carries none until the pilot's $metadata names the property",
+      "r": "ADR-0038 As built (a migrated item's fixed payment method) · internal/sap ACDOCA.ZLSCH, mock (foreignInvoice) · internal/integration fixedmethod.go (fixedMethods gate, loader.fixMethod, reconciler.fixedMethods) · ledger.PostingLine.PaymentMethod, keepLineMethods, Reports.OpenItemsByMethod · api/openapi.yaml descriptions (MigrationDiff key and values, OpenItem.payment_method) · TestLineMethodsKeptOnOpenItems, TestMigratedFixedPaymentMethod, TestMigratedFixedMethodRefused, TestFixedMethodsGate, TestFixedMethodsDiffer, TestFixedMethodsReadsFail · walkthrough step 3 (migrated_foreign_item) · docs/migration.md (reconciliation controls, what to check) · 03-data-model §3.7",
       "src": "split:T45b · po:2026-11-09 · po:2026-11-10",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []

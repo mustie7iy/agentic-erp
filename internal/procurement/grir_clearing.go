@@ -7,7 +7,9 @@ package procurement
 // accountant proposes clearing the order's open positions as they stand,
 // a controller approves (approvals.GRIRClearing; never the proposer), and
 // the approval posts a WE entry through ledger.Postings whose GR/IR lines
-// clear each position against the price difference account. The ledger
+// clear each position against the price difference account or, for an
+// order item that is an asset's, against its asset clearing account
+// (ADR-0057 §6 and As built B10 step 3; product owner 2026-11-10). The ledger
 // refuses the posting when a position moved since the proposal
 // (GRIRItem.Clears), so what posts is what was approved.
 
@@ -70,18 +72,22 @@ type GRIRClearing struct {
 
 // GRIRClearingItem is one order item's position a clearing clears, as it
 // stood when proposed: invoiced + cleared + migrated - received, and the balance in
-// the order's currency.
+// the order's currency; and the account it clears against, as shown when
+// proposed: the clearing's price difference account or, for an order item
+// that is an asset's, its asset clearing account (ADR-0057 §6; product
+// owner 2026-11-10).
 type GRIRClearingItem struct {
-	POItemNo    int32       `json:"po_item_no"`
-	Description string      `json:"description"`
-	Quantity    string      `json:"quantity"`
-	Unit        string      `json:"unit"`
-	Amount      money.Minor `json:"amount"`
+	POItemNo      int32             `json:"po_item_no"`
+	Description   string            `json:"description"`
+	Quantity      string            `json:"quantity"`
+	Unit          string            `json:"unit"`
+	Amount        money.Minor       `json:"amount"`
+	OffsetAccount ledger.AccountRef `json:"offset_account"`
 }
 
 // Total is the items' balances summed, and Gross their absolute values
 // summed: what the GR/IR account moves by, and what the clearing posts to
-// the price difference account. ok is false when either is out of range,
+// the accounts its items clear against. ok is false when either is out of range,
 // which the proposal refuses.
 func (c GRIRClearing) Total() (total, gross money.Minor, ok bool) {
 	amounts, absolute := make([]money.Minor, len(c.Items)), make([]money.Minor, len(c.Items))
@@ -112,7 +118,11 @@ type GRIRClearingInput struct {
 const clearingSelect = `SELECT c.id, c.purchase_order_id, o.document_number, c.legal_entity_id, c.status, c.reason, c.posting_date, c.currency, cur.exponent,
 		c.offset_account_id, c.offset_account_number, c.offset_account_name,
 		coalesce((SELECT json_agg(json_build_object('po_item_no', i.po_item_no, 'description', oi.description, 'quantity', trim_scale(i.quantity)::text,
-			'unit', i.uom_code, 'amount', i.amount) ORDER BY i.po_item_no)
+			'unit', i.uom_code, 'amount', i.amount,
+			-- an item without an account of its own clears against the clearing's (000264)
+			'offset_account', json_build_object('ID', coalesce(i.offset_account_id, c.offset_account_id),
+				'Number', coalesce(i.offset_account_number, c.offset_account_number), 'Name', coalesce(i.offset_account_name, c.offset_account_name)))
+			ORDER BY i.po_item_no)
 		 FROM procurement.gr_ir_clearing_item i
 		 JOIN procurement.purchase_order_item oi ON oi.tenant_id = i.tenant_id AND oi.purchase_order_id = c.purchase_order_id AND oi.item_no = i.po_item_no
 		 WHERE i.tenant_id = c.tenant_id AND i.gr_ir_clearing_id = c.id), '[]'),
@@ -227,7 +237,32 @@ func (e *Endpoints) proposeClearing(ctx context.Context, o PurchaseOrder, in GRI
 		return GRIRClearing{}, problem.Unprocessable("ledger.no_price_difference_account", "The legal entity has no price_difference account in its account determination.")
 	}
 	c.OffsetAccount = *g.PriceDifference
-	return c, nil
+	return c, e.clearingAccounts(ctx, o, &c)
+}
+
+// clearingAccounts gives each item of the proposed clearing the account
+// it clears against: the item's own account when that is an asset
+// clearing account of the company (the ledger's rule, ADR-0057 §6: what
+// was paid for an asset, or not paid after all, belongs to its cost),
+// else the clearing's price difference account.
+func (e *Endpoints) clearingAccounts(ctx context.Context, o PurchaseOrder, c *GRIRClearing) error {
+	byNo := map[int32]uuid.UUID{}
+	accounts := make([]uuid.UUID, 0, len(o.Items))
+	for _, it := range o.Items {
+		byNo[it.No] = it.AccountID
+		accounts = append(accounts, it.AccountID)
+	}
+	assets, err := e.Postings.AssetClearingAccounts(ctx, o.LegalEntityID, accounts)
+	if err != nil {
+		return err
+	}
+	for i, it := range c.Items {
+		c.Items[i].OffsetAccount = c.OffsetAccount
+		if a, ok := assets[byNo[it.POItemNo]]; ok {
+			c.Items[i].OffsetAccount = a
+		}
+	}
+	return nil
 }
 
 // openClearingRequest opens the clearing's gr_ir_clearing approval
@@ -255,12 +290,19 @@ func insertClearing(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c GRIRCl
 		return fmt.Errorf("procurement: insert GR/IR clearing of order %s: %w", c.PurchaseOrderID, err)
 	}
 	nos, qty, units, amounts := make([]int32, len(c.Items)), make([]string, len(c.Items)), make([]string, len(c.Items)), make([]money.Minor, len(c.Items))
+	// An item's account is kept only where it is not the clearing's.
+	ids, numbers, names := make([]*uuid.UUID, len(c.Items)), make([]*string, len(c.Items)), make([]*string, len(c.Items))
 	for i, it := range c.Items {
 		nos[i], qty[i], units[i], amounts[i] = it.POItemNo, it.Quantity, it.Unit, it.Amount
+		if a := it.OffsetAccount; a.ID != c.OffsetAccount.ID {
+			ids[i], numbers[i], names[i] = &a.ID, &a.Number, &a.Name
+		}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO procurement.gr_ir_clearing_item (tenant_id, gr_ir_clearing_id, po_item_no, quantity, uom_code, amount)
-		SELECT $1, $2, x.n, x.q::numeric, x.u, x.a FROM unnest($3::int[], $4::text[], $5::text[], $6::bigint[]) AS x(n, q, u, a)`,
-		p.TenantID, c.ID, nos, qty, units, amounts); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO procurement.gr_ir_clearing_item (tenant_id, gr_ir_clearing_id, po_item_no, quantity, uom_code, amount,
+			offset_account_id, offset_account_number, offset_account_name)
+		SELECT $1, $2, x.n, x.q::numeric, x.u, x.a, x.id, x.number, x.name
+		FROM unnest($3::int[], $4::text[], $5::text[], $6::bigint[], $7::uuid[], $8::text[], $9::text[]) AS x(n, q, u, a, id, number, name)`,
+		p.TenantID, c.ID, nos, qty, units, amounts, ids, numbers, names); err != nil {
 		return fmt.Errorf("procurement: insert the items of GR/IR clearing %s: %w", c.ID, err)
 	}
 	return nil
@@ -275,9 +317,9 @@ type GRIRClearings struct {
 }
 
 // Approved posts the clearing: a WE entry whose GR/IR line clears each
-// item's position against the price difference account, refused by the
-// ledger when a position moved since the proposal, which leaves the
-// request pending.
+// item's position against the account the clearing shows for it, refused
+// by the ledger when a position moved or that account is no longer the
+// one since the proposal, which leaves the request pending.
 func (h GRIRClearings) Approved(ctx context.Context, clearing, request uuid.UUID) error {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -307,8 +349,9 @@ func (h GRIRClearings) Approved(ctx context.Context, clearing, request uuid.UUID
 }
 
 // clearingPosting is the clearing's WE entry: one clearing item per
-// position, at the item's valuation price, with its cost center for the
-// price difference line.
+// position, at the item's valuation price, with its cost center for a
+// price difference line and its account, by which the ledger judges
+// again whether it is an asset's, against the account that was shown.
 func clearingPosting(c GRIRClearing, o PurchaseOrder) ledger.Posting {
 	byNo := map[int32]Item{}
 	for _, it := range o.Items {
@@ -322,8 +365,8 @@ func clearingPosting(c GRIRClearing, o PurchaseOrder) ledger.Posting {
 			price, unit = *oi.ValuationPrice, *oi.ValuationPriceUnit
 		}
 		items[i] = ledger.GRIRItem{PurchaseOrderID: c.PurchaseOrderID, POItemNo: it.POItemNo, Quantity: negated(it.Quantity), Unit: it.Unit,
-			UnitPrice: price, PriceUnit: unit, CostCenterID: oi.CostCenterID,
-			Clears: &ledger.GRIRClearing{Balance: it.Amount, Account: c.OffsetAccount.ID}}
+			UnitPrice: price, PriceUnit: unit, CostCenterID: oi.CostCenterID, ItemAccountID: &oi.AccountID,
+			Clears: &ledger.GRIRClearing{Balance: it.Amount, Account: it.OffsetAccount.ID}}
 	}
 	text := "GR/IR clearing of purchase order " + c.OrderNumber
 	return ledger.Posting{LegalEntityID: c.LegalEntityID, DocumentType: WEDocumentType, DocumentDate: c.PostingDate, PostingDate: c.PostingDate,

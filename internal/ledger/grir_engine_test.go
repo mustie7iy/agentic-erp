@@ -35,19 +35,31 @@ type price struct {
 
 func grirSetup(t *testing.T) grirEnv {
 	t.Helper()
+	g, _ := grirSetupWith(t, nil)
+	return g
+}
+
+// grirSetupWith is grirSetup with company 2000 of the document changed
+// first (nil: as it is), and that document, which the ledger is set up
+// from.
+func grirSetupWith(t *testing.T, change func(de *config.Company)) (grirEnv, *config.Config) {
+	t.Helper()
 	e := setup(t)
 	doc := withGRIR(t)
 	de := &doc.Companies[1]
 	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "480000", Name: "FX gains", Type: config.Revenue},
 		config.Account{Number: "690000", Name: "FX losses", Type: config.Expense})
 	de.AccountDetermination.FXGain, de.AccountDetermination.FXLoss = "480000", "690000"
+	if change != nil {
+		change(de)
+	}
 	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		return ledger.Setup{LegalEntities: tenancy.Directory{}}.Apply(ctx, doc)
 	}); err != nil {
 		t.Fatal(err)
 	}
 	id := func(number string) uuid.UUID { return uuid.MustParse(e.account(t, "2000", number)) }
-	return grirEnv{env: e, grir: id("219000"), diff: id("590000"), expense: id("520000"), ap: id("211000"), fxGain: id("480000"), fxLoss: id("690000")}
+	return grirEnv{env: e, grir: id("219000"), diff: id("590000"), expense: id("520000"), ap: id("211000"), fxGain: id("480000"), fxLoss: id("690000")}, doc
 }
 
 // receiptPosting is a goods movement of qty (signed like the GR/IR line:

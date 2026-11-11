@@ -799,18 +799,24 @@ type Handler interface {
 	// further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each
 	// open position of the order's items, or of the items named, as it stands now: its quantity and its
 	// balance, cleared against the legal entity's `price_difference` account (with the item's cost center
-	// when that is a primary cost account). It opens a `gr_ir_clearing` approval request (its `object_id`
-	// is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding
-	// `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the
-	// clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
+	// when that is a primary cost account) or, for an order item that is an asset's (its account is an
+	// asset clearing account of the company in the active configuration), against that asset clearing
+	// account: what was paid for an asset, or not paid after all, belongs to the asset's cost, not to
+	// profit or loss (ADR-0057 §6; product owner 2026-11-10), and the line waits there to be capitalised
+	// or taken off the asset as any line of that account (`GET /v1/asset-clearing-items`). Each item shows
+	// the account it clears against (`items[].offset_account`). It opens a `gr_ir_clearing` approval
+	// request (its `object_id` is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller
+	// holding `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved,
+	// the clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position,
 	// which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is
-	// published. The posting is checked again when it is approved: a position that moved since, or a price
-	// difference account that changed, refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the
-	// request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on
-	// `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409
-	// `procurement.invalid_status`) on an order valued through GR/IR with an open position (409
-	// `procurement.nothing_to_clear`); an item named without an open position is refused (422
-	// `procurement.invalid_item_no`). One pending clearing per order (409
+	// published. The posting is checked again when it is approved: a position that moved since, or an item
+	// whose account to clear against is no longer the one shown (the price difference account changed, or
+	// the item's account became or ceased to be an asset clearing account), refuses the approval (409
+	// `ledger.gr_ir_clearing_outdated`) and the request stays pending, to be rejected or withdrawn and
+	// proposed again; so does a period not open on `posting_date` (409 `ledger.period_not_open`). Requires
+	// status `closed` (409 `procurement.invalid_status`) on an order valued through GR/IR with an open
+	// position (409 `procurement.nothing_to_clear`); an item named without an open position is refused
+	// (422 `procurement.invalid_item_no`). One pending clearing per order (409
 	// `procurement.gr_ir_clearing_pending`). Human-only.
 	//
 	// POST /v1/purchase-orders/{id}/gr-ir-clearings
@@ -1358,40 +1364,56 @@ type Handler interface {
 	// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
 	// the price differences that supplier invoices and credit memos expensed on the company's price
 	// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
-	// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
-	// so an auditor can judge whether it is material. An order item is an asset's when its account is an
-	// asset clearing account of the company in the active configuration
-	// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
-	// the item's account as the order has it now decides, removed items included. Only orders valued
-	// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
-	// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
-	// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
-	// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
-	// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
-	// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
-	// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
-	// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
-	// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
-	// ledger records beside each price difference line since that record exists. `totals` sums every row,
-	// on every page. `unattributed` states what the rows cannot show: the amounts on the company's current
-	// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
-	// clear GR/IR for at least one asset order item, on lines that have no such record (postings made
-	// before the record existed, and the rounding residue a reversal clears). Such a line names no order
-	// item and its split between tax and price difference is unknown, so the amounts are not spread over
-	// the rows: where such an entry also invoices other order items, their price differences are in it
-	// too, of either sign. `expensed` is therefore the net of everything those lines posted and may
-	// overstate or understate what was expensed on assets; `debits` is the sum of the lines that are
-	// debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those
-	// that are credits (negative); `entries` counts the entries. All are zero when every such posting is
-	// recorded, and also when the company has no price difference account in its account determination
-	// now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings
-	// of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
-	// difference account (whether they count as expensed is not decided); an item whose price difference
-	// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
-	// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
-	// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
-	// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
-	// the caller cannot act in is 404. Reads only.
+	// cost. The report is history. An invoice, credit memo or subsequent debit or credit posted now on an
+	// asset's order item puts these amounts on the item's asset clearing account, beside the order price
+	// its receipt put there, to be capitalised onto the asset as any line of that account
+	// (`GET /v1/asset-clearing-items`, `POST /v1/asset-acquisitions`; product owner 2026-11-10): they are
+	// part of the asset's cost, not expenses, and do not appear here. A GR/IR clearing of such an item
+	// likewise clears against the asset clearing account now. The report shows what postings made before
+	// that change expensed, and what a replica not yet upgraded posted while the change was rolled out, so
+	// an auditor can judge whether it is material. Nothing is reposted or corrected automatically:
+	// correcting an earlier posting is a journal entry the accountants decide from this report. An order
+	// item is an asset's when its account is an asset clearing account of the company in the active
+	// configuration (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is
+	// received on; the item's account as the order has it now decides, removed items included. Only orders
+	// valued through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's
+	// own line and is capitalised with it. `items` has one row per such order item with a recorded
+	// posting, or a GR/IR clearing in profit or loss, in the year, ordered and paged by order number and
+	// item: `tax_not_recovered` (the input tax the item bore: a non-deductible component's tax and the
+	// part of a component's tax not recovered, with the share of a difference to the supplier's stated tax
+	// that is a cost, which goes on its code's first item), `price_difference` (what the invoiced amount
+	// differed from the order price of the invoiced quantity; a subsequent debit or credit whole) and
+	// `expensed`, their sum, the amount on the price difference account; and, as a figure of its own that
+	// `expensed` does not include, `gr_ir_cleared`: what GR/IR clearings of the item
+	// (`POST /v1/purchase-orders/{id}/gr-ir-clearings`, SAP MR11) put in profit or loss, negative where
+	// goods received were never invoiced (a credit to profit or loss for an asset that cost that much
+	// less), positive where an invoice was never received for. A clearing posted now clears an asset's
+	// order item against its asset clearing account and adds nothing here; this figure is what clearings
+	// posted before did. It is exact per order item: a clearing's line names its order item, so nothing of
+	// a clearing is unattributed, and a clearing has no split into tax and price difference (it clears a
+	// balance, not an invoice). Credit memos, subsequent credits and reversals count negative; a posting
+	// counts in the fiscal year it was posted in. These amounts are exact, as posted: they are read from
+	// what the ledger records beside each price difference line since that record exists. `totals` sums
+	// every row, on every page. `unattributed` states what the rows cannot show: the amounts on the
+	// company's current price difference account, in the year, of invoice and credit memo entries (and
+	// their reversals) that clear GR/IR for at least one asset order item, on lines that have no such
+	// record (postings made before the record existed, and the rounding residue a reversal clears). Such a
+	// line names no order item and its split between tax and price difference is unknown, so the amounts
+	// are not spread over the rows: where such an entry also invoices other order items, their price
+	// differences are in it too, of either sign. `expensed` is therefore the net of everything those lines
+	// posted and may overstate or understate what was expensed on assets; `debits` is the sum of the lines
+	// that are debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of
+	// those that are credits (negative); `entries` counts the entries. All are zero when every such
+	// posting is recorded, and also when the company has no price difference account in its account
+	// determination now; lines an earlier price difference account took are not read. Not in the report,
+	// and not attributable from this ledger's data: clearings of GR/IR positions made in a source system
+	// before migration (the migrated documents do not say which were clearings); manual entries on the
+	// price difference account, which name no order item; and an item whose price difference and tax
+	// cancelled exactly, which posted nothing there. Amounts are in the company's local currency
+	// (`currency`), each line at its entry's rate, debit positive (an expense). A fiscal year that is not
+	// set up is 422 `ledger.no_fiscal_period`. Read from one database state (a repeatable-read snapshot),
+	// so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
+	// 404. Reads only.
 	//
 	// GET /v1/asset-order-expenses
 	GetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (GetAssetOrderExpensesRes, error)

@@ -950,7 +950,10 @@ Rules enforced in the database:
     what is left and values the rest at the posting's rates;
   - a goods movement's other line, on the order item's account, mirrors the
     GR/IR line in all three currencies; an invoice item's net amount less
-    the GR/IR line is its price difference, on `price_difference`, and what
+    the GR/IR line is its price difference, on `price_difference` or, for
+    an order item on an asset clearing account of the company (an
+    asset's, ADR-0057 §6 and As built B10 step 3), on that account, as
+    part of the asset's cost, without a cost center; and what
     the GR/IR line's local and group amounts leave is an exchange
     difference on `fx_gain` / `fx_loss`;
   - the position is read from the lines on the GR/IR account only; a
@@ -979,9 +982,11 @@ Rules enforced in the database:
   reads clearings from the same record. Its items (`GRIRItem.Clears`)
   bring each position to zero against `price_difference` (with the item's
   cost center when that is a primary cost account, as an invoice's price
-  difference), and are refused (409 `ledger.gr_ir_clearing_outdated`)
+  difference) or, for an asset's order item (`GRIRItem.ItemAccountID` an
+  asset clearing account, ADR-0057 As built B10 step 3), against that
+  account, and are refused (409 `ledger.gr_ir_clearing_outdated`)
   unless the position still holds the quantity and transaction balance,
-  and `price_difference` is still the account, that were approved. A
+  and the item still clears against the account, that were approved. A
   clearing entry is procurement's (WE), so the ledger's `:reverse`
   refuses it; no path reverses one yet.
   A migration run takes the GR/IR positions SAP holds open over (T72f,
@@ -1019,7 +1024,8 @@ Rules enforced in the database:
   position is zero in every currency once its quantities agree.
 - `price_difference_item` (insert-only, migration 000263; B10,
   po:2026-11-10; ADR-0057 As built) records, beside an invoiced order
-  item's line on `price_difference`, the order item it belongs to
+  item's difference line (on `price_difference` or, for an asset's item,
+  on its asset clearing account), the order item it belongs to
   (`purchase_order_id`, `po_item_no`; the line itself names none, since a
   line's order item marks a GR/IR line) and the input tax borne in it
   (`tax_borne_tc`, `tax_borne_lc` at the entry's rate, debit positive as
@@ -1170,7 +1176,10 @@ It keeps the payment method its document fixed, when it fixed one
 (`open_item_payment_method`, migration 000253; ADR-0038 As built, an
 item's fixed payment method; SAP BSEG-ZLSCH): one row per supplier open
 item of the entry, insert-only, the code as the payables context checked
-it against the company's active methods. A payment run pays such an item
+it against the company's active methods; a migration run keeps the method
+SAP fixed on an open vendor item the same way, per line, checked by its
+quality gate (ADR-0038 As built, a migrated item's fixed payment method).
+A payment run pays such an item
 by that method alone; `GET /v1/open-items` shows it (`payment_method`).
 
 It keeps its supplier's withholding taxes too (`open_item_withholding`,
@@ -1625,7 +1634,11 @@ make agree. `POST /v1/purchase-orders/{id}/gr-ir-clearings` (permission
 `procurement.gr_ir.clear`, human-only) takes each open position of the
 order's items, or of the items named, as it stands (`gr_ir_clearing_item`,
 insert-only: the position's quantity, invoiced plus cleared less received,
-and its balance in the order's currency), with the legal entity's
+and its balance in the order's currency; and, since migration 000264,
+the account the item clears against where that is not the clearing's
+own: an asset's order item's asset clearing account, nullable
+`offset_account_id`, `_number`, `_name`, named whole or not at all),
+with the legal entity's
 `price_difference` account as shown then (id, number, name), and opens a
 `gr_ir_clearing` approval request, whose object is the clearing (`GET
 /v1/gr-ir-clearings/{id}`; the order's are listed under it), which a controller holding
@@ -2424,10 +2437,11 @@ each fixed method's items a payment of their own by that method
 alone. One items payment per run and supplier for the items that fix none
 (`payment_items_once_unfixed`) and one per fixed method
 (`payment_items_once_per_method`) replace `payment_items_once`
-(000254-000257). A group whose fixed method cannot pay it (not an active
-method of the company, not among the supplier's methods, no ranked house
-bank, or a run proposed for one house bank, which pays by no method) is
-left out with the reason, as is one a release drops, in
+(000254-000257). A fixed method need not be among the supplier's methods,
+which restrict the run order alone (product owner 2026-11-10). A group
+whose fixed method cannot pay it (not an active method of the company, no
+ranked house bank, or a run proposed for one house bank, which pays by no
+method) is left out with the reason, as is one a release drops, in
 `payments.method_exclusion` (one row per run, supplier and method),
 beside `payment_exclusion`, which keeps the supplier's items that fix
 none; a payment counts as dropped when its own group has an exclusion.

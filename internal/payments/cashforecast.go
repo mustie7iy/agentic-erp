@@ -45,8 +45,8 @@ type CashPayable struct {
 	// supplier may be paid by, and that method, as a run proposed without
 	// a house bank routes it; "" when none fits. An item that fixes its
 	// payment method (PayableItem.PaymentMethod) takes that method and
-	// the bank ranked for it, or neither when the method cannot pay it
-	// (router.fixed).
+	// the bank ranked for it, whatever its supplier's own methods, or
+	// neither when the method cannot pay it (router.fixed).
 	HouseBankCode, Method string
 	// PlanningGroup is its supplier's planning group in the legal entity,
 	// "" for none (ADR-0051 §4, T53e3).
