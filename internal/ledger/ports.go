@@ -44,6 +44,15 @@ type PostingLine struct {
 	Quantity, Unit *string
 	Text           *string
 	SpecialGL      *string // A for a down payment on the down payment account (ADR-0037)
+	// PaymentMethod is the payment method this line's supplier open item
+	// fixes, where the entry's items do not share one: a migration's
+	// opening entry holds the open items of many suppliers, each with the
+	// method SAP fixed on it or none (ADR-0038 As built, a migrated item's
+	// fixed payment method). Only on an ordinary line of a supplier
+	// reconciliation account, in an entry without Posting.PaymentMethod
+	// and without GR/IR items, whose lines the ledger numbers
+	// (keepLineMethods). nil: the entry's, if it fixes one.
+	PaymentMethod *string
 	// LC is the line's local amount when it is not the posting date's
 	// conversion: a tax line's, converted at the rate of the tax date
 	// (ADR-0049 §8). Its group amount is the local one converted at the
@@ -440,7 +449,7 @@ func keepItemData(ctx context.Context, tx pgx.Tx, entry Entry, in Posting) error
 	if err := keepTerms(ctx, tx, entry, in.Terms); err != nil {
 		return err
 	}
-	if err := keepPaymentMethod(ctx, tx, entry, in.PaymentMethod); err != nil {
+	if err := keepPaymentMethods(ctx, tx, entry, in); err != nil {
 		return err
 	}
 	return keepWithholding(ctx, tx, entry, in.Withholding)

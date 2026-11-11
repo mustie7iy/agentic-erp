@@ -380,6 +380,48 @@ func (Reports) OpenForeignItems(ctx context.Context, legalEntity uuid.UUID, fisc
 	return out, nil
 }
 
+// FixedMethodItems are open supplier items that fix one payment method:
+// how many, and their sum in local currency.
+type FixedMethodItems struct {
+	Count int
+	LC    money.Minor
+}
+
+// OpenItemsByMethod sums and counts the legal entity's open supplier
+// items of the fiscal year that fix a payment method (ADR-0038 As built),
+// in local currency per partner and method, in the leading ledger: what a
+// migration run took over of the methods SAP fixed on its open items,
+// which the open payables cannot tell from items loaded without one.
+func (Reports) OpenItemsByMethod(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]map[string]FixedMethodItems, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.partner_id, pm.payment_method, count(*), sum(l.amount_lc) FROM ledger.journal_line l
+		JOIN ledger.open_item_payment_method pm ON pm.tenant_id = l.tenant_id AND pm.fiscal_year = l.fiscal_year
+			AND pm.journal_entry_id = l.journal_entry_id AND pm.line_no = l.line_no
+		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
+		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2
+			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
+				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
+		GROUP BY l.partner_id, pm.payment_method`, legalEntity, fiscalYear)
+	out := map[uuid.UUID]map[string]FixedMethodItems{}
+	var partner uuid.UUID
+	var method string
+	var items FixedMethodItems
+	_, err = pgx.ForEachRow(rows, []any{&partner, &method, &items.Count, &items.LC}, func() error {
+		if out[partner] == nil {
+			out[partner] = map[string]FixedMethodItems{}
+		}
+		out[partner][method] = items
+		return nil
+	})
+	if err != nil {
+		return out, fmt.Errorf("ledger: open supplier items of %s %d by fixed payment method: %w", legalEntity, fiscalYear, err)
+	}
+	return out, nil
+}
+
 // OpenGRIR is an order item's open GR/IR position as the migration
 // reconciliation compares it: its quantity, invoiced + cleared + migrated -
 // received, its balance in local currency, and in its transaction

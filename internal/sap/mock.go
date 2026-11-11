@@ -43,7 +43,8 @@ import (
 // through GR/IR, received and not yet invoiced: an open credit on its GR/IR
 // account 0000219100 (T030 WRX) naming the order item (T72f), and an
 // invoice in USD it has not paid, an open item in a foreign document
-// currency (foreignInvoice), and an order in USD it valued through GR/IR,
+// currency that fixes its payment method (foreignInvoice), and an order in
+// USD it valued through GR/IR,
 // received and not yet invoiced, an open GR/IR position in that currency
 // (receivedInUSD). Its other orders' receipts post nothing to SAP's
 // journal, as 1000's and 2000's do. It alone has controlling master data
@@ -310,6 +311,7 @@ type fiLine struct {
 	mwskz  string // tax code
 	ebeln  string // purchase order and item of a line on an order's account or GR/IR
 	ebelp  string
+	zlsch  string // the payment method a vendor line fixes
 	// document is the line's amount in a foreign document currency
 	// (fiDocIn); a document in its company's currency has amount there.
 	document money.Minor
@@ -336,6 +338,7 @@ func (g *mockGen) fiDocIn(cc, currency, budat, blart, xblnr string, lines []fiLi
 			RLDNR: "0L", RBUKRS: cc, GJAHR: g.gj, BELNR: belnr, DOCLN: fmt.Sprintf("%06d", i+1),
 			RACCT: l.acct, HSL: l.amount.Plain(mockDecimals), BUDAT: budat, BLART: blart, LIFNR: l.vendor, XBLNR: xblnr,
 			UMSKZ: l.umskz, MWSKZ: l.mwskz, EBELN: l.ebeln, EBELP: l.ebelp, RWCUR: currency, WSL: l.document.Plain(mockDecimals),
+			ZLSCH: l.zlsch,
 		})
 	}
 	if total != 0 || totalDocument != 0 {
@@ -661,14 +664,15 @@ func (g *mockGen) receivedNotInvoiced(cc string) {
 // 15 June and did not pay: USD 1,000.00 of office supplies from Tyrell
 // Office Products (0000100011, one of 1000's vendors that 3000 buys from
 // too), worth CAD 1,350.00 at 1.35, an open item in its document currency
-// (ACDOCA RWCUR and WSL beside HSL, ADR-0005 As built). It draws nothing
+// (ACDOCA RWCUR and WSL beside HSL, ADR-0005 As built), which fixes its
+// payment method, bank transfer (ZLSCH; ADR-0038 As built). It draws nothing
 // from the generator and comes after the company's documents, so the rest
 // of the extract is the same as without it.
 func (g *mockGen) foreignInvoice(cc string) {
 	const vendor, account = "0000100011", "0000520000"
 	g.fiDocIn(cc, "USD", g.date(6, 15), "RE", "TY-USD-1", []fiLine{
 		{acct: account, amount: 135000, document: 100000},
-		{acct: "0000211000", amount: -135000, document: -100000, vendor: vendor},
+		{acct: "0000211000", amount: -135000, document: -100000, vendor: vendor, zlsch: transfer},
 	})
 }
 
