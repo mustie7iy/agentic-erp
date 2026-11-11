@@ -102,9 +102,9 @@ func TestMigratedLineCentersValidated(t *testing.T) {
 	x := centersTiny()
 	x.ACDOCA = append(x.ACDOCA,
 		sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000003", DOCLN: "000001", RACCT: "0000520000", HSL: "10.00", BUDAT: "20261005",
-			BLART: "SA", RCNTR: "C2", PRCTR: "P1", SEGMENT: "SEG1"},
+			BLART: "SA", KOKRS: "A1", RCNTR: "C2", PRCTR: "P1", SEGMENT: "SEG1"},
 		sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: "0100000003", DOCLN: "000002", RACCT: "0000100000", HSL: "-10.00", BUDAT: "20261005",
-			BLART: "SA"})
+			BLART: "SA", KOKRS: "A1"})
 	write(t, e.dir, "locked.json", x)
 	_, got := e.act(t, e.run(t, e.connector(t, "locked.json"), "documents", false, e.DE.String()), "start")
 	if got["status"] != "failed" {

@@ -435,7 +435,7 @@ start() {
   say "Not built yet, so not shown:"
   say "  - the web screens: only the workspace skeleton exists, sign-in comes with T73b, the screens with T73c-T73m"
   say "  - the FPZ-500 for a Quebec registrant (the GST34's lines are signed off in Canada $CA_PACK, the UAE VAT 201"
-  say "    in UAE pack 2026.4, which step 41 files): step 11 prepares,"
+  say "    in UAE pack 2026.5, which step 41 files): step 11 prepares,"
   say "    approves and files the GST/HST returns in order with the pack's lines, the tax agent explaining the draft and"
   say "    proposing an adjustment entry and a tax code correction before Carla prepares it"
   say "  - the liquidity forecast's SAP migration (T53k): step 13 shows the"
@@ -688,9 +688,10 @@ step_tenant() {
   grep "\[error\] companies\[$CC\]\.time_zone: time zone is required" "$WORK/generate.out" | sed 's/^ */     /'
   say "The company does business in Eastern Time: its business dates (today in its cash position) are in"
   say "America/Toronto, given as the draft is generated (T72n1)."
-  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -out config.yaml
+  say "The cutover date (-cutover) picks each account's cost element from SAP's CSKB slice valid then (A12(d))."
+  show erp config generate -source file:data/extract.json -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" -cutover "$YEAR-01-01" -out config.yaml
   if "$ERP" config generate -source "file:$WORK/data/extract.json" -company "$CC" -year "$YEAR" -time-zone "$CC=America/Toronto" \
-    -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
+    -cutover "$YEAR-01-01" -out "$WORK/config.yaml" >"$WORK/generate.out" 2>&1; then
     fail "a draft with a USD house bank whose account is not revalued validated"
   fi
   say "SAP's house banks (T012K) are Canadian: no IBAN, each account by institution, transit and account number,"
@@ -963,7 +964,8 @@ migrated_centers() {
     listCostCenters -p "legal_entity_id=$LE"
   expect "the migrated cost centers" "$(field '[.items[] | .code] | sort | join(" ")')" "3100 3120 3200 3300"
   expect "cost center 3100's name, its English text (CSKT)" "$(field '.items[] | select(.code == "3100") | .name')" Finance
-  local cc3120 pc3200
+  local cc3100 cc3120 pc3200
+  cc3100=$(field '.items[] | select(.code == "3100") | .id')
   cc3120=$(field '.items[] | select(.code == "3120") | .id')
   api 200 '"cost center \(.code): \([.periods[] | "\(.valid_from)..\(.valid_to // "") profit center \(.profit_center_id | .[0:8])..."] | join(", "))"' getCostCenter -p "id=$cc3120"
   QUIET=1 api 200 '' listProfitCenters -p code=P3200
@@ -974,7 +976,7 @@ migrated_centers() {
   api 200 '.items[] | "center change \(.kind): \(.status), approval request \(.workflow_request_id // "none"); \(.reason)"' \
     listCenterChanges -p "cost_center_id=$cc3120"
   expect "the migrated cost center's change" "$(field '.items[0] | "\(.kind) \(.status) \(.workflow_request_id // "none")"')" "create applied none"
-  migrated_groups "$cc3120" "$pc3200"
+  migrated_groups "$cc3120" "$pc3200" "$cc3100"
   as ada
 }
 
@@ -1011,31 +1013,37 @@ migrated_line_centers() {
   as ada
 }
 
-# migrated_groups CC3120 PC3200 shows SAP's cost and profit center groups
-# as the load brought them over (ADR-0050 §10, T56h2): the standard
+# migrated_groups CC3120 PC3200 CC3100 shows SAP's cost and profit center
+# groups as the load brought them over (ADR-0050 §10, T56h2): the standard
 # hierarchy H1000 of the controlling area (TKA01-KHINR) and the profit
 # centers' PH1000 below the standard hierarchies' root, each center
-# created at its leaf, the ranges of the groups' values expanded against
-# SAP's centers (3100 to 3199 holds 3100 and 3120), and the alternative
-# hierarchy REGIONS, whose Quebec takes 3100 to 3299 without 3100 and
-# 3300, with 3120 and 3200 in it.
+# created at its group, the ranges of the groups' values expanded against
+# SAP's centers (3101 to 3199 holds 3120), 3100 at Canada H3000, a group
+# holding it beside its subgroups (the SAP specialist's A10(d)), and the
+# alternative hierarchy REGIONS, whose Quebec takes 3100 to 3299 without
+# 3100 and 3300, with 3120 and 3200 in it.
 migrated_groups() {
   say "SAP's cost and profit center groups came over too (sets 0101 and 0106: SETHEADER, SETNODE, SETLEAF; T56h2):"
   say "the controlling area's standard hierarchy (TKA01-KHINR) and the profit centers' below the standard hierarchies'"
   say "root, each node a change the run applied, and the groups no group includes as alternative hierarchies."
   jq -r '.TKA01[] | "     TKA01 \(.KOKRS): standard hierarchy \(.KHINR)"' "$WORK/data/extract.json"
-  jq -r '.SETLEAF[] | select(.SETNAME == "H3100" or .SETNAME == "QC")
+  jq -r '.SETLEAF[] | select(.SETNAME == "H3000" or .SETNAME == "H3100" or .SETNAME == "QC")
     | "     SETLEAF \(.SETCLASS)/\(.SETNAME): \(if .VALSIGN == "I" then "include" else "exclude" end) \(.VALFROM)\(if .VALOPTION == "BT" then " to \(.VALTO)" else "" end)"' \
     "$WORK/data/extract.json"
   grep '^Loaded:' "$WORK/migrate.out" | sed 's/^/     /'
   expect "the groups loaded" "$(grep '^Loaded:' "$WORK/migrate.out" | sed 's/^Loaded: //' | jq -r '"\(.hierarchies) \(.hierarchy_nodes) \(.hierarchy_places)"')" "1 10 10"
-  say "A group's values are ranges, expanded against SAP's centers: H3100's 3100 to 3199 holds 3100 and 3120, and the"
-  say "alternative REGIONS' Quebec takes 3100 to 3299 without 3100 and 3300. Each center was created at its leaf:"
+  say "A group's values are ranges, expanded against SAP's centers: H3100's 3101 to 3199 holds 3120, and the"
+  say "alternative REGIONS' Quebec takes 3100 to 3299 without 3100 and 3300. Each center was created at its group:"
   api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3120"' listCostCenterPaths -p "id=$1"
   expect "3120's places" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | sort | join(" ")')" \
     "REGIONS:REGIONS/QC STANDARD:STANDARD/H1000/H3000/H3100"
   api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > P3200"' listProfitCenterPaths -p "id=$2"
   expect "P3200's place" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | join(" ")')" "STANDARD:STANDARD/PH1000/PH-QC"
+  say "SAP's Canada group H3000 holds cost center 3100 beside its subgroups H3100 and H3200 (KHINR and a value of H3000):"
+  say "a group may hold centers and subgroups alike (the SAP specialist's answer A10(d)), and so may the platform's node."
+  api 200 '.items[] | "\(.hierarchy_code): \([.nodes[].code] | join(" > ")) > 3100"' listCostCenterPaths -p "id=$3"
+  expect "3100's places" "$(field '[.items[] | "\(.hierarchy_code):\([.nodes[].code] | join("/"))"] | sort | join(" ")')" \
+    "REGIONS:REGIONS/ON STANDARD:STANDARD/H1000/H3000"
   QUIET=1 api 200 '' listHierarchies -p kind=cost_center -p code=REGIONS
   api 200 '"hierarchy \(.code) \(.name), standard: \(.is_standard)", (.nodes[] | "  \("  " * (.level - 1))\(.code) \(.name): \(.center_ids // [] | length) centers")' \
     getHierarchy -p "id=$(field '.items[0].id')"
@@ -1447,7 +1455,8 @@ step_pack() {
   version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
   expect "the latest Canada pack" "$version" "$CA_PACK"
   say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11, signed off by the tax specialist"
-  say "(Musto Ibrahim, 2026-11-09), so production applies it; 2026.6, the same pack unsigned, stays released."
+  say "(Musto Ibrahim, 2026-11-09), so production applies it. 2026.7 signed off 2026.6, which stays released unsigned;"
+  say "2026.8 is 2026.7 with the lines' labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
   expect "the latest Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
   say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
@@ -1603,15 +1612,16 @@ step_procure() {
 # order_document shows the released order's document for Tyrell (T72g,
 # ADR-0054): Maple's postal address of step 2 as the buyer's and the
 # address to deliver to, and Tyrell's street, which the migration took
-# from SAP's vendor master (LFA1 STRAS, ORT01, PSTLZ, REGIO; pending the
-# SAP specialist). Then Ben adds the address Tyrell takes orders at, which
-# the document prints instead of its legal one.
+# from SAP's central address (ADRC by LFA1-ADRNR, po:2026-11-09): the row
+# valid today, not the old address whose row ended in 2019. Then Ben adds
+# the address Tyrell takes orders at, which the document prints instead
+# of its legal one.
 order_document() {
   local number change utc_today want
   number=$(field .document_number)
   say "Ben fetches the order's document to send to Tyrell (by hand: email and EDI are post-pilot). It names Maple"
   say "with its configured postal address, delivers there, as no item names an address of its own, and prints"
-  say "Tyrell's street, which the migration took from SAP's vendor master (product owner 2026-11-04):"
+  say "Tyrell's street, which the migration took from SAP's central address, ADRC (product owner 2026-11-04):"
   api 200 '' getPurchaseOrderDocument -p "id=$PO"
   sed 's/^/     /' "$WORK/last.json"
   for want in "PURCHASE ORDER $number" "Payment terms: 2/10N30" "10 EA at 470.00 CAD per 1 EA" "Delivery date $DELIVERY" "Total 4700.00 CAD"; do
@@ -1625,6 +1635,7 @@ order_document() {
   [[ $doc == *$'Deliver to\n  Maple Industries Canada\n'"$maple"* ]] || fail "the order's document does not deliver to Maple's postal address"
   [[ $doc == *$')\n  2019 Tyrell Plaza\n  Los Angeles, CA, 90012\n  Country US\n\nDeliver to'* ]] ||
     fail "the order's document does not show Tyrell's street from SAP"
+  if grep -qF "Old Tyrell Road" "$WORK/last.json"; then fail "the order's document prints Tyrell's address of before 2020 from SAP"; fi
   # The item's own date is printed, not the requisition's: no item is left
   # to be delivered by it (ADR-0054 As built).
   if grep -qF "Needed by" "$WORK/last.json"; then fail "the order's document prints the requisition's date beside the item's own"; fi
@@ -2203,7 +2214,7 @@ step_tax() {
     "true Musto Ibrahim 2026-11-09"
   say "Canada pack 2026.4 brought the purchase codes for GST/HST, QST and PST (T62g), each with all its dated rates,"
   say "backed by the pack's sources; 2026.5 is the same pack signed off by the tax specialist (T62h), so production"
-  say "applies it. $CA_PACK brings the GST/HST return's lines (T61j), signed off too; step 2 applied it. Nova Scotia's HST:"
+  say "applies it. $CA_PACK carries the GST/HST return's lines (T61j), signed off too; step 2 applied it. Nova Scotia's HST:"
   api 200 '.items[0].document.companies[] | select(.code == "'"$CC"'") | .tax_codes[] | select(.code == "HNS") |
     "tax code \(.code) \(.description): \([.components[] | .key as $k | .account as $a | .rates[] | "\($k) \(.rate_percent)% from \(.valid_from)\(if .valid_to then " to \(.valid_to)" else "" end) to \($a)"] | join("; "))"' \
     listConfigVersions -p is_active=true
@@ -2312,6 +2323,7 @@ tax_return() {
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
   expect "line 103, GST/HST collected, and its earlier period's part" "$(field '.boxes[] | select(.code == "103") | "\(.amount.amount) \(.prior_period_amount.amount)"')" "60.00 10.00"
   expect "the lines in the pack's order" "$(field '[.boxes[].code] | join(" ")')" "101 103 104 105 106 107 108 109 110 111 112 113a 205 405 113b 113c 114 115"
+  expect "line 112's label, its sum signed off" "$(field '.boxes[] | select(.code == "112") | .label')" "Line 110 plus line 111 (a paper return's subtotal)"
   expect "lines 107 and 110, the adjustment parked and the instalment without its code" "$(field '[.boxes[] | select(.code == "107" or .code == "110") | .amount.amount] | join(" ")')" "0.00 0.00"
   local draft
   draft=$(jq -cS . "$WORK/last.json")
@@ -2621,7 +2633,7 @@ step_centers() {
   api 201 '"segment \(.code) \(.name)"' createSegment -body '{"code": "CA", "name": "Canada"}'
   local segment pch cch pc cc
   segment=$(field .id)
-  say "The migration (step 3) loaded SAP's groups below the standard hierarchies' root, its centers at their leaves"
+  say "The migration (step 3) loaded SAP's groups below the standard hierarchies' root, its centers at their groups"
   say "(T56h2); Sam builds the pilot's structure beside them."
   api 200 '.items[] | "hierarchy \(.kind) \(.code), standard: \(.is_standard)"' listHierarchies -p kind=profit_center -p is_standard=true
   pch=$(field '.items[0].id')
@@ -4158,8 +4170,9 @@ governed() {
 
 # step_uae is the UAE country pack (T62f, ADR-0048, ADR-0049 §6 As built):
 # Ada creates the UAE pilot company, proposes it in the configuration and
-# applies the UAE pack to it, 2026.4, signed off by the tax specialist, so
-# without a note (2026.3 brought the emirate guard: S5 accepts the seven
+# applies the UAE pack to it, 2026.5 (2026.4, signed off by the tax
+# specialist, with the box labels' markers dropped), so without a note
+# (2026.3 brought the emirate guard: S5 accepts the seven
 # emirates alone); Alex posts a UAE supplier's invoice above AED 10,000
 # and one below: the supplier has no TRN on file, so the first carries the
 # documentary warning of the pack's tier, no longer pending, and the
@@ -4177,9 +4190,10 @@ step_uae() {
   say "S5 accepts the seven emirates alone, their ISO codes confirmed by the tax specialist. 2026.4 is 2026.3 signed off"
   say "by the tax specialist, Musto Ibrahim, on 2026-11-09: the VAT codes, tax settings and the VAT 201 (the items of"
   say "packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so production applies it; the earlier versions stay unsigned."
+  say "2026.5 is 2026.4 with the VAT 201's box labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true"
-  expect "UAE 2026.4's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.4") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true"
+  expect "UAE 2026.5's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.5") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
   QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
@@ -4199,10 +4213,10 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest UAE pack, 2026.4, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest UAE pack, 2026.5, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
-    -body "{\"country\": \"AE\", \"version\": \"2026.4\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
+    -body "{\"country\": \"AE\", \"version\": \"2026.5\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
   cr=$(field .id)
   excerpt '.notes[] | "note \(.path): \(.message)"'
   expect "notes that the pack is not signed off" "$(field '[.notes[] | select(.path == "packs['"$AE"']" and (.message | contains("signed")))] | length')" 0
@@ -4282,7 +4296,7 @@ uae_return() {
   vat=$(field '.items[] | select(.number == "2300") | .id')
   input=$(field '.items[] | select(.number == "1300") | .id')
   say "Maple Gulf Trading's VAT is filed under its FTA registration (the number illustrative), its return the VAT 201"
-  say "that UAE pack 2026.4 defines; its first period is the latest quarter ended, the one it files now:"
+  say "that UAE pack 2026.5 defines; its first period is the latest quarter ended, the one it files now:"
   api 200 '.items[] | "registration \(.code): \(.authority), number ending \(.number_last4), return \(.return_type), \(.frequency) from \(.first_period_start), company \(.company_code)"' \
     listTaxRegistrations -p "legal_entity_id=$ae"
   expect "the UAE registration" "$(field '.items[0] | "\(.code) \(.return_type) \(.first_period_start)"')" "FTA_VAT VAT201 $(uae_first)"
@@ -4333,10 +4347,12 @@ uae_return() {
   as carla
   say "Carla computes the draft VAT 201 (ADR-0049 §11): each box sums the items the pack maps to it. The boxes are"
   say "ADR-0049's record of the FTA's guide through secondary summaries, signed off by the tax specialist with the pack"
-  say "(2026.4; packs/ae/TAX-PENDING-T61k.md); the labels still carry the markers of the unsigned version. Boxes not zero:"
+  say "(packs/ae/TAX-PENDING-T61k.md); 2026.5's labels carry no marker of the unsigned versions. Boxes not zero:"
   api 200 '"draft \(.return_type) of \(.registration_code), \(.period_start) to \(.period_end), \(.currency), pack \(.pack.country) \(.pack.version): \(.item_count) items", (.boxes[] | select(.amount.amount != "0.00") | "  \(.code) \(.amount.amount): \(.label)")' \
     getTaxReturnDraft -p "id=$registration" -p "period_start=$start"
-  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.4"
+  expect "the draft's pack" "$(field '"\(.pack.country) \(.pack.version)"')" "AE 2026.5"
+  expect "boxes 1b and 8's VAT labels, without a marker" "$(field '[.boxes[] | select(.code == "1b_vat" or .code == "8_vat") | .label] | join(" / ")')" \
+    "1b Standard-rated supplies in Dubai (AE-DU): VAT / 8 Totals: VAT, boxes 1a-1g, 2, 3, 6 and 7"
   expect "the boxes in the pack's order" "$(field '[.boxes[].code] | .[0:3] + .[-3:] | join(" ")')" "1a_amount 1a_vat 1a_adjustment 12 13 14"
   expect "boxes 1a and 1b, by emirate" "$(field '[.boxes[] | select(.code | test("^1[ab]_(amount|vat)$")) | .amount.amount] | join(" ")')" "4000.00 200.00 10000.00 500.00"
   expect "boxes 3, 4, 5 and 6" "$(field '[.boxes[] | select(.code | test("^[3-6]_")) | .amount.amount] | join(" ")')" "2000.00 100.00 3000.00 1500.00 10000.00 500.00"
@@ -5022,6 +5038,84 @@ year_end_sign_off() {
   say "An adjustment into period 13 of $PREV is refused now: the year is locked."
   refused 409 ledger.period_not_open postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$PREV-12-31\", \"posting_date\": \"$PREV-12-31\", \"fiscal_period\": 13, \"currency\": \"CAD\", \"header_text\": \"Audit fees after the sign-off\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 100000)\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+}
+
+# step_asset_estimate is the year-end review's change in estimate (T57j,
+# ADR-0057 §7; IAS 16.51, IAS 8.36-38): the lathe of step 22, booked
+# through this period in the leading ledger by step 29's run, gets a
+# shorter useful life and a residual value from the next period on.
+step_asset_estimate() {
+  heading "Step 44 — A change in estimate: the lathe's useful life and residual value changed from the next period on, the periods booked untouched"
+  as carla
+  say "At the year-end review Carla finds the lathe will last five years in all, not ten, and fetch CAD 500.00 at"
+  say "the end (IAS 16.51). Its depreciation is booked through this period in the leading ledger, so its terms there"
+  say "change only by a change in estimate, prospectively from a later period (IAS 8.36-38): the periods before keep"
+  say "what was planned and booked, and from the next period the net book value then is spread over the life left."
+  local lathe period year next tag from
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  lathe=$(field '[.items[] | select(.description == "CNC lathe") | .id][0]')
+  api 200 '(.terms[] | "  \(.ledger_code): \(.method) over \(.useful_life_months) months, residual value \(.residual_value.amount) \(.residual_value.currency), booked through \(.booked_through_year // "-")/\(.booked_through_period // "-")")' \
+    getAsset -p "id=$lathe"
+  tag=$ETAG
+  year=$(field '.terms[] | select(.ledger_code == "0L") | .booked_through_year')
+  period=$(field '.terms[] | select(.ledger_code == "0L") | .booked_through_period')
+  expect "the lathe booked through this period" "$year/$period" "$YEAR/$((10#${TODAY:5:2}))"
+  if [ "$period" -lt 12 ]; then next="$year, \"period\": $((period + 1))"; else next="$((year + 1)), \"period\": 1"; fi
+  estimate_body() { echo "{\"terms\": [{\"ledger_id\": \"$LEADING\", \"useful_life_months\": 60, \"residual_value\": {\"amount\": \"500.00\", \"currency\": \"CAD\"}$1}]}"; }
+  say "A change of the booked terms without the period it applies from is refused, and so is one from this period:"
+  refused 409 assets.terms_in_use updateAsset -p "id=$lathe" -if-match "$tag" -body "$(estimate_body '')"
+  # The member is built first: inside $(...), a {a, b} argument is brace-expanded.
+  from=", \"effective_from\": {\"fiscal_year\": $year, \"period\": $period}"
+  refused 422 assets.change_not_prospective updateAsset -p "id=$lathe" -if-match "$tag" -body "$(estimate_body "$from")"
+  api 200 '(.terms[] | select(.ledger_code == "0L") | "  \(.ledger_code): \(.method) over \(.useful_life_months) months, residual value \(.residual_value.amount) \(.residual_value.currency)",
+    (.estimate_changes[] | "    changed from \(.fiscal_year)/\(.period) (\(.effective_from)): was \(.before.useful_life_months) months, residual \(.before.residual_value.amount)"))' \
+    updateAsset -p "id=$lathe" -if-match "$tag" -body "$(from=", \"effective_from\": {\"fiscal_year\": $next}"; estimate_body "$from")"
+  expect "the change" "$(field '.terms[] | select(.ledger_code == "0L") | .estimate_changes | map("\(.before.useful_life_months)>\(.useful_life_months) \(.residual_value.amount)") | join(" ")')" "120>60 500.00"
+  say "The schedule: this period keeps its 41.67, booked; the next one depreciates the net book value then, 4,958.33,"
+  say "less the residual value over the 59 periods left of 60: (4,958.33 - 500.00) / 59 = 75.56."
+  QUIET=1 api 200 '' getAssetSchedule -p "id=$lathe" -p "fiscal_year=$YEAR"
+  expect "this period, planned and booked" "$(field ".periods[] | select(.period == $period) | \"\(.planned.amount) \(.booked.amount)\"")" "41.67 41.67"
+  api 200 '.periods[] | select(.planned.amount != "0.00") | "  \(.fiscal_year)/\(.period): planned \(.planned.amount), booked \(.booked.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
+    getAssetSchedule -p "id=$lathe" -p "fiscal_year=${next%%,*}"
+  expect "the next period" "$(field ".periods[] | select(.period == ${next##* }) | .planned.amount")" 75.56
+  passed
+}
+
+# step_asset_held_for_sale is depreciation stopped at classification as
+# held for sale, and a transfer's receiver depreciating the transfer's
+# month (T57k, ADR-0057 §7; IAS 16.55, IFRS 5.25): the tool set step 32
+# split off the milling machine this period depreciates this period, and
+# the milling machine, to be sold, is classified as held for sale in the
+# leading ledger from the next period.
+step_asset_held_for_sale() {
+  heading "Step 45 — Held for sale: the milling machine's depreciation stops from the next period; the tool set split off it depreciates this period"
+  as carla
+  say "The monthly convention counts a period in full from its start (ADR-0057 §7). The tool set of step 32 received a"
+  say "quarter of the milling machine this period, which the machine's share no longer depreciates in; the tool set"
+  say "depreciates it, so no month is lost:"
+  local tool mill period year tag next
+  QUIET=1 api 200 '' listAssets -p "legal_entity_id=$LE" -p status=active
+  tool=$(field '[.items[] | select(.description == "Milling tool set") | .id][0]')
+  mill=$(field '[.items[] | select(.description == "CNC milling machine") | .id][0]')
+  period=$((10#${TODAY:5:2}))
+  api 200 '.periods[] | select(.period == '"$period"') | "  the tool set, \(.fiscal_year)/\(.period): planned \(.planned.amount) \(.net_book_value.currency)"' \
+    getAssetSchedule -p "id=$tool" -p "fiscal_year=$YEAR"
+  expect "the tool set depreciates the transfer's period" "$(field ".periods[] | select(.period == $period) | .planned.amount != \"0.00\"")" true
+  say "Maple decides to sell the milling machine; it meets IFRS 5's criteria from the next period, so Carla classifies it"
+  say "as held for sale in the leading ledger from then: its runs depreciate it no more (IAS 16.55)."
+  if [ "$period" -lt 12 ]; then year=$YEAR; next=$((period + 1)); else year=$((YEAR + 1)); next=1; fi
+  api 200 '(.terms[] | "  \(.ledger_code): booked through \(.booked_through_year // "-")/\(.booked_through_period // "-"), held for sale \(.held_for_sale.from // "no")")' getAsset -p "id=$mill"
+  tag=$ETAG
+  say "A period already booked is refused:"
+  refused 422 assets.change_not_prospective updateAsset -p "id=$mill" -if-match "$tag" \
+    -body "{\"terms\": [{\"ledger_id\": \"$LEADING\", \"held_for_sale_from\": {\"fiscal_year\": $(field '.terms[] | select(.ledger_code == "0L") | .booked_through_year'), \"period\": $(field '.terms[] | select(.ledger_code == "0L") | .booked_through_period')}}]}"
+  api 200 '(.terms[] | "  \(.ledger_code): held for sale \(if .held_for_sale then "from \(.held_for_sale.fiscal_year)/\(.held_for_sale.period) (\(.held_for_sale.from))" else "no" end)")' \
+    updateAsset -p "id=$mill" -if-match "$tag" -body "{\"terms\": [{\"ledger_id\": \"$LEADING\", \"held_for_sale_from\": {\"fiscal_year\": $year, \"period\": $next}}]}"
+  expect "the classification" "$(field '.terms[] | select(.ledger_code == "0L") | "\(.held_for_sale.fiscal_year)/\(.held_for_sale.period)"')" "$year/$next"
+  api 200 '.periods[] | select(.period == '"$next"') | "  the machine, \(.fiscal_year)/\(.period): planned \(.planned.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
+    getAssetSchedule -p "id=$mill" -p "fiscal_year=$year"
+  expect "no depreciation from the next period" "$(field ".periods[] | select(.period == $next) | .planned.amount")" 0.00
+  passed
 }
 
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -6920,7 +7014,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_close'
 
 main() {
   stop_unseen

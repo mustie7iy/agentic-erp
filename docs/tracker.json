@@ -895,9 +895,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Canadian bank keys in the paper form TTTTT-III accepted (SAP specialist, po:2026-11-09, A6 [M], to verify on the pilot system): legacy SAP data holds the MICR form, transit and institution with a hyphen (12345-001), beside the electronic routing form; the extract converts it without guessing (12345-001 becomes 000112345) for vendor accounts (LFBK) and house banks (T012-BANKL), and ambiguous forms such as eight digits without the leading zero stay refused by the quality gate; LFBK-BANKL and BNKA-BANKL of bank country CA profiled before the load",
-        "r": "internal/sap · cabank.SplitMemberID · integration quality gate (LFBK) · delivery/sapconfig (house banks) · ADR-0038 As built (T72d, answered) · docs/migration.md",
+        "r": "internal/platform/cabank SplitBankKey (the paper form only as five digits, a hyphen and three) · integration supplierBank, quality gate (LFBK) · delivery/sapconfig canadianAccount (house banks) · mock Prairie Freight in the paper form · TestSplitBankKey, TestCanadianHouseBank · ADR-0038 As built (T72d, built in sapvend) · docs/migration.md (profile LFBK-BANKL and BNKA-BANKL before the load)",
         "src": "po:2026-11-09",
         "c": []
        },
@@ -1261,16 +1261,16 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Depreciation stopped at held-for-sale classification, and a transfer's receiving asset depreciating the transfer's month (accounting specialist, po:2026-11-09, B11; IAS 16.55, IFRS 5, IAS 8.8): the monthly convention is accepted; to add: classifying an asset as held for sale from a period, after which runs no longer depreciate it (depreciation ceases at the earlier of that classification and derecognition), and a test that the receiver of an asset transfer depreciates the month the sender gives up, so no month is lost",
-        "r": "ADR-0057 §7 Periods, §8 (answered)",
+        "r": "T57k · migration 000250 (asset_terms.held_for_sale_*, asset_terms_held_for_sale, asset_terms_held_for_sale_prospective) · internal/assets (Plan.Stop in the walk; estimate.go heldForSale, stopsProspectively, writeHeldForSale) · PATCH /v1/assets/{id} terms[].held_for_sale_from, AssetTerms.held_for_sale, AssetSchedule.held_for_sale · TestHeldForSale, TestTransferReceiverDepreciatesItsMonth, TestScheduleWalkWithChanges, TestAssetHeldForSaleRules · walkthrough step_asset_held_for_sale (step 45) · ADR-0057 §7 Periods, §8 (answered), As built (T57k) · 03-data-model §3.21",
         "src": "po:2026-11-09",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A change in estimate before the pilot's first year end (accounting specialist, po:2026-11-09, B13; IAS 16.51, 16.61, IAS 8.36-38): an asset's useful life, residual value and method changed prospectively from a chosen period after depreciation has started (refused today, assets.terms_in_use), so the year-end review's result is booked in the register rather than by a manual journal, which would leave the asset register wrong",
-        "r": "ADR-0057 §1, §7, Questions for the product owner (A change in estimate, answered)",
+        "r": "T57j · migration 000249 (assets.estimate_change, insert-only; asset_terms.estimate_changes; estimate_change_prospective; asset_terms_in_use lets a booked row change only to the latest change's terms) · internal/assets (estimate.go; schedule.go Plan.Changes, ResidualAt; the walk on the terms in force per period; a retirement's or transfer's residual share in force in its period) · PATCH /v1/assets/{id} terms[].effective_from, AssetTerms.estimate_changes, assets.change_not_prospective · TestChangeInEstimate, TestChangeInEstimateFailures, TestScheduleWalkWithChanges, TestAssetEstimateChangeRules · walkthrough step_asset_estimate (step 44) · ADR-0057 §1, §7, Questions for the product owner (A change in estimate, answered), As built (T57j) · 03-data-model §3.21",
         "src": "po:2026-11-09",
         "c": []
        },
@@ -2473,6 +2473,13 @@
        },
        {
         "s": "D",
+        "t": "Labels-only pack versions under the 2026-11-09 sign-off: UAE 2026.5 (2026.4 without the VAT 201's box-label markers \"its ISO code pending\", \"column pending\" and \"from memory, pending the tax specialist\"; each box 1 label naming its emirate's confirmed ISO code) and Canada 2026.8 (2026.7 without the GST34 line labels' \"from memory, pending the tax specialist\" markers); boxes, selections and sums byte for byte as released, only label strings changed",
+        "r": "packs/ae/2026.5 · packs/ca/2026.8 · packs/released.sha256 · TestUAEPack2026_5 · TestCanadaPack2026_8 (labelsOnly) · packs/ae/TAX-PENDING-T61k.md · packs/ca/TAX-PENDING-T61j.md · ADR-0048 As built (labels resolved) · ADR-0049 §11 As built (Labels resolved) · walkthrough steps 2, 11 and 41 · after the VAT 201's and GST34's sign-offs",
+        "src": "po:2026-11-09 · review:T61k",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Tax agent, drafts and explanations: for a registration's ended period it computes the draft return and records one explanation for a person (a recommendation on the registration, x-autonomy propose) of its figures and its variances against the last period's return and the tax accounts, citing the entries by document number; agent type tax; never prepares, approves, files or withdraws a return (x-agent false: no tool of them is built, the API refuses the agent); evaluation suite evals/tax replayed in CI",
         "r": "internal/taxagent · erp agent tax-draft · evals/tax · eval $contains · modelstub -script · autonomy.Types tax · ADR-0049 §13 As built (T61l1) · walkthrough step 11 · T61l · T61l1 (the proposals split to T61l2)",
         "src": "baseline",
@@ -2926,49 +2933,49 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP migration reads TKA02 (SAP specialist, po:2026-11-09, A8 [H]): a company code belongs to exactly one controlling area, which TKA02 (BUKRS to KOKRS) names; the extract carries it and the configuration draft takes a company code's controlling area from it, so a company code without cost centers no longer has an unknown area (docs/migration.md: \"TKA02 is not read\")",
-        "r": "internal/sap types.go · delivery/sapconfig costelements.go · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/sap types.go TKA02, source.go filterAreas (CSKB of the TKA02 areas), mock (3000 to area 1000, 1000 and 2000 to 2000) · delivery/sapconfig costelements.go areasOf (TKA02's area, else the centers' for an extract without it) · TestCostElementCategories, TestFilterScopeKeepsTheAssignedAreasCostElements · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Profit centers on migrated journal lines checked against the cost center period valid at posting, and ACDOCA-KOKRS read (SAP specialist, po:2026-11-09, A9(b), (d); for T56h4): a line's PRCTR is derived from CSKS-PRCTR at posting and keeps that derivation [M], so it may differ from today's master after a change, and a cost center without a profit center takes the dummy profit center; the quality gate and the reconciliation compare a migrated line's profit center with the cost_center_period valid at its posting date, not the current one; ACDOCA-KOKRS is read [H], a blank one naming a company code without CO active",
-        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "r": "T56h4 · internal/sap ACDOCA KOKRS, mock lines' area · internal/integration linecenters.go centers (the line's area, KOKRS blank refused), postedProfitCenter (the CSKS slice valid on BUDAT; none: SAP's dummy) · TestLineCenterQualityGate · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A migrated line's segment that differs from its profit center's (SAP specialist, po:2026-11-09, A9(c) [M], to verify on the pilot system; for T56h4): SAP derives SEGMENT from CEPC-SEGMENT unless a BAdI (FAGL_DERIVE_SEGMENT) or a manual entry set it, or the profit center's segment changed after posting, while T56h4's quality gate refuses a segment that is not the profit center's and ADR-0050 gives a profit center one segment without validity; the step decides by default whether such a line loads with SAP's segment or is refused with an issue of its own naming the case, and amends ADR-0050 §5 if loading needs time-dependent segments",
-        "r": "T56h4 · internal/integration · ADR-0050 §10 (answered)",
+        "r": "T56h4 · internal/integration linecenters.go centers (refused, naming FAGL_DERIVE_SEGMENT or a manual entry; decided by default, §5 not amended) · TestLineCenterQualityGate · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md (to profile on the pilot system)",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP center groups with values on inner nodes (SAP specialist, po:2026-11-09, A10(d) [M], to verify on the pilot system): a set may hold subsets and values on the same node, and CSKS-KHINR or CEPC-KHINR may name a group that has child groups; the quality gate's refusals of a group holding both subgroups and values and of a KHINR that is not a leaf are lifted, and such centers are placed on that group; the platform's hierarchy refuses centers on a node with children (ledger.hierarchy_change_invalid, has_centers), so the step amends ADR-0050 §3, decided by default or by a new ADR, to hold them",
-        "r": "internal/integration sets.go, settrees.go, setload.go · ledger hierarchies · ADR-0050 §3, §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/integration sets.go checkSet (both lifted), settrees.go leavesOf (every group's values; KHINR any group of the tree) · ledger hierarchies.go parent, planPlace, hierarchychange.go unassignedLeaf, addUnassigned (centers and child nodes on one node) · migration 000243_hierarchy_centers_on_inner_nodes · api/openapi.yaml descriptions · TestGroupPlanInnerGroups, TestHierarchyRefusals, TestCentersCreatedInTheStandardHierarchy, TestHierarchyNodesBelowCenters · ADR-0050 §3 amended, §10 As built (SAP specialist's answers) · 03-data-model · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "SAP group codes up to 24 characters (SAP specialist, po:2026-11-09, A11(c) [M]): SETHEADER-SETNAME holds 24 characters, 15 being the limit of the CO transactions; the quality gate's group code check (up to 15 of 0-9, A-Z, _ and -) and the hierarchy node's code, which the platform holds at 15, take 24, so a set kept with a longer name (GS02) migrates; implied: the contract's code patterns ^[0-9A-Z_-]{1,15}$ (api/openapi.yaml) widen, the check of migration 000139_hierarchies changes in a new migration, and the breaking-change check applies",
-        "r": "internal/integration sets.go · ledger hierarchy_node · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "internal/integration sets.go nodeCode (24) · migration 000244_hierarchy_codes_24 (hierarchy_code_check, hierarchy_node_code_check) · api/openapi.yaml code patterns {1,24} (request side; oasdiff) · TestHierarchyCodesOf24, TestGroupQualityGate · ADR-0050 §3, §10 As built (SAP specialist's answers) · 03-data-model · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Cost element category from the CSKB slice valid at cutover (SAP specialist, po:2026-11-09, A12(d) [M], to verify on the pilot system): the configuration draft takes CSKB-KATYP of the slice valid at the cutover date instead of the latest slice, the latest only when none covers that date, with a note for the reviewer on that account (an expired cost element means CO postings were stopped on purpose); SKA1-GLACCOUNT_TYPE (N non-operating, P primary costs or revenue, S secondary, X balance sheet) read as a cross-check of an account without a CSKB row [H]",
-        "r": "delivery/sapconfig costelements.go · internal/sap CSKB, SKA1 · ADR-0050 §10 (answered) · docs/migration.md · T56h2",
+        "r": "delivery/sapconfig costelements.go cutoverSlices, noCostElement · Options.Cutover, erp config generate -cutover · internal/sap CSKB DATAB, SKB1 GLACCOUNT_TYPE · TestCostElementCategories, TestCostElementAccountTypes · ADR-0050 §10 As built (SAP specialist's answers) · docs/migration.md · T56h2",
         "src": "po:2026-11-09",
         "pilot": "po:2026-10-31 · design:07 §7.6 · adr:ADR-0050",
         "c": []
@@ -3281,9 +3288,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Migrated suppliers' addresses from SAP's central address ADRC instead of LFA1 (SAP specialist, po:2026-11-09, A1 [H]): LFA1-STRAS, ORT01, PSTLZ and REGIO are a redundant copy of the central address, and STRAS (35 characters) holds street and house number together; the extract reads ADRC-STREET, HOUSE_NUM1 (HOUSE_NUM2 its supplement), CITY1, POST_CODE1, REGION and COUNTRY, joined by LFA1-ADRNR = ADRC-ADDRNUMBER in the same client, with ADRC-NATION blank (the international version) and the cutover date between ADRC-DATE_FROM and DATE_TO; a blank HOUSE_NUM1 (the house number typed into STREET) is normal, not a finding; STR_SUPPL1-3 and LOCATION considered where the legal address needs further lines; the supplier's legal address, the quality gate's warnings and the purchase order document's supplier block take the ADRC fields",
-        "r": "internal/sap (LFA1, ADRC) · integration vendorAddress · docs/migration.md \"What to check on a real SAP system\" (vendor addresses, answered) · ADR-0054 As built (podocb, answered)",
+        "r": "internal/sap ADRC, LFA1-ADRNR (STRAS, ORT01, PSTLZ, REGIO no longer read), FilterScope, mock (Tyrell's old address ended in 2019) · integration addresses.go vendorAddress (the international row valid on the run's day; line 1 STREET HOUSE_NUM1 HOUSE_NUM2, line 2 STR_SUPPL1-3 and LOCATION; COUNTRY, else LAND1), quality gate warnings · MigrationExtractCounts.adrc · TestCentralAddress, TestVendorAddresses · walkthrough step 4 (order_document) · docs/migration.md (vendor addresses, built; house number layout per country to verify) · ADR-0054 As built (sapvend) · 03-data-model §3.17",
         "src": "po:2026-11-09",
         "c": []
        },
@@ -8799,9 +8806,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "A house bank account without T012K-WAERS drafted in its G/L account's currency (SAP specialist, po:2026-11-09, A5 [M], to verify on the pilot system): an empty WAERS means no currency was maintained, so SAP does not restrict the account, and the binding currency is that of its G/L account (T012K-HKONT, SKB1-WAERS), usually the company code's; the configuration draft takes SKB1-WAERS, noted for the reviewers, instead of currency UNKNOWN, which remains where neither gives a currency; FI-BAM (FCLM_BAM_AMD) a possible cross-check",
-      "r": "delivery/sapconfig (house banks) · internal/sap T012K, SKB1 · ADR-0038 As built (SAP house banks in their account's currency, answered) · docs/migration.md",
+      "r": "delivery/sapconfig houseBankCurrency, ledgerCurrency (SKB1 WAERS of T012K-HKONT, noted; UNKNOWN where neither gives one) · internal/sap SKB1.WAERS · TestHouseBankCurrencyRefused · ADR-0038 As built (SAP house banks in their account's currency, built in sapvend) · docs/migration.md (house bank currency; to verify on the pilot system)",
       "src": "po:2026-11-09",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
@@ -9546,9 +9553,9 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP's open vendor items against their reconciliation account's balance (ADR-0060 §9; SAP specialist, po:2026-11-09, A15 [M], to verify on the pilot system): a control per reconciliation account at the key date, the sum of the open vendor items (lines with LIFNR filled, UMSKZ blank and BSTAT not S, open at the key date by AUGDT) against the account's balance, a difference reported in the run's report rather than refused; its listing names the cases that make one: special G/L postings on alternative reconciliation accounts (T074), items left on an old account after LFB1-AKONT changed, balances without vendor items (SKB1-MITKZ K with LIFNR blank), a period 000 carry-forward without items, and a valuation posted to the reconciliation account",
-      "r": "internal/integration reconcile.go · docs/migration.md \"What to check on a real SAP system\" (vendor reconciliation accounts) · ADR-0060 §9, Gaps (answered)",
+      "r": "internal/integration recaccounts.go (quality gate warning per vendor reconciliation account; key date the company's latest BUDAT; open by AUGDT; the difference split into lines without a vendor, special G/L lines and cleared items not netting in the extract; open items of vendors whose LFB1-AKONT is another counted) · internal/sap ACDOCA.AUGDT, BSTAT · TestReconciliationAccounts · docs/migration.md \"What to check on a real SAP system\" (vendor reconciliation accounts, built; to verify on the pilot system) · ADR-0060 §9 As built, Gaps",
       "src": "po:2026-11-09",
       "c": []
      }

@@ -201,6 +201,7 @@ func TestLocalPreparationErrors(t *testing.T) {
 	fails(t, "not a directory", "config", "generate", "-source", "file:extract.json", "-out", "file/draft.yaml")
 	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000")
 	fails(t, "invalid -amount-format", "config", "generate", "-source", "file:extract.json", "-amount-format", "shifted")
+	fails(t, "invalid -cutover", "config", "generate", "-source", "file:extract.json", "-cutover", "20260101")
 	fails(t, "invalid -amount-format", "config", "generate", "-source", "odata:http://127.0.0.1:1", "-amount-format", "internal")
 	fails(t, "invalid -time-zone", "config", "generate", "-source", "file:extract.json", "-time-zone", "1000=")
 	// SAP's extract has no time zone for a company code: without one given,

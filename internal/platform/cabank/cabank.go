@@ -24,6 +24,9 @@ var (
 	transit     = regexp.MustCompile(`^[0-9]{5}$`)
 	account     = regexp.MustCompile(`^[0-9]{7,12}$`)
 	memberID    = regexp.MustCompile(`^0[0-9]{8}$`)
+	// paper is the routing as printed on a cheque (the MICR line): the
+	// transit number, a hyphen and the institution number.
+	paper = regexp.MustCompile(`^([0-9]{5})-([0-9]{3})$`)
 )
 
 // Account is a Canadian bank account, digits only.
@@ -76,6 +79,20 @@ func SplitMemberID(s string) (institutionNumber, transitNumber string, ok bool) 
 		return "", "", false
 	}
 	return d[1:4], d[4:], true
+}
+
+// SplitBankKey is the institution and transit numbers of a bank key in
+// either form an SAP system holds a Canadian one in: the electronic routing
+// form (SplitMemberID), or the paper form, transit and institution with a
+// hyphen (12345-001 for 000112345), which legacy data commonly holds (the
+// SAP specialist, po:2026-11-09, A6 [M]). Both convert without guessing;
+// any other form is ok false, eight digits without the leading zero
+// (00112345) among them, which could be either order.
+func SplitBankKey(s string) (institutionNumber, transitNumber string, ok bool) {
+	if m := paper.FindStringSubmatch(strings.TrimSpace(s)); m != nil {
+		return m[2], m[1], true
+	}
+	return SplitMemberID(s)
 }
 
 // Digits is s without the spaces and dashes people write the numbers

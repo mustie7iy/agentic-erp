@@ -176,7 +176,7 @@ func (g *mockGen) masterData() {
 		if id == blockedVendor {
 			v.SPERR = "X"
 		}
-		addressed(&v)
+		g.addressed(&v)
 		g.e.LFA1 = append(g.e.LFA1, v)
 		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: v.LAND1, BANKN: fmt.Sprintf("%012d", 400000000000+int64(i)*7777)})
 		if i < 18 {
@@ -189,20 +189,29 @@ func (g *mockGen) masterData() {
 	g.canadianVendors(terms)
 }
 
-// mockAddresses are the street, city, postal code and region of the
-// vendors whose master holds an address (LFA1 STRAS, ORT01, PSTLZ, REGIO,
-// field names pending the SAP specialist, see LFA1):
-// Tyrell, which the walkthrough orders from, and Laurentian Paper. The
+// mockAddresses are the central addresses (ADRC) of the vendors whose
+// master holds one, by vendor number: Tyrell, which the walkthrough orders
+// from, and Laurentian Paper. Their ADRNR is their vendor number. Both
+// hold the house number in the street with HOUSE_NUM1 blank, as many
+// systems do (po:2026-11-09, A1), and Tyrell's address moved: the row of
+// its old one ended before today, so the load takes the current one. The
 // others hold none, as an extract may leave them out.
-var mockAddresses = map[string][4]string{
-	"0000100011": {"2019 Tyrell Plaza", "Los Angeles", "90012", "CA"},
-	"0000300001": {"85 Rue de la Gauchetière", "Montréal", "H2Z 1B5", "QC"},
+var mockAddresses = map[string][]ADRC{
+	"0000100011": {
+		{DATE_FROM: "00010101", DATE_TO: "20191231", STREET: "1 Old Tyrell Road", CITY1: "Pasadena", POST_CODE1: "91101", REGION: "CA", COUNTRY: "US"},
+		{DATE_FROM: "20200101", DATE_TO: "99991231", STREET: "2019 Tyrell Plaza", CITY1: "Los Angeles", POST_CODE1: "90012", REGION: "CA", COUNTRY: "US"},
+	},
+	"0000300001": {
+		{DATE_FROM: "00010101", DATE_TO: "99991231", STREET: "85 Rue de la Gauchetière", CITY1: "Montréal", POST_CODE1: "H2Z 1B5", REGION: "QC", COUNTRY: "CA"},
+	},
 }
 
-// addressed gives v its address from mockAddresses, if it has one there.
-func addressed(v *LFA1) {
-	if a, ok := mockAddresses[v.LIFNR]; ok {
-		v.STRAS, v.ORT01, v.PSTLZ, v.REGIO = a[0], a[1], a[2], a[3]
+// addressed gives v its central address from mockAddresses, if it has one
+// there.
+func (g *mockGen) addressed(v *LFA1) {
+	for _, a := range mockAddresses[v.LIFNR] {
+		v.ADRNR, a.ADDRNUMBER = v.LIFNR, v.LIFNR
+		g.e.ADRC = append(g.e.ADRC, a)
 	}
 }
 
@@ -224,16 +233,21 @@ const transfer = "T"
 
 // canadianVendors adds company 3000's vendors: Canadian ones with a
 // Canadian bank account (BANKS CA; BANKL the routing as 0 + institution +
-// transit, cabank.MemberID; BANKN the account number), and canadianShared,
+// transit, cabank.MemberID, Prairie Freight's in the paper form
+// transit-institution; BANKN the account number), and canadianShared,
 // each paid by bank transfer (ZWELS). It draws nothing from the generator.
 func (g *mockGen) canadianVendors(terms []string) {
 	for i, name := range canadianVendorNames {
 		id := fmt.Sprintf("%010d", 300001+i)
 		v := LFA1{LIFNR: id, NAME1: name, LAND1: "CA", STCD1: fmt.Sprintf("%09d", 800000000+i*7919)}
-		addressed(&v)
+		g.addressed(&v)
 		g.e.LFA1 = append(g.e.LFA1, v)
 		institution, transit := []string{"001", "002", "003", "004", "006", "010"}[i], fmt.Sprintf("%05d", 10+i*111)
-		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: "0" + institution + transit, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
+		key := "0" + institution + transit
+		if i == 1 {
+			key = transit + "-" + institution // the paper form legacy data holds (po:2026-11-09, A6)
+		}
+		g.e.LFBK = append(g.e.LFBK, LFBK{LIFNR: id, BANKS: "CA", BANKL: key, BANKN: fmt.Sprintf("%07d", 5000000+(i+1)*7777)})
 		g.e.LFB1 = append(g.e.LFB1, LFB1{LIFNR: id, BUKRS: "3000", AKONT: "0000211000", ZTERM: terms[i%len(terms)], ZWELS: transfer})
 	}
 	for _, id := range canadianShared {
@@ -767,8 +781,8 @@ const openEnded = "99991231"
 // mock's own codes, those the walkthrough's configuration has (ADMIN,
 // SALES); the pilot's KOSAR keys are pending the SAP specialist
 // (docs/migration.md), and the configuration needs a category for each.
-// Each center names its leaf of the standard hierarchy (KHINR) among the
-// groups, and the company's accounts are cost elements (T56h2). Its
+// Each center names its group of the standard hierarchy (KHINR) among the
+// groups, 3100 the inner group H3000, and the company's accounts are cost elements (T56h2). Its
 // journal lines carry SAP's account assignment (lineCenters, T56h4). It
 // draws nothing from the generator, so the rest of the extract is the same
 // as without it.
@@ -786,7 +800,7 @@ func (g *mockGen) centers(cc string) {
 	}
 	moveOn := g.date(7, 1)
 	g.e.CSKS = append(g.e.CSKS,
-		CSKS{KOKRS: mockArea, KOSTL: "3100", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", KHINR: "H3100",
+		CSKS{KOKRS: mockArea, KOSTL: "3100", DATAB: "20200101", DATBI: openEnded, BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100", KHINR: "H3000",
 			WAERS: "CAD"},
 		CSKS{KOKRS: mockArea, KOSTL: "3120", DATAB: "20200101", DATBI: dayBefore(moveOn), BUKRS: cc, KOSAR: "ADMIN", VERAK: "M. Tremblay", PRCTR: "P3100",
 			KHINR: "H3100", WAERS: "CAD"},
@@ -853,10 +867,16 @@ func (g *mockGen) defaultAssignments(cc string) {
 // with the cost center's profit center and that one's segment, and sales
 // revenue on profit center P3100 without a cost center. The company buys
 // only before 1 July, when 3120 moves to P3200 (purchaseOrder, and the
-// documents after it are June's), so its purchases name P3100.
+// documents after it are June's), so its purchases name P3100. Every line
+// names its company code's controlling area (KOKRS, as TKA02 assigns it).
 func (g *mockGen) lineCenters(cc string) {
+	areas := map[string]string{}
+	for _, r := range g.e.TKA02 {
+		areas[r.BUKRS] = r.KOKRS
+	}
 	for i := range g.e.ACDOCA {
 		l := &g.e.ACDOCA[i]
+		l.KOKRS = areas[l.RBUKRS]
 		if l.RBUKRS != cc {
 			continue
 		}
@@ -881,8 +901,9 @@ type mockSet struct {
 
 // mockSets are the mock's center groups in controlling area 1000 (T56h2):
 // the standard hierarchy of cost centers H1000 (TKA01-KHINR), Canada
-// H3000 below it with administration H3100, the range 3100 to 3199 (3100
-// and 3120), and sales H3200, 3200 and 3300 one by one; an alternative
+// H3000 below it holding 3100 itself beside its subgroups (SAP lets a
+// group hold values and subgroups, A10(d)), administration H3100, the
+// range 3101 to 3199 (3120), and sales H3200, 3200 and 3300 one by one; an alternative
 // hierarchy of regions, Ontario with 3100 and 3300, Quebec the range 3100
 // to 3299 without 3100 and 3300 (3120 and 3200); and the profit centers'
 // hierarchy PH1000, P3100 in Ontario and P3200 in Quebec, the leaves the
@@ -890,8 +911,8 @@ type mockSet struct {
 // (CSKS-KHINR).
 var mockSets = []mockSet{
 	{SetClassCostCenters, "H1000", "Maple group", []string{"H3000"}, nil},
-	{SetClassCostCenters, "H3000", "Maple Industries Canada", []string{"H3100", "H3200"}, nil},
-	{SetClassCostCenters, "H3100", "Administration", nil, [][4]string{{"I", "BT", "3100", "3199"}}},
+	{SetClassCostCenters, "H3000", "Maple Industries Canada", []string{"H3100", "H3200"}, [][4]string{{"I", "EQ", "3100", ""}}},
+	{SetClassCostCenters, "H3100", "Administration", nil, [][4]string{{"I", "BT", "3101", "3199"}}},
 	{SetClassCostCenters, "H3200", "Sales", nil, [][4]string{{"I", "EQ", "3200", ""}, {"I", "EQ", "3300", ""}}},
 	{SetClassCostCenters, "REGIONS", "Regions", []string{"ON", "QC"}, nil},
 	{SetClassCostCenters, "ON", "Ontario", nil, [][4]string{{"I", "EQ", "3100", ""}, {"I", "EQ", "3300", ""}}},
@@ -901,10 +922,17 @@ var mockSets = []mockSet{
 	{SetClassProfitCenters, "PH-QC", "Quebec", nil, [][4]string{{"I", "EQ", "P3200", ""}}},
 }
 
+// mockAreaOther is the controlling area the mock assigns its companies
+// 1000 and 2000 to (TKA02), which has no centers and no cost elements.
+const mockAreaOther = "2000"
+
 // groups adds the mock's controlling area with its standard hierarchy and
-// its center groups (mockSets).
+// its center groups (mockSets), and the company codes' assignment to the
+// areas (TKA02, A8): 3000 to the mock's area, 1000 and 2000 to another.
 func (g *mockGen) groups() {
 	g.e.TKA01 = append(g.e.TKA01, TKA01{KOKRS: mockArea, KHINR: "H1000"})
+	g.e.TKA02 = append(g.e.TKA02, TKA02{BUKRS: "1000", KOKRS: mockAreaOther}, TKA02{BUKRS: "2000", KOKRS: mockAreaOther},
+		TKA02{BUKRS: "3000", KOKRS: mockArea})
 	for _, s := range mockSets {
 		g.e.SETHEADER = append(g.e.SETHEADER, SETHEADER{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name})
 		g.e.SETHEADERT = append(g.e.SETHEADERT, SETHEADERT{SETCLASS: s.class, SUBCLASS: mockArea, SETNAME: s.name, LANGU: "E", DESCRIPT: s.text})

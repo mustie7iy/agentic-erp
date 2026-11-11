@@ -22,7 +22,7 @@ type profitCenterPayload struct {
 	ValidTo        string      `json:"valid_to,omitempty"`
 	Locked         *bool       `json:"locked,omitempty"`
 	LegalEntityIDs []uuid.UUID `json:"legal_entity_ids,omitempty"` // create, assign
-	StandardNodeID *uuid.UUID  `json:"standard_node_id,omitempty"` // create: its leaf in the standard hierarchy (T56b)
+	StandardNodeID *uuid.UUID  `json:"standard_node_id,omitempty"` // create: its node in the standard hierarchy (T56b)
 	// Segment is a move's new segment, its id null for none.
 	Segment *segmentRef `json:"segment,omitempty"`
 }
@@ -37,7 +37,7 @@ type NewProfitCenter struct {
 	Texts          Texts
 	SegmentID      *uuid.UUID
 	LegalEntityIDs []uuid.UUID
-	StandardNodeID *uuid.UUID // its leaf in the standard hierarchy; nil: the UNASSIGNED leaf, at approval (unassignedLeaf)
+	StandardNodeID *uuid.UUID // its node in the standard hierarchy; nil: the UNASSIGNED leaf, at approval (unassignedLeaf)
 	ValidFrom      time.Time
 	ValidTo        time.Time // zero: open-ended
 	Reason         string

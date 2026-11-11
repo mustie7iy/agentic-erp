@@ -278,8 +278,8 @@ func TestUAEPack2026_3(t *testing.T) {
 // on 2026-11-09, the documentary tier no longer pending, and nothing else:
 // every file but pack.yaml and tax.yaml is 2026.3's byte for byte, and the
 // manifest differs only in its version and sign-off (its header comment
-// aside). It is the latest UAE pack, and applies without the note that no
-// tax specialist signed it off.
+// aside). It applies without the note that no tax specialist signed it
+// off; 2026.5 relabels it (TestUAEPack2026_5).
 func TestUAEPack2026_4(t *testing.T) {
 	lib, err := LoadAll(packs.FS)
 	if err != nil {
@@ -305,9 +305,6 @@ func TestUAEPack2026_4(t *testing.T) {
 	same.Tax.Settings.DocumentaryRequirements[0].PendingSignOff = true
 	if !reflect.DeepEqual(&same, prev) {
 		t.Error("2026.4 without its version, sign-off and the tier's pending flag: got other than 2026.3, want it unchanged")
-	}
-	if got := lib.Latest("AE"); got != ae {
-		t.Errorf("Latest(AE): got %s, want ae/2026.4", got.Dir())
 	}
 	sameFiles(t, "ae/2026.3", "ae/2026.4", "pack.yaml", "tax.yaml")
 	_, notes, err := Apply(companyIn(t, "AE", "AED"), ae, lib, Options{Company: "1000", On: time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), FiscalYear: 2026})

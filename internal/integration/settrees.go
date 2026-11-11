@@ -190,8 +190,8 @@ func (g *groupPlan) collisions() {
 	}
 }
 
-// members places each center of the tree's area at its leaf (leavesOf).
-// A center in more than one leaf, or in none of the standard tree, is
+// members places each center of the tree's area at its group (leavesOf).
+// A center in more than one group, or in none of the standard tree, is
 // refused.
 func (g *groupPlan) members(t groupTree, c *areaCenters) {
 	if c == nil {
@@ -205,25 +205,24 @@ func (g *groupPlan) members(t groupTree, c *areaCenters) {
 		case len(leaves) == 1:
 			g.leaves[t.key()][code] = leaves[0]
 		case len(leaves) > 1:
-			g.add(SevError, table, t.area+"/"+code, "it is in leaves %s of the hierarchy below %s; a center sits at one leaf of a hierarchy",
+			g.add(SevError, table, t.area+"/"+code, "it is in groups %s of the hierarchy below %s; a center sits at one group of a hierarchy",
 				strings.Join(leaves, ", "), t.root)
 		case t.standard:
-			g.add(SevError, table, t.area+"/"+code, "it is in no leaf of the standard hierarchy below %s (its KHINR, or a value of a group)", t.root)
+			g.add(SevError, table, t.area+"/"+code, "it is in no group of the standard hierarchy below %s (its KHINR, or a value of a group)", t.root)
 		}
 	}
 }
 
-// leavesOf are the leaves of the tree each center sits at: those whose
-// values take it and, in a standard tree, the leaf its KHINR names, which
-// must be one.
+// leavesOf are the groups of the tree each center sits at: those whose
+// values take it, an inner group's included, and, in a standard tree, the
+// group its KHINR names, which must be one of the tree.
 func (g *groupPlan) leavesOf(t groupTree, c *areaCenters, table string) map[string][]string {
 	in := map[string][]string{}
 	for _, n := range t.nodes {
-		if s := g.sets[setKey(t.class, t.area, n.name)]; len(s.subsets) == 0 {
-			for _, code := range c.codes {
-				if s.includes(code) {
-					in[code] = append(in[code], n.name)
-				}
+		s := g.sets[setKey(t.class, t.area, n.name)]
+		for _, code := range c.codes {
+			if s.includes(code) {
+				in[code] = append(in[code], n.name)
 			}
 		}
 	}
@@ -233,8 +232,8 @@ func (g *groupPlan) leavesOf(t groupTree, c *areaCenters, table string) map[stri
 	for _, code := range c.codes {
 		switch kh := c.khinr[code]; {
 		case kh == "" || slices.Contains(in[code], kh):
-		case !t.leaf(g.sets, kh):
-			g.add(SevError, table, t.area+"/"+code, "its standard leaf %s (KHINR) is not a leaf of the standard hierarchy below %s", kh, t.root)
+		case !t.has(kh):
+			g.add(SevError, table, t.area+"/"+code, "its standard group %s (KHINR) is not a group of the standard hierarchy below %s", kh, t.root)
 		default:
 			in[code] = append(in[code], kh)
 		}

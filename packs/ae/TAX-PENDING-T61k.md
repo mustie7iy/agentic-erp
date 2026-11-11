@@ -174,3 +174,14 @@ whether it holds after the 2026 procedures amendments stays open (the
 answer cites the 2022 Decree-Law and 2023 Cabinet Decision only); items
 12-13 (the FTA's side of the amendment, due dates) stay open as questions
 the approval of what exists does not answer.
+
+Labels resolved (`2026.5`, product owner 2026-11-09): 2026.5 is 2026.4
+with the markers dropped from the box labels ("its ISO code pending the
+tax specialist" on 1a-1g, "column pending the tax specialist" on 2-7,
+"from memory, pending the tax specialist" on 8, 11, 12 and 13), under
+2026.4's sign-off. Each box 1 label names the code of the emirate its box
+selects (AE-AZ, AE-DU, AE-SH, AE-AJ, AE-UQ, AE-RK, AE-FU, as confirmed);
+none named a wrong code, so no label's code changed. Its boxes, their
+selections and sums are 2026.4's; only label strings differ
+(`TestUAEPack2026_5`). The table above and `TestUAEPackVAT201` describe
+2026.2, which keeps its markers, as 2026.4 does.

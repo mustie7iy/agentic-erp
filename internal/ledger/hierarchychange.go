@@ -252,7 +252,7 @@ func standardTree(ctx context.Context, tx pgx.Tx, kind string, lock bool, field 
 }
 
 // checkStandardNode checks the node a new center is to be placed at: a
-// leaf of the standard hierarchy of its kind.
+// node of the standard hierarchy of its kind.
 func checkStandardNode(ctx context.Context, tx pgx.Tx, kind string, center, node uuid.UUID) error {
 	t, err := standardTree(ctx, tx, kind, false, "standard_node_id")
 	if err != nil {
@@ -284,13 +284,9 @@ func unassignedLeaf(ctx context.Context, tx pgx.Tx, kind string) (uuid.UUID, err
 		return uuid.Nil, err
 	}
 	for id, n := range t.nodes {
-		if n.Code != unassignedCode || n.ParentID == nil {
-			continue
+		if n.Code == unassignedCode && n.ParentID != nil {
+			return id, nil
 		}
-		if len(t.children[id]) > 0 {
-			return uuid.Nil, invalidChange("standard_node_id", reasonHasChildren, "the standard hierarchy's UNASSIGNED node has child nodes; move them below another node first, or reject the creation and request it again with standard_node_id")
-		}
-		return id, nil
 	}
 	return addUnassigned(ctx, tx, t)
 }
@@ -320,10 +316,6 @@ func standardOrNew(ctx context.Context, tx pgx.Tx, kind string) (tree, error) {
 // the root, since a leaf without centers changes no center.
 func addUnassigned(ctx context.Context, tx pgx.Tx, t tree) (uuid.UUID, error) {
 	root := t.nodes[t.RootID]
-	if len(root.Centers) > 0 {
-		return uuid.Nil, invalidChange("standard_node_id", reasonHasCenters,
-			"centers sit at the standard hierarchy's root, which takes no child node; reject the creation and request it again with standard_node_id")
-	}
 	if root.Code == unassignedCode { // node codes are unique in a hierarchy
 		return uuid.Nil, invalidChange("standard_node_id", reasonUnknown,
 			"the standard hierarchy's root is coded UNASSIGNED, so it takes no UNASSIGNED leaf; reject the creation and request it again with standard_node_id")

@@ -176,24 +176,19 @@ func TestHierarchyRefusals(t *testing.T) {
 	cc := c.activeCostCenter(t, "1000")
 	h.apply(t, ":place", fmt.Sprintf(`{"center_id": %q, "node_id": %q, "reason": "r"}`, cc, b))
 	for name, tc := range map[string]struct{ op, body, field, reason string }{
-		"a node below one holding centers": {fmt.Sprintf("/nodes/%s:add", b), `{"code": "X", "name": "X", "reason": "r"}`, "node_id", "has_centers"},
-		"a node below an unknown node":     {fmt.Sprintf("/nodes/%s:add", uuid.New()), `{"code": "X", "name": "X", "reason": "r"}`, "node_id", "unknown"},
-		"a node moved below itself":        {fmt.Sprintf("/nodes/%s:move", a), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, a), "parent_id", "cycle"},
-		"a node moved below its child":     {fmt.Sprintf("/nodes/%s:move", a), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, b), "parent_id", "cycle"},
+		"a node below an unknown node": {fmt.Sprintf("/nodes/%s:add", uuid.New()), `{"code": "X", "name": "X", "reason": "r"}`, "node_id", "unknown"},
+		"a node moved below itself":    {fmt.Sprintf("/nodes/%s:move", a), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, a), "parent_id", "cycle"},
+		"a node moved below its child": {fmt.Sprintf("/nodes/%s:move", a), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, b), "parent_id", "cycle"},
 		"a node moved below an unknown node": {fmt.Sprintf("/nodes/%s:move", a), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, uuid.New()),
 			"parent_id", "unknown"},
-		"an unknown node moved": {fmt.Sprintf("/nodes/%s:move", uuid.New()), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, a), "node_id", "unknown"},
-		"a node moved below one holding centers": {fmt.Sprintf("/nodes/%s:move", sibling), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, b),
-			"parent_id", "has_centers"},
+		"an unknown node moved":          {fmt.Sprintf("/nodes/%s:move", uuid.New()), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, a), "node_id", "unknown"},
 		"the root moved":                 {fmt.Sprintf("/nodes/%v:move", root), fmt.Sprintf(`{"parent_id": %q, "reason": "r"}`, a), "node_id", "root"},
 		"an unknown node renamed":        {fmt.Sprintf("/nodes/%s:rename", uuid.New()), `{"name": "X", "reason": "r"}`, "node_id", "unknown"},
 		"the root removed":               {fmt.Sprintf("/nodes/%v:remove", root), `{"reason": "r"}`, "node_id", "root"},
 		"a node with children removed":   {fmt.Sprintf("/nodes/%s:remove", a), `{"reason": "r"}`, "node_id", "has_children"},
 		"a node holding centers removed": {fmt.Sprintf("/nodes/%s:remove", b), `{"reason": "r"}`, "node_id", "has_centers"},
 		"an unknown node removed":        {fmt.Sprintf("/nodes/%s:remove", uuid.New()), `{"reason": "r"}`, "node_id", "unknown"},
-		"a center at a node with children": {":place", fmt.Sprintf(`{"center_id": %q, "node_id": %q, "reason": "r"}`, cc, a), "node_id",
-			"has_children"},
-		"a center at an unknown node": {":place", fmt.Sprintf(`{"center_id": %q, "node_id": %q, "reason": "r"}`, cc, uuid.New()), "node_id", "unknown"},
+		"a center at an unknown node":    {":place", fmt.Sprintf(`{"center_id": %q, "node_id": %q, "reason": "r"}`, cc, uuid.New()), "node_id", "unknown"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			h := tree{c: c.in(t), path: h.path}
@@ -212,6 +207,10 @@ func TestHierarchyRefusals(t *testing.T) {
 	}
 	h.refused(t, 409, "ledger.hierarchy_node_exists", fmt.Sprintf("/nodes/%s:add", a), `{"code": "B", "name": "X", "reason": "r"}`)
 	h.refused(t, 422, "ledger.nothing_to_change", ":place", fmt.Sprintf(`{"center_id": %q, "node_id": %q, "reason": "r"}`, cc, b))
+	// A node holding centers takes child nodes, and a center sits at a node
+	// with child nodes, as SAP's groups hold centers beside subgroups (A10(d)).
+	h.add(t, b, "X")
+	h.apply(t, ":place", fmt.Sprintf(`{"center_id": %q, "node_id": %q, "reason": "r"}`, cc, a))
 	// A depth beyond 12 levels: the root and A, B make three.
 	deep := b
 	h.apply(t, ":place", fmt.Sprintf(`{"center_id": %q, "node_id": null, "reason": "r"}`, cc))
@@ -336,9 +335,8 @@ func TestCentersCreatedInTheStandardHierarchy(t *testing.T) {
 		node   any
 		reason string
 	}{
-		"the root, which has children": {tr["root_node_id"], "has_children"},
-		"a node of no hierarchy":       {uuid.NewString(), "unknown"},
-		"a node of another hierarchy":  {c.pcLeaf, "unknown"},
+		"a node of no hierarchy":      {uuid.NewString(), "unknown"},
+		"a node of another hierarchy": {c.pcLeaf, "unknown"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := c.in(t)
@@ -348,14 +346,24 @@ func TestCentersCreatedInTheStandardHierarchy(t *testing.T) {
 			}
 		})
 	}
-	// The leaf gains a child before the create is approved: the approval
-	// is refused, as the center could not sit there.
+	// A node with children takes a center (A10(d)): the root, and the leaf
+	// that gains a child before the create is approved.
+	at, _ := c.Must(201, "POST", "/v1/cost-centers", body("2000", tr["root_node_id"]), "")
+	c.decide(t, at["pending_change_id"], "approve")
 	cc, _ := c.Must(201, "POST", "/v1/cost-centers", body("1000", c.ccLeaf), "")
 	std.add(t, c.ccLeaf, "BELOW")
-	page, _ := c.ctl.Must(200, "GET", fmt.Sprintf("/v1/approval-requests?status=pending&object_id=%v", cc["pending_change_id"]), "", "")
-	r := page["items"].([]any)[0].(map[string]any)
-	c.ctl.Problem(422, "ledger.hierarchy_change_invalid", "POST", "/v1/approval-requests/"+r["id"].(string)+":approve", `{"comment": "ok"}`,
-		fmt.Sprintf(`"%v"`, r["version"]))
+	c.decide(t, cc["pending_change_id"], "approve")
+	if got := c.paths(t, cc["id"].(string)); fmt.Sprint(got) != "[STANDARD:STANDARD/LEAF]" {
+		t.Errorf("paths of a center at a node with children: got %v, want [STANDARD:STANDARD/LEAF]", got)
+	}
+	// The node is removed before the create is approved: the approval is
+	// refused, as the center could not sit there.
+	gone := std.add(t, tr["root_node_id"], "GONE")
+	removed, _ := c.Must(201, "POST", "/v1/cost-centers", body("3000", gone), "")
+	std.apply(t, fmt.Sprintf("/nodes/%s:remove", gone), `{"reason": "r"}`)
+	if code := c.approveRefused(t, removed["pending_change_id"]); code != "unknown" {
+		t.Errorf("the approval of a center at a removed node: got %s, want unknown", code)
+	}
 	// A tenant without a standard hierarchy cannot create centers yet.
 	e := setup(t)
 	p := e.Problem(422, "ledger.hierarchy_change_invalid", "POST", "/v1/profit-centers", fmt.Sprintf(`{"code": "PC", "name": "P", "responsible": "J",
@@ -369,10 +377,9 @@ func TestCentersCreatedInTheStandardHierarchy(t *testing.T) {
 // when its create is approved, in the standard hierarchy's UNASSIGNED leaf,
 // for a controller to place later (product owner, 2026-10-21): proposing it
 // changes no tree; the leaf is added below the root the first time and
-// taken again after, and created with the standard hierarchy when the
-// tenant has none; an UNASSIGNED node with child nodes, or another
-// hierarchy coded STANDARD where the tenant has no standard one, refuses
-// the approval.
+// taken again after, also with child nodes (A10(d)), and created with the
+// standard hierarchy when the tenant has none; another hierarchy coded
+// STANDARD where the tenant has no standard one refuses the approval.
 func TestCentersCreatedUnassigned(t *testing.T) {
 	c := setupCenters(t)
 	std := tree{c: c, path: "/v1/hierarchies/" + c.ccTree.String()}
@@ -399,8 +406,10 @@ func TestCentersCreatedUnassigned(t *testing.T) {
 	pr, _ := pcs.get(t)
 	pcs.add(t, pcs.add(t, pr["root_node_id"], "UNASSIGNED"), "BELOW")
 	pu, _ := c.Must(201, "POST", "/v1/profit-centers", pcBodyWithout(c.de, "PU"), "")
-	if code := c.approveRefused(t, pu["pending_change_id"]); code != "has_children" {
-		t.Errorf("an UNASSIGNED node with children: got %s, want has_children", code)
+	c.decide(t, pu["pending_change_id"], "approve")
+	paths, _ := c.Must(200, "GET", fmt.Sprintf("/v1/profit-centers/%v/hierarchy-paths", pu["id"]), "", "")
+	if nodes := paths["items"].([]any)[0].(map[string]any)["nodes"].([]any); nodes[len(nodes)-1].(map[string]any)["code"] != "UNASSIGNED" {
+		t.Errorf("an UNASSIGNED node with children: got %v, want the center there", nodes)
 	}
 
 	bare := setupBareCenters(t)

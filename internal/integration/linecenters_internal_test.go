@@ -32,13 +32,21 @@ func lineGate(balances bool, foreign map[string]string, change func(x *sap.Extra
 	return out
 }
 
+// segmentCase is the gate's naming of a line whose segment SAP did not
+// take from its profit center (A9(c)).
+const segmentCase = ": SAP set the line's segment otherwise than from the profit center (the BAdI FAGL_DERIVE_SEGMENT or a manual entry), " +
+	"which the platform does not hold, a profit center having one segment"
+
 func centerLine(rcntr, prctr, segment string) sap.ACDOCA {
-	return sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000001", DOCLN: "000001", RCNTR: rcntr, PRCTR: prctr, SEGMENT: segment}
+	return sap.ACDOCA{RBUKRS: "2000", GJAHR: "2026", BELNR: "0100000001", DOCLN: "000001", BUDAT: "20260315", KOKRS: "A1", RCNTR: rcntr, PRCTR: prctr,
+		SEGMENT: segment}
 }
 
 // TestLineCenterQualityGate: in documents mode the gate refuses a journal
 // line naming a center the run does not migrate, in the line's company
-// code, or a segment that is not the line's profit center's (T56h4); in
+// code and controlling area, or none (KOKRS blank), a profit center that is
+// not its cost center's on the posting date or a cost center not valid
+// then (A9), or a segment that is not the line's profit center's (T56h4); in
 // balances mode only the lines of the documents posted on their own (a
 // down payment's, a foreign item's) are, the others going into the
 // opening entry without centers.
@@ -52,22 +60,36 @@ func TestLineCenterQualityGate(t *testing.T) {
 		"centers migrated": {line: centerLine("C1", "P1", "S1")},
 		"no centers":       {line: centerLine("", "", "")},
 		"a cost center not migrated": {line: centerLine("C9", "", ""),
-			want: []string{key + "cost center C9 is not one of company 2000's in the extract (CSKS), so the run does not migrate it"}},
+			want: []string{key + "cost center C9 is not one of company 2000's of controlling area A1 in the extract (CSKS), so the run does not migrate it"}},
 		"a cost center of another company code": {line: centerLine("C1", "", ""), change: func(x *sap.Extract) { x.CSKS[0].BUKRS = "1000" },
-			want: []string{key + "cost center C1 is not one of company 2000's in the extract (CSKS), so the run does not migrate it"}},
-		"a cost center in two areas": {line: centerLine("C1", "", ""), change: func(x *sap.Extract) {
-			x.CSKS = append(x.CSKS, sap.CSKS{KOKRS: "A2", KOSTL: "C1", BUKRS: "2000"}, sap.CSKS{KOKRS: "A2", KOSTL: "C1", BUKRS: "2000"})
-		}, want: []string{key + "cost center C1 of company 2000 is in controlling areas A1, A2; a company code is taken to belong to one"}},
+			want: []string{key + "cost center C1 is not one of company 2000's of controlling area A1 in the extract (CSKS), so the run does not migrate it"}},
+		"a line of another area": {line: func() sap.ACDOCA { l := centerLine("C1", "P1", ""); l.KOKRS = "A2"; return l }(), want: []string{
+			key + "cost center C1 is not one of company 2000's of controlling area A2 in the extract (CSKS), so the run does not migrate it",
+			key + "profit center P1 is not one of company 2000's of controlling area A2 in the extract (CEPC_BUKRS), so the run does not migrate it"}},
+		"no controlling area": {line: func() sap.ACDOCA { l := centerLine("", "P1", "S1"); l.KOKRS = ""; return l }(),
+			want: []string{key + "a line naming a center has no controlling area (KOKRS blank: CO is not active in company code 2000)"}},
+		"no controlling area and no center": {line: func() sap.ACDOCA { l := centerLine("", "", ""); l.KOKRS = ""; return l }()},
+		"the profit center of the posting date": {line: centerLine("C1", "P1", "S1"), change: func(x *sap.Extract) {
+			x.CSKS = []sap.CSKS{{KOKRS: "A1", KOSTL: "C1", DATAB: "20200101", DATBI: "20260630", BUKRS: "2000", PRCTR: "P1"},
+				{KOKRS: "A1", KOSTL: "C1", DATAB: "20260701", DATBI: "99991231", BUKRS: "2000", PRCTR: "P2"}}
+		}},
+		"another profit center on the posting date": {line: centerLine("C1", "P1", "S1"), change: func(x *sap.Extract) {
+			x.CSKS = []sap.CSKS{{KOKRS: "A1", KOSTL: "C1", DATAB: "20200101", DATBI: "20260630", BUKRS: "2000", PRCTR: "P2"},
+				{KOKRS: "A1", KOSTL: "C1", DATAB: "20260701", DATBI: "99991231", BUKRS: "2000", PRCTR: "P1"}}
+		}, want: []string{key + "profit center P1 is not cost center C1's on the posting date 20260315 (P2, its slice 20200101 to 20260630)"}},
+		"a cost center without a profit center (SAP's dummy)": {line: centerLine("C1", "P1", "S1"), change: func(x *sap.Extract) { x.CSKS[0].PRCTR = "" }},
+		"a cost center not valid on the posting date": {line: centerLine("C1", "", ""), change: func(x *sap.Extract) { x.CSKS[0].DATAB = "20260401" },
+			want: []string{key + "cost center C1 is not valid on the posting date 20260315 (no CSKS slice of controlling area A1 covers it)"}},
 		"a profit center not assigned": {line: centerLine("", "P1", ""), change: func(x *sap.Extract) { x.CEPC_BUKRS[0].BUKRS = "1000" },
-			want: []string{key + "profit center P1 is not one of company 2000's in the extract (CEPC_BUKRS), so the run does not migrate it"}},
-		"another segment": {line: centerLine("C1", "P1", "S2"), want: []string{key + "segment S2 is not profit center P1's (S1)"}},
+			want: []string{key + "profit center P1 is not one of company 2000's of controlling area A1 in the extract (CEPC_BUKRS), so the run does not migrate it"}},
+		"another segment": {line: centerLine("C1", "P1", "S2"), want: []string{key + "segment S2 is not profit center P1's (S1)" + segmentCase}},
 		"a segment of a profit center without one": {line: centerLine("", "P1", "S1"), change: func(x *sap.Extract) { x.CEPC[0].SEGMENT = "" },
-			want: []string{key + "segment S1 is not profit center P1's (none)"}},
+			want: []string{key + "segment S1 is not profit center P1's (none)" + segmentCase}},
 		"a segment without a profit center": {line: centerLine("C1", "", "S1"),
 			want: []string{key + "segment S1 without a profit center; the platform takes a line's segment from its profit center"}},
 		"every refusal": {line: centerLine("C9", "P9", "S1"), want: []string{
-			key + "cost center C9 is not one of company 2000's in the extract (CSKS), so the run does not migrate it",
-			key + "profit center P9 is not one of company 2000's in the extract (CEPC_BUKRS), so the run does not migrate it"}},
+			key + "cost center C9 is not one of company 2000's of controlling area A1 in the extract (CSKS), so the run does not migrate it",
+			key + "profit center P9 is not one of company 2000's of controlling area A1 in the extract (CEPC_BUKRS), so the run does not migrate it"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := lineGate(false, nil, tc.change, tc.line); fmt.Sprint(got) != fmt.Sprint(tc.want) {

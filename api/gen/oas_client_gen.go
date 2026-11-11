@@ -151,13 +151,12 @@ type Invoker interface {
 	ActivateOrgUnit(ctx context.Context, params ActivateOrgUnitParams) (ActivateOrgUnitRes, error)
 	// AddHierarchyNode invokes addHierarchyNode operation.
 	//
-	// Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels
-	// deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending
-	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
-	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
-	// change is planned again and applied when the request is approved, and refused then if the tree no
-	// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
-	// applied.
+	// Adds a node below the node, which may hold centers, at most 12 levels deep; the code is unique in
+	// the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending center change
+	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
+	// again and applied when the request is approved, and refused then if the tree no longer allows it.
+	// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
 	//
 	// POST /v1/hierarchies/{id}/nodes/{node_id}:add
 	AddHierarchyNode(ctx context.Context, request *HierarchyNodeAdd, params AddHierarchyNodeParams) (AddHierarchyNodeRes, error)
@@ -2714,7 +2713,7 @@ type Invoker interface {
 	// ListCostCenterPaths invokes listCostCenterPaths operation.
 	//
 	// Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
-	// from the root to its leaf. A cost center outside the legal entities the caller may act in is not
+	// from the root to its node. A cost center outside the legal entities the caller may act in is not
 	// found. Sortable by: `code` (the hierarchy's).
 	//
 	// GET /v1/cost-centers/{id}/hierarchy-paths
@@ -3180,7 +3179,7 @@ type Invoker interface {
 	// ListProfitCenterPaths invokes listProfitCenterPaths operation.
 	//
 	// Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
-	// from the root to its leaf. Sortable by: `code` (the hierarchy's).
+	// from the root to its node. Sortable by: `code` (the hierarchy's).
 	//
 	// GET /v1/profit-centers/{id}/hierarchy-paths
 	ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error)
@@ -3489,13 +3488,14 @@ type Invoker interface {
 	MoveCostCenter(ctx context.Context, request *CostCenterMove, params MoveCostCenterParams) (MoveCostCenterRes, error)
 	// MoveHierarchyNode invokes moveHierarchyNode operation.
 	//
-	// Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused
-	// when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12
-	// levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change
-	// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
-	// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
-	// again and applied when the request is approved, and refused then if the tree no longer allows it.
-	// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
+	// Moves the node, with its subtree, below another node of the hierarchy, which may hold centers;
+	// refused when the new parent is the node or below it (a cycle) or when the subtree would end deeper
+	// than 12 levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending
+	// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+	// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+	// change is planned again and applied when the request is approved, and refused then if the tree no
+	// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
+	// applied.
 	//
 	// POST /v1/hierarchies/{id}/nodes/{node_id}:move
 	MoveHierarchyNode(ctx context.Context, request *HierarchyNodeMove, params MoveHierarchyNodeParams) (MoveHierarchyNodeRes, error)
@@ -3566,9 +3566,10 @@ type Invoker interface {
 	PingWebhookSubscription(ctx context.Context, params PingWebhookSubscriptionParams) (PingWebhookSubscriptionRes, error)
 	// PlaceInHierarchy invokes placeInHierarchy operation.
 	//
-	// Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves
-	// it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most
-	// once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422
+	// Places an active center of the hierarchy's kind at a node, which may also have child nodes (ADR-0050
+	// §3 as amended, po:2026-11-09: SAP's groups hold centers beside subgroups), or moves it there from
+	// its node; `node_id` null removes it from an alternative hierarchy. A center is at most once in a
+	// hierarchy, and in exactly one node of the standard one, which it cannot leave (422
 	// `ledger.hierarchy_change_invalid`). One pending change per center (409
 	// `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
 	// its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
@@ -4707,9 +4708,23 @@ type Invoker interface {
 	// it has none in yet (a ledger assigned to the company after the asset was created; `method` and
 	// `useful_life_months` then required), and a ledger the company does not keep is 422
 	// `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor;
-	// `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it
-	// (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the
-	// company's local currency. Audited, and published as AssetChanged (`changed`).
+	// `declining_balance` needs one. Once depreciation has been posted in a ledger its terms change only
+	// by a change in estimate (T57j; IAS 16.51, 16.61, IAS 8.36-38): a `terms` entry with
+	// `effective_from`, a regular period (422 `assets.special_period` for a special one,
+	// `ledger.no_fiscal_period` for one not set up) after the one the ledger is booked through and not
+	// before the latest change's (422 `assets.change_not_prospective`), sets the method, useful life
+	// (still counted from the depreciation start), declining factor and residual value from that period
+	// on; the periods before keep the earlier terms, so their depreciation, planned and booked, stays, and
+	// the next run depreciates the net book value then over the life left (prospectively, no catch-up). It
+	// changes no depreciation start, and is listed in the terms' `estimate_changes`. A `terms` entry's
+	// `held_for_sale_from` classifies the asset as held for sale in its ledger from a regular period
+	// (T57k; IAS 16.55, IFRS 5.25): from that period on its runs depreciate it no more, the useful life
+	// still elapsing; the period is after the one the ledger is booked through, and a classification
+	// already made moves only while its period is not booked either (422 `assets.change_not_prospective`);
+	// it is not removed. A change of terms in such a ledger without `effective_from` is 409
+	// `assets.terms_in_use`, and `effective_from` in a ledger without posted depreciation is 422
+	// `request.validation_failed` (change its terms directly). The residual value is in the company's
+	// local currency. Audited, and published as AssetChanged (`changed`).
 	//
 	// PATCH /v1/assets/{id}
 	UpdateAsset(ctx context.Context, request *AssetUpdate, params UpdateAssetParams) (UpdateAssetRes, error)
@@ -6519,13 +6534,12 @@ func (c *Client) sendActivateOrgUnit(ctx context.Context, params ActivateOrgUnit
 
 // AddHierarchyNode invokes addHierarchyNode operation.
 //
-// Adds a node below the node, which must hold no centers (centers sit at leaves), at most 12 levels
-// deep; the code is unique in the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending
-// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
-// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
-// change is planned again and applied when the request is approved, and refused then if the tree no
-// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
-// applied.
+// Adds a node below the node, which may hold centers, at most 12 levels deep; the code is unique in
+// the hierarchy (409 `ledger.hierarchy_node_exists`). Opens a pending center change
+// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
+// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
+// again and applied when the request is approved, and refused then if the tree no longer allows it.
+// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
 //
 // POST /v1/hierarchies/{id}/nodes/{node_id}:add
 func (c *Client) AddHierarchyNode(ctx context.Context, request *HierarchyNodeAdd, params AddHierarchyNodeParams) (AddHierarchyNodeRes, error) {
@@ -42697,7 +42711,7 @@ func (c *Client) sendListCostCenterBalances(ctx context.Context, params ListCost
 // ListCostCenterPaths invokes listCostCenterPaths operation.
 //
 // Where the cost center sits in each hierarchy that holds it, the standard one included: the nodes
-// from the root to its leaf. A cost center outside the legal entities the caller may act in is not
+// from the root to its node. A cost center outside the legal entities the caller may act in is not
 // found. Sortable by: `code` (the hierarchy's).
 //
 // GET /v1/cost-centers/{id}/hierarchy-paths
@@ -53598,7 +53612,7 @@ func (c *Client) sendListProfitCenterBalances(ctx context.Context, params ListPr
 // ListProfitCenterPaths invokes listProfitCenterPaths operation.
 //
 // Where the profit center sits in each hierarchy that holds it, the standard one included: the nodes
-// from the root to its leaf. Sortable by: `code` (the hierarchy's).
+// from the root to its node. Sortable by: `code` (the hierarchy's).
 //
 // GET /v1/profit-centers/{id}/hierarchy-paths
 func (c *Client) ListProfitCenterPaths(ctx context.Context, params ListProfitCenterPathsParams) (ListProfitCenterPathsRes, error) {
@@ -60241,13 +60255,14 @@ func (c *Client) sendMoveCostCenter(ctx context.Context, request *CostCenterMove
 
 // MoveHierarchyNode invokes moveHierarchyNode operation.
 //
-// Moves the node, with its subtree, below another node of the hierarchy that holds no centers; refused
-// when the new parent is the node or below it (a cycle) or when the subtree would end deeper than 12
-// levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending center change
-// (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a controller holding
-// `ledger.cost_center.approve` decides, never its requester and never an agent; the change is planned
-// again and applied when the request is approved, and refused then if the tree no longer allows it.
-// `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is applied.
+// Moves the node, with its subtree, below another node of the hierarchy, which may hold centers;
+// refused when the new parent is the node or below it (a cycle) or when the subtree would end deeper
+// than 12 levels (422 `ledger.hierarchy_change_invalid`). The root is not moved. Opens a pending
+// center change (`GET /v1/center-changes/{id}`) and its `center_change` approval request, which a
+// controller holding `ledger.cost_center.approve` decides, never its requester and never an agent; the
+// change is planned again and applied when the request is approved, and refused then if the tree no
+// longer allows it. `If-Match` is the hierarchy's ETag, which moves on when a change to its tree is
+// applied.
 //
 // POST /v1/hierarchies/{id}/nodes/{node_id}:move
 func (c *Client) MoveHierarchyNode(ctx context.Context, request *HierarchyNodeMove, params MoveHierarchyNodeParams) (MoveHierarchyNodeRes, error) {
@@ -61376,9 +61391,10 @@ func (c *Client) sendPingWebhookSubscription(ctx context.Context, params PingWeb
 
 // PlaceInHierarchy invokes placeInHierarchy operation.
 //
-// Places an active center of the hierarchy's kind at a leaf node (one without child nodes), or moves
-// it there from its node; `node_id` null removes it from an alternative hierarchy. A center is at most
-// once in a hierarchy, and in exactly one leaf of the standard one, which it cannot leave (422
+// Places an active center of the hierarchy's kind at a node, which may also have child nodes (ADR-0050
+// §3 as amended, po:2026-11-09: SAP's groups hold centers beside subgroups), or moves it there from
+// its node; `node_id` null removes it from an alternative hierarchy. A center is at most once in a
+// hierarchy, and in exactly one node of the standard one, which it cannot leave (422
 // `ledger.hierarchy_change_invalid`). One pending change per center (409
 // `ledger.center_change_pending`). Opens a pending center change (`GET /v1/center-changes/{id}`) and
 // its `center_change` approval request, which a controller holding `ledger.cost_center.approve`
@@ -73277,9 +73293,23 @@ func (c *Client) sendUpdateAiPolicy(ctx context.Context, request *AiPolicyUpdate
 // it has none in yet (a ledger assigned to the company after the asset was created; `method` and
 // `useful_life_months` then required), and a ledger the company does not keep is 422
 // `ledger.ledger_not_kept`. Changing to `straight_line` drops the declining factor;
-// `declining_balance` needs one. A ledger's terms are fixed once depreciation has been posted in it
-// (409 `assets.terms_in_use`; a change in estimate is not offered). The residual value is in the
-// company's local currency. Audited, and published as AssetChanged (`changed`).
+// `declining_balance` needs one. Once depreciation has been posted in a ledger its terms change only
+// by a change in estimate (T57j; IAS 16.51, 16.61, IAS 8.36-38): a `terms` entry with
+// `effective_from`, a regular period (422 `assets.special_period` for a special one,
+// `ledger.no_fiscal_period` for one not set up) after the one the ledger is booked through and not
+// before the latest change's (422 `assets.change_not_prospective`), sets the method, useful life
+// (still counted from the depreciation start), declining factor and residual value from that period
+// on; the periods before keep the earlier terms, so their depreciation, planned and booked, stays, and
+// the next run depreciates the net book value then over the life left (prospectively, no catch-up). It
+// changes no depreciation start, and is listed in the terms' `estimate_changes`. A `terms` entry's
+// `held_for_sale_from` classifies the asset as held for sale in its ledger from a regular period
+// (T57k; IAS 16.55, IFRS 5.25): from that period on its runs depreciate it no more, the useful life
+// still elapsing; the period is after the one the ledger is booked through, and a classification
+// already made moves only while its period is not booked either (422 `assets.change_not_prospective`);
+// it is not removed. A change of terms in such a ledger without `effective_from` is 409
+// `assets.terms_in_use`, and `effective_from` in a ledger without posted depreciation is 422
+// `request.validation_failed` (change its terms directly). The residual value is in the company's
+// local currency. Audited, and published as AssetChanged (`changed`).
 //
 // PATCH /v1/assets/{id}
 func (c *Client) UpdateAsset(ctx context.Context, request *AssetUpdate, params UpdateAssetParams) (UpdateAssetRes, error) {

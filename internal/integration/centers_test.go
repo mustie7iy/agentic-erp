@@ -53,6 +53,9 @@ func centersTiny() *sap.Extract {
 		{KOKRS: "A1", KOSTL: "C2", DATAB: "20260101", DATBI: "99991231", BUKRS: "2000", KOSAR: "SALES", VERAK: "Cy"}}
 	x.CSKT = []sap.CSKT{{KOKRS: "A1", KOSTL: "C1", DATBI: "99991231", SPRAS: "E", KTEXT: "Finance"},
 		{KOKRS: "A1", KOSTL: "C2", DATBI: "99991231", SPRAS: "D", KTEXT: "Vertrieb"}}
+	for i := range x.ACDOCA {
+		x.ACDOCA[i].KOKRS = "A1"
+	}
 	x.ACDOCA[0].RCNTR, x.ACDOCA[0].PRCTR, x.ACDOCA[0].SEGMENT = "C1", "P1", "SEG1"
 	return x
 }

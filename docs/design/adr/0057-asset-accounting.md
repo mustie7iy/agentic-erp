@@ -88,8 +88,7 @@ cost and profit centers and to another asset of the same company,
 reversible; the asset history sheet per company, ledger and fiscal year.
 
 Out (none built; each is a question for the product owner or a gap, both
-listed at the end): transfers between companies; a change of useful life
-or method after depreciation has been posted (a change in estimate); a
+listed at the end): transfers between companies; a
 take-over of existing assets at cutover and the SAP migration of fixed
 assets; depreciation areas that post to no ledger (tax depreciation such as
 Canada's CCA); assets under construction with their own settlement rules;
@@ -558,7 +557,16 @@ area, as ADR-0045 foresaw ("depreciation runs per depreciation area, each
 posting to its ledger"): an asset has one terms row per ledger, created
 from its class's defaults when the asset is created and changeable by
 `PATCH` until depreciation is first posted in that ledger (409
-`assets.terms_in_use` afterwards; a change in estimate is out of scope, §1).
+`assets.terms_in_use` afterwards), and from then on only by a change in
+estimate (T57j, po:2026-11-09 B13; IAS 16.51, 16.61, IAS 8.36-38): a
+terms entry of the `PATCH` with `effective_from`, a regular period after
+the one the ledger is booked through and not before the latest change's
+(422 `assets.change_not_prospective`), sets the method, useful life
+(still counted from the depreciation start), factor and residual value
+from that period on. The schedule walks each period on the terms in force
+in it, so the periods before keep what was planned and booked, and the
+straight-line formula below spreads the net book value then over the
+life left: prospective, with no catch-up.
 A ledger assigned to the company later gets terms by `PATCH`; until then
 that ledger's runs skip the asset and count it (`assets_skipped`).
 
@@ -570,10 +578,14 @@ a retirement or transfer out takes its share off at the start of the period
 of its value date, so the retired share depreciates for none of that
 period (decided by default; SAP's period controls vary this per method).
 The accounting specialist accepted the monthly convention on 2026-11-09
-(po:2026-11-09, B11; IAS 8.8) with two caveats, a tracker leaf: a
-transfer's receiving side must pick up the month, so none is lost; and
-depreciation must be able to stop at classification as held for sale
-(IAS 16.55, IFRS 5), which nothing here does yet.
+(po:2026-11-09, B11; IAS 8.8) with two caveats, both met by T57k: a
+transfer's receiving side picks up the month (its depreciation starts
+from the transfer's value date, whose period counts in full, while the
+sender's share depreciates for none of it; tested), and depreciation
+stops at classification as held for sale (IAS 16.55, IFRS 5.25): a
+terms entry's `held_for_sale_from`, a regular period after the one the
+ledger is booked through, from which no period takes depreciation, the
+useful life still elapsing (As built, T57k).
 
 **The planned schedule** of an asset in a ledger through a period P walks
 its periods from the depreciation start's (k = 1) to P. It applies each
@@ -1377,7 +1389,8 @@ the `assets` schema), 04 §4.9 (T57d) and this ADR's "As built".
   roadmap's "transfers" is read as within one company. Recommendation:
   after T68's intercompany accounts, as its own leaf.
 - **A change in estimate** (useful life, residual value or method after
-  depreciation has started, applied prospectively). IFRS requires a review
+  depreciation has started, applied prospectively; built by T57j, As
+  built). IFRS requires a review
   of useful life and residual value at least at each year end (IAS 16.51,
   from memory, for a specialist). Recommendation: a leaf before the pilot's
   first year end. **The accounting specialist (po:2026-11-09, B13):** the
@@ -2593,3 +2606,106 @@ cannot fail to serialise, so the mark costs no retry, and a read that
 issues one statement keeps READ COMMITTED.
 - **Tracker.** A leaf "Every read of the assets context in one snapshot"
   (`review:T57f`), done with this step.
+
+**T57j (a change in estimate, po:2026-11-09 B13).** An asset's useful
+life, residual value and method in a ledger change after depreciation was
+posted there, prospectively from a chosen period (IAS 16.51, 16.61, IAS
+8.36-38), so the year-end review is booked in the register rather than by
+a manual journal. Built: migration 000249 (`assets.estimate_change`,
+insert-only, each change with its period, its first day, the terms after
+and before it, under the asset's `seq`; `asset_terms.estimate_changes`
+counting them; triggers `estimate_change_prospective` (after the period
+booked through, not before the latest change, the asset's current `seq`,
+the terms before as they stand) and the replaced `asset_terms_in_use`,
+which lets a booked row change only by the update counting one more
+change, to exactly that change's terms, its depreciation start unchanged;
+`TestAssetEstimateChangeRules`). `Plan.Changes` in the walk
+(`schedule.go`): each period depreciates on the terms in force in it, the
+residual value being the change's plus what moves brought or took.
+Contract: `AssetTermsUpdate.effective_from` (`AssetEstimateFrom`),
+`AssetTerms.estimate_changes` (`AssetEstimateChange`, with the terms
+`before` it), the problem `assets.change_not_prospective`; tests
+`TestChangeInEstimate`, `TestChangeInEstimateFailures`,
+`TestScheduleWalkWithChanges`; walkthrough step 44
+(`step_asset_estimate`). Decided by default, for the product owner to
+overrule:
+- **Through `PATCH /v1/assets/{id}`, not an operation of its own.** A
+  change in estimate is a change of the terms the asset already carries,
+  so a terms entry gains `effective_from`; required once the ledger is
+  booked (409 `assets.terms_in_use` without it), refused before (422
+  `request.validation_failed`: the terms then change directly). The asset
+  shows each ledger's changes, oldest first; the audit record names the
+  count and the latest period, and AssetChanged (`changed`) is published
+  as for any change.
+- **The useful life stays the total from the depreciation start**, as the
+  terms always count it, so a review that finds three years left on an
+  asset two years in sets 60 months; the depreciation start does not
+  change with it (422).
+- **The residual value is the asset's as it stands when the change is
+  made** (review round 1): from the change's period on, R_k is the
+  change's residual value plus what the moves posted after it (by `seq`)
+  brought or took; shares that left before it are not taken off again,
+  so a change after a partial retirement never drives R_k below zero
+  (`TestScheduleWalkWithChanges`). A retirement or transfer valued before
+  a change's period is refused once the change is made (409
+  `assets.later_value_date`, as for a movement valued later), and one
+  valued in or after it takes its share of R_k (`Plan.ResidualAt`;
+  `TestRetirementBeforeAChange`).
+- **A useful life shorter than the periods elapsed** at the change's
+  period is accepted: as the schedule's rule from k = n on has it, the
+  whole book value above the residual value is depreciated in that
+  period, the current period's effect of the change (IAS 8.36), not a
+  restatement of the periods booked.
+- **The schedule's terms** (`getAssetSchedule`) are those in force in the
+  year's last period, and it lists the ledger's changes and the
+  classification as held for sale, so each period's planned amount can be
+  explained from the report alone (review round 1).
+- **Strictly after the period booked through**: nothing booked changes,
+  so no run posts a correction of past periods (that would be an error
+  correction, IAS 8.41, not an estimate). A review after the year's last
+  run takes effect from the next period; several changes from one period
+  may be made, the last one winning, and none before the latest.
+- **A change takes the asset's `seq`** (it is a posting of the asset,
+  §5), so a retirement or transfer posted before it is no longer reversed
+  (409 `assets.later_movements`); `booked_through` therefore never falls
+  back below a change, and terms with changes never return to direct
+  changes. A change is not reversed: a later change from the same period
+  supersedes it.
+- **Reads cost nothing for assets without changes**: the walk reads the
+  changes only of terms that count some, in one statement per run batch,
+  preview page or asset read (`withChanges`, `readTerms`).
+
+**T57k (held for sale; a transfer's receiver depreciating its month,
+po:2026-11-09 B11).** The specialist accepted the monthly convention with
+two caveats (IAS 16.55, IFRS 5.25, IAS 8.8). Built: migration 000250
+(`asset_terms.held_for_sale_year`, `_period`, `_from`, all or none,
+`asset_terms_held_for_sale`; `asset_terms_held_for_sale_prospective` in
+`assets.check_asset_terms`: from a period after the one booked through,
+moved only while its period is not booked, never cleared;
+`TestAssetHeldForSaleRules`); `Plan.Stop` in the walk; contract
+`AssetTermsUpdate.held_for_sale_from`, `AssetTerms.held_for_sale`
+(`AssetHeldForSale`), also on `AssetSchedule`; tests `TestHeldForSale`,
+`TestTransferReceiverDepreciatesItsMonth` (half the mill moved in June
+after June's run: each half depreciates 5.00 of June, a repeat run posts
+both, 10.00), the walk's case in `TestScheduleWalkWithChanges`;
+walkthrough step 45 (`step_asset_held_for_sale`). Decided by default, for
+the product owner to overrule:
+- **Per ledger**, as a terms entry of `PATCH /v1/assets/{id}`: each
+  ledger is a depreciation area with its own accounting principle
+  (ADR-0045), and IFRS 5 is IFRS's; a local GAAP ledger may keep
+  depreciating. The classification is audited with the terms.
+- **No reclassification out of held for sale** (IFRS 5.26-29) and no
+  measurement at the lower of carrying amount and fair value less costs
+  to sell (IFRS 5.15, an impairment, which ADR-0057 leaves out): the leaf
+  asks for the stop alone. A classification from a period not yet booked
+  may be moved to another such period; once booked it stays (422
+  `assets.change_not_prospective`).
+- **Nothing else changes for a held-for-sale asset**: runs select it and
+  post no difference for it, a retirement (its sale) catches up through
+  the period before as ever, which takes no depreciation from the stop;
+  the useful life keeps elapsing, so periods after the stop are k on.
+- **The transfer caveat needed no change**: a receiver's depreciation
+  starts from the transfer's value date (its capitalisation date, §5,
+  §8), whose period counts in full, and the sender's share leaves at the
+  start of that period; the test proves the month is depreciated once.
+

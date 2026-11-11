@@ -27,7 +27,7 @@ type costCenterPayload struct {
 	ValidTo        string     `json:"valid_to,omitempty"`
 	Category       string     `json:"category,omitempty"`
 	ProfitCenterID *uuid.UUID `json:"profit_center_id,omitempty"` // create
-	StandardNodeID *uuid.UUID `json:"standard_node_id,omitempty"` // create: its leaf in the standard hierarchy (T56b)
+	StandardNodeID *uuid.UUID `json:"standard_node_id,omitempty"` // create: its node in the standard hierarchy (T56b)
 	LockCost       *bool      `json:"lock_actual_cost,omitempty"`
 	LockRevenue    *bool      `json:"lock_actual_revenue,omitempty"`
 	LockPlan       *bool      `json:"lock_plan,omitempty"`
@@ -47,7 +47,7 @@ type NewCostCenter struct {
 	Texts          Texts
 	Category       string
 	ProfitCenterID *uuid.UUID
-	StandardNodeID *uuid.UUID // its leaf in the standard hierarchy; nil: the UNASSIGNED leaf, at approval (unassignedLeaf)
+	StandardNodeID *uuid.UUID // its node in the standard hierarchy; nil: the UNASSIGNED leaf, at approval (unassignedLeaf)
 	ValidFrom      time.Time
 	ValidTo        time.Time // zero: open-ended
 	Reason         string

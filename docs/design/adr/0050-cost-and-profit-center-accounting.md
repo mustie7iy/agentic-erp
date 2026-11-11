@@ -288,7 +288,8 @@ As built in T56a (migration 000128):
   today's tree, as SAP does (decision P7).
 
   As built in T56b (migration 000139):
-  - **Tables.** `hierarchy` (kind, code `^[0-9A-Z_-]{1,15}$` unique per
+  - **Tables.** `hierarchy` (kind, code `^[0-9A-Z_-]{1,15}$`, 24 since
+    000248, unique per
     kind, `is_standard` with at most one standard per kind, all three
     fixed), `hierarchy_node` (parent in the same hierarchy by foreign key,
     code unique among the hierarchy's nodes, `position` among siblings) and
@@ -359,6 +360,21 @@ As built in T56a (migration 000128):
     refused (`request.invalid_page_token`). A tree lists only the cost centers of companies the caller may act in, as every cost center read; its nodes are tenant-wide. The ETag is the tree's version, so two callers with different access may get different bodies under one ETag: harmless for If-Match (changes are planned against the whole tree), but a shared cache must vary by principal. `/v1/center-changes` filters by `hierarchy_id`. Event
     `HierarchyChanged` says what changed, not the tree; audit
     `ledger.hierarchy.create|request|node_create|node_rename|node_move|node_remove|place`.
+  - **Amended: centers on inner nodes (SAP specialist, po:2026-11-09,
+    A10(d) [M]; migration 000247).** SAP's sets may hold values beside
+    their subsets, and a center's KHINR may name a group with subgroups,
+    so a node holds centers and child nodes alike: "exactly one leaf" above
+    reads "exactly one node". Decided by default (the leaf asked §3 to hold
+    them; a generated child leaf per inner group would invent nodes and
+    codes SAP does not have): 000247 drops the triggers' refusals of a node
+    below a node holding centers and of a center at a node with children,
+    and the plan no longer refuses adding or moving a node below centers,
+    placing a center at a node with children (the API's and a new center's
+    `standard_node_id` included), or the UNASSIGNED node and the standard
+    root when they have children or centers. Removing a node with children
+    or centers is still refused. The center reports already sum a node's
+    subtree, its own centers included, so they are unchanged; a path ends
+    at the center's node.
 - **Default profit center** per company (SAP's dummy profit center), a real
   profit center flagged `is_default`, collects P&L lines nothing else
   derives. Its balance is a close task (T64): it should be empty or
@@ -1145,9 +1161,11 @@ pending the SAP specialist, docs/migration.md):
   SETHEADERT (a set's text, not in the list above), SETNODE and SETLEAF of
   classes 0101 and 0106, and CSKB (KOKRS, KSTAR, DATBI, KATYP). A scope
   keeps those of the controlling areas of the centers it keeps; a company
-  code without centers has no known area (TKA02 is not read). The mock's
+  code without centers has no known area (TKA02 is not read; read since,
+  below). The mock's
   area 1000 has the standard hierarchy H1000 (H3000 Canada, H3100
-  administration as the range 3100 to 3199, H3200 sales), an alternative
+  administration as the range 3100 to 3199, H3200 sales; since A10(d)
+  H3000 holds 3100 itself and H3100 the range 3101 to 3199), an alternative
   REGIONS (Quebec as 3100 to 3299 without 3100 and 3300), the profit
   centers' PH1000, and its company 3000's accounts as cost elements, the
   exchange rate accounts not.
@@ -1348,6 +1366,60 @@ pilot's release, docs/migration.md):
 - **Not checked**: the orders and profit centers a row names (AUFK with
   JEST/JCDS, CEPC), as no such row is proposed; the ledger checks the
   cost center again when the change activates (`ledger.Setup.Check`).
+
+As built for the SAP specialist's answers (lane sapctr, po:2026-11-09;
+fixes of the leaves above, each named by its question):
+- **TKA02 (A8)**: `internal/sap` carries TKA02 (BUKRS, KOKRS), kept by
+  the scope's company codes, read only by the configuration draft. A
+  company code's area is TKA02's (decided by default: the specialist
+  answers that a company code belongs to exactly one area, which TKA02
+  names), else, for an extract without it (no released OData API), the
+  areas of its centers as before; the scope keeps the cost elements
+  (CSKB) of the TKA02 areas too, but not their groups, which place
+  centers and are kept by the areas of the centers loaded. The mock
+  assigns 3000 to area 1000 and 1000 and 2000 to area 2000, which has no
+  cost elements.
+- **Centers of a line's posting date and area (A9(a), (b), (d))**: ACDOCA
+  carries KOKRS, and a line's centers are those of its company code in
+  that area (replacing T56h4's "a company code taken to belong to one
+  area" and its refusal of a center in two areas); a line naming a center
+  with KOKRS blank (CO not active) is refused. The gate, and the
+  reconciliation reading the extract again, compare a line's profit center
+  with its cost center's CSKS slice valid on BUDAT, not the latest, and
+  refuse a cost center no slice of which covers BUDAT (decided by default:
+  the ledger refuses both at posting, which fails the run late; the gate
+  names them first). A slice without a profit center accepts the line's
+  (SAP's dummy profit center, which the ledger takes beside a cost center
+  without one). The mock's lines carry their company code's TKA02 area.
+- **Values on inner groups (A10(d) [M])**: the gate no longer refuses a
+  group with both subgroups and values, or a KHINR naming a group that is
+  not a leaf; a center sits at the group whose values take it or that its
+  KHINR names, inner or not (exactly one per tree, as before), and the
+  ledger holds it there (§3 as amended, migration 000247). A group an
+  earlier run loaded with centers takes the subgroups SAP added since.
+- **Group codes of 24 characters (A11(c) [M])**: SETHEADER-SETNAME holds
+  24, so the hierarchy's and the node's codes take up to 24 of 0-9, A-Z, _
+  and - (migration 000248 widens 000139's checks; the contract's code
+  patterns of the hierarchy list's filter, `HierarchyCreate` and
+  `HierarchyNodeAdd` widen with them, a request-side change that breaks no
+  client), and the gate's group code check with them.
+- **Cost element of the cutover (A12(c), (d))**: CSKB carries DATAB; the
+  configuration draft takes the slice valid at the cutover date, an input
+  (`sapconfig.Options.Cutover`, `erp config generate -cutover`; decided by
+  default: the extract does not say when a scope cuts over), else the
+  latest with a note on the account; without a date, the latest with one
+  note on the chart. SKB1 carries SKA1's GLACCOUNT_TYPE (optional), which
+  cross-checks an account without a CSKB row: `N` or none given is `none`,
+  `P`, `S` or `X` leave the type's default with a note.
+- **A segment SAP did not derive from the profit center (A9(c) [M])**:
+  refused, with an issue naming the case (the BAdI FAGL_DERIVE_SEGMENT or
+  a manual entry), not loaded (decided by default: §3 gives a profit center
+  one segment without validity and §5 every line its profit center's,
+  which the journal line's foreign key holds; loading SAP's segment would
+  need time-dependent or line-level segments, a change of §3 and §5 no
+  decision asks for). §5 is not amended. A profit center whose segment
+  changed after posting has slices naming two segments, already refused as
+  a reorganisation. The pilot's lines are to be profiled for the case.
 
 ### 11. Change control (decision P1)
 Cost and profit centers are **master data maintained through an API**, not

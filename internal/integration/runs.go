@@ -507,6 +507,9 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	if t.posted, err = e.postedCurrencies(ctx, ext, existing); err != nil {
 		return operations.Operation{}, err
 	}
+	if t.today, err = database.Today(ctx, tx); err != nil {
+		return operations.Operation{}, fmt.Errorf("integration: read the load date of migration run %s: %w", r.ID, err)
+	}
 	quality := checkQuality(ext, t)
 	report := Report{Extract: ext.Counts(), Quality: asList(quality)}
 	if hasErrors(quality) {
@@ -515,11 +518,7 @@ func (e *Endpoints) load(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r R
 	if _, err := tx.Exec(ctx, `SAVEPOINT load`); err != nil {
 		return operations.Operation{}, fmt.Errorf("integration: open the load savepoint of migration run %s: %w", r.ID, err)
 	}
-	today, err := database.Today(ctx, tx)
-	if err != nil {
-		return operations.Operation{}, fmt.Errorf("integration: read the load date of migration run %s: %w", r.ID, err)
-	}
-	l := &loader{e: e, tx: tx, p: p, run: r, system: system(c), ext: ext, t: t, refs: existing, today: today,
+	l := &loader{e: e, tx: tx, p: p, run: r, system: system(c), ext: ext, t: t, refs: existing, today: t.today,
 		vendors: map[string]uuid.UUID{}, entries: map[string]loadedEntry{}, created: map[string]uuid.UUID{}}
 	if err := l.load(ctx); err != nil {
 		return operations.Operation{}, err

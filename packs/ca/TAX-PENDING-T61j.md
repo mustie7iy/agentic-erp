@@ -93,3 +93,11 @@ items 1-7, as written on 2026-11-09 (reported by the product owner).
 2026.7's `returns.yaml` is 2026.6's byte for byte, its labels' "from
 memory" markers included (ADR-0049 §11 As built, T61j: Signed off). Item
 8, the FPZ-500, is not part of it and stays its own tracker leaf.
+
+Labels resolved (`2026.8`, product owner 2026-11-09): 2026.8 is 2026.7
+with the markers dropped from the labels of 112, 113A, 113B, 113C, 114 and
+115 ("its sum is from memory, pending the tax specialist", "from memory,
+pending the tax specialist"), under 2026.7's sign-off. Its lines, their
+selections and sums are 2026.7's; only label strings differ
+(`TestCanadaPack2026_8`). The table above and `TestCanadaPackGST34`
+describe 2026.6, which keeps its markers, as 2026.7 does.
