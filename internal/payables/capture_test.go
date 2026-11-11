@@ -56,7 +56,8 @@ func (orderNumbers) OrderByNumber(ctx context.Context, le uuid.UUID, number stri
 func endpoints(x capture.Extractor) *payables.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &payables.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Orders: procurement.Orders{},
-		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}},
+		Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+			Settings: configuration.Settings{}},
 		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}},
 		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates, Approvals: fixture.Approvals(), Payments: payments.Reservations{},
 		Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: orderNumbers{}, Extractor: x}
