@@ -9340,6 +9340,13 @@
       "r": "(post-pilot, PO 2026-10-21)",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "An OData extract cannot tell SAP's noted items: the mapping of API_JOURNALENTRYITEMBASIC_SRV carries no document status (ACDOCA-BSTAT), so a noted document that balances would still post with an open payable from an OData extract, while a file extract's is set aside; map the API's property once the pilot's $metadata and the SAP specialist confirm it and whether the service returns noted items at all (docs/migration.md, what to check: noted items and the document status)",
+      "r": "internal/sap odata.go (the mapping's comment) · found by go-reviewer in the step bstat, round 1 (Pre-existing)",
+      "src": "review:batch63",
+      "c": []
      }
     ]
    },
@@ -9528,10 +9535,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP's trading partner on migrated intercompany documents (ADR-0059 question 4, answered po:2026-11-05: a migration leaf once an SAP specialist confirms the fields; the SAP specialist answered po:2026-11-09, A2): the extract reads the vendor's LFA1-VBUND (KNA1-VBUND for a customer) [H] and each line's ACDOCA-RASSC [H]; SAP does not guarantee RASSC on every line of a document [M] (lines from MIRO and GR/IR, tax, exchange and price difference and cash discount lines, documents with several vendors and lines a user cleared often lack it), so the load gives a whole intercompany document the trading partner of its vendor line, as ADR-0059 §4's derivation does on the platform, instead of requiring it on each SAP line; how a VBUND names the tenant's legal entity is settled in the step; checked on the pilot's data with the specialist's query (documents whose vendor line has a RASSC that another line lacks)",
-      "r": "ADR-0059 §4, question 4 (answered) · internal/sap (LFA1, ACDOCA) · internal/integration load · docs/migration.md",
+      "r": "ADR-0059 §4, question 4 (answered), As built (SAP's trading partner on migrated intercompany documents) · internal/sap (LFA1 VBUND, ACDOCA RASSC, T001 RCOMP, Extract.CompanyCodes) · internal/integration tradingpartner.go (the supplier's group company from VBUND, the gate's warnings, the open payables by trading partner) · ledger Reports.OpenPayablesByTradingPartner, Posting.Collective (the opening entry's balances take no trading partner) · docs/migration.md · walkthrough step 3 (migration_group_company, migrated_trading_partner). Settled in the step: a VBUND names the legal entity of the company code T001-RCOMP assigns to it (RCOMP from memory, for the specialist); one that names none is a warning",
       "src": "po:2026-11-05 · po:2026-11-09 · adr:ADR-0059",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "SAP's noted items are not posted or counted (ACDOCA-BSTAT S, such as down payment requests, special G/L F): they post nothing to the G/L in SAP (SAP specialist, po:2026-11-09, A14 [H], A15 [M]), but the load read them as journal lines, so a one-sided request stopped the run as unbalanced and a noted document that balanced was posted with an open payable; the scope sets them aside, in both modes nothing posts, sums or counts one, and the quality gate reports them as warnings, per company and each open one",
+      "r": "internal/sap FilterScope, Extract.Noted, StatusNoted · internal/integration noted.go (qualityCheck.noted), recaccounts.go · TestNotedItemsAreNotMigrated (mock extract, both modes), TestNotedItemsReported, TestFilterScopeKeepsTheLeadingLedger · ADR-0037 As built (SAP's noted items are not migrated, bstat) · ADR-0060 §9 · docs/migration.md (noted items; what to check: BSTAT's other values, whether ACDOCA holds noted items)",
+      "src": "review:batch63",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migration run's day is the company's date, not UTC's: the cutover date a vendor's central address (ADRC) must be valid on was the database's UTC day, so on a cutover evening in Toronto the run took the address valid from the next day; it is each company's date in its time zone at the run's instant, a vendor judged on the days of the company codes it is set up in; the dates the run writes on the platform (a supplier's bank account and address valid_from) stay partner's UTC rule (product owner 2026-10-31 and 2026-11-02)",
+      "r": "internal/integration cutover.go (companyDays, target.cutoverDays), addresses.go, runs.go (target.configure) · internal/app Integration (Endpoints.Now wired) · TestRunDayIsTheCompanysDay (Toronto, Dubai), TestRunDayZoneLost, TestCompanyDays, TestCutoverDays, TestCentralAddressAcrossDays · ADR-0051 As built (a run's cutover date is the company's, bstat) · 03-data-model · docs/migration.md (vendor addresses)",
+      "src": "review:batch63",
       "c": []
      }
     ]

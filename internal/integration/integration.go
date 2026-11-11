@@ -43,6 +43,7 @@ import (
 // LegalEntities is what integration reads about legal entities (tenancy).
 type LegalEntities interface {
 	Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error)
+	EntityByCode(ctx context.Context, code string) (tenancy.Entity, bool, error)
 }
 
 // Accounts reads a legal entity's chart of accounts (ledger).
@@ -132,6 +133,7 @@ type Reports interface {
 	Totals(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (ledger.Totals, error)
 	OpenPayables(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenPayableItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]int, error)
+	OpenPayablesByTradingPartner(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error)
 	OpenForeignItems(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]map[string]money.Minor, error)
 	OpenGRIR(ctx context.Context, legalEntity uuid.UUID, orders []uuid.UUID) (map[uuid.UUID]map[int32]ledger.OpenGRIR, error)
@@ -174,7 +176,7 @@ type Endpoints struct {
 	Receiver      netip.AddrPort   // the walkthrough's webhook receiver, a URL may name it (ERP_WALKTHROUGH_RECEIVER, development only); zero: none
 	ExtractDir    string           // sap_file connectors read extracts below it; empty: they cannot be used
 	HTTP          *http.Client     // for sap_odata connectors; nil: the reader's default
-	Now           func() time.Time // the clock replay and ping read, the dispatcher's where both are wired; nil: the wall clock
+	Now           func() time.Time // the clock replay, ping and a migration run's day read, the dispatcher's where both are wired; nil: the wall clock
 	Workflows     bool             // runs leave the request and run as workflows (ADR-0012); false: they complete within it
 	RefuseEBICS   bool             // production: bank_ebics connectors and the e-invoicing stand-in cannot be created or enabled (ADR-0038, T44d; ADR-0061 §3)
 }

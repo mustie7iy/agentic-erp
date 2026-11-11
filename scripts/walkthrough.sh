@@ -860,6 +860,7 @@ step_migrate() {
   api 201 '"connector \(.id): \(.kind), \(.name)"' createConnector -body '{"kind": "sap_file", "name": "SAP PRD", "settings": {"path": "extract.json"}}'
   local connector
   connector=$(field .id)
+  migration_group_company
   parallel_run_extract
   small_item_refused "$connector"
   yen_item_rehearsed "$connector"
@@ -878,6 +879,7 @@ step_migrate() {
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
+    'Open payables by trading partner total' 'Open payables by trading partner: trading partners with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
     'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences'; do
@@ -928,6 +930,7 @@ step_migrate() {
       postSupplierInvoice -p "id=$doc" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
     expect "the migrated $kind's status" "$(field .status)" posted
   done
+  migrated_trading_partner
   migrated_centers
   migrated_default_assignment
   migrated_line_centers
@@ -936,6 +939,73 @@ step_migrate() {
   migrated_grir
   migrated_foreign_grir
   passed
+}
+
+# migration_group_company is the legal entity SAP's trading partner of
+# Maple's intercompany vendor names (ADR-0059 §4 and As built, the SAP
+# specialist's A2), created before the migration: the mock's Muskoka
+# Office Supply is a company of the group, its vendor master naming the
+# company ID (LFA1-VBUND) that SAP's company code 2000, Acme GmbH, is
+# assigned to (T001-RCOMP). The German company is not migrated and has no
+# configuration: its legal entity alone is what a supplier links to. It
+# keeps the vendor's name in IC_NAME and the legal entity in IC_COMPANY.
+migration_group_company() {
+  local lifnr vbund code cal
+  lifnr=$(jq -r --arg cc "$CC" '[.LFB1[] | select(.BUKRS == $cc) | .LIFNR] as $own | [.LFA1[] | select((.VBUND // "") != "" and (.LIFNR | IN($own[])))] | first | .LIFNR' "$WORK/data/extract.json")
+  IC_NAME=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .NAME1' "$WORK/data/extract.json")
+  vbund=$(jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | .VBUND' "$WORK/data/extract.json")
+  code=$(jq -r --arg id "$vbund" '[.T001[] | select(.RCOMP == $id) | .BUKRS] | join(" ")' "$WORK/data/extract.json")
+  say "One of Maple's vendors in SAP is a company of the group. Its vendor master names its trading partner, a"
+  say "company ID (LFA1-VBUND), and SAP's company codes say which company code that is (T001-RCOMP):"
+  jq -r --arg v "$lifnr" '.LFA1[] | select(.LIFNR == $v) | "     LFA1 \(.LIFNR) \(.NAME1): trading partner \(.VBUND)"' "$WORK/data/extract.json"
+  jq -r --arg id "$vbund" '.T001[] | select(.RCOMP == $id) | "     T001 company code \(.BUKRS) \(.BUTXT): company ID \(.RCOMP)"' "$WORK/data/extract.json"
+  expect "the company code of the vendor's trading partner" "$code" 2000
+  say "The group's German company is not migrated yet. Ada records its legal entity, so that the migration can link"
+  say "the supplier to it (ADR-0059 §4); without it the run would warn and load the supplier unlinked."
+  QUIET=1 api 200 '' getLegalEntity -p "id=$LE"
+  cal=$(field .fiscal_calendar_id)
+  api 201 '"legal entity \(.code) \(.name): \(.country_code), \(.local_currency), \(.status)"' createLegalEntity \
+    -body "{\"code\": \"$code\", \"name\": \"Acme GmbH\", \"country_code\": \"DE\", \"local_currency\": \"EUR\", \"fiscal_calendar_id\": \"$cal\"}"
+  IC_COMPANY=$(field .id)
+}
+
+# migrated_trading_partner shows SAP's trading partner on the migrated
+# intercompany documents (ADR-0059 §4 and As built): the supplier the load
+# created for Muskoka Office Supply names the legal entity of
+# migration_group_company as its group company, so the ledger gave every
+# line of its migrated documents that trading partner, the vendor lines,
+# which SAP's lines name it on (ACDOCA-RASSC), and the other lines of its
+# invoices, which SAP left without one; the credit memo Alex just posted
+# through payables carries it too; and the reconciliation compared the
+# open payables per trading partner with SAP's.
+migrated_trading_partner() {
+  local lifnr documents with without
+  as carla
+  say "SAP's trading partner (ADR-0059 §4): the migration linked $IC_NAME to the group's company, as its vendor"
+  say "master names it. The supplier shows its group company:"
+  api 200 '.items[] | "supplier \(.number) \(.name): group company \(.group_company.code) \(.group_company.name)"' listBusinessPartners -p "name_prefix=$IC_NAME"
+  expect "the migrated supplier's group company" "$(field '.items[0] | "\(.group_company_id) \(.group_company.code) \(.group_company.name)"')" "$IC_COMPANY 2000 Acme GmbH"
+  lifnr=$(jq -r --arg n "$IC_NAME" '.LFA1[] | select(.NAME1 == $n) | .LIFNR' "$WORK/data/extract.json")
+  documents=$(jq -r --arg cc "$CC" --arg v "$lifnr" '[.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR == $v) | .BELNR] | unique | length' "$WORK/data/extract.json")
+  with=$(jq -r --arg cc "$CC" --arg v "$lifnr" '([.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR == $v) | .BELNR] | unique) as $d
+    | [.ACDOCA[] | select(.RBUKRS == $cc and (.BELNR | IN($d[])) and (.RASSC // "") != "")] | length' "$WORK/data/extract.json")
+  without=$(jq -r --arg cc "$CC" --arg v "$lifnr" '([.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR == $v) | .BELNR] | unique) as $d
+    | [.ACDOCA[] | select(.RBUKRS == $cc and (.BELNR | IN($d[])) and (.RASSC // "") == "")] | length' "$WORK/data/extract.json")
+  say "SAP names the trading partner on the vendor lines alone (ACDOCA-RASSC): of the lines of its $documents documents,"
+  say "$with carry it and $without do not (the expense and tax lines invoice verification posts; the SAP specialist, A2)."
+  if [ "$without" -eq 0 ]; then fail "the extract's intercompany documents have no line without a trading partner"; fi
+  say "The load does not copy SAP's lines: the ledger derives each line's trading partner from the supplier and gives"
+  say "the document's other lines the same, as for every posting on the platform. The journal lists Maple's entries"
+  say "naming company 2000, and every line of them carries it:"
+  api 200 '.items[] | "  entry \(.document_number) of \(.posting_date), \(.header_text): \(.lines | length) lines, trading partner \([.lines[] | .trading_partner.code // "none"] | unique | join(", "))"' \
+    listJournalEntries -p "legal_entity_id=$LE" -p "trading_partner_id=$IC_COMPANY" -p page_size=100
+  expect "the migrated documents among the entries naming company 2000" "$(field '[.items[] | select((.header_text // "") | startswith("SAP document"))] | length')" "$documents"
+  expect "the trading partners of those entries' lines" "$(field '[.items[].lines[] | .trading_partner.code // "none"] | unique | join(" ")')" 2000
+  expect "the lines SAP left without a trading partner, now carrying it" \
+    "$(field '[.items[] | select((.header_text // "") | startswith("SAP document")) | .lines | length] | add')" "$((with + without))"
+  say "The reconciliation compared the open payables per trading partner, SAP's as the vendor masters give them:"
+  grep -E 'Open payables by trading partner' "$WORK/migrate.out" | sed 's/^/     /'
+  as ada
 }
 
 # migrated_centers shows SAP's controlling master data as the load brought
@@ -6956,7 +7026,8 @@ step_cash_group() {
       "  converted: opens at \(.converted.opening.amount), closes at \(.converted.buckets[-1].closing.amount) \(.converted.currency)"' \
     getGroupLiquidityForecast "${weeks[@]}"
   cp "$WORK/last.json" "$WORK/group.json"
-  expect "the companies, by code" "$(field '[.companies[].company_code] | join(" ")')" "1000 $CC"
+  say "Acme GmbH (2000) is among them: the legal entity step 3 recorded for the migration, which holds no cash."
+  expect "the companies, by code" "$(field '[.companies[].company_code] | join(" ")')" "1000 2000 $CC"
   expect "the group currency" "$(field .group_currency)" CAD
   expect "the converted closing, the converted opening plus the converted totals" \
     "$(field 'def c: sub("\\."; "") | tonumber; .converted | ((.opening.amount | c) + ([.buckets[].total.amount | c] | add)) == (.buckets[-1].closing.amount | c)')" true

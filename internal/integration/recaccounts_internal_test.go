@@ -31,7 +31,8 @@ func TestReconciliationAccounts(t *testing.T) {
 		{"an item cleared after the key date", item("-50.00", func(l *sap.ACDOCA) { l.AUGBL, l.AUGDT = "0100000020", "20261231" }), ""},
 		{"a noted item", func(e *sap.Extract) {
 			item("-50.00", same)(e)
-			e.ACDOCA = append(e.ACDOCA, sap.ACDOCA{RBUKRS: "2000", RACCT: "0000211000", HSL: "-30.00", LIFNR: "0000000001", BSTAT: "S", BUDAT: "20260310"})
+			// The scope sets it aside (sap.FilterScope), so it is no line of the account.
+			e.Noted = append(e.Noted, sap.ACDOCA{RBUKRS: "2000", RACCT: "0000211000", HSL: "-30.00", LIFNR: "0000000001", BSTAT: "S", BUDAT: "20260310"})
 		}, ""},
 		{"an amount that does not parse", item("x", same), ""},
 		{"an item cleared by the key date", item("-50.00", func(l *sap.ACDOCA) { l.AUGBL, l.AUGDT = "0100000020", "20260310" }),

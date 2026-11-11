@@ -302,11 +302,13 @@ legal entity on the other side of an intercompany transaction.
   `trading_partner_id`; the ledger's events carry it.
 - **Lines posted before T68b** carry none, nor do migrated lines whose
   business partner was not linked before the load, nor G/L lines SAP gave a
-  trading partner without a partner (the migration does not read SAP's
-  trading partner, a question below): such intercompany balances show as
-  `no_trading_partner` (§8) until their companies repost them or the
-  product owner asks for a migration leaf. (SAP's propagation is not
-  guaranteed, the SAP specialist answered on 2026-11-09: question 4.)
+  trading partner without a partner: such intercompany balances show as
+  `no_trading_partner` (§8) until their companies repost them. (SAP's
+  propagation is not guaranteed, the SAP specialist answered on
+  2026-11-09: question 4. The migration leaf it led to links a migrated
+  supplier to its group company from SAP's vendor master, so its
+  documents carry the trading partner; As built, "SAP's trading partner
+  on migrated intercompany documents".)
 
 ### 4a. Changes to the ledger's published API
 Each is additive and built in the slice that first needs it, as ADR-0058
@@ -870,8 +872,9 @@ cursor-paged with filters, 04 §4.5):
   and segment notes stay out (ADR-0050's T68 boundary is a gap here).
 - **T57 (assets, ADR-0057)**: asset transfers between companies may follow
   as their own leaf, now that trading partners exist.
-- **T72 (migration)**: the trading partner of migrated lines (a question
-  below).
+- **T72 (migration)**: the trading partner of migrated lines (question 4,
+  answered; As built, "SAP's trading partner on migrated intercompany
+  documents").
 - **Phase 3 (receivables) and phase 4 (inventory)**: customer lines carry
   trading partners through the same derivation; intercompany profit in
   inventory is out of scope.
@@ -1107,7 +1110,9 @@ evidence) and this ADR's "As built".
    differences, cash discount), documents with several vendors and lines a
    user cleared often lack it. The specialist recommends deriving the
    trading partner of a whole intercompany document from its vendor line
-   at migration. The migration leaf is in the tracker (src po:2026-11-09).
+   at migration. The migration leaf is in the tracker (src po:2026-11-09)
+   and built (As built, "SAP's trading partner on migrated intercompany
+   documents").
 5. **Segregation of duties on finalization** (security posture). Built:
    any person holding `consolidation.run.finalize` finalizes, including
    one who accepted the run's differences. Recommendation: keep it for the
@@ -2328,3 +2333,114 @@ or to any member's ledger, which a run only reads. Built in
   which account a settlement's difference belongs to; (3) the rate, as
   for the first correction: each entry's local amount at that entry's
   posting date's rate.
+
+**SAP's trading partner on migrated intercompany documents (the migration
+leaf of question 4; the SAP specialist's A2, po:2026-11-09).** Built in
+`internal/sap` (the fields), `internal/integration/tradingpartner.go` (the
+link, the quality gate and the reconciliation) and
+`ledger.Reports.OpenPayablesByTradingPartner`; no migration. The ledger's
+posting port gains one option, `Posting.Collective` (below).
+- **What is read.** LFA1-VBUND, the vendor's trading partner [H], and
+  ACDOCA-RASSC, the line's [H], as the answer names them. Customers are
+  not migrated, so KNA1-VBUND is not read. One field is not in the answer
+  and is stated from memory, for the specialist (docs/migration.md, "What
+  to check on a real SAP system"): T001-RCOMP, the company a company code
+  is assigned to, without which a VBUND, a company ID, names no company
+  code.
+- **How a document gets its trading partner.** Not line by line: SAP does
+  not guarantee RASSC beyond the vendor line [M]. The load creates the
+  vendor's supplier with `group_company_id`, the legal entity its VBUND
+  is, and §4's derivation does the rest on the ledger's posting path, as
+  for every posting: each line naming the supplier takes the company,
+  and when a document's vendor lines all name the same one its other
+  lines take it too (an invoice's expense and tax lines, a payment's bank
+  line); a clearing's lines keep their items'. RASSC is not posted.
+- **The opening entry is collective (review, round 1).** In balances mode
+  the open vendor items carry their supplier's trading partner and the
+  account balances none. §4's propagation would have given every balance
+  of the entry (bank, equity, results) the one company its open vendor
+  items name whenever they all name the same, making a whole balance
+  sheet intercompany. The posting port therefore takes
+  `Posting.Collective`: an entry that gathers lines of unrelated
+  documents derives each partner line's trading partner and gives its
+  other lines none. Only the migration's opening entry sets it; a
+  document that posts on its own in balances mode (a down payment's, an
+  item in a foreign currency) is one document and propagates as in
+  documents mode.
+- **How a VBUND names a legal entity, decided by default.** By the one
+  company code T001 assigns to that company ID (RCOMP, compared without
+  leading zeros and blanks, read from every company code of the extract
+  file, since the trading partner is usually outside the run's scope),
+  and the tenant's legal entity of that code, whatever its status and the
+  caller's access to it, as T68c takes a group company. Matching a VBUND
+  to a company code of the same number was rejected: SAP's two keys are
+  different things, and a coincidence would link the wrong company
+  without a word.
+- **A trading partner that is no legal entity, decided by default: a
+  warning, never a refusal.** A company ID assigned to no company code of
+  the extract or to several, or a company code that is no legal entity
+  of the tenant, leaves the supplier unlinked and its documents without
+  a trading partner; the quality gate warns per vendor with the reason.
+  A group has companies that are not on the platform, nothing in SAP is
+  wrong, and §8 already lists such rows (`no_trading_partner`) rather
+  than failing; creating the legal entity before the run links it. A
+  vendor whose trading partner is its own company loads linked and its
+  lines there carry none (T68c's rule).
+- **Where SAP's lines say something else, decided by default: warnings.**
+  Vendor lines whose RASSC is not their vendor's VBUND (a vendor linked,
+  relinked or unlinked since the posting) load with the master's, since
+  the ledger refuses a line naming another trading partner than its
+  partner's (`ledger.trading_partner_conflict`); the gate counts them per
+  company and vendor. Lines carrying RASSC in documents without a vendor
+  line load without a trading partner, as §4 said they would; the gate
+  counts them per company. So it does the other lines of a document with
+  vendor lines that carry another trading partner than the load gives
+  them: the one its vendor lines' suppliers share, or none where they
+  name different ones, none, a company that is no legal entity, or in an
+  opening entry. A line SAP left without one is not reported: giving it
+  its document's is the purpose. An extract whose lines carry no RASSC at
+  all reports none of these.
+- **An earlier run's supplier, decided by default.** It keeps the group
+  company it has: a later run does not link it, since a supplier's group
+  company changes through a partner change with its approval (T68c) and
+  posted lines keep theirs (ADR-0006). The reconciliation shows the
+  difference.
+- **Reconciliation.** Where either side has any, the open payables per
+  trading partner (ordinary items and down payments): SAP's open vendor
+  items under their vendor's trading partner, the platform's open
+  supplier items as their lines carry one, in total and per trading
+  partner (`Open payables by trading partner total`, `...: trading
+  partners with differences`; differences keyed `trading partner
+  <company code>`). The key is SAP's company code, never the platform's
+  code or name of the company, and a legal entity no vendor of the
+  extract names is keyed by its id alone (product owner 2026-11-05: the
+  other company's master data is not every caller's to read).
+- **OData.** The mapping carries none of the three fields: the answer
+  names no property for VBUND or RCOMP, and `PartnerCompany` for RASSC
+  only at low confidence (A7 [L]). An OData extract says so
+  (`sap.Extract.NoTradingPartners`), the gate warns once per run, and no
+  supplier is linked.
+- **Contract.** A description only: `MigrationDiff.key` names the new
+  keys; no field changes.
+- **Mock and walkthrough.** The mock's company codes have company IDs
+  (001000, 002000, 003000), and Muskoka Office Supply, a vendor of
+  company 3000, names 002000; its vendor lines carry it, no other line
+  does. No row or amount was added. In step 3 Ada records the legal
+  entity of the group's German company (2000, not migrated, inactive)
+  before the run; the supplier shows its group company, the journal
+  lists its seven migrated documents and the credit memo Alex posts by
+  trading partner, every line carrying it, and both checks pass.
+- **Tests.** `TestTradingPartnerMigrated` (the documents carry it, the
+  reconciliation agrees, a consolidation run matches the migrated
+  payable with the other company's receivable and eliminates both, the
+  same extract again changes nothing), `TestTradingPartnerInBalancesMode`,
+  `TestTradingPartnerInAnOpeningEntryOfIntercompanyItemsAlone`,
+  `TestCollectiveEntryGivesItsOtherLinesNoTradingPartner` (ledger),
+  `TestTradingPartnerNotOnThePlatform`,
+  `TestTradingPartnerOfAnEarlierRunsSupplier`, the gate's and the
+  reconciliation's cases in `tradingpartner_internal_test.go`, and
+  `TestOpenPayablesByTradingPartner` in the ledger.
+- **Not built, for the product owner.** Intercompany documents without a
+  vendor line (loans, recharges between G/L accounts) and, in balances
+  mode, the balances of intercompany G/L accounts load without a trading
+  partner; a run that links a supplier loaded earlier; the OData mapping.

@@ -128,7 +128,8 @@ func (l *loader) plain(minor money.Minor, currency string) string {
 	return minor.Plain(l.t.exponents[currency])
 }
 
-// load brings the extract over: suppliers, purchase orders, the
+// load brings the extract over: suppliers, each linked to the company of
+// the group its SAP trading partner is (tradingpartner.go), purchase orders, the
 // quantities posted invoices invoiced, goods receipts, the open GR/IR
 // positions of the orders SAP valued through GR/IR, parked invoices,
 // then the journal (every document, or one
@@ -175,10 +176,7 @@ func (l *loader) load(ctx context.Context) error {
 }
 
 func (l *loader) partners(ctx context.Context) error {
-	companies := map[string][]sap.LFB1{}
-	for _, c := range l.ext.LFB1 {
-		companies[c.LIFNR] = append(companies[c.LIFNR], c)
-	}
+	companies := vendorCompanies(l.ext)
 	banks, as := firstBanks(l.ext), addressesOf(l.ext)
 	vendors := slices.Clone(l.ext.LFA1)
 	slices.SortFunc(vendors, func(a, b sap.LFA1) int { return cmp.Compare(a.LIFNR, b.LIFNR) })
@@ -193,7 +191,9 @@ func (l *loader) partners(ctx context.Context) error {
 		if id, ok := l.refs["LFA1/"+v.LIFNR]; ok {
 			err = l.extendSupplier(ctx, v, id, in, reason)
 		} else {
-			err = l.createSupplier(ctx, newSupplier(v, in, banks, as, reason, l.today), v)
+			np := newSupplier(v, in, banks, as, reason, l.t.cutoverDays(companies[v.LIFNR]), l.today)
+			np.GroupCompanyID = l.t.groupCompanyOf(v)
+			err = l.createSupplier(ctx, np, v)
 		}
 		if err != nil {
 			return err
@@ -203,7 +203,9 @@ func (l *loader) partners(ctx context.Context) error {
 }
 
 // extendSupplier sets an earlier run's supplier up in the company codes it
-// is not yet set up in.
+// is not yet set up in. Its group company stays as the platform has it: a
+// supplier's link to a company of the group changes through a partner
+// change with its approval, never by a later run (ADR-0059 As built).
 func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, in []partner.SupplierCompanyInput, reason string) error {
 	l.vendors[v.LIFNR] = id
 	var missing []partner.SupplierCompanyInput
@@ -232,8 +234,12 @@ func (l *loader) extendSupplier(ctx context.Context, v sap.LFA1, id uuid.UUID, i
 }
 
 // newSupplier is the partner a vendor master becomes, with its tax number,
-// its first bank account and its address.
-func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string]sap.LFBK, as addresses, reason string, today time.Time) partner.NewPartner {
+// its first bank account and its address (partners adds the group company
+// its trading partner is, target.groupCompanyOf): the central address valid on
+// days, the run's day in the vendor's companies' time zones, both starting
+// by today, partner's day (cutover.go).
+func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string]sap.LFBK, as addresses, reason string, days []time.Time,
+	today time.Time) partner.NewPartner {
 	np := partner.NewPartner{Kind: "organization", Name: v.NAME1, CountryCode: v.LAND1, Roles: []string{"supplier"},
 		SupplierCompanies: in, Reason: reason}
 	if tax := strings.TrimSpace(v.STCD1); tax != "" {
@@ -242,7 +248,7 @@ func newSupplier(v sap.LFA1, in []partner.SupplierCompanyInput, banks map[string
 	if b, ok := banks[v.LIFNR]; ok {
 		np.BankAccounts = []partner.BankInput{supplierBank(v, b, today)}
 	}
-	if a, ok, _ := vendorAddress(v, as, today); ok { // an address it cannot keep was warned of (qualityCheck.vendors)
+	if a, ok, _ := vendorAddress(v, as, days, today); ok { // an address it cannot keep was warned of (qualityCheck.vendors)
 		np.Addresses = []partner.AddressInput{a}
 	}
 	return np
@@ -657,8 +663,11 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 	}
 	date, _ := sapDate(last) // the latest of the lines' dates, each checked by the quality gate
 	text := "Opening balances from SAP " + strconv.Itoa(int(l.t.year))
+	// Collective: the account balances are no part of the open vendor
+	// items' documents, so they take no trading partner from them
+	// (ADR-0059 As built).
 	in := ledger.Posting{LegalEntityID: l.t.entities[c.BUKRS].ID, DocumentType: "OB", DocumentDate: date, PostingDate: date, Currency: c.WAERS,
-		HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID, Lines: lines}
+		HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID, Lines: lines, Collective: true}
 	done, err := l.step(ctx, "ACDOCA", key, func() error {
 		entry, err := l.e.Postings.Post(ctx, in)
 		if err != nil {

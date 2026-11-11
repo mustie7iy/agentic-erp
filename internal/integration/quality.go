@@ -61,10 +61,16 @@ type target struct {
 	// documents in, by document key (postedCurrencies), which a document
 	// SAP cleared together with them posts in too (foreignDocuments).
 	posted map[string]string
-	// today is the day the run loads, the cutover date of the master data
-	// it migrates: a vendor's central address valid on it is the one taken
-	// (po:2026-11-09, A1).
+	// days are the day the run loads in each company code's time zone, the
+	// cutover date of the master data it migrates: a vendor's central
+	// address valid on it is the one taken (po:2026-11-09, A1; cutover.go).
+	// today is that day in UTC, the database's and partner's: what a
+	// supplier's bank account and address start by on the platform.
+	days  map[string]time.Time
 	today time.Time
+	// partners are what the trading partners the extract's vendors name
+	// (LFA1-VBUND) are on the platform, by company ID (tradingpartner.go).
+	partners map[string]groupCompany
 }
 
 func (t target) hasRange(company, documentType string) bool {
@@ -126,11 +132,13 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.accounts()
 	q.centers()
 	q.vendors()
+	q.tradingPartners()
 	q.vendorCompanies()
 	q.vendorBanks()
 	q.purchaseOrders()
 	q.movements()
 	q.ledgers()
+	q.noted()
 	q.journal()
 	q.reconciliationAccounts()
 	q.lineCenters()
@@ -200,7 +208,7 @@ func (q *qualityCheck) accounts() {
 // vendors checks the vendor masters and flags names that look duplicated.
 func (q *qualityCheck) vendors() {
 	q.vendor = map[string]sap.LFA1{}
-	byName := map[string][]string{}
+	byName, companies := map[string][]string{}, vendorCompanies(q.e)
 	for _, v := range q.e.LFA1 {
 		q.vendor[v.LIFNR] = v
 		if strings.TrimSpace(v.NAME1) == "" {
@@ -209,7 +217,7 @@ func (q *qualityCheck) vendors() {
 		if strings.TrimSpace(v.STCD1) == "" {
 			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has no tax number", v.NAME1)
 		}
-		if _, _, why := vendorAddress(v, q.addresses, q.t.today); why != "" {
+		if _, _, why := vendorAddress(v, q.addresses, q.t.cutoverDays(companies[v.LIFNR]), q.t.today); why != "" {
 			q.add(SevWarning, "LFA1", v.LIFNR, "vendor %q has %s: it loads without an address", v.NAME1, why)
 		}
 		key := strings.ToUpper(strings.Join(strings.Fields(v.NAME1), " "))

@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // "cost center <KOKRS>/<KOSTL>" or "profit center <KOKRS>/<PRCTR>" (their periods, ADR-0050 §10), "cost center total <KOKRS>/<KOSTL>", "profit center total <KOKRS>/<PRCTR>" or "segment total <SEGMENT>" (migrated totals, T56h4), account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency)
+	Key         string `json:"key"` // "cost center <KOKRS>/<KOSTL>" or "profit center <KOKRS>/<PRCTR>" (their periods, ADR-0050 §10), "cost center total <KOKRS>/<KOSTL>", "profit center total <KOKRS>/<PRCTR>" or "segment total <SEGMENT>" (migrated totals, T56h4), account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency), "trading partner <company code>" or "trading partner <id>" (open payables by trading partner: by the SAP company code of the vendors' trading partner, or by the id of a legal entity no vendor of the extract names)
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -59,7 +59,11 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 	if issue, ok := ledgerIssue(ext); ok { // extracted again without the gate: refused, never summed twice
 		return Reconciliation{Issues: []Issue{issue}}, nil
 	}
-	rc := &reconciler{e: e, ext: ext, t: t, r: r, vendorOf: map[uuid.UUID]string{}, recon: map[string]bool{}, pnl: map[string]bool{}}
+	rc := &reconciler{e: e, ext: ext, t: t, r: r, vendorOf: map[uuid.UUID]string{}, recon: map[string]bool{}, pnl: map[string]bool{},
+		partnerOf: map[string]string{}}
+	for _, v := range ext.LFA1 {
+		rc.partnerOf[v.LIFNR] = sap.CompanyID(v.VBUND)
+	}
 	for key, id := range r {
 		if lifnr, ok := strings.CutPrefix(key, "LFA1/"); ok {
 			rc.vendorOf[id] = sap.Alpha(lifnr)
@@ -96,6 +100,9 @@ type reconciler struct {
 	recon    map[string]bool      // company/account -> vendor reconciliation account
 	pnl      map[string]bool      // company/account -> profit and loss account (SKB1-XBILK blank)
 	states   *centerStates        // the centers runs loaded, read once (readCenters)
+	// partnerOf is each vendor's trading partner, the company ID its master
+	// names (LFA1-VBUND, sap.CompanyID), "" for none.
+	partnerOf map[string]string
 }
 
 // companyScope is one company code under reconciliation.
@@ -153,6 +160,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.downPayments(ctx, s, j.downPay); err != nil {
 		return err
 	}
+	if err := rc.tradingPartners(ctx, s, j.byPartner); err != nil {
+		return err
+	}
 	if err := rc.foreignItems(ctx, s); err != nil {
 		return err
 	}
@@ -186,6 +196,7 @@ type sapJournal struct {
 	tb, open  map[string]money.Minor // per account; per "vendor <LIFNR>"
 	openItems map[string]int         // the number of open items (not of amount 0) per "vendor <LIFNR>"
 	downPay   map[string]money.Minor // open down payments (special G/L A) per "vendor <LIFNR>"
+	byPartner map[string]money.Minor // open items, down payments included, per "trading partner <company code>" (sapTradingPartner)
 	debits    money.Minor
 	documents map[string]bool
 }
@@ -196,7 +207,7 @@ type sapJournal struct {
 // refused amounts and sums out of range, but a reconciliation run extracts
 // again without it, so they are checked here too.
 func (rc *reconciler) journal(s companyScope) sapJournal {
-	tb, open, downPay := map[string][]money.Minor{}, map[string][]money.Minor{}, map[string][]money.Minor{}
+	tb, open, downPay, byPartner := map[string][]money.Minor{}, map[string][]money.Minor{}, map[string][]money.Minor{}, map[string][]money.Minor{}
 	var debits []money.Minor
 	documents, openItems := map[string]bool{}, map[string]int{}
 	for _, l := range rc.ext.ACDOCA {
@@ -214,6 +225,9 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 		debits = append(debits, max(amt, 0))
 		if l.LIFNR != "" && l.AUGBL == "" && rc.recon[s.cc+"/"+l.RACCT] {
 			vendor := "vendor " + sap.Alpha(l.LIFNR)
+			if key, ok := rc.sapTradingPartner(s, l.LIFNR); ok {
+				byPartner[key] = append(byPartner[key], amt)
+			}
 			if l.UMSKZ == specialDownPayment {
 				downPay[vendor] = append(downPay[vendor], amt)
 			} else {
@@ -228,6 +242,7 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 		tb:        rc.totals("ACDOCA", s.cc, tb, func(a string) string { return "the lines of account " + a }),
 		open:      rc.totals("ACDOCA", s.cc, open, func(v string) string { return "the open items of " + v }),
 		downPay:   rc.totals("ACDOCA", s.cc, downPay, func(v string) string { return "the open down payments of " + v }),
+		byPartner: rc.totals("ACDOCA", s.cc, byPartner, func(p string) string { return "the open items of " + p }),
 		debits:    rc.total("ACDOCA", s.cc, "the debits of company "+s.cc, debits),
 		documents: documents,
 		openItems: openItems,

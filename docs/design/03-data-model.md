@@ -486,7 +486,9 @@ contracts' expiry and its notice (T72n6) and a contract's number are
 judged on the company's date too. Judged in UTC by decision: the
 suppliers a migration run creates, whose date is their bank account's
 `valid_from`, one UTC rule for the whole supplier (product owner
-2026-10-31, ADR-0051 as built).
+2026-10-31, ADR-0051 as built); the day the run chooses a vendor's
+central address by, the cutover date, is the company's date
+(review:batch63, ADR-0051 as built).
 
 A company's postal address is its `companies[].postal_address`, in a
 business partner address's shape without purpose or validity (`line1`,
@@ -2907,7 +2909,7 @@ line or reservation. An agent's budget is identity's
 | AGR_* | `identity.role`, `role_permission`, `principal_role` |
 | NRIV | `config.number_range` |
 | Group Reporting FS items, consolidation groups and units (from memory, for an SAP specialist) (planned, ADR-0059) | configuration `consolidation.accounts`, `consolidation.groups`, `companies[].chart_of_accounts[].group_account` (not built) |
-| Trading partner (LFA1-VBUND, ACDOCA-RASSC; from memory, for an SAP specialist) (planned, ADR-0059) | `partner.business_partner.group_company_id` (T68c), `ledger.journal_line.trading_partner_id` (T68b) |
+| Trading partner (LFA1-VBUND, ACDOCA-RASSC, the SAP specialist's A2, po:2026-11-09; the company ID's company code from T001-RCOMP, from memory, for the specialist) (ADR-0059 As built) | `partner.business_partner.group_company_id` of the migrated supplier (T68c), from which the ledger derives `ledger.journal_line.trading_partner_id` (T68b); RASSC is read for the quality gate only |
 | ACDOCU consolidation journal (from memory, for an SAP specialist) (planned, ADR-0059) | `consolidation.run_entry` + `run_entry_line` (not built) |
 
 ## 3.18 Cash management (`cash`)

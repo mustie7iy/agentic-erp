@@ -259,6 +259,9 @@ type draft struct {
 	// entry has items (writeTaxItems).
 	sourcedItems []sourcedTaxItem
 	givenItems   []PostingTaxItem
+	// collective: the entry gathers unrelated lines (Posting.Collective),
+	// so its partner lines' trading partner is not given to its others.
+	collective bool
 }
 
 // target is a ledger a posting goes to, with the status of its period.
@@ -384,7 +387,7 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		if err := assign(ctx, tx, d.entity.ID, year, d.postingDate, d.lines, true); err != nil {
 			return nil, err
 		}
-		if err := e.deriveTradingPartners(ctx, d.entity.ID, d.lines); err != nil {
+		if err := e.deriveTradingPartners(ctx, d.entity.ID, d.lines, !d.collective); err != nil {
 			return nil, err
 		}
 	}
@@ -626,6 +629,8 @@ type NewEntry struct {
 	// taxDateChosen: a person chose TaxDate (Posting.TaxDateChosen), so
 	// it is held to the open returns as a manual entry's is.
 	taxDateChosen bool
+	// collective is Posting.Collective.
+	collective bool
 	// special is the special period a manual entry names (ADR-0060 §3), or
 	// nil: the regular period of PostingDate. Only the API's manual entries
 	// set it, so no other context's posting reaches a special period.
@@ -1167,7 +1172,7 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
 		postingDate: in.PostingDate, special: in.specialNumber(), taxDate: in.taxDay(), taxDocument: in.TaxDocument, hold: e.holding(v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
-		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems})
+		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems, collective: in.collective})
 	if err != nil {
 		return Entry{}, err
 	}

@@ -80,8 +80,9 @@ func (e *Endpoints) checkTradingPartners(ctx context.Context, le uuid.UUID, line
 // linked or unlinked since. Then, when every partner line names the same
 // trading partner, the entry's other lines that name none take it too, so
 // an intercompany invoice's expense and tax lines carry its supplier
-// line's. Each partner is asked once.
-func (e *Endpoints) deriveTradingPartners(ctx context.Context, le uuid.UUID, lines []Line) error {
+// line's; not in a collective entry (propagate false, Posting.Collective),
+// whose other lines belong to no partner line. Each partner is asked once.
+func (e *Endpoints) deriveTradingPartners(ctx context.Context, le uuid.UUID, lines []Line, propagate bool) error {
 	groups := map[uuid.UUID]*uuid.UUID{}
 	for i := range lines {
 		l := &lines[i]
@@ -109,7 +110,9 @@ func (e *Endpoints) deriveTradingPartners(ctx context.Context, le uuid.UUID, lin
 					Message: "the business partner's group company, or none"})
 		}
 	}
-	propagateTradingPartner(lines)
+	if propagate {
+		propagateTradingPartner(lines)
+	}
 	return nil
 }
 

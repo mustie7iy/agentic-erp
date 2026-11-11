@@ -1058,7 +1058,25 @@ zone", split into T72n1-T72n6):
   supplier, UTC's, not by any one company's zone. No code changes: the
   run passed `database.Today` as before (amended by the product owner
   on 2026-11-02: the migration's bank accounts start the day before;
-  see "the migration's bank accounts on a cutover evening" below). Every other
+  see "the migration's bank accounts on a cutover evening" below).
+  **A run's cutover date is the company's (bstat, review:batch63,
+  2026-11-10).** The decision above is about the dates a run writes on
+  the platform. The day a run reads SAP's master data by is another
+  matter: a vendor's central address is the ADRC row valid on the cutover
+  date (po:2026-11-09, A1), and the run took UTC's day for it
+  (`database.Today`), so on a cutover evening in Toronto it chose the
+  address valid from the next day. A run's day is now each company's date
+  in its time zone at the run's instant (`config.CompanyDay` on
+  `Endpoints.Now`, which the API's clock is now wired to; a stored zone
+  that does not load fails the run), and a vendor is judged on the days
+  of the company codes it is set up in (LFB1): a row valid on any of them
+  counts, so where two companies' days differ and SAP's address changes
+  between them the vendor has two valid rows, loads without an address
+  and is warned of with both days named, as for any vendor with several.
+  The address still starts on the platform on UTC's day, and the bank
+  account the day before it, as decided above: partner refuses an earlier
+  start (`partner.backdated_address`) and a supplier's days stay one rule
+  for all its companies. Every other
   document is dated by its caller, or by the company's date where the
   caller leaves the date out (the posting dates and the tax activation
   day, below). The payment release's discount check (T72n3), center
