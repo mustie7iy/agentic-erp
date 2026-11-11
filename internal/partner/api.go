@@ -23,13 +23,16 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 		ID: p.ID, Version: p.Version, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.UpdatedAt, UpdatedBy: gen.NewOptUUID(p.UpdatedBy),
 		Number: p.Number, Kind: p.Kind, Name: p.Name, LegalName: apitypes.OptString(p.LegalName), CountryCode: p.CountryCode,
 		Language: apitypes.OptString(p.Language), Status: p.Status, Roles: p.Roles, SupplierCompanies: []gen.SupplierCompany{},
-		Addresses: []gen.Address{}, TaxIdentifiers: []gen.TaxIdentifier{}, Extensions: apitypes.EncodeObject(p.Extensions),
+		CustomerCompanies: []gen.CustomerCompany{}, Addresses: []gen.Address{}, TaxIdentifiers: []gen.TaxIdentifier{}, Extensions: apitypes.EncodeObject(p.Extensions),
 	}
 	for _, s := range p.SupplierCompanies {
 		out.SupplierCompanies = append(out.SupplierCompanies, gen.SupplierCompany{LegalEntityID: s.LegalEntityID,
 			ReconciliationAccountID: s.ReconciliationAccountID, PaymentTermCode: s.PaymentTermCode, IsPostingBlocked: s.IsPostingBlocked,
 			IsPaymentBlocked: s.IsPaymentBlocked, WithholdingTaxCodes: s.WithholdingTaxCodes, PaymentMethods: s.PaymentMethods,
 			PlanningGroup: apitypes.OptString(s.PlanningGroup)})
+	}
+	for _, c := range p.CustomerCompanies {
+		out.CustomerCompanies = append(out.CustomerCompanies, gen.CustomerCompany(c))
 	}
 	for _, a := range p.Addresses {
 		ga := gen.Address{ID: gen.NewOptUUID(a.ID), Purpose: a.Purpose, Line1: a.Line1, Line2: apitypes.OptString(a.Line2), City: a.City,
@@ -144,6 +147,15 @@ func companiesIn(in []gen.SupplierCompanyInput) []SupplierCompanyInput {
 	return out
 }
 
+func customerCompaniesIn(in []gen.CustomerCompanyInput) []CustomerCompanyInput {
+	out := []CustomerCompanyInput{}
+	for _, c := range in {
+		out = append(out, CustomerCompanyInput{LegalEntityID: c.LegalEntityID, ReconciliationAccountID: c.ReconciliationAccountID,
+			PaymentTermCode: c.PaymentTermCode, IsPostingBlocked: c.IsPostingBlocked.Or(false)})
+	}
+	return out
+}
+
 func addressesIn(in []gen.Address) []AddressInput {
 	out := []AddressInput{}
 	for _, a := range in {
@@ -173,7 +185,7 @@ func (e *Endpoints) CreateBusinessPartner(ctx context.Context, req *gen.Business
 	}
 	in := NewPartner{Kind: req.Kind, Name: req.Name, LegalName: apitypes.Ptr[string](req.LegalName), CountryCode: req.CountryCode,
 		Language: apitypes.Ptr[string](req.Language), Roles: req.Roles, SupplierCompanies: companiesIn(req.SupplierCompanies),
-		Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason,
+		CustomerCompanies: customerCompaniesIn(req.CustomerCompanies), Addresses: addressesIn(req.Addresses), TaxIdentifiers: taxesIn(req.TaxIdentifiers), Extensions: apitypes.DecodeObject(req.Extensions.Or(nil)), Reason: req.Reason,
 		GroupCompanyID: apitypes.Ptr[uuid.UUID](req.GroupCompanyID)}
 	for _, b := range req.BankAccounts {
 		in.BankAccounts = append(in.BankAccounts, BankInput{Purpose: b.Purpose.Value, AccountNumber: b.AccountNumber, AccountScheme: b.AccountScheme,
@@ -301,7 +313,7 @@ func (e *Endpoints) CreatePartnerChange(ctx context.Context, req *gen.PartnerCha
 	}
 	pl := req.Payload
 	ch := Changes{Name: apitypes.Ptr[string](pl.Name), LegalName: apitypes.OptNilString(pl.LegalName), Language: apitypes.OptNilString(pl.Language), Roles: pl.Roles,
-		SupplierCompanies: companiesIn(pl.SupplierCompanies), Addresses: addressesIn(pl.Addresses), TaxIdentifiers: taxesIn(pl.TaxIdentifiers),
+		SupplierCompanies: companiesIn(pl.SupplierCompanies), CustomerCompanies: customerCompaniesIn(pl.CustomerCompanies), Addresses: addressesIn(pl.Addresses), TaxIdentifiers: taxesIn(pl.TaxIdentifiers),
 		Extensions: apitypes.DecodeObject(pl.Extensions.Or(nil)), GroupCompanyID: apitypes.OptNilUUID(pl.GroupCompanyID)}
 	c, err := RequestUpdate(ctx, e.ports(), req.PartnerID, ch, req.Reason)
 	if err == nil {

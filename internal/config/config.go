@@ -396,11 +396,24 @@ const (
 	Expense   AccountType = "expense"
 )
 
+// PartnerReconciliation reports whether the account reconciles suppliers
+// or customers: one posted only through a partner's items, which no other
+// use of an account may name.
+func (a Account) PartnerReconciliation() bool {
+	return a.VendorReconciliation || a.CustomerReconciliation
+}
+
 type Account struct {
 	Number               string      `yaml:"number" json:"number"`
 	Name                 string      `yaml:"name" json:"name"`
 	Type                 AccountType `yaml:"type" json:"type"`
 	VendorReconciliation bool        `yaml:"vendor_reconciliation,omitempty" json:"vendor_reconciliation,omitempty"`
+	// CustomerReconciliation makes the account a customer reconciliation
+	// account (SAP SKB1-MITKZ D, as internal/sap reads it; 03-data-model
+	// §3.6, T74a): an asset whose
+	// lines each name a customer and are its open items, the account a
+	// customer's company data names. Exclusive with the other two kinds.
+	CustomerReconciliation bool `yaml:"customer_reconciliation,omitempty" json:"customer_reconciliation,omitempty"`
 	// RevalueForeignCurrency marks a balance-sheet account that reconciles
 	// no supplier, such as a foreign-currency bank account, whose balance
 	// in each foreign currency a revaluation run values (ADR-0042);

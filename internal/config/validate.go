@@ -307,7 +307,7 @@ func (v *validator) yearEnd(p string, co *Company) {
 		v.err(p, "account %s is not in the chart of accounts", number)
 	case a.Type != Equity:
 		v.err(p, "account %s is %s, expected equity", number, a.Type)
-	case a.VendorReconciliation || a.AssetReconciliation:
+	case a.PartnerReconciliation() || a.AssetReconciliation:
 		v.err(p, "account %s is a reconciliation account, posted only through its subledger", number)
 	case a.OpenItems:
 		v.err(p, "account %s manages open items; retained earnings carry a balance", number)
@@ -490,7 +490,7 @@ func (v *validator) bankStatements(p string, co *Company, exp int, known bool) {
 		switch {
 		case a == nil:
 			v.err(rp+".account", "account %q is not in the chart of accounts", r.Account)
-		case a.VendorReconciliation, co.isTaxAccount(r.Account), banks[r.Account]:
+		case a.PartnerReconciliation(), co.isTaxAccount(r.Account), banks[r.Account]:
 			v.err(rp+".account", "account %s is posted only by its own documents, not by a statement's charges or interest", r.Account)
 		}
 	}
@@ -587,6 +587,7 @@ func (v *validator) chartOfAccounts(p string, co *Company) {
 			}
 		}
 		v.assetReconciliation(ap, &a)
+		v.customerReconciliation(ap, &a)
 	}
 	if len(co.ChartOfAccounts) == 0 {
 		v.err(p+".chart_of_accounts", "chart of accounts is empty")
@@ -674,6 +675,24 @@ func (v *validator) account(path string, co *Company, number string, want Accoun
 		v.err(path, "account %s is not a vendor reconciliation account", number)
 	case !recon && a.VendorReconciliation:
 		v.err(path, "account %s is a vendor reconciliation account, posted only through the supplier's items", number)
+	case a.CustomerReconciliation:
+		v.err(path, "account %s is a customer reconciliation account, posted only through the customer's items", number)
+	}
+}
+
+// customerReconciliation checks an account flagged
+// customer_reconciliation (T74a): an asset, receivables being one, that
+// reconciles nothing else. Its lines are a customer's open items, so it
+// is not revalued as a balance either (fxValuation refuses the flag).
+func (v *validator) customerReconciliation(ap string, a *Account) {
+	if !a.CustomerReconciliation {
+		return
+	}
+	switch {
+	case a.Type != Asset:
+		v.err(ap+".customer_reconciliation", "a customer reconciliation account is an asset account")
+	case a.VendorReconciliation || a.AssetReconciliation:
+		v.err(ap+".customer_reconciliation", "an account reconciles suppliers, customers or assets, one of them")
 	}
 }
 
@@ -773,7 +792,7 @@ func (v *validator) withholdingTaxCodes(p string, co *Company) {
 		if w.Posting != WithholdingAtInvoice && w.Posting != WithholdingAtPayment {
 			v.err(wp+".posting", "invoice or payment")
 		}
-		if a := co.Account(w.Account); a == nil || a.Type != Liability || a.VendorReconciliation {
+		if a := co.Account(w.Account); a == nil || a.Type != Liability || a.PartnerReconciliation() {
 			v.err(wp+".account", "account %s: the withholding tax payable is a liability of the chart that reconciles no supplier", w.Account)
 		}
 	}

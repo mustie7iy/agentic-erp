@@ -39,8 +39,8 @@ func (v *validator) fxValuation(p string, co *Company) {
 		}
 		ap := fmt.Sprintf("%s.chart_of_accounts[%s].revalue_foreign_currency", p, a.Number)
 		switch {
-		case (a.Type != Asset && a.Type != Liability) || a.VendorReconciliation || a.Number == co.AccountDetermination.GRIR:
-			v.err(ap, "only an asset or liability that reconciles no supplier and is not the GR/IR account is revalued as a balance")
+		case (a.Type != Asset && a.Type != Liability) || a.PartnerReconciliation() || a.Number == co.AccountDetermination.GRIR:
+			v.err(ap, "only an asset or liability that reconciles no supplier or customer and is not the GR/IR account is revalued as a balance")
 		case !valued[a.Number]:
 			v.err(ap, "account %s is revalued: add it to fx_valuation.accounts with its unrealised gain and loss", a.Number)
 		}
@@ -84,7 +84,7 @@ func (v *validator) fxValuationAccount(ap string, co *Company, f FXValuationAcco
 	}
 	adj := co.Account(f.Adjustment)
 	switch {
-	case recon && (adj == nil || !adj.Type.BalanceSheet() || adj.VendorReconciliation):
+	case recon && (adj == nil || !adj.Type.BalanceSheet() || adj.PartnerReconciliation()):
 		v.err(ap+".adjustment", "a reconciliation account's difference goes to a balance-sheet account of the chart that reconciles no supplier")
 	case !recon && f.Adjustment != "":
 		v.err(ap+".adjustment", "a revalued G/L account takes its difference itself; leave adjustment out")

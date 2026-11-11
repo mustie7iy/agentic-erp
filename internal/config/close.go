@@ -405,7 +405,7 @@ func (v *validator) accrualAccount(ap string, co *Company) {
 		v.err(ap, "account %s is not in the chart of accounts", number)
 	case a.Type != Liability:
 		v.err(ap, "account %s is of type %q; accruals are credited to a liability", number, a.Type)
-	case a.VendorReconciliation, a.AssetReconciliation, number == ad.GRIR, number == ad.DownPayment:
+	case a.PartnerReconciliation(), a.AssetReconciliation, number == ad.GRIR, number == ad.DownPayment:
 		v.err(ap, "account %s is a reconciliation account, posted only through its own postings; accruals are credited to one posted by hand", number)
 	}
 }

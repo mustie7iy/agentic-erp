@@ -39,7 +39,7 @@ pointing its schema at a separate database. Callers do not change.
 | **tenancy** | Tenants, legal entities (company codes), org units, regions | `LegalEntityCreated` |
 | **identity** | Users, agents, roles, permissions, SoD rules, company access | `RoleAssigned`, `AccessRevoked` |
 | **configuration** (schema `config`) | Configuration versions, change requests, evidence | `ConfigurationActivated` |
-| **partner** | Business partners, roles (supplier, customer), addresses, bank accounts, tax ids | `SupplierApproved`, `BankAccountChanged` |
+| **partner** | Business partners, roles (supplier, customer), addresses, bank accounts, tax ids | `SupplierApproved`, `CustomerApproved`, `BankAccountChanged` |
 | **ledger** | Chart of accounts, fiscal calendars, periods, currencies, exchange rates, journal entries, open items, clearing, balances, balance carry-forward runs (ADR-0060) | `JournalEntryPosted`, `PeriodClosed`, `BalanceCarriedForward` |
 | **procurement** | Requisitions, purchase orders, contracts, goods receipts | `PurchaseOrderReleased`, `GoodsReceived` |
 | **payables** | Supplier invoices, matching results, invoice holds | `SupplierInvoicePosted`, `InvoiceHeld` |
