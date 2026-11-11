@@ -176,13 +176,17 @@ func TestWalkthroughWorkingDays(t *testing.T) {
 			// A machine in another language names its weekdays differently
 			// (jq's strftime follows the locale; a Saturday counted as a
 			// working day under de_DE): the helper must not. A locale the
-			// machine lacks reads as C.
+			// machine lacks reads as C, and bash then warns on standard
+			// error, which is why only standard output is the answer (the
+			// GitHub runner has no de_DE; pull request 112's check).
 			for _, locale := range []string{"C", "de_DE.UTF-8"} {
 				run := exec.CommandContext(t.Context(), "bash", args...)
 				run.Env = append(os.Environ(), "LC_ALL="+locale)
-				out, err := run.CombinedOutput()
+				var stderr strings.Builder
+				run.Stderr = &stderr
+				out, err := run.Output()
 				if err != nil {
-					t.Fatalf("first_working_day under LC_ALL=%s: %v\n%s", locale, err, out)
+					t.Fatalf("first_working_day under LC_ALL=%s: %v\n%s", locale, err, stderr.String())
 				}
 				if got := strings.TrimSpace(string(out)); got != c.want {
 					t.Errorf("first_working_day from %s at %v under LC_ALL=%s: got %q, want %q", c.day, c.lags, locale, got, c.want)
