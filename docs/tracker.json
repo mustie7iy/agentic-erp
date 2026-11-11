@@ -1307,6 +1307,7 @@
         "t": "Impairment of assets and its history sheet lines, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): postings of impairment losses recognised and reversed on an asset per ledger, and the sheet's lines for them, accumulated depreciation shown with accumulated impairment. Not built: the assets context posts no impairment today (ADR-0057 §1)",
         "r": "ADR-0057 §1, §9, As built (B14) · GET /v1/asset-history-sheet",
         "src": "po:2026-11-09",
+        "pilot": "po:2026-11-09 · adr:ADR-0057",
         "c": []
        },
        {
@@ -1314,6 +1315,7 @@
         "t": "A consolidated asset history sheet in the group's presentation currency with net exchange differences on translation, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(e)): today's sheet is one company's in its local currency",
         "r": "ADR-0057 §9, As built (B14) · ADR-0059 · GET /v1/asset-history-sheet",
         "src": "po:2026-11-09",
+        "pilot": "po:2026-11-09 · adr:ADR-0057",
         "c": []
        },
        {
