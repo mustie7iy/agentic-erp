@@ -210,8 +210,9 @@ func (assetInvoices) Sources(ctx context.Context, ids []uuid.UUID) (map[uuid.UUI
 }
 
 // assetPurchases gives the assets context what order items expensed on
-// the price difference account (ledger) and the order items themselves
-// (procurement), for its report on asset purchase orders (B10).
+// the price difference account and what GR/IR clearings put in profit or
+// loss for them (ledger), and the order items themselves (procurement),
+// for its report on asset purchase orders (B10).
 type assetPurchases struct{}
 
 func (assetPurchases) Recorded(ctx context.Context, legalEntity uuid.UUID, year int16) ([]assets.OrderItemExpense, error) {
@@ -231,6 +232,15 @@ func (assetPurchases) Unrecorded(ctx context.Context, legalEntity uuid.UUID, yea
 		for _, it := range r.Items {
 			out[i].Items = append(out[i].Items, assets.OrderItemKey{OrderID: it.PurchaseOrderID, ItemNo: it.POItemNo})
 		}
+	}
+	return out, err
+}
+
+func (assetPurchases) Cleared(ctx context.Context, legalEntity uuid.UUID, year int16) ([]assets.OrderItemCleared, error) {
+	rows, err := ledger.AssetReads{}.ClearedExpenses(ctx, legalEntity, year)
+	out := make([]assets.OrderItemCleared, len(rows))
+	for i, r := range rows {
+		out[i] = assets.OrderItemCleared{OrderItemKey: assets.OrderItemKey{OrderID: r.PurchaseOrderID, ItemNo: r.POItemNo}, Amount: r.Amount}
 	}
 	return out, err
 }

@@ -28,10 +28,16 @@ type Postings struct {
 	// TaxReturns holds a tax date a person chose (Posting.TaxDateChosen)
 	// to the periods no tax return reports yet (ADR-0049 P6).
 	TaxReturns TaxReturns
+	// Settings reads the active configuration's asset clearing accounts
+	// (ADR-0057 §6): an invoiced or cleared order item on one of them is
+	// an asset's, and what is paid for it beyond the order price belongs
+	// to the asset's cost (GRIRItem.ItemAccountID). Read only for a
+	// posting whose items name their account.
+	Settings Settings
 }
 
 func (p Postings) endpoints() *Endpoints {
-	return &Endpoints{LegalEntities: p.LegalEntities, Partners: p.Partners, Numbers: p.Numbers, TaxReturns: p.TaxReturns}
+	return &Endpoints{LegalEntities: p.LegalEntities, Partners: p.Partners, Numbers: p.Numbers, TaxReturns: p.TaxReturns, Settings: p.Settings}
 }
 
 // PostingLine is a line to post, in minor units of the entry's currency,
@@ -270,9 +276,21 @@ type GRIRItem struct {
 	// A goods movement names the order item's account (expense or stock),
 	// whose line mirrors the GR/IR line in all three currencies. An invoice
 	// names its item's net amount instead: what it differs from the GR/IR
-	// line goes to the price_difference account.
+	// line goes to the price_difference account, or to the item's own
+	// account when the item is an asset's (ItemAccountID).
 	OffsetAccountID *uuid.UUID
 	Invoiced        *money.Minor
+	// ItemAccountID is the order item's account, given with an invoiced
+	// or a clearing item. When it is an asset clearing account of the
+	// company in the active configuration (companies[].asset_accounts[]
+	// .clearing), the item is an asset's (ADR-0057 §6) and the counter
+	// line posts to it rather than to the price_difference account: the
+	// cost of an asset is what was paid for it, the tax not recovered
+	// included (IAS 16.16; product owner 2026-11-10), and the line waits
+	// there to be capitalised as the receipt's does. It carries no cost
+	// center: a clearing account is a balance sheet account. nil, or any
+	// other account: the price_difference account.
+	ItemAccountID *uuid.UUID
 	// TaxCode is an invoiced item's tax code: its GR/IR and price
 	// difference lines are the code's base (ADR-0049 §5).
 	TaxCode *string
@@ -281,7 +299,8 @@ type GRIRItem struct {
 	// ADR-0049 §8), signed as Invoiced. It moves no amount: the ledger
 	// records it beside the item's price difference line with the order
 	// item (ledger.price_difference_item; B10, ADR-0057 §6), so that what
-	// the line expenses can be told apart as tax and price difference.
+	// the line expenses, or adds to an asset's cost on its clearing
+	// account, can be told apart as tax and price difference.
 	TaxBorne money.Minor
 	Text     *string
 	// CostCenterID is the order item's cost center (ADR-0050 §6, T56e): a
@@ -294,8 +313,9 @@ type GRIRItem struct {
 	// neither an offset account nor an invoiced amount: Quantity is the
 	// position's quantity negated, and what the GR/IR line clears goes to
 	// the price_difference account, with CostCenterID when that is a
-	// primary cost account, as an invoice's price difference does. An
-	// entry that clears is all clearing items.
+	// primary cost account, as an invoice's price difference does, or to
+	// an asset's item's own account (ItemAccountID). An entry that clears
+	// is all clearing items.
 	Clears *GRIRClearing
 	// TakesOver makes the item a migration run's take-over of the position
 	// the source system holds for the order item (T72f; SAP's GR/IR lines

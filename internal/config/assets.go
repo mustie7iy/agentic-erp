@@ -270,6 +270,19 @@ func (v *validator) notOpenOrRevalued(openPath, revaluePath string, a *Account) 
 	}
 }
 
+// AssetClearingAccounts are the numbers of the company's asset clearing
+// accounts, each once, in the order its classes name them (ADR-0057 §6:
+// an order item on one of them is an asset's).
+func (c *Company) AssetClearingAccounts() []string {
+	var numbers []string
+	for _, a := range c.AssetAccounts {
+		if !slices.Contains(numbers, a.Clearing) {
+			numbers = append(numbers, a.Clearing)
+		}
+	}
+	return numbers
+}
+
 // AssetAccountsOf is the company's accounts of the class, or nil.
 func (c *Company) AssetAccountsOf(class string) *AssetAccounts {
 	i := slices.IndexFunc(c.AssetAccounts, func(a AssetAccounts) bool { return a.Class == class })

@@ -5558,6 +5558,17 @@ func (s *AssetOrderExpenseAmounts) Validate() error {
 			Error: err,
 		})
 	}
+	if err := func() error {
+		if err := s.GrIrCleared.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "gr_ir_cleared",
+			Error: err,
+		})
+	}
 	if len(failures) > 0 {
 		return &validate.Error{Fields: failures}
 	}
@@ -5600,6 +5611,17 @@ func (s *AssetOrderExpenseItem) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "expensed",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.GrIrCleared.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "gr_ir_cleared",
 			Error: err,
 		})
 	}

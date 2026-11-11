@@ -543,7 +543,9 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 // grirItem is an item's GR/IR item: its quantity at its order item's
 // valuation price, the price it was released at (T47a), its amount the
 // invoiced net, which the ledger clears GR/IR with, putting the difference
-// on price_difference; both in its kind's direction: a credit memo credits
+// on price_difference, or on the order item's account when that is an
+// asset clearing account (ADR-0057 §6: an asset's cost is what was paid
+// for it); both in its kind's direction: a credit memo credits
 // GR/IR for the quantity it credits, a subsequent debit or credit moves no
 // quantity, its amount going to price differences whole (T34). An order
 // item the order no longer has is refused, as the match flags it
@@ -559,7 +561,8 @@ func grirItem(o procurement.Order, kind string, it Item, amount money.Minor) (le
 	for _, oi := range o.Items {
 		if oi.ItemNo == *it.POItemNo {
 			return ledger.GRIRItem{PurchaseOrderID: o.ID, POItemNo: oi.ItemNo, Quantity: quantity, Unit: it.Unit, UnitPrice: oi.ValuationPrice,
-				PriceUnit: oi.ValuationPriceUnit, Invoiced: &amount, TaxCode: it.TaxCode, Text: it.Description, CostCenterID: oi.CostCenterID}, nil
+				PriceUnit: oi.ValuationPriceUnit, Invoiced: &amount, ItemAccountID: &oi.AccountID, TaxCode: it.TaxCode, Text: it.Description,
+				CostCenterID: oi.CostCenterID}, nil
 		}
 	}
 	return ledger.GRIRItem{}, problem.Unprocessable("payables.order_item_missing",

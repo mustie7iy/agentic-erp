@@ -12,8 +12,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
@@ -80,7 +82,7 @@ func TestGRIRClearing(t *testing.T) {
 		want(t, "clearing", c, map[string]any{"status": "pending", "purchase_order_id": order, "purchase_order_number": "PO100001",
 			"posting_date": "2026-03-20", "legal_entity_id": e.DE.String()})
 		wantItems := []any{map[string]any{"po_item_no": float64(1), "description": "Paper", "quantity": map[string]any{"value": "-4", "unit": "EA"},
-			"amount": map[string]any{"amount": "-10.00", "currency": "EUR"}}}
+			"amount": map[string]any{"amount": "-10.00", "currency": "EUR"}, "offset_account": c["offset_account"]}}
 		if !reflect.DeepEqual(c["items"], wantItems) {
 			t.Errorf("items: got %v, want %v", c["items"], wantItems)
 		}
@@ -296,6 +298,72 @@ func TestGRIRClearingCostCenter(t *testing.T) {
 	wantLines := sorted([]string{grir + ":-:-", diff + ":" + e.c.Admin.String() + ":" + e.c.Profit.String()})
 	if got := centersOn(t, posted["journal_entry"].(map[string]any)["id"]); fmt.Sprint(got) != fmt.Sprint(wantLines) {
 		t.Errorf("clearing lines: got %v, want %v", got, wantLines)
+	}
+}
+
+// withAssetClearing gives the prototype's document asset classes (company
+// 2000 clears its machines on 169000) and company 2000 the GR/IR and
+// price difference accounts.
+func withAssetClearing(doc *config.Config) {
+	fixture.AssetClasses(doc)
+	de := doc.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "219000", Name: "GR/IR clearing", Type: config.Liability},
+		config.Account{Number: "590000", Name: "Price differences", Type: config.Expense})
+	de.AccountDetermination.GRIR, de.AccountDetermination.PriceDifference = "219000", "590000"
+}
+
+// TestGRIRClearingOfAssetItem: a clearing clears the position of an order
+// item that is an asset's, one on an asset clearing account of the
+// company, against that account, not the price difference account: what
+// was received and never invoiced comes off the asset's cost, not into
+// profit or loss (product owner 2026-11-10). The clearing shows each
+// item's account, keeps it only where it is not the clearing's own, and
+// posts against it; an item on another account clears as before.
+func TestGRIRClearingOfAssetItem(t *testing.T) {
+	e := setupWith(t, withAssetClearing)
+	e.Controller(t)
+	clearing := e.Account(t, "2000", "169000")
+	o := e.order(t, items(item(clearing.String(), "10", "EA", "2.50", "EUR", ""), item(e.office, "10", "EA", "2.50", "EUR", "")), "")
+	order := id(o)
+	if got := e.act(t, "/v1/purchase-orders/"+order, "release", ""); got["valuation"] != "gr_ir" {
+		t.Fatalf("order valuation: got %v, want gr_ir", got["valuation"])
+	}
+	if code, gr := e.receipt(t, order, "1:4:EA", "2:4:EA"); code != 201 {
+		t.Fatalf("receipt: got %d %v, want 201", code, gr)
+	}
+	e.act(t, "/v1/purchase-orders/"+order, "close", "")
+	c, _ := e.Must(201, "POST", clearingsOf(order), clearingBody, "")
+	diff := map[string]any{"id": e.Account(t, "2000", "590000").String(), "number": "590000", "name": "Price differences"}
+	asset := map[string]any{"id": clearing.String(), "number": "169000", "name": "Asset clearing"}
+	want(t, "the clearing's account", c["offset_account"].(map[string]any), diff)
+	shown := c["items"].([]any)
+	want(t, "the asset's item's account", shown[0].(map[string]any)["offset_account"].(map[string]any), asset)
+	want(t, "the other item's account", shown[1].(map[string]any)["offset_account"].(map[string]any), diff)
+	var kept string
+	pgtest.Scan(t, `SELECT string_agg(po_item_no || ' ' || coalesce(offset_account_number || ' ' || offset_account_name || ' ' || offset_account_id, 'the clearing''s'),
+			'; ' ORDER BY po_item_no) FROM procurement.gr_ir_clearing_item WHERE gr_ir_clearing_id = $1`, []any{id(c)}, &kept)
+	if want := fmt.Sprintf("1 169000 Asset clearing %s; 2 the clearing's", clearing); kept != want {
+		t.Errorf("accounts kept with the items: got %q, want %q", kept, want)
+	}
+	e.Approve(t, id(c))
+	posted, _ := e.Must(200, "GET", "/v1/gr-ir-clearings/"+id(c), "", "")
+	want(t, "posted clearing", posted, map[string]any{"status": "posted"})
+	if !reflect.DeepEqual(posted["items"], c["items"]) {
+		t.Errorf("items once posted: got %v, want %v as proposed", posted["items"], c["items"])
+	}
+	_, _, _, lines := e.entryOf(t, posted["journal_entry"].(map[string]any)["id"])
+	po, four := uuid.MustParse(order), "4"
+	grir := e.Account(t, "2000", "219000")
+	wantLines := []entryLine{{grir, 1000, 1000, &four, &po}, {clearing, -1000, -1000, nil, nil},
+		{grir, 1000, 1000, &four, &po}, {e.Account(t, "2000", "590000"), -1000, -1000, nil, nil}}
+	if !reflect.DeepEqual(lines, wantLines) {
+		t.Errorf("entry lines: got %+v, want %+v", lines, wantLines)
+	}
+	// The receipt's 10.00 on the asset clearing account is taken off again.
+	var balance int64
+	pgtest.Scan(t, `SELECT sum(amount_lc)::bigint FROM ledger.journal_line WHERE account_id = $1`, []any{clearing}, &balance)
+	if balance != 0 {
+		t.Errorf("asset clearing account: got %d, want 0", balance)
 	}
 }
 

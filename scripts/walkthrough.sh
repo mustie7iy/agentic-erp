@@ -5572,16 +5572,19 @@ step_asset_held_for_sale() {
   passed
 }
 
-# step_asset_order_expenses is the materiality report on asset purchase
-# orders (accounting specialist B10, po:2026-11-10; ADR-0057 §6; IAS
-# 16.16(a), IAS 8.8): a machine ordered on the asset clearing account is
+# step_asset_order_expenses is an asset bought on a purchase order at its
+# full cost (accounting specialist B10, product owner 2026-11-10; ADR-0057
+# §6; IAS 16.16): a machine ordered on the asset clearing account is
 # invoiced above the order price with British Columbia PST, which is not
-# recovered; both are expensed on the price difference account, and the
-# report shows them apart, exact as recorded at posting.
+# recovered; both post to the asset clearing account beside the receipt's
+# order price, to be capitalised with it, and the materiality report on
+# what earlier postings expensed shows nothing newly expensed. A second
+# machine, received and never invoiced, has its GR/IR position cleared
+# (T72e) against the asset clearing account too, not into profit or loss.
 step_asset_order_expenses() {
-  heading "Step 46 — What was expensed on asset purchase orders: the tax not recovered and the price difference of a machine bought on an order"
+  heading "Step 46 — An asset bought on an order at its full cost: the tax not recovered and the price difference of a machine land on the asset clearing account, not in profit or loss"
   as ben
-  local item po invoice
+  local item po invoice entry extractor clearing request
   item="{\"description\": \"Band saw\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"8000.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 1690)\", \"tax_code\": \"PBC\"}"
   say "Ben orders a band saw from Tyrell at CAD 8,000.00 on the asset clearing account 1690, with British Columbia PST"
   say "(PBC, 7%, not recoverable), and receives it: the receipt debits 1690 at the order price (ADR-0057 §6)."
@@ -5600,27 +5603,72 @@ step_asset_order_expenses() {
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
   as alex
   say "Tyrell invoices CAD 8,100.00, 100.00 above the order, plus 567.00 PST. The invoice clears GR/IR at the order price;"
-  say "the 100.00 and the 567.00 post as one line on the price difference account, an expense, not on the asset:"
+  say "the 100.00 and the 567.00 are part of what the saw cost (IAS 16.16), so they post as one line on the asset"
+  say "clearing account 1690, where the receipt put the order price, and not on the price difference account:"
   api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
     -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-SAW-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"8667.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"567.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"8100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"PBC\"}]}"
   invoice=$(field .id)
   api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
   api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
   expect "invoice status" "$(field .status)" posted
-  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  entry=$(field .journal_entry_id)
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$entry"
   expect "one line for both, beside the GR/IR line and the supplier's" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-8667.00 667.00 8000.00"
+  expect "the 667.00 on the asset clearing account" "$(field "[.lines[] | select(.account_id == \"$(account 1690)\") | .amount.amount] | join(\" \")")" "667.00"
   as carla
-  say "IAS 16 counts both in the asset's cost. Until they are capitalised, the auditor judges whether what was expensed"
-  say "is material; Carla reads the year's report, which tells the tax from the price difference, as recorded at posting:"
+  say "Carla's worklist of the clearing account offers the invoice's line beside the receipt's, to capitalise onto the saw"
+  say "as any line there (createAssetAcquisition, steps 20-22):"
+  api 200 '.items[] | select(.entry_id == "'"$entry"'") | "  entry \(.document_number) line \(.line_no), \(.supplier_invoice.supplier_name // .source_context) \(.supplier_invoice.supplier_reference // ""): \(.amount.amount) \(.amount.currency), left \(.remaining.amount)"' \
+    listAssetClearingItems -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p remaining=true
+  expect "the invoice's line on the worklist" "$(field "[.items[] | select(.entry_id == \"$entry\") | \"\(.supplier_invoice.supplier_reference) \(.remaining.amount)\"] | join(\" \")")" \
+    "TY-SAW-1 667.00"
+  say "The year's report on what was expensed on asset purchase orders is history now: it shows what earlier postings"
+  say "put on the price difference account, for the accountants to judge and correct by journal. This invoice adds nothing:"
   api 200 '(.items[] | "  order \(.purchase_order_number) item \(.po_item_no) \(.description) on \(.account_number) \(.account_name): tax not recovered \(.tax_not_recovered.amount), price difference \(.price_difference.amount), expensed \(.expensed.amount) \(.expensed.currency)"),
-    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency)",
+    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency); put in profit or loss by GR/IR clearings \(.totals.gr_ir_cleared.amount)",
     "  unattributed (earlier postings, split unknown): \(.unattributed.expensed.amount) \(.unattributed.expensed.currency) (debits \(.unattributed.debits.amount), credits \(.unattributed.credits.amount)) in \(.unattributed.entries) entries"' \
     getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
-  expect "the band saw's row" "$(field "[.items[] | select(.purchase_order_id == \"$po\") | \"\(.po_item_no) \(.description) \(.account_number) \(.tax_not_recovered.amount) \(.price_difference.amount) \(.expensed.amount) \(.expensed.currency)\"] | join(\"; \")")" \
-    "1 Band saw 1690 567.00 100.00 667.00 CAD"
-  expect "the totals, the sums of the rows" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
-    [.totals.tax_not_recovered, .totals.price_difference, .totals.expensed | c] == [([.items[].tax_not_recovered | c] | add), ([.items[].price_difference | c] | add), ([.items[].expensed | c] | add)]')" true
-  expect "nothing unattributed: every posting is recorded" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.debits.amount) \(.unattributed.credits.amount) \(.unattributed.entries)"')" "0.00 0.00 0.00 0"
+  expect "no row for the band saw: nothing of it was expensed" "$(field "[.items[] | select(.purchase_order_id == \"$po\")] | length")" 0
+  expect "nothing expensed on asset order items, by invoices or by GR/IR clearings" "$(field '"\(.totals.tax_not_recovered.amount) \(.totals.price_difference.amount) \(.totals.expensed.amount) \(.totals.gr_ir_cleared.amount) \(.totals.expensed.currency)"')" "0.00 0.00 0.00 0.00 CAD"
+  expect "nothing unattributed" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.debits.amount) \(.unattributed.credits.amount) \(.unattributed.entries)"')" "0.00 0.00 0.00 0"
+  as ben
+  say "Ben also ordered a dust extractor at CAD 1,200.00 on 1690 and received it; Tyrell then gave it as a free addition"
+  say "to the saw and will not invoice it, so Ben closes the order."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency)"' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [{\"description\": \"Dust extractor\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 1690)\", \"tax_code\": \"PBC\"}]}"
+  extractor=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$extractor" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted dust extractor"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$extractor"
+  fi
+  expect "the extractor's order status" "$(field .status)" released
+  expect "the extractor's order valued through GR/IR" "$(field .valuation)" gr_ir
+  api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$extractor\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  QUIET=1 api 200 '' getPurchaseOrder -p "id=$extractor"
+  api 200 '"purchase order \(.document_number): \(.status)"' closePurchaseOrder -p "id=$extractor" -if-match "$ETAG"
+  expect "order status" "$(field .status)" closed
+  as alex
+  say "The receipt's CAD 1,200.00 stays open on GR/IR. Alex proposes clearing it (SAP MR11, step 15). The extractor is an"
+  say "asset's order item, so the clearing shows the asset clearing account 1690 for it, not the price difference account:"
+  api 201 '"GR/IR clearing of \(.purchase_order_number): \(.status), \(.total.amount) \(.total.currency)\([.items[] | "\n  item \(.po_item_no) \(.description): \(.quantity.value) \(.quantity.unit), \(.amount.amount) \(.amount.currency) against \(.offset_account.number) \(.offset_account.name)"] | join(""))"' \
+    createGrIrClearing -p "id=$extractor" -body "{\"reason\": \"Free addition to the band saw; Tyrell will not invoice it\", \"posting_date\": \"$TODAY\"}"
+  clearing=$(field .id)
+  request=$(field .approval_request_id)
+  expect "the item clears against the asset clearing account" "$(field '[.items[] | "\(.po_item_no) \(.amount.amount) \(.offset_account.number)"] | join("; ")')" "1 -1200.00 1690"
+  approve carla "$request" "Not invoiced: off the asset's cost"
+  as alex
+  api 200 '"GR/IR clearing: \(.status), journal entry \(.journal_entry.document_number) of \(.journal_entry.fiscal_year)"' getGrIrClearing -p "id=$clearing"
+  expect "clearing status" "$(field .status)" posted
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry.id)"
+  expect "the clearing credits the asset clearing account" "$(field "[.lines[] | select(.account_id == \"$(account 1690)\") | .amount.amount] | join(\" \")")" "-1200.00"
+  as carla
+  say "The extractor cost nothing, and nothing went to profit or loss: the report's figure for GR/IR clearings stays zero."
+  api 200 '"  put in profit or loss by GR/IR clearings of asset order items: \(.totals.gr_ir_cleared.amount) \(.totals.gr_ir_cleared.currency)"' \
+    getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "nothing put in profit or loss by the clearing" "$(field '"\(.totals.gr_ir_cleared.amount) \([.items[] | select(.purchase_order_id == "'"$extractor"'")] | length)"')" "0.00 0"
   passed
 }
 

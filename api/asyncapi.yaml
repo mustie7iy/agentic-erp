@@ -2755,7 +2755,7 @@ components:
       x-webhook: true
       title: GR/IR positions cleared
       summary: "An approved GR/IR clearing of a closed purchase order posted its entry (SAP MR11)."
-      description: "Emitted when a GR/IR clearing's approval request is approved and its WE entry is posted against the price difference account: the order's items named no longer have an open GR/IR position. Subject is the GR/IR clearing id."
+      description: "Emitted when a GR/IR clearing's approval request is approved and its WE entry is posted, each item against the account the clearing shows for it (the price difference account or, for an asset's order item, its asset clearing account): the order's items named no longer have an open GR/IR position. Subject is the GR/IR clearing id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:

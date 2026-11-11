@@ -9841,7 +9841,7 @@ paths:
       tags:
         - procurement
       summary: Propose clearing the residual GR/IR positions of a closed purchase order
-      description: "Proposes clearing the GR/IR positions a closed order is left with (SAP MR11, GR/IR clearing account maintenance): received and invoiced quantities that will not agree, since a closed order takes no further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each open position of the order's items, or of the items named, as it stands now: its quantity and its balance, cleared against the legal entity's `price_difference` account (with the item's cost center when that is a primary cost account). It opens a `gr_ir_clearing` approval request (its `object_id` is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position, which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is published. The posting is checked again when it is approved: a position that moved since, or a price difference account that changed, refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409 `procurement.invalid_status`) on an order valued through GR/IR with an open position (409 `procurement.nothing_to_clear`); an item named without an open position is refused (422 `procurement.invalid_item_no`). One pending clearing per order (409 `procurement.gr_ir_clearing_pending`). Human-only."
+      description: "Proposes clearing the GR/IR positions a closed order is left with (SAP MR11, GR/IR clearing account maintenance): received and invoiced quantities that will not agree, since a closed order takes no further receipts or invoices (`GET /v1/gr-ir-balances?purchase_order_id=`). The clearing takes each open position of the order's items, or of the items named, as it stands now: its quantity and its balance, cleared against the legal entity's `price_difference` account (with the item's cost center when that is a primary cost account) or, for an order item that is an asset's (its account is an asset clearing account of the company in the active configuration), against that asset clearing account: what was paid for an asset, or not paid after all, belongs to the asset's cost, not to profit or loss (ADR-0057 §6; product owner 2026-11-10), and the line waits there to be capitalised or taken off the asset as any line of that account (`GET /v1/asset-clearing-items`). Each item shows the account it clears against (`items[].offset_account`). It opens a `gr_ir_clearing` approval request (its `object_id` is the clearing, `GET /v1/gr-ir-clearings/{id}`), which a controller holding `procurement.gr_ir.clear.approve` decides, never its requester and never an agent. Approved, the clearing posts a WE entry dated `posting_date`: the GR/IR line of each item clears its position, which the GR/IR balances then show as cleared (`cleared_quantity`), and event `GrIrCleared` is published. The posting is checked again when it is approved: a position that moved since, or an item whose account to clear against is no longer the one shown (the price difference account changed, or the item's account became or ceased to be an asset clearing account), refuses the approval (409 `ledger.gr_ir_clearing_outdated`) and the request stays pending, to be rejected or withdrawn and proposed again; so does a period not open on `posting_date` (409 `ledger.period_not_open`). Requires status `closed` (409 `procurement.invalid_status`) on an order valued through GR/IR with an open position (409 `procurement.nothing_to_clear`); an item named without an open position is refused (422 `procurement.invalid_item_no`). One pending clearing per order (409 `procurement.gr_ir_clearing_pending`). Human-only."
       x-permission: procurement.gr_ir.clear
       x-agent: false
       x-problem-codes:
@@ -10768,6 +10768,7 @@ paths:
       x-permission: procurement.receipt.post
       x-problem-codes:
         - config.no_number_range
+        - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.account_not_postable
         - ledger.amount_too_large
@@ -18406,7 +18407,7 @@ paths:
       tags:
         - assets
       summary: Report what was expensed on asset purchase order items
-      description: "The materiality report of a company and fiscal year on asset purchases through purchase orders (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and the price differences that supplier invoices and credit memos expensed on the company's price difference account for purchase order items that are assets, which IAS 16 counts in the asset's cost. The assets themselves are capitalised at the order price; this report shows what was left out, so an auditor can judge whether it is material. An order item is an asset's when its account is an asset clearing account of the company in the active configuration (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on; the item's account as the order has it now decides, removed items included. Only orders valued through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own line and is capitalised with it. `items` has one row per such order item with a recorded posting in the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item bore: a non-deductible component's tax and the part of a component's tax not recovered, with the share of a difference to the supplier's stated tax that is a cost, which goes on its code's first item), `price_difference` (what the invoiced amount differed from the order price of the invoiced quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price difference account. Credit memos, subsequent credits and reversals count negative; a posting counts in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the ledger records beside each price difference line since that record exists. `totals` sums every row, on every page. `unattributed` states what the rows cannot show: the amounts on the company's current price difference account, in the year, of invoice and credit memo entries (and their reversals) that clear GR/IR for at least one asset order item, on lines that have no such record (postings made before the record existed, and the rounding residue a reversal clears). Such a line names no order item and its split between tax and price difference is unknown, so the amounts are not spread over the rows: where such an entry also invoices other order items, their price differences are in it too, of either sign. `expensed` is therefore the net of everything those lines posted and may overstate or understate what was expensed on assets; `debits` is the sum of the lines that are debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those that are credits (negative); `entries` counts the entries. All are zero when every such posting is recorded, and also when the company has no price difference account in its account determination now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price difference account (whether they count as expensed is not decided); an item whose price difference and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only."
+      description: "The materiality report of a company and fiscal year on asset purchases through purchase orders (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and the price differences that supplier invoices and credit memos expensed on the company's price difference account for purchase order items that are assets, which IAS 16 counts in the asset's cost. **The report is history.** An invoice, credit memo or subsequent debit or credit posted now on an asset's order item puts these amounts on the item's asset clearing account, beside the order price its receipt put there, to be capitalised onto the asset as any line of that account (`GET /v1/asset-clearing-items`, `POST /v1/asset-acquisitions`; product owner 2026-11-10): they are part of the asset's cost, not expenses, and do not appear here. A GR/IR clearing of such an item likewise clears against the asset clearing account now. The report shows what postings made before that change expensed, and what a replica not yet upgraded posted while the change was rolled out, so an auditor can judge whether it is material. Nothing is reposted or corrected automatically: correcting an earlier posting is a journal entry the accountants decide from this report. An order item is an asset's when its account is an asset clearing account of the company in the active configuration (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on; the item's account as the order has it now decides, removed items included. Only orders valued through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own line and is capitalised with it. `items` has one row per such order item with a recorded posting, or a GR/IR clearing in profit or loss, in the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item bore: a non-deductible component's tax and the part of a component's tax not recovered, with the share of a difference to the supplier's stated tax that is a cost, which goes on its code's first item), `price_difference` (what the invoiced amount differed from the order price of the invoiced quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price difference account; and, as a figure of its own that `expensed` does not include, `gr_ir_cleared`: what GR/IR clearings of the item (`POST /v1/purchase-orders/{id}/gr-ir-clearings`, SAP MR11) put in profit or loss, negative where goods received were never invoiced (a credit to profit or loss for an asset that cost that much less), positive where an invoice was never received for. A clearing posted now clears an asset's order item against its asset clearing account and adds nothing here; this figure is what clearings posted before did. It is exact per order item: a clearing's line names its order item, so nothing of a clearing is unattributed, and a clearing has no split into tax and price difference (it clears a balance, not an invoice). Credit memos, subsequent credits and reversals count negative; a posting counts in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the ledger records beside each price difference line since that record exists. `totals` sums every row, on every page. `unattributed` states what the rows cannot show: the amounts on the company's current price difference account, in the year, of invoice and credit memo entries (and their reversals) that clear GR/IR for at least one asset order item, on lines that have no such record (postings made before the record existed, and the rounding residue a reversal clears). Such a line names no order item and its split between tax and price difference is unknown, so the amounts are not spread over the rows: where such an entry also invoices other order items, their price differences are in it too, of either sign. `expensed` is therefore the net of everything those lines posted and may overstate or understate what was expensed on assets; `debits` is the sum of the lines that are debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those that are credits (negative); `entries` counts the entries. All are zero when every such posting is recorded, and also when the company has no price difference account in its account determination now; lines an earlier price difference account took are not read. Not in the report, and not attributable from this ledger's data: clearings of GR/IR positions made in a source system before migration (the migrated documents do not say which were clearings); manual entries on the price difference account, which name no order item; and an item whose price difference and tax cancelled exactly, which posted nothing there. Amounts are in the company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only."
       x-permission: assets.asset.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -31685,7 +31686,7 @@ components:
         until: "2026-03-15"
         percent: "3"
     GrIrClearing:
-      description: "A GR/IR clearing of a closed purchase order (SAP MR11): the residual positions of its items it clears against the price difference account. It moves `pending` -> `posted` (naming its WE entry), `rejected` or `cancelled` (its requester withdrew the approval request), and what it clears never changes."
+      description: "A GR/IR clearing of a closed purchase order (SAP MR11): the residual positions of its items it clears, each against the account its item names (`items[].offset_account`): the price difference account or, for an order item that is an asset's, the item's asset clearing account. It moves `pending` -> `posted` (naming its WE entry), `rejected` or `cancelled` (its requester withdrew the approval request), and what it clears never changes."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -31782,6 +31783,10 @@ components:
               amount:
                 amount: "-470.00"
                 currency: CAD
+              offset_account:
+                id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9f"
+                number: "590000"
+                name: Price differences
           total:
             amount: "-470.00"
             currency: CAD
@@ -31792,7 +31797,7 @@ components:
             document_number: "5000000017"
     GrIrClearingAccount:
       type: object
-      description: "The price difference account a clearing posts against, as it was shown when the clearing was proposed."
+      description: "An account a clearing posts against, as it was shown when the clearing was proposed. On the clearing: the legal entity's price difference account, which its items clear against unless they are assets'. On an item: the account that item clears against."
       required:
         - id
         - number
@@ -31835,12 +31840,13 @@ components:
           readOnly: true
     GrIrClearingItem:
       type: object
-      description: "One order item's GR/IR position a clearing clears."
+      description: "One order item's GR/IR position a clearing clears, and the account it clears against."
       required:
         - po_item_no
         - description
         - quantity
         - amount
+        - offset_account
       properties:
         po_item_no:
           type: integer
@@ -31859,6 +31865,10 @@ components:
         amount:
           $ref: "#/components/schemas/Money"
           description: "The position's balance in the order's currency, signed as the GR/IR balances show it."
+          readOnly: true
+        offset_account:
+          $ref: "#/components/schemas/GrIrClearingAccount"
+          description: "The account the position clears against: the clearing's price difference account (`offset_account` of the clearing) or, for an order item on an asset clearing account of the company (an asset's, `companies[].asset_accounts[].clearing`), that asset clearing account, where what is cleared adjusts the asset's cost and is capitalised or taken off the asset as any line of that account (`GET /v1/asset-clearing-items`)."
           readOnly: true
     GrIrClearingCreate:
       type: object
@@ -44636,7 +44646,7 @@ components:
         closing_net_book_value: {$ref: "#/components/schemas/Money"}
     AssetOrderExpenses:
       type: object
-      description: "What supplier invoices and credit memos expensed on a company's asset purchase order items in a fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered and the price difference, exact as posted, with their totals, and the amounts whose order item and split were not recorded. In the company's local currency."
+      description: "What supplier invoices and credit memos expensed on a company's asset purchase order items in a fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered and the price difference, exact as posted, with their totals, and the amounts whose order item and split were not recorded. What GR/IR clearings of those items put in profit or loss is a figure of its own (`gr_ir_cleared`). History: a document or clearing posted now puts these amounts on the item's asset clearing account, as part of the asset's cost, and adds nothing here. In the company's local currency."
       required: [legal_entity_id, company_code, company_name, fiscal_year, start_date, end_date, currency, items, totals, unattributed]
       properties:
         legal_entity_id: {type: string, format: uuid, description: The company., readOnly: true}
@@ -44648,7 +44658,7 @@ components:
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
         items:
           type: array
-          description: "This page's asset order items with a recorded posting in the year, by order number and item number."
+          description: "This page's asset order items with a recorded posting or a GR/IR clearing in profit or loss in the year, by order number and item number."
           items: {$ref: "#/components/schemas/AssetOrderExpenseItem"}
         totals: {$ref: "#/components/schemas/AssetOrderExpenseAmounts"}
         unattributed: {$ref: "#/components/schemas/AssetOrderExpensesUnattributed"}
@@ -44675,10 +44685,23 @@ components:
               tax_not_recovered: {amount: "840.00", currency: CAD}
               price_difference: {amount: "150.00", currency: CAD}
               expensed: {amount: "990.00", currency: CAD}
+              gr_ir_cleared: {amount: "0.00", currency: CAD}
+            - purchase_order_id: 0192a000-0000-7000-8000-000000000502
+              purchase_order_number: "4500000019"
+              po_item_no: 2
+              description: Drill press
+              account_id: 0192a000-0000-7000-8000-000000000611
+              account_number: "159000"
+              account_name: Asset clearing
+              tax_not_recovered: {amount: "0.00", currency: CAD}
+              price_difference: {amount: "0.00", currency: CAD}
+              expensed: {amount: "0.00", currency: CAD}
+              gr_ir_cleared: {amount: "-470.00", currency: CAD}
           totals:
             tax_not_recovered: {amount: "840.00", currency: CAD}
             price_difference: {amount: "150.00", currency: CAD}
             expensed: {amount: "990.00", currency: CAD}
+            gr_ir_cleared: {amount: "-470.00", currency: CAD}
           unattributed:
             expensed: {amount: "0.00", currency: CAD}
             debits: {amount: "0.00", currency: CAD}
@@ -44686,8 +44709,8 @@ components:
             entries: 0
     AssetOrderExpenseItem:
       type: object
-      description: "What was expensed on one asset purchase order item in the year, as recorded at posting."
-      required: [purchase_order_id, purchase_order_number, po_item_no, description, account_id, account_number, account_name, tax_not_recovered, price_difference, expensed]
+      description: "What was expensed on one asset purchase order item in the year, as recorded at posting, and what GR/IR clearings of it put in profit or loss."
+      required: [purchase_order_id, purchase_order_number, po_item_no, description, account_id, account_number, account_name, tax_not_recovered, price_difference, expensed, gr_ir_cleared]
       properties:
         purchase_order_id: {type: string, format: uuid, description: The purchase order., readOnly: true}
         purchase_order_number: {type: string, description: "The purchase order's document number.", readOnly: true}
@@ -44699,14 +44722,16 @@ components:
         tax_not_recovered: {$ref: "#/components/schemas/Money"}
         price_difference: {$ref: "#/components/schemas/Money"}
         expensed: {$ref: "#/components/schemas/Money"}
+        gr_ir_cleared: {$ref: "#/components/schemas/Money"}
     AssetOrderExpenseAmounts:
       type: object
-      description: "Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` + `price_difference`."
-      required: [tax_not_recovered, price_difference, expensed]
+      description: "Amounts in profit or loss, debit positive (an expense). By invoices and credit memos, on the price difference account: `expensed` = `tax_not_recovered` + `price_difference`. By GR/IR clearings, a figure of its own that `expensed` does not include: `gr_ir_cleared`."
+      required: [tax_not_recovered, price_difference, expensed, gr_ir_cleared]
       properties:
         tax_not_recovered: {$ref: "#/components/schemas/Money"}
         price_difference: {$ref: "#/components/schemas/Money"}
         expensed: {$ref: "#/components/schemas/Money"}
+        gr_ir_cleared: {$ref: "#/components/schemas/Money"}
     AssetOrderExpensesUnattributed:
       type: object
       description: "What the rows cannot show: the amounts on the company's current price difference account, in the year, of invoice and credit memo entries that clear GR/IR for at least one asset order item, on lines without a recorded order item (posted before the record existed, or a reversal's rounding residue). Their split between tax and price difference is unknown, and they include the price differences of other order items on the same entries, of either sign: `expensed` is the net of those lines (`debits` + `credits`) and may overstate or understate what was expensed on assets; `debits`, the lines that are debits, is the most those entries can have expensed on assets. All zero when everything is recorded, or when the company has no price difference account now."

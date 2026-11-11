@@ -10,7 +10,8 @@ import (
 // GR/IR clearings (T72e, migration 000165): a clearing starts pending and
 // is decided once, posted naming its entry; what it clears never changes;
 // one is pending per order; its items never change (no grant, and
-// insert-only) and never clear nothing; the ledger's record of clearing
+// insert-only) and never clear nothing; an item names the account it
+// clears against whole or not at all (000264); the ledger's record of clearing
 // entries never changes either; and a position is
 // open until its invoiced and cleared quantities make up what was received.
 
@@ -98,6 +99,26 @@ func TestGRIRClearingRules(t *testing.T) {
 			return exec(tx, `INSERT INTO procurement.gr_ir_clearing_item (tenant_id, gr_ir_clearing_id, po_item_no, quantity, uom_code, amount)
 				VALUES ($1, $2, 2, 0, 'EA', 0)`, f.tenant, clearing)
 		}), "gr_ir_clearing_item_open")
+	})
+	t.Run("an item's account", func(t *testing.T) {
+		const insert = `INSERT INTO procurement.gr_ir_clearing_item (tenant_id, gr_ir_clearing_id, po_item_no, quantity, uom_code, amount,
+			offset_account_id, offset_account_number, offset_account_name) VALUES ($1, $2, $3, -1, 'EA', -250, $4, $5, $6)`
+		f := newFixture(t)
+		_, clearing := f.clearing(t)
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, insert, f.tenant, clearing, 2, f.expense, "169000", "Asset clearing")
+		})
+		for name, account := range map[string][3]any{
+			"without its number": {f.expense, nil, "Asset clearing"},
+			"without its name":   {f.expense, "169000", nil},
+			"without its id":     {nil, "169000", "Asset clearing"},
+		} {
+			t.Run(name, func(t *testing.T) {
+				failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
+					return exec(tx, insert, f.tenant, clearing, 3, account[0], account[1], account[2])
+				}), "gr_ir_clearing_item_account")
+			})
+		}
 	})
 	t.Run("an item changed", func(t *testing.T) {
 		f := newFixture(t)

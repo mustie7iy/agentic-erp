@@ -1338,10 +1338,31 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a)): the posting change itself, after the materiality report; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment (ADR-0057's question on price differences and non-recovered tax)",
-        "r": "ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 1) · ledger price difference · payables input tax",
-        "src": "po:2026-11-09",
+        "s": "D",
+        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a); product owner 2026-11-10, follow best accounting practice): for an order item on an asset clearing account, what an invoice, credit memo or subsequent debit or credit differs from the GR/IR line, the tax not recovered included, posts to that clearing account instead of the price difference account, without a cost center (so no longer refused with ledger.cost_center_required), recorded with its order item and tax as before; entry totals, tax lines and the payable unchanged; reversals mirror what was posted, documents posted before included; capitalised from the clearing account by the existing acquisition mechanism; no backfill or reposting, the report being history; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment",
+        "r": "ledger.GRIRItem.ItemAccountID, ledger.Postings.Settings, internal/ledger/assetitem.go (assetClearingAccounts), grir.go (difference, differenceAccount) · ledger.AssetReads.OrderItemExpenses (profit and loss lines only) · config.Company.AssetClearingAccounts · internal/payables/post.go (grirItem) · TestAssetItemDifferences, TestAssetItemDifferencesReversed, TestAssetItemDatabaseFailures, TestAssetOrderItemCapitalised, TestAssetOrderExpenses · walkthrough step_asset_order_expenses (step 46) · ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 3) · ADR-0049 §8 · 03-data-model §3.7 · 04-api-design",
+        "src": "po:2026-11-10 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A GR/IR clearing (T72e, SAP MR11) of an asset's order item clears against the item's asset clearing account instead of the price difference account (product owner 2026-11-10: everything that adjusts what was paid for an asset's order item belongs on the asset): the clearing shows the account each item clears against and keeps it per item where it is not the clearing's own, the ledger judges the item again at posting and refuses a clearing approved against another account (ledger.gr_ir_clearing_outdated), other items clear as before",
+        "r": "migration 000264 (procurement.gr_ir_clearing_item offset_account_id, _number, _name; gr_ir_clearing_item_account) · GrIrClearing.items[].offset_account · ledger.Postings.AssetClearingAccounts, GRIRItem.ItemAccountID on clearing items, checkClears · internal/procurement/grir_clearing.go (clearingAccounts, clearingPosting) · TestGRIRClearingOfAssetItem, TestAssetItemCleared, TestAssetClearingAccounts, TestGRIRClearingRules · walkthrough step_asset_order_expenses (step 46) · ADR-0057 As built (B10, step 3, part 2) · ADR-0034 As built · 03-data-model §3.7, §3.8",
+        "src": "po:2026-11-10",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The report on asset purchase orders is history, with GR/IR clearings as a figure of their own (product owner 2026-11-10): postings since the capitalisation do not appear as expensed; what GR/IR clearings of an asset's order item put in profit or loss before is shown per order item and in the totals (gr_ir_cleared), exact where the clearing's line names the order item; the contract says what cannot be attributed (clearings made in a source system before migration, manual entries) and that nothing is reposted or backfilled, correcting history being a journal entry the accountants decide from the report",
+        "r": "GET /v1/asset-order-expenses (AssetOrderExpenseItem.gr_ir_cleared, AssetOrderExpenseAmounts.gr_ir_cleared, description) · ledger.AssetReads.ClearedExpenses · assets.Purchases.Cleared, internal/assets/orderexpenses.go · TestAssetOrderExpenses, TestAssetOrderExpensesFailures · walkthrough step_asset_order_expenses (step 46) · ADR-0057 As built (B10, step 3, part 3) · 04-api-design",
+        "src": "po:2026-11-10",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A budget test for the report on asset purchase orders (GET /v1/asset-order-expenses), which had none: its rows are aggregated and paged in memory, so every page reads the company's whole year",
+        "r": "TestAssetOrderExpensesBudget (p95 1 s, the asset history sheet's report budget, over 2,000 asset order items among 22,000 with recorded lines, 1,000 unrecorded entries and 1,000 clearings) · ADR-0057 As built (B10, step 3, part 3)",
+        "src": "review:batch64",
         "c": []
        },
        {

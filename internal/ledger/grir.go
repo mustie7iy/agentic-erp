@@ -226,6 +226,10 @@ type grirPosting struct {
 	// center (GRIRItem.CostCenterID); one that takes none derives its
 	// assignment as any line does.
 	diffCosts bool
+	// assets: those of the invoiced and clearing items' accounts that are
+	// asset clearing accounts of the company (GRIRItem.ItemAccountID),
+	// which those items' differences post to.
+	assets map[uuid.UUID]AccountRef
 }
 
 // prepareGRIR resolves what a GR/IR posting books with: the legal entity,
@@ -267,7 +271,8 @@ func (p Postings) prepareGRIR(ctx context.Context, tx pgx.Tx, in Posting) (grirP
 		return g, fmt.Errorf("ledger: cost element of the price difference account %s: %w", g.diff, err)
 	}
 	g.diffCosts = element == config.CostElementPrimaryCost
-	return g, nil
+	g.assets, err = assetClearingAccounts(ctx, tx, p.Settings, g.le, itemAccounts(in.GRIR))
+	return g, err
 }
 
 // determined is the legal entity's account for the key, or the problem
@@ -386,39 +391,58 @@ func (g grirPosting) itemLines(pos map[orderItem]*position, taken map[orderItem]
 // and whether it keeps the local and group amounts it is given: a goods
 // movement's mirror on its offset account and a clearing's on the price
 // difference account do; an invoice's price difference, converted at the
-// posting's rates, does not. An item that moves nothing has none.
+// posting's rates, does not. An asset's item's goes to its asset clearing
+// account instead (difference). An item that moves nothing has none.
 func (g grirPosting) counterLine(it GRIRItem, tc, lc, gc money.Minor, code *string) (*Line, bool, error) {
 	moved := tc != 0 || lc != 0 || gc != 0
 	switch {
 	case it.OffsetAccountID != nil && moved:
 		return &Line{AccountID: *it.OffsetAccountID, TC: -tc, LC: -lc, GC: -gc, Text: it.Text, CostCenterID: it.CostCenterID}, true, nil
 	case it.Clears != nil && moved:
-		return g.priceDifference(Line{AccountID: g.diff, TC: -tc, LC: -lc, GC: -gc, Text: it.Text}, it), true, nil
+		return g.difference(Line{TC: -tc, LC: -lc, GC: -gc, Text: it.Text}, it), true, nil
 	case it.Invoiced != nil:
 		diff, err := money.Diff(*it.Invoiced, tc)
 		if err != nil {
 			return nil, false, errTotalTooLarge("grir")
 		}
 		if diff != 0 {
-			return g.priceDifference(Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code,
+			return g.difference(Line{TC: diff, Text: it.Text, TaxCode: code,
 				differs: &priceDifference{order: it.PurchaseOrderID, item: it.POItemNo, taxBorne: it.TaxBorne}}, it), false, nil
 		}
 	}
 	return nil, false, nil
 }
 
-// priceDifference is a line on the price difference account, carrying the
-// item's cost center when that account is a primary cost account.
-func (g grirPosting) priceDifference(line Line, it GRIRItem) *Line {
-	if g.diffCosts {
+// difference puts an item's difference line on its account: an asset's
+// item's on the item's asset clearing account, where it waits to be
+// capitalised as the receipt's line does (ADR-0057 §6; IAS 16.16, product
+// owner 2026-11-10), without a cost center, which a balance sheet account
+// takes none of; any other item's on the price difference account,
+// carrying the item's cost center when that is a primary cost account.
+func (g grirPosting) difference(line Line, it GRIRItem) *Line {
+	line.AccountID = g.differenceAccount(it)
+	if line.AccountID == g.diff && g.diffCosts {
 		line.CostCenterID = it.CostCenterID
 	}
 	return &line
 }
 
+// differenceAccount is the account an invoiced or clearing item's
+// difference posts to: the item's own when that is an asset clearing
+// account of the company, else the price difference account.
+func (g grirPosting) differenceAccount(it GRIRItem) uuid.UUID {
+	if it.ItemAccountID != nil {
+		if a, ok := g.assets[*it.ItemAccountID]; ok {
+			return a.ID
+		}
+	}
+	return g.diff
+}
+
 // checkClears refuses a clearing item unless the position still holds
 // what was approved: the quantity it clears, the balance in transaction
-// currency and the price difference account it posts to. Other items pass.
+// currency and the account it posts to (the price difference account, or
+// an asset's item's asset clearing account). Other items pass.
 func (g grirPosting) checkClears(p *position, it GRIRItem) error {
 	if it.Clears == nil {
 		return nil
@@ -427,9 +451,9 @@ func (g grirPosting) checkClears(p *position, it GRIRItem) error {
 	if err != nil {
 		return fmt.Errorf("ledger: GR/IR quantity %q: %w", it.Quantity, err)
 	}
-	if new(big.Rat).Add(p.qty, q).Sign() != 0 || p.tc != it.Clears.Balance || g.diff != it.Clears.Account {
+	if new(big.Rat).Add(p.qty, q).Sign() != 0 || p.tc != it.Clears.Balance || g.differenceAccount(it) != it.Clears.Account {
 		return problem.Conflict("ledger.gr_ir_clearing_outdated", fmt.Sprintf("Item %d of purchase order %s no longer holds the GR/IR position, "+
-			"or the price difference account is no longer the one, that the clearing was approved for; propose the clearing again.", it.POItemNo, it.PurchaseOrderID))
+			"or the account it clears against is no longer the one, that the clearing was approved for; propose the clearing again.", it.POItemNo, it.PurchaseOrderID))
 	}
 	return nil
 }

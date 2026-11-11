@@ -35,7 +35,8 @@ func procurementEndpoints() *procurement.Endpoints {
 	return &procurement.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Accounts: ledger.Accounts{},
 		Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{},
 		Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: fixture.Approvals(),
-		Invoices: payables.Invoices{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}}}
+		Invoices: payables.Invoices{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+			Settings: configuration.Settings{}}}
 }
 
 // receipt posts a goods receipt of the quantity on item 1 of the order

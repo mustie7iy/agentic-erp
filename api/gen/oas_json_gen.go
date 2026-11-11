@@ -16876,12 +16876,17 @@ func (s *AssetOrderExpenseAmounts) encodeFields(e *jx.Encoder) {
 		e.FieldStart("expensed")
 		s.Expensed.Encode(e)
 	}
+	{
+		e.FieldStart("gr_ir_cleared")
+		s.GrIrCleared.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfAssetOrderExpenseAmounts = [3]string{
+var jsonFieldsNameOfAssetOrderExpenseAmounts = [4]string{
 	0: "tax_not_recovered",
 	1: "price_difference",
 	2: "expensed",
+	3: "gr_ir_cleared",
 }
 
 // Decode decodes AssetOrderExpenseAmounts from json.
@@ -16923,6 +16928,16 @@ func (s *AssetOrderExpenseAmounts) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"expensed\"")
 			}
+		case "gr_ir_cleared":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				if err := s.GrIrCleared.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gr_ir_cleared\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -16933,7 +16948,7 @@ func (s *AssetOrderExpenseAmounts) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -17028,19 +17043,24 @@ func (s *AssetOrderExpenseItem) encodeFields(e *jx.Encoder) {
 		e.FieldStart("expensed")
 		s.Expensed.Encode(e)
 	}
+	{
+		e.FieldStart("gr_ir_cleared")
+		s.GrIrCleared.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfAssetOrderExpenseItem = [10]string{
-	0: "purchase_order_id",
-	1: "purchase_order_number",
-	2: "po_item_no",
-	3: "description",
-	4: "account_id",
-	5: "account_number",
-	6: "account_name",
-	7: "tax_not_recovered",
-	8: "price_difference",
-	9: "expensed",
+var jsonFieldsNameOfAssetOrderExpenseItem = [11]string{
+	0:  "purchase_order_id",
+	1:  "purchase_order_number",
+	2:  "po_item_no",
+	3:  "description",
+	4:  "account_id",
+	5:  "account_number",
+	6:  "account_name",
+	7:  "tax_not_recovered",
+	8:  "price_difference",
+	9:  "expensed",
+	10: "gr_ir_cleared",
 }
 
 // Decode decodes AssetOrderExpenseItem from json.
@@ -17166,6 +17186,16 @@ func (s *AssetOrderExpenseItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"expensed\"")
 			}
+		case "gr_ir_cleared":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.GrIrCleared.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"gr_ir_cleared\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -17177,7 +17207,7 @@ func (s *AssetOrderExpenseItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111111,
-		0b00000011,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -95166,13 +95196,18 @@ func (s *GrIrClearingItem) encodeFields(e *jx.Encoder) {
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
+	{
+		e.FieldStart("offset_account")
+		s.OffsetAccount.Encode(e)
+	}
 }
 
-var jsonFieldsNameOfGrIrClearingItem = [4]string{
+var jsonFieldsNameOfGrIrClearingItem = [5]string{
 	0: "po_item_no",
 	1: "description",
 	2: "quantity",
 	3: "amount",
+	4: "offset_account",
 }
 
 // Decode decodes GrIrClearingItem from json.
@@ -95228,6 +95263,16 @@ func (s *GrIrClearingItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "offset_account":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.OffsetAccount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"offset_account\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -95238,7 +95283,7 @@ func (s *GrIrClearingItem) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
