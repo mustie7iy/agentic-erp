@@ -173,12 +173,20 @@ func TestWalkthroughWorkingDays(t *testing.T) {
 			for _, lag := range c.lags {
 				args = append(args, strconv.Itoa(lag))
 			}
-			out, err := exec.CommandContext(t.Context(), "bash", args...).CombinedOutput()
-			if err != nil {
-				t.Fatalf("first_working_day: %v\n%s", err, out)
-			}
-			if got := strings.TrimSpace(string(out)); got != c.want {
-				t.Errorf("first_working_day from %s at %v: got %q, want %q", c.day, c.lags, got, c.want)
+			// A machine in another language names its weekdays differently
+			// (jq's strftime follows the locale; a Saturday counted as a
+			// working day under de_DE): the helper must not. A locale the
+			// machine lacks reads as C.
+			for _, locale := range []string{"C", "de_DE.UTF-8"} {
+				run := exec.CommandContext(t.Context(), "bash", args...)
+				run.Env = append(os.Environ(), "LC_ALL="+locale)
+				out, err := run.CombinedOutput()
+				if err != nil {
+					t.Fatalf("first_working_day under LC_ALL=%s: %v\n%s", locale, err, out)
+				}
+				if got := strings.TrimSpace(string(out)); got != c.want {
+					t.Errorf("first_working_day from %s at %v under LC_ALL=%s: got %q, want %q", c.day, c.lags, locale, got, c.want)
+				}
 			}
 		})
 	}

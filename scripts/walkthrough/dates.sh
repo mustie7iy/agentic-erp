@@ -51,13 +51,14 @@ utc_day() {
 # when it names none) nor one of its holidays, the rule the cash position
 # and the forecast move a flow to the next working day by (ADR-0048,
 # ADR-0051 §5; config.BusinessDay). Calendar arithmetic in UTC, as
-# date_add's.
+# date_add's; the weekday is named from its number, never by strftime,
+# which names it in the machine's language (review, ci:batch64).
 first_working_day() {
   local calendar=$1 day=$2
   shift 2
   jq -r --arg d "$day" '(.weekend // [] | if length == 0 then ["saturday", "sunday"] else . end) as $weekend
     | [.holidays[]?.date] as $holidays
     | [$ARGS.positional[] | ($d | strptime("%Y-%m-%d") | mktime) + tonumber * 86400
-      | select((strftime("%A") | ascii_downcase) as $w | $weekend | index($w) | not)
+      | select(["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][gmtime | .[6]] as $w | $weekend | index($w) | not)
       | strftime("%Y-%m-%d") | select(. as $day | $holidays | index($day) | not)][0] // ""' "$calendar" --args "$@"
 }
