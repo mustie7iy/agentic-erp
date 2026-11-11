@@ -67617,6 +67617,164 @@ func (s *CreateYearCloseUnprocessableEntity) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *CreditLimit) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CreditLimit) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("invoice_id")
+		json.EncodeUUID(e, s.InvoiceID)
+	}
+	{
+		e.FieldStart("invoice_number")
+		e.Str(s.InvoiceNumber)
+	}
+	{
+		e.FieldStart("invoice_gross")
+		s.InvoiceGross.Encode(e)
+	}
+	{
+		e.FieldStart("credited")
+		s.Credited.Encode(e)
+	}
+	{
+		e.FieldStart("attempted")
+		s.Attempted.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfCreditLimit = [5]string{
+	0: "invoice_id",
+	1: "invoice_number",
+	2: "invoice_gross",
+	3: "credited",
+	4: "attempted",
+}
+
+// Decode decodes CreditLimit from json.
+func (s *CreditLimit) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CreditLimit to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "invoice_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.InvoiceID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"invoice_id\"")
+			}
+		case "invoice_number":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.InvoiceNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"invoice_number\"")
+			}
+		case "invoice_gross":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.InvoiceGross.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"invoice_gross\"")
+			}
+		case "credited":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				if err := s.Credited.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credited\"")
+			}
+		case "attempted":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.Attempted.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"attempted\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CreditLimit")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00011111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCreditLimit) {
+					name = jsonFieldsNameOfCreditLimit[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CreditLimit) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CreditLimit) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *CurrentPrincipal) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -128122,6 +128280,39 @@ func (s *OptCountryPackSignOff) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes CreditLimit as json.
+func (o OptCreditLimit) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes CreditLimit from json.
+func (o *OptCreditLimit) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptCreditLimit to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptCreditLimit) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptCreditLimit) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes time.Time as json.
 func (o OptDate) Encode(e *jx.Encoder, format func(*jx.Encoder, time.Time)) {
 	if !o.Set {
@@ -143913,9 +144104,15 @@ func (s *Problem) encodeFields(e *jx.Encoder) {
 			e.ArrEnd()
 		}
 	}
+	{
+		if s.CreditLimit.Set {
+			e.FieldStart("credit_limit")
+			s.CreditLimit.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfProblem = [11]string{
+var jsonFieldsNameOfProblem = [12]string{
 	0:  "type",
 	1:  "title",
 	2:  "status",
@@ -143927,6 +144124,7 @@ var jsonFieldsNameOfProblem = [11]string{
 	8:  "calculated_tax",
 	9:  "match_issues",
 	10: "failing_checks",
+	11: "credit_limit",
 }
 
 // Decode decodes Problem from json.
@@ -144076,6 +144274,16 @@ func (s *Problem) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"failing_checks\"")
+			}
+		case "credit_limit":
+			if err := func() error {
+				s.CreditLimit.Reset()
+				if err := s.CreditLimit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_limit\"")
 			}
 		default:
 			return d.Skip()

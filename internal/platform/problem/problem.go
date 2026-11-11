@@ -9,11 +9,11 @@
 // one). Write stamps the request's instance and trace id, and WithCause
 // records its cause, on a copy, so even a problem reached by two requests
 // is not changed by either. The copy is shallow: Errors, MatchIssues,
-// CalculatedTax and Header stay shared with the original, so a helper that
-// rewrites a problem it is given (ledger's asItems and asAsset) relies on
-// the problem being its request's alone
-// (review:T53f4: a shared one carried the first refused request's
-// instance and trace id to every later one, of any tenant, and raced).
+// CalculatedTax, CreditLimit and Header stay shared with the original, so
+// a helper that rewrites a problem it is given (ledger's asItems and
+// asAsset) relies on the problem being its request's alone (review:T53f4:
+// a shared one carried the first refused request's instance and trace id
+// to every later one, of any tenant, and raced).
 package problem
 
 import (
@@ -30,6 +30,7 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -87,6 +88,19 @@ type FailingCheck struct {
 	Summary  string `json:"summary"`
 }
 
+// CreditLimit are the figures of a credit refused because the credits
+// naming an invoice would exceed its gross amount
+// (payables.credit_exceeds_invoice, product owner 2026-11-10): the
+// invoice, its gross, what posted credits naming it already credit, and
+// the gross of the one refused, all in the invoice's currency.
+type CreditLimit struct {
+	InvoiceID     uuid.UUID `json:"invoice_id"`
+	InvoiceNumber string    `json:"invoice_number"`
+	InvoiceGross  Money     `json:"invoice_gross"`
+	Credited      Money     `json:"credited"`
+	Attempted     Money     `json:"attempted"`
+}
+
 // Problem is an RFC 9457 problem document.
 type Problem struct {
 	Type     string       `json:"type"`
@@ -107,6 +121,9 @@ type Problem struct {
 	// FailingChecks are closing.checks_failing's failing checks (ADR-0058
 	// §7), set by that problem alone.
 	FailingChecks []FailingCheck `json:"failing_checks,omitempty"`
+	// CreditLimit are payables.credit_exceeds_invoice's figures, set by
+	// that problem alone.
+	CreditLimit *CreditLimit `json:"credit_limit,omitempty"`
 
 	// RetryAfter, in seconds, is sent as the Retry-After header when set.
 	RetryAfter int `json:"-"`

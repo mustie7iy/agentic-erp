@@ -31,7 +31,8 @@ import (
 // The kind gives the direction (T34): a credit memo or subsequent credit
 // posts the other way round, as journal type KG (Dr supplier, Cr items and
 // tax), and a correction naming an invoice posts only while that invoice
-// stands, checked under a lock (requireReference).
+// stands and, when it credits, within that invoice's gross amount, both
+// checked under a lock (requireReference).
 func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -187,25 +188,68 @@ func invoicePosting(v Invoice, id uuid.UUID, date time.Time) ledger.Posting {
 }
 
 // requireReference lets a correction naming an invoice post only while
-// that invoice is posted. The invoice's row is read FOR SHARE, so its
-// reversal, which locks it FOR UPDATE and refuses an invoice with posted
-// corrections (requireNoCorrections), waits for this posting to commit and
-// then sees the correction; a reversal that got there first leaves the
-// invoice reversed, which this refuses.
+// that invoice is posted and, when it credits, only within that invoice's
+// gross amount (requireWithinInvoice). The invoice's row is read FOR
+// UPDATE (ADR-0008): its reversal, which locks it the same way and refuses
+// an invoice with posted corrections (requireNoCorrections), waits for
+// this posting to commit and then sees the correction, and a reversal that
+// got there first leaves the invoice reversed, which this refuses; another
+// credit naming the invoice waits too and then counts this one. The
+// correction's own row is locked before its invoice's and nothing locks
+// them the other way round (the reversal does not lock the corrections),
+// so the two never wait for each other in a cycle.
 func requireReference(ctx context.Context, tx pgx.Tx, v Invoice) error {
 	if v.ReferenceInvoiceID == nil {
 		return nil
 	}
 	var status, number string
-	if err := tx.QueryRow(ctx, `SELECT status, document_number FROM payables.supplier_invoice WHERE id = $1 FOR SHARE`, *v.ReferenceInvoiceID).
-		Scan(&status, &number); err != nil {
+	var gross money.Minor
+	if err := tx.QueryRow(ctx, `SELECT status, document_number, gross_amount FROM payables.supplier_invoice WHERE id = $1 FOR UPDATE`,
+		*v.ReferenceInvoiceID).Scan(&status, &number, &gross); err != nil {
 		return fmt.Errorf("payables: lock invoice %s that %s corrects: %w", *v.ReferenceInvoiceID, v.DocumentNumber, err)
 	}
 	if status != Posted {
 		return problem.Conflict("payables.reference_not_posted", fmt.Sprintf("Invoice %s, which %s corrects, is %s; clear the reference or name a posted invoice.",
 			number, v.DocumentNumber, status))
 	}
-	return nil
+	if !credits(v.Kind) {
+		return nil
+	}
+	return requireWithinInvoice(ctx, tx, v, number, gross)
+}
+
+// requireWithinInvoice refuses a credit memo or subsequent credit that,
+// with the posted ones naming the same invoice (number, of gross amount
+// gross), would credit more than that invoice's gross (product owner
+// 2026-11-10; 422 payables.credit_exceeds_invoice with the figures,
+// ADR-0052 decision D3). The caller holds the invoice's row lock, so the
+// sum read here holds until this posting commits. Only posted credits
+// count: a parked or held one is checked when it posts, a reversed one
+// frees its amount, and whether the invoice is paid plays no part. The
+// amounts are in one currency (a correction is in its invoice's,
+// invoiceCheck.reference), and none is negative, so the comparison
+// subtracts and cannot overflow.
+func requireWithinInvoice(ctx context.Context, tx pgx.Tx, v Invoice, number string, gross money.Minor) error {
+	var credited money.Minor
+	if err := tx.QueryRow(ctx, `SELECT coalesce(sum(gross_amount), 0)::bigint FROM payables.supplier_invoice
+		WHERE reference_invoice_id = $1 AND status = 'posted' AND kind IN ('credit_memo', 'subsequent_credit')`, *v.ReferenceInvoiceID).
+		Scan(&credited); err != nil {
+		return fmt.Errorf("payables: read the credits posted against invoice %s: %w", *v.ReferenceInvoiceID, err)
+	}
+	if v.Gross <= gross-credited {
+		return nil
+	}
+	in := func(m money.Minor) problem.Money {
+		return problem.Money{Amount: m.Plain(v.Exponent), Currency: v.Currency}
+	}
+	p := problem.Unprocessable("payables.credit_exceeds_invoice", fmt.Sprintf("Invoice %s, which %s credits (reference_invoice_id), has a gross amount of %s %s, "+
+		"of which posted credits naming it already credit %s; this one's gross_amount of %s would exceed it.",
+		number, v.DocumentNumber, gross.Plain(v.Exponent), v.Currency, credited.Plain(v.Exponent), v.Gross.Plain(v.Exponent)),
+		problem.FieldError{Field: "gross_amount", Code: "credit_exceeds_invoice",
+			Message: "at most what the invoice's gross amount leaves: " + max(gross-credited, 0).Plain(v.Exponent)})
+	p.CreditLimit = &problem.CreditLimit{InvoiceID: *v.ReferenceInvoiceID, InvoiceNumber: number, InvoiceGross: in(gross), Credited: in(credited),
+		Attempted: in(v.Gross)}
+	return p
 }
 
 // requireNoCorrections refuses to reverse an invoice that posted

@@ -1830,7 +1830,7 @@ migrated_grir_invoice() {
 }
 
 step_credit() {
-  heading "Step 6 — A credit memo; the receipt it leaves invoiced cannot be reversed"
+  heading "Step 6 — A credit memo; a credit past its invoice is refused; the receipt it leaves invoiced cannot be reversed"
   as alex
   say "One chair arrived damaged; Tyrell credits it. A credit memo debits the supplier when posted."
   invoice TY-CM-77 1 470.00 credit_memo
@@ -1845,8 +1845,28 @@ step_credit() {
   expect_today "the credit memo's posting date, Toronto's" "$(field .posting_date)" "$before"
   CREDIT_ENTRY=$(field .journal_entry_id)
   api 200 '.items[] | "open item \(.amount.amount) \(.amount.currency)"' listOpenItems -p "partner_id=$SUPPLIER"
+  credit_limit
   receipt_held
   passed
+}
+
+# credit_limit has Tyrell credit invoice TY-5001 for a cent more than it
+# invoiced, without the order, so no match holds the document: credits
+# naming an invoice stay within its gross amount (product owner
+# 2026-11-10, 03 §3.9), whatever is on an order.
+credit_limit() {
+  say "Tyrell sends a second credit memo, naming invoice TY-5001 (4,700.00) and not the order, for 4,700.01."
+  say "A document without an order is not matched; the credits naming an invoice may still not exceed its gross"
+  say "amount (product owner 2026-11-10), so posting it is refused, the refusal carrying the figures:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"kind\": \"credit_memo\", \"reference_invoice_id\": \"$INVOICE\", \"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-CM-78\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"4700.01\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Chairs credited\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"4700.01\", \"currency\": \"CAD\"}}]}"
+  local over
+  over=$(field .id)
+  refused 422 payables.credit_exceeds_invoice postSupplierInvoice -p "id=$over" -if-match '"1"' -body '{}'
+  excerpt '.credit_limit | "invoice \(.invoice_number): gross \(.invoice_gross.amount) \(.invoice_gross.currency), already credited \(.credited.amount), refused \(.attempted.amount)"'
+  expect "the refusal's figures: gross, credited, refused" "$(field '.credit_limit | "\(.invoice_gross.amount) \(.credited.amount) \(.attempted.amount) \(.attempted.currency)"')" "4700.00 0.00 4700.01 CAD"
+  say "TY-CM-77 names no invoice, so it is not counted. Alex cancels the document."
+  api 200 '"\(.document_number): \(.status)"' cancelSupplierInvoice -p "id=$over" -if-match '"1"' -body '{"reason": "Credits more than invoice TY-5001"}'
 }
 
 # receipt_held has Ben try to reverse the chairs' receipt of step 4 once

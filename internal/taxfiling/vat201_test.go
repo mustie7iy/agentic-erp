@@ -122,10 +122,11 @@ func (g vat201) invoice(t *testing.T, ref, day, posted, gross, tax, item string)
 	return g.document(t, "", ref, day, posted, gross, tax, item)
 }
 
-// creditMemo is invoice's credit memo of the invoice credited.
-func (g vat201) creditMemo(t *testing.T, credited, ref, day, posted, gross, tax, item string) {
+// creditMemo is invoice's credit memo, naming no invoice: its tax date is
+// its own day, and no invoice's gross amount limits it (03 §3.9).
+func (g vat201) creditMemo(t *testing.T, ref, day, posted, gross, tax, item string) {
 	t.Helper()
-	g.document(t, fmt.Sprintf(`"kind": "credit_memo", "reference_invoice_id": %q, `, credited), ref, day, posted, gross, tax, item)
+	g.document(t, `"kind": "credit_memo", `, ref, day, posted, gross, tax, item)
 }
 
 // document posts invoice's supplier document, its kind's fields extra,
@@ -252,19 +253,32 @@ func TestVAT201Golden(t *testing.T) {
 	prior := q2["prior_period"].(map[string]any)
 	want(t, "the threshold, not exceeded", fmt.Sprintf("%v %v", prior["threshold"].(map[string]any)["amount"], prior["above_threshold"]), "10000.00 false")
 	// The threshold is on a net shortfall of payable tax in one earlier
-	// period, all its items together (po:2026-11-09, C11): 11,050.00 of
-	// late input VAT is an overpayment and does not raise it; credit memos
-	// of 31 March, posted in May, taking back 21,050.00 of input VAT make a
-	// shortfall of exactly 10,000.00, which does not either; 0.01 more does.
+	// period, all its items together (po:2026-11-09, C11). The first
+	// quarter's late input VAT is P6's 50.00, P7's 10,000.00 and P8's
+	// 1,000.00: 11,050.00, an overpayment, which does not raise it. Credit
+	// memos of 31 March, posted in May, then take input VAT back:
+	// 21,050.00 (5% of 421,000.00) leaves 11,050.00 - 21,050.00 =
+	// -10,000.00, a shortfall of exactly the threshold, which does not
+	// raise it either; 0.01 more (5% of 0.20) makes it 10,000.01, which
+	// does.
+	//
+	// The credit memos name no invoice (a supplier's rebate credits):
+	// credits naming an invoice stay within its gross amount (product owner
+	// 2026-11-10), so credits naming the late invoices could take back at
+	// most the 11,050.00 those carry and never make a shortfall, and a
+	// larger invoice in the filed quarter would change the signed-off
+	// worked set. A credit naming none has its own date as its tax date,
+	// 31 March, as P8 has, so the figures are those of the case before the
+	// rule.
 	g.invoice(t, "P7", "2026-03-31", "2026-05-06", "210000.00", "10000.00", "200000.00 V5")
-	p8 := g.invoice(t, "P8", "2026-03-31", "2026-05-07", "21000.00", "1000.00", "20000.00 V5")
+	g.invoice(t, "P8", "2026-03-31", "2026-05-07", "21000.00", "1000.00", "20000.00 V5")
 	for _, c := range []struct{ name, gross, vat, base, want string }{
 		{"an overpayment of 11,050.00", "", "", "", "false"},
 		{"a shortfall of exactly 10,000.00", "442050.00", "21050.00", "421000.00", "false"},
 		{"a shortfall of 10,000.01", "0.21", "0.01", "0.20", "true"},
 	} {
 		if c.vat != "" { // each case adds to the earlier ones' items
-			g.creditMemo(t, p8, "C-"+c.vat, "2026-03-31", "2026-05-08", c.gross, c.vat, c.base+" V5")
+			g.creditMemo(t, "C-"+c.vat, "2026-03-31", "2026-05-08", c.gross, c.vat, c.base+" V5")
 		}
 		// Not t.Run: the client fails the test it was made with.
 		q2, _ = e.Must(200, "GET", compute(reg, "2026-04-01"), "", "")

@@ -1878,11 +1878,41 @@ Each kind is matched and posted by its kind (T34c):
     revaluation.
 - **Corrections and their invoice**:
   - a correction naming an invoice posts only while that invoice is
-    posted, read `FOR SHARE` at `:post` (409 `payables.reference_not_posted`);
+    posted, read `FOR UPDATE` at `:post` (409 `payables.reference_not_posted`);
   - an invoice that posted corrections name is reversed only once they
     are (409 `payables.invoice_has_corrections`);
   - the reversal locks the invoice `FOR UPDATE` and does not lock the
-    corrections, so the two never wait for each other in a cycle.
+    corrections, and a correction's posting locks the correction before
+    its invoice, so the two never wait for each other in a cycle.
+- **Credits stay within their invoice** (product owner 2026-11-10;
+  ADR-0034 As built):
+  - the gross amounts of the posted credit memos and subsequent credits
+    naming an invoice, plus that of the one being posted, may not exceed
+    that invoice's gross amount; otherwise `:post` is refused (422
+    `payables.credit_exceeds_invoice`, the document left parked), the
+    problem's `credit_limit` giving the invoice, its gross, the amount
+    already credited and the amount refused;
+  - it is checked at `:post` under the invoice's `FOR UPDATE` lock
+    (ADR-0008), so two credits posted at once cannot both pass;
+  - only posted credits count: a parked, held or approval-pending one
+    counts when it posts, where the check runs again; a reversed one
+    frees its amount; a subsequent debit naming the invoice neither
+    counts nor raises the limit;
+  - the limit is the gross, not the open amount: a paid invoice is
+    credited up to its gross;
+  - it holds for every credit naming an invoice, on a purchase order or
+    not; the order's quantity rules above are unchanged and apply in
+    addition;
+  - **a credit naming no invoice has no amount limit**, deliberately: it
+    is held only by its order's quantity rules, if it is on one;
+  - the amounts compare in one currency, since a correction is in its
+    invoice's; a document loaded from SAP parked is a supplier invoice
+    like any other and counts once posted here, while SAP's posted
+    documents come over as journal entries, name no invoice here and
+    count against none;
+  - an application rule only: no database constraint, so credits posted
+    past their invoice before this rule stand as they are and count
+    against it, and nothing further posts against that invoice.
 - **Capture** (T34e) reads a document as an `invoice` or a `credit_memo`
   (the extraction's `document_kind`); subsequent debits and credits are
   entered by hand, since a document does not say reliably that it

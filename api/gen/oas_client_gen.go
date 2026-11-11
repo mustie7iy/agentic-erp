@@ -3717,7 +3717,14 @@ type Invoker interface {
 	// documents posted on the order since (another invoice past the received quantity, a credit memo past
 	// the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
 	// match, or the match its exception was approved on, did not have; the problem's `match_issues` are
-	// those issues.
+	// those issues. A credit memo or subsequent credit naming an invoice (`reference_invoice_id`), on a
+	// purchase order or not, posts only while the gross amounts of the posted credit memos and subsequent
+	// credits naming that invoice, with its own `gross_amount`, do not exceed that invoice's
+	// `gross_amount`: 422 `payables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving
+	// the invoice, its gross amount, the amount already credited and the amount refused. The limit is the
+	// invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a reversed
+	// credit frees its amount; a credit naming no invoice has no such limit. It is checked under a lock on
+	// the named invoice, so of two credits posted at once that together exceed it one is refused.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -62408,7 +62415,14 @@ func (c *Client) sendPostRevaluationRun(ctx context.Context, request *Revaluatio
 // documents posted on the order since (another invoice past the received quantity, a credit memo past
 // the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
 // match, or the match its exception was approved on, did not have; the problem's `match_issues` are
-// those issues.
+// those issues. A credit memo or subsequent credit naming an invoice (`reference_invoice_id`), on a
+// purchase order or not, posts only while the gross amounts of the posted credit memos and subsequent
+// credits naming that invoice, with its own `gross_amount`, do not exceed that invoice's
+// `gross_amount`: 422 `payables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving
+// the invoice, its gross amount, the amount already credited and the amount refused. The limit is the
+// invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a reversed
+// credit frees its amount; a credit naming no invoice has no such limit. It is checked under a lock on
+// the named invoice, so of two credits posted at once that together exceed it one is refused.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (c *Client) PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error) {

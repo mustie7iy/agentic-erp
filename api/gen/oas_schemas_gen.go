@@ -27353,6 +27353,74 @@ type CreateYearCloseUnprocessableEntity Problem
 
 func (*CreateYearCloseUnprocessableEntity) createYearCloseRes() {}
 
+// The figures of a credit memo or subsequent credit refused at `:post` because the posted credits
+// naming its invoice, with it, would exceed that invoice's gross amount (422
+// `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's.
+// Ref: #/components/schemas/CreditLimit
+type CreditLimit struct {
+	// The invoice the credit names (its `reference_invoice_id`).
+	InvoiceID uuid.UUID `json:"invoice_id"`
+	// That invoice's document number.
+	InvoiceNumber string `json:"invoice_number"`
+	// That invoice's gross amount (`gross_amount`), the limit.
+	InvoiceGross Money `json:"invoice_gross"`
+	// The gross amounts of the posted credit memos and subsequent credits naming that invoice; a reversed
+	// one is not counted.
+	Credited Money `json:"credited"`
+	// The gross amount (`gross_amount`) of the credit refused.
+	Attempted Money `json:"attempted"`
+}
+
+// GetInvoiceID returns the value of InvoiceID.
+func (s *CreditLimit) GetInvoiceID() uuid.UUID {
+	return s.InvoiceID
+}
+
+// GetInvoiceNumber returns the value of InvoiceNumber.
+func (s *CreditLimit) GetInvoiceNumber() string {
+	return s.InvoiceNumber
+}
+
+// GetInvoiceGross returns the value of InvoiceGross.
+func (s *CreditLimit) GetInvoiceGross() Money {
+	return s.InvoiceGross
+}
+
+// GetCredited returns the value of Credited.
+func (s *CreditLimit) GetCredited() Money {
+	return s.Credited
+}
+
+// GetAttempted returns the value of Attempted.
+func (s *CreditLimit) GetAttempted() Money {
+	return s.Attempted
+}
+
+// SetInvoiceID sets the value of InvoiceID.
+func (s *CreditLimit) SetInvoiceID(val uuid.UUID) {
+	s.InvoiceID = val
+}
+
+// SetInvoiceNumber sets the value of InvoiceNumber.
+func (s *CreditLimit) SetInvoiceNumber(val string) {
+	s.InvoiceNumber = val
+}
+
+// SetInvoiceGross sets the value of InvoiceGross.
+func (s *CreditLimit) SetInvoiceGross(val Money) {
+	s.InvoiceGross = val
+}
+
+// SetCredited sets the value of Credited.
+func (s *CreditLimit) SetCredited(val Money) {
+	s.Credited = val
+}
+
+// SetAttempted sets the value of Attempted.
+func (s *CreditLimit) SetAttempted(val Money) {
+	s.Attempted = val
+}
+
 // The caller (getCurrentPrincipal): advisory, as the API decides every call.
 // Ref: #/components/schemas/CurrentPrincipal
 type CurrentPrincipal struct {
@@ -49511,6 +49579,52 @@ func (o OptCountryPackSignOff) Or(d CountryPackSignOff) CountryPackSignOff {
 	return d
 }
 
+// NewOptCreditLimit returns new OptCreditLimit with value set to v.
+func NewOptCreditLimit(v CreditLimit) OptCreditLimit {
+	return OptCreditLimit{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCreditLimit is optional CreditLimit.
+type OptCreditLimit struct {
+	Value CreditLimit
+	Set   bool
+}
+
+// IsSet returns true if OptCreditLimit was set.
+func (o OptCreditLimit) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCreditLimit) Reset() {
+	var v CreditLimit
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCreditLimit) SetTo(v CreditLimit) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCreditLimit) Get() (v CreditLimit, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCreditLimit) Or(d CreditLimit) CreditLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptDate returns new OptDate with value set to v.
 func NewOptDate(v time.Time) OptDate {
 	return OptDate{
@@ -58418,6 +58532,9 @@ type Problem struct {
 	// With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it
 	// again, with what it found (ADR-0058 §7).
 	FailingChecks []FailingCheck `json:"failing_checks"`
+	// With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount,
+	// what posted credits naming it already credit, and the gross amount of the one refused.
+	CreditLimit OptCreditLimit `json:"credit_limit"`
 }
 
 // GetType returns the value of Type.
@@ -58475,6 +58592,11 @@ func (s *Problem) GetFailingChecks() []FailingCheck {
 	return s.FailingChecks
 }
 
+// GetCreditLimit returns the value of CreditLimit.
+func (s *Problem) GetCreditLimit() OptCreditLimit {
+	return s.CreditLimit
+}
+
 // SetType sets the value of Type.
 func (s *Problem) SetType(val string) {
 	s.Type = val
@@ -58528,6 +58650,11 @@ func (s *Problem) SetMatchIssues(val []MatchIssue) {
 // SetFailingChecks sets the value of FailingChecks.
 func (s *Problem) SetFailingChecks(val []FailingCheck) {
 	s.FailingChecks = val
+}
+
+// SetCreditLimit sets the value of CreditLimit.
+func (s *Problem) SetCreditLimit(val OptCreditLimit) {
+	s.CreditLimit = val
 }
 
 // Merged schema.

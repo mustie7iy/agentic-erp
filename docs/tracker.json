@@ -645,6 +645,13 @@
      },
      {
       "s": "D",
+      "t": "Credits naming an invoice stay within its gross (pre-existing finding of the c11fix review, batch 62: an invoice of 119.00 took credit memos of 119.00 and then 1,190.00, since a document without an order is not matched; rule decided by the product owner on 2026-11-10): the posted credit memos and subsequent credits naming an invoice, plus the one being posted, may not exceed that invoice's gross amount, checked at :post under the invoice's FOR UPDATE lock so two concurrent credits cannot both pass (422 payables.credit_exceeds_invoice, the problem's credit_limit giving the invoice, its gross, the amount already credited and the amount refused); a reversed credit frees its amount, a paid invoice is credited up to its gross, a credit naming no invoice stays unlimited, with or without a purchase order, the order's quantity rules unchanged; only posted credits count; an application rule with no database constraint, so earlier over-credits stand",
+      "r": "internal/payables post.go requireReference, requireWithinInvoice · TestCreditsStayWithinTheirInvoice · TestConcurrentCreditsSerialize · problem.CreditLimit · api/openapi.yaml CreditLimit · 03 §3.9 · 04 §4.6 · ADR-0034 As built (crlimit) · TestVAT201Golden's credit memos name no invoice · walkthrough step 6",
+      "src": "review:batch62 · po:2026-11-10",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "The SAP load's receipts step takes its locks in one order (pre-existing finding on T72b2): its first receipt takes the legal entity's goods_receipt number range (and journal_we), then a later receipt on an order an earlier run loaded locks that order's items, while a concurrent POST /v1/goods-receipts holds those items and waits on the range, so the two deadlock; e.g. every item lock is taken before the first receipt posts",
       "r": "internal/integration/load.go receipts",
       "src": "review:batch19",
