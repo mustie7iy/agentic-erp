@@ -282,7 +282,7 @@ cross-compile cgo.
 
 **The image and its deployment (T55h).** `deploy/images/erp-analytics.Dockerfile`
 builds the image with docker buildx (`scripts/images.sh`, T55p): a Go
-1.26.10 Debian 12 builder on the build machine's platform cross-compiles
+1.26.11 Debian 12 builder on the build machine's platform cross-compiles
 with Debian's cross gcc (no emulation), DuckDB coming prebuilt and static
 from duckdb-go-bindings. The builder's Go is the toolchain go.mod names,
 bumped with it: the golang image builds with `GOTOOLCHAIN=local`, so its
@@ -949,7 +949,7 @@ pinned by its index digest `sha256:08476c244888bfb425bae1ae4dd7c17f093e972aab842
 vulnerabilities found" on it). The libssl3 exception is removed and
 `.grype.yaml` accepts nothing.
 
-**The builder stays Debian 12** (`golang:1.26.10-bookworm`). The binary
+**The builder stays Debian 12** (`golang:1.26.11-bookworm`). The binary
 needs `libc.so.6`, `libm.so.6`, `libgcc_s.so.1` and `libstdc++.so.6`,
 and at most `GLIBC_2.34`, `GLIBCXX_3.4.30`, `CXXABI_1.3.13` and
 `GCC_3.0` (readelf and objdump of a linux/arm64 build in the bookworm

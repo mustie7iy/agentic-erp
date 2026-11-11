@@ -10369,6 +10369,13 @@
      },
      {
       "s": "D",
+      "t": "Go 1.26.11 for GO-2026-6859 (net/http, found in go1.26.10, which govulncheck reported on main's full run 42954490011 after batch 64): the toolchain in go.mod and temporal/go.mod, and erp-analytics's builder pin (ADR-0032 reviewed bump) to docker.io/library/golang:1.26.11-bookworm at sha256:dc40a13b…",
+      "r": "go.mod · temporal/go.mod · deploy/images/erp-analytics.Dockerfile ARG GO_IMAGE · scripts/test-images.sh · ADR-0032",
+      "src": "ci:batch64",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "github.com/go-jose/go-jose/v4 bumped from v4.1.5 to v4.1.6 (PO 2026-10-28), which fixes GHSA-mgcc-cww5-fp2q (High), the finding grype reported in erp-server, erp-router, erp-web and erp-analytics; make image-scan passes on every image again. What v4.1.6 changes for us: ParseSigned checks the algorithm against the allowed list before it sanitizes the header (where jwk and x5c are parsed), and a jwk or epk header carrying private key material is refused; a key set naming an RSA key over 4096 bits (go-jose's MaxRSAModulusBits) no longer parses, so that issuer's key refreshes fail and its tokens get 503 once the cached keys expire or a token names a key not cached; JWE decryption checks the content key's size; parsing an RSA private JWK checks p·q = n. authn verifies compact JWS against an issuer's key set by kid and web signs client assertions with an RSA or P-256 key read from PEM; neither uses JWE, jwk or epk headers or private JWKs, so only the RSA size limit reaches them, and only for an issuer publishing an RSA key over 4096 bits (our tests use 2048); their tests pass unchanged",
       "r": "go.mod · go.sum · internal/platform/authn/providers.go · internal/web/oidc.go · scripts/image-scan.sh · .grype.yaml · ADR-0032",
       "src": "ci:batch15 · po:2026-10-28",

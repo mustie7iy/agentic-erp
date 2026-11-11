@@ -2,7 +2,7 @@ module github.com/mustie7iy/agentic-erp
 
 go 1.26.2
 
-toolchain go1.26.10
+toolchain go1.26.11
 
 require (
 	cel.dev/cel-go v0.32.0
