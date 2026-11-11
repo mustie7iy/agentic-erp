@@ -1983,6 +1983,8 @@ method_order() {
   say "Muskoka Office Supply's express charge is paid by wire, the method it fixes, though Muskoka's own methods lack it:"
   expect "Muskoka Office Supply's express charge, paid by the method it fixes" \
     "$(field '.items[] | select(.supplier_name == "Muskoka Office Supply" and .payment_method_source == "item") | "\(.payment_method) \(.house_bank_code) \(.amount.amount) \([.items[].journal_entry_id] | join(" "))"')" "W RBC 180.00 $WIRED_ENTRY"
+  expect "the express charge in no other payment" \
+    "$(field "[.items[] | select(.payment_method_source != \"item\") | .items[] | select(.journal_entry_id == \"$WIRED_ENTRY\")] | length")" 0
   expect "the methods the run order pays the suppliers allowing bank transfer alone by" \
     "$(field '[.items[] | select(.supplier_name != "Laurentian Paper" and .payment_method_source == "run_order") | "\(.payment_method) \(.house_bank_code)"] | unique | join(", ")')" "T MAIN"
   say "The run's exclusions, each with its reason (a supplier no ranked bank could pay by a method of its own"
