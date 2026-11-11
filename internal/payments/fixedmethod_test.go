@@ -118,8 +118,9 @@ func wantAll(t *testing.T, what string, got, want map[string]string) {
 // methods allow it: the supplier here may be paid by T alone, and its
 // items fixing S are paid by S, posted and written to S's bank file (the
 // item's method wins over the supplier's list; product owner 2026-11-10).
-// A credit memo nets within its own group alone. A supplier none of whose items fixes a method is paid as
-// before, in one payment by the run order. A group is what its items fix,
+// A credit memo nets within its own group alone. A supplier none of whose
+// items fixes a method is paid as before, in one payment by the run
+// order. A group is what its items fix,
 // so a supplier whose run-order method is also the method one of its
 // items fixes gets two payments by it, each netted apart (ADR-0038 As
 // built, the same method twice). Each payment says why it is paid by its

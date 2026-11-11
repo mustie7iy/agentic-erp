@@ -50,10 +50,12 @@ and France, by EBICS.
   A4(c): first this said "the first method of its company data", taking
   ZWELS's letter order as the supplier's preference, which it is not; see
   "As built: the run order of payment methods"), its items that fix a
-  payment method by that method, in a payment of their own (product owner
-  2026-11-10; "As built: an item's fixed payment method"), and the release
-  writes one bank file per house bank and method. The run's `house_bank_id` becomes
-  nullable in the API and in the schema (a breaking change, accepted in
+  payment method by that method, in a payment of their own, whether or
+  not the supplier's company data allows the method: the supplier's list
+  restricts the run order alone (product owner 2026-11-10; "As built: an
+  item's fixed payment method"), and the release writes one bank file per
+  house bank and method. The run's `house_bank_id` becomes nullable in
+  the API and in the schema (a breaking change, accepted in
   `api/breaking-accepted.txt`); a run proposed for one bank keeps it and
   pays everyone through it, as before, with no method on its payments or
   its one file. A run without a bank is proposed in a currency, which it
@@ -1184,9 +1186,9 @@ behaviour:
   T and other items of it fix T, the run makes two payments by T, in the
   same bank file, and nets each apart. Each payment says why it is paid by
   its method (`payment_method_source`: `run_order` or `item`). The
-  product owner confirmed that the two stay apart (2026-11-10), as that
-  a run proposed for one house bank leaves fixed-method items out
-  (below).
+  product owner confirmed that the two stay apart, and that a run
+  proposed for one house bank leaves fixed-method items out (below;
+  2026-11-10).
 - **A fixed method that cannot pay.** The group is left out of the run
   with a reason, never paid by another method (`router.fixed`):
   `method_not_active`, the method is no longer an active method of the
@@ -1246,7 +1248,8 @@ behaviour:
   (read, create, update), on an open item (`listOpenItems`) and on a
   payment exclusion; `payment_method_source` on a payment; the exclusion
   reasons `method_not_active` and `fixed_method_in_bank_run`; 422
-  `payables.unknown_payment_method`. No event changes: `payment_excluded` names its payment, as before.
+  `payables.unknown_payment_method`. No event changes: `payment_excluded`
+  names its payment, as before.
 - **During an upgrade.** A replica of the release before neither writes
   nor reads a fixed method: an invoice it posts keeps none on its open
   item, and a run it proposes pays every item by the run order. So fixed
@@ -1258,7 +1261,9 @@ behaviour:
   twice, the freight invoice by T through MAIN (`item`) and its other
   items by W through RBC (`run_order`); the run from RBC leaves the
   freight invoice out with `fixed_method_in_bank_run`, and the invoice is
-  reversed.
+  reversed. Muskoka Office Supply may be paid by T alone and its
+  express charge fixes W: the run without a house bank pays it by W through RBC
+  (`item`), the run from RBC leaves it out likewise, and it is reversed.
 - **Still open** (a tracker leaf): the SAP extract and load taking ZLSCH
   over onto migrated open items (ACDOCA/BSEG), with the quality gate's
   check of it against the company's methods.

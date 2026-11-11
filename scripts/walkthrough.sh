@@ -1902,10 +1902,12 @@ receipt_held() {
 # product owner 2026-11-10): Laurentian's freight invoice fixes T, so the
 # run pays Laurentian twice, its other items by W from RBC and the
 # freight invoice by T from MAIN, each payment saying why it is paid by
-# its method. Tara rejects the run, so its items are free for the run
-# from RBC.
+# its method. It wins over the supplier's own methods too (product owner
+# 2026-11-10, as SAP's ZLSCH over ZWELS): Muskoka Office Supply may be
+# paid by T alone, and its express charge, which fixes W, is paid by
+# wire. Tara rejects the run, so its items are free for the run from RBC.
 method_order() {
-  local laurentian company change run etag
+  local laurentian muskoka company change run etag
   as ben
   QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Laurentian
   laurentian=$(field '.items[0].id')
@@ -1947,6 +1949,19 @@ method_order() {
   api 200 '.items[] | select(.payment_method) | "open item \(.document_number): \(.amount.amount) \(.amount.currency), payment method fixed: \(.payment_method)"' \
     listOpenItems -p "partner_id=$laurentian" -p page_size=100
   expect "the open item's fixed payment method" "$(field "[.items[] | select(.journal_entry_id == \"$FIXED_ENTRY\") | .payment_method] | join(\" \")")" T
+  QUIET=1 api 200 '' listBusinessPartners -p name_prefix=Muskoka
+  muskoka=$(field '.items[0].id')
+  if [ -z "$muskoka" ] || [ "$muskoka" = null ]; then fail "the migrated supplier Muskoka Office Supply is not there"; fi
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$muskoka"
+  expect "Muskoka Office Supply's payment methods: bank transfer alone" \
+    "$(field '.supplier_companies[] | select(.legal_entity_id == "'"$LE"'") | .payment_methods | join(" ")')" T
+  say "Muskoka Office Supply may be paid by bank transfer alone, yet asks for its express charge MO-EXPRESS-1, CAD 180.00,"
+  say "by wire. The method an invoice fixes wins over its supplier's list, which restricts the run's order alone:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), payment method fixed: \(.payment_method)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$muskoka\", \"supplier_reference\": \"MO-EXPRESS-1\", \"invoice_date\": \"$TODAY\", \"payment_method\": \"W\", \"gross_amount\": {\"amount\": \"180.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"0.00\", \"currency\": \"CAD\"}, \"items\": [{\"account_id\": \"$(account 6000)\", \"description\": \"Express delivery\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"180.00\", \"currency\": \"CAD\"}}]}"
+  WIRED_INVOICE=$(field .id)
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$WIRED_INVOICE" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  WIRED_ENTRY=$(field .journal_entry_id)
   as tom
   say "Tom proposes a run in CAD without a house bank: each supplier is paid by the first method of that order"
   say "it may be paid by, through the bank ranked for the method; items that fix a method are paid by it, apart."
@@ -1965,8 +1980,11 @@ method_order() {
     "$(field '.items[] | select(.supplier_name == "Laurentian Paper" and .payment_method_source == "item") | "\(.payment_method) \(.house_bank_code) \(.amount.amount) \([.items[].journal_entry_id] | join(" "))"')" "T MAIN 250.00 $FIXED_ENTRY"
   expect "the freight invoice in no other payment" \
     "$(field "[.items[] | select(.payment_method_source != \"item\") | .items[] | select(.journal_entry_id == \"$FIXED_ENTRY\")] | length")" 0
-  expect "the methods of the suppliers allowing bank transfer alone" \
-    "$(field '[.items[] | select(.supplier_name != "Laurentian Paper") | "\(.payment_method) \(.house_bank_code)"] | unique | join(", ")')" "T MAIN"
+  say "Muskoka Office Supply's express charge is paid by wire, the method it fixes, though Muskoka's own methods lack it:"
+  expect "Muskoka Office Supply's express charge, paid by the method it fixes" \
+    "$(field '.items[] | select(.supplier_name == "Muskoka Office Supply" and .payment_method_source == "item") | "\(.payment_method) \(.house_bank_code) \(.amount.amount) \([.items[].journal_entry_id] | join(" "))"')" "W RBC 180.00 $WIRED_ENTRY"
+  expect "the methods the run order pays the suppliers allowing bank transfer alone by" \
+    "$(field '[.items[] | select(.supplier_name != "Laurentian Paper" and .payment_method_source == "run_order") | "\(.payment_method) \(.house_bank_code)"] | unique | join(", ")')" "T MAIN"
   say "The run's exclusions, each with its reason (a supplier no ranked bank could pay by a method of its own"
   say "would be here with no_house_bank; every supplier of this run allows T or W):"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_name)"' listPaymentExclusions -p "id=$run" -p page_size=100
@@ -2004,19 +2022,23 @@ step_payment() {
     "$(jq -r --arg a "$INVOICE_ENTRY" '.items[].items[] | select(.journal_entry_id == $a) | .document_number' "$WORK/payments.json")" "$(field .document_number)"
   api 200 '.items[] | "excluded: \(.reason_code), \(.amount.amount) \(.amount.currency), supplier \(.supplier_name)\(if .payment_method then ", its items fixing payment method \(.payment_method)" else "" end)"' listPaymentExclusions -p "id=$RUN" -p page_size=100
   expect "the blocked supplier left out, named by the API" "$(field '[.items[] | select(.reason_code == "supplier_blocked") | .supplier_name] | join(", ")')" "Massive Dynamic"
-  say "A run for one house bank pays by no method, so it leaves Laurentian's freight invoice, which fixes T, out with"
-  say "the reason, rather than pay it another way; Laurentian's other items are in the run."
-  expect "the freight invoice left out of the run for one house bank" \
-    "$(field '[.items[] | select(.reason_code == "fixed_method_in_bank_run") | "\(.supplier_name) \(.payment_method) \(.amount.amount)"] | join(", ")')" "Laurentian Paper T 250.00"
+  say "A run for one house bank pays by no method, so it leaves Laurentian's freight invoice, which fixes T, and Muskoka's"
+  say "express charge, which fixes W, out with the reason, rather than pay them another way; their other items are in the run."
+  expect "the invoices fixing a method left out of the run for one house bank" \
+    "$(field '[.items[] | select(.reason_code == "fixed_method_in_bank_run") | "\(.supplier_name) \(.payment_method) \(.amount.amount)"] | sort | join(", ")')" \
+    "Laurentian Paper T 250.00, Muskoka Office Supply W 180.00"
   expect "suppliers left out for want of a bank account" "$(field '[.items[] | select(.reason_code == "no_bank_account")] | length')" 0
   # After the checks that read the exclusions: field reads the last answer.
   as alex
-  say "Laurentian withdraws the freight charge the same day; Alex reverses the invoice, so nothing waits for a run"
-  say "without a house bank."
-  QUIET=1 api 200 '' getSupplierInvoice -p "id=$FIXED_INVOICE"
-  api 200 '"\(.document_number): \(.status), reversal entry \(.reversal_entry_id)"' reverseSupplierInvoice -p "id=$FIXED_INVOICE" -if-match "$ETAG" \
-    -body "{\"reason\": \"Freight charge withdrawn by the supplier\", \"posting_date\": \"$TODAY\"}"
-  expect "the freight invoice" "$(field .status)" reversed
+  say "Laurentian and Muskoka withdraw their charges the same day; Alex reverses both invoices, so nothing waits for"
+  say "a run without a house bank."
+  local withdrawn
+  for withdrawn in "$FIXED_INVOICE" "$WIRED_INVOICE"; do
+    QUIET=1 api 200 '' getSupplierInvoice -p "id=$withdrawn"
+    api 200 '"\(.document_number): \(.status), reversal entry \(.reversal_entry_id)"' reverseSupplierInvoice -p "id=$withdrawn" -if-match "$ETAG" \
+      -body "{\"reason\": \"Charge withdrawn by the supplier\", \"posting_date\": \"$TODAY\"}"
+    expect "the withdrawn invoice" "$(field .status)" reversed
+  done
   as tom
   say "$DP_NAME's open down payment from SAP is not netted: the run pays the supplier's open invoices in full (T72c)."
   expect "the payment to $DP_NAME" "$(jq -r --arg n "$DP_NAME" '[.items[] | select(.supplier_name == $n) | .amount.amount] | join(" ")' "$WORK/payments.json")" "$DP_PAYABLE"
