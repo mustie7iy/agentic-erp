@@ -160,7 +160,8 @@ ADR-0053).
   `ledger.special_period_tax_code`) until the tax specialist confirms how
   year-end adjustments enter the returns (question 2, answered
   po:2026-11-05): tax returns select tax items by their tax period's dates, and
-  whether a year-end adjustment may carry tax is a tax rule. The UAE tax
+  whether a year-end adjustment may carry tax is a tax rule. Since C10 (As
+  built) a UAE company's entry naming its tax document is accepted. The UAE tax
   specialist answered for the VAT 201 on 2026-11-09 (po:2026-11-09, C10,
   [M]; question 2): yes, a year-end adjustment can carry VAT, which follows
   the tax documents and statutory adjustments, not the accounting date;
@@ -172,8 +173,8 @@ ADR-0053).
   assets articles). Accruals, provisions and reclassifications carry no
   VAT and keep the refusal. The specialist suggests allowing a VAT code on
   a year-end adjustment only when it references a tax document, its return
-  period derived from that document's date: a tracker leaf. Canada's GST34
-  is not answered: its refusal stays.
+  period derived from that document's date: built (As built, C10). Canada's
+  GST34 is not answered: its refusal stays.
 - **The period close's parked-entry check.** ADR-0058's
   `no_parked_entries` selects parked entries by date within the period
   (`CloseChecks.Parked`), so an audit adjustment parked for period 13,
@@ -672,7 +673,7 @@ recommended.
    how they are dated. **The UAE tax specialist's answer (po:2026-11-09,
    C10, [M]):** for the VAT 201, a year-end adjustment may carry VAT when it
    rests on a tax document, in the return of that document's period (§3);
-   a tracker leaf. The GST34 is not answered and keeps the refusal.
+   built (As built, C10). The GST34 is not answered and keeps the refusal.
 
 ## Gaps (out of scope, not built, no question asked)
 Neither the PO decision nor an ADR asks for these; each becomes a tracker
@@ -1111,3 +1112,99 @@ owner to overrule:
    special period of both ledgers is locked by the sign-off; every period
    of `PREV` reads locked, and Tom's adjustment into period 13 is refused
    with `ledger.period_not_open`.
+
+**C10, a UAE VAT code on a year-end adjustment only with a tax document**
+(migrations 000258 and 000259; the UAE tax specialist's answer C10 of
+2026-11-09, [M], question 2). The specialist's rule, as §3 records it: a
+year-end adjustment can carry VAT, which follows the tax documents, not
+the accounting date, in the return of the period in which its tax invoice
+or tax credit note is issued; accruals, provisions and reclassifications
+carry none. The choices taken by default (ADR-0053 d), for the product
+owner and the tax specialist to overrule:
+1. *The rule.* A posting into a special period with a tax code on a line
+   is accepted when its company's country is the United Arab Emirates
+   (`tenancy.legal_entity.country_code` `AE`) and the entry names its tax
+   document; every other one keeps 422 `ledger.special_period_tax_code` on
+   `lines[i].tax_code`, whose detail now says which of the two is missing.
+   A company's country stands for "a UAE registration": its tax codes and
+   its returns are its country's (the pack it adopts), and a UAE company
+   that is not registered files no return whatever it posts. Canada's
+   GST34 is not answered, so a Canadian company's refusal is unchanged, as
+   is every other country's.
+2. *The tax document.* `tax_document` on `JournalEntryCreate`
+   (`postJournalEntry`, `parkJournalEntry`) and, nullable and replaced as a
+   whole, on `ParkedJournalEntryUpdate`: `kind` (`tax_invoice` or
+   `tax_credit_note`, the two documents the specialist names), `number` and
+   `date`, each required. It is what the entry says of the document: the
+   ERP issues no tax invoices and holds none to check it against, so the
+   number and date are a person's statement, kept on the entry for the tax
+   accountant and the auditor. `JournalEntry` and `ParkedJournalEntry` show
+   it (`TaxDocumentReference`).
+3. *The return period.* The document's `date` is the entry's tax date
+   (`NewEntry.taxDay`, `journal_entry.tax_date`), which is what a return
+   selects its items by (ADR-0049 §11): the VAT is in the VAT 201 of the
+   period the document is dated in, whatever the posting date, which stays
+   in the year's last regular period. `tax_date` given beside the document
+   must equal its date (422 `ledger.invalid_tax_document` on `tax_date`).
+   The rate is the code's on that date, as for every tax date.
+4. *Not held to the open returns.* ADR-0049's hold (P6, T61o) is on a tax
+   date a person chooses; a date a document decides is not held, which is
+   how a late item reaches a filed period's amendment or the next return
+   (P7). A tax document's date is such a date: an adjustment whose
+   document is dated in a period whose return is prepared, approved or
+   filed is posted, and its VAT is that period's late item, in the next
+   return as an earlier period's and counted against the UAE threshold
+   (C11). Holding it would refuse the adjustment for good, since its date
+   is not the accountant's to move.
+5. *Where a tax document is refused.* 422 `ledger.invalid_tax_document`:
+   a `kind` not listed (`tax_document.kind`); a document on an entry that
+   names no special period or carries no tax code (`tax_document`), so no
+   entry keeps a document that decides nothing; another `tax_date`
+   (`tax_date`). Checked with the special period's rules on every manual
+   path (`checkSpecial`: posting, parking, changing a parked entry,
+   posting it and its approval), so a parked entry is held to them when it
+   is parked, changed and posted.
+6. *Reversal.* `reverseJournalEntry` into a special period is accepted for
+   an original with tax codes when the original names its tax document and
+   its company is in the UAE; a reversal takes the tax back on the
+   original's tax date (ADR-0049 §4), and carries the original's document,
+   into a special or a regular period. An original with tax codes and no
+   document stays refused there.
+7. *The statutory annual adjustments.* Input tax apportionment and the
+   capital assets scheme rest on no tax document and belong to the first
+   return after the end of the tax year or adjustment period (the
+   specialist's answer): they are not special-period postings. A person
+   posts them as a manual entry with a tax date in that return's period,
+   which regular periods already take; nothing is built for them here, and
+   the ERP computes neither.
+8. *Schema.* `tax_document_kind`, `tax_document_number` and
+   `tax_document_date` on `ledger.journal_entry` and `ledger.parked_entry`,
+   nullable, with `journal_entry_tax_document` and
+   `parked_entry_tax_document`: all three or none, a listed kind, a number
+   of 1 to 64 characters without surrounding blanks, and the entry's tax
+   date the document's date (a parked entry's when it has one). Added NOT
+   VALID and validated by 000259 (06 §6.4); `db` `TestJournalEntryTaxDocument`
+   and `TestParkedEntryTaxDocument`. Which entries may name a document is
+   the application's rule, as the tax code refusal is.
+9. *Not changed.* The `journal_entry_posted` event carries no tax date and
+   gains no tax document; entry templates take no special period and so no
+   tax document; other contexts' postings never name one.
+10. *Walkthrough* (`uae_year_end_adjustment`, in step 41's `uae_return`):
+   Ada sets `PREV` up for the UAE company, Carla opens its special period
+   13; an adjustment crediting AED 100.00 of Dubai sales with 5.00 of VAT is
+   refused with `ledger.special_period_tax_code` without a tax document,
+   and posts into `PREV`/13 naming a tax credit note dated the last day of
+   the quarter being filed, its tax date; the VAT 201 of that quarter then
+   shows boxes 1b 9,900.00 and 495.00, box 12 1,295.00 and box 14 695.00,
+   and box 1b drills down to it.
+
+Questions for the tax specialist, none of which blocks what is built: (a)
+whether a document other than a tax invoice or tax credit note (a customs
+declaration for import VAT, say) can carry a year-end adjustment's VAT;
+(b) whether an adjustment
+whose document is dated in a filed period should be refused rather than
+reported as that period's late item (4 above); (c) whether the statutory
+annual adjustments, which have no tax document, must be postable into
+the closed year's special period with a tax date in the first return
+after it, rather than as a manual entry of that return's period (7
+above).

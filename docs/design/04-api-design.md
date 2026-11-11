@@ -62,7 +62,9 @@ yet posted. A posting's fiscal period follows from its posting date (the
 regular period it falls in); a request names a period only for a year-end
 adjustment, a special period 13-16 on a manual entry, a parked one or the
 API's reversal, dated in the year's last regular period (`fiscal_period`,
-ADR-0060 §3).
+ADR-0060 §3). Such an adjustment carries a tax code only in a UAE company
+and with the tax invoice or tax credit note its VAT rests on
+(`tax_document`), whose date is its tax date (ADR-0060 As built, C10).
 
 **Effective-dated assignments** (role assignments, role permissions, company
 access, SoD rules) are created and then ended with `POST {id}:end`

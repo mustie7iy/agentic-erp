@@ -5936,6 +5936,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -6364,6 +6365,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -6509,6 +6511,7 @@ paths:
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -6666,6 +6669,7 @@ paths:
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -15911,6 +15915,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -20983,6 +20988,7 @@ paths:
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.invalid_validity
         - ledger.item_already_cleared
         - ledger.jurisdiction_not_levied
@@ -30240,6 +30246,10 @@ components:
           format: date
           description: "Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4). Absent on entries posted before tax items (T61c), whose tax date is the posting date."
           readOnly: true
+        tax_document:
+          $ref: "#/components/schemas/TaxDocumentReference"
+          description: "The tax invoice or tax credit note the entry's VAT rests on, whose date is its tax date: a year-end adjustment posted into a special period with a tax code (`JournalEntryCreate` `tax_document`, ADR-0060 §3), and its reversal; absent on every other entry."
+          readOnly: true
         currency:
           type: string
           description: Transaction currency.
@@ -30470,12 +30480,15 @@ components:
           type: string
           format: date
           description: "Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports their tax (ADR-0049 §4); defaults to the posting date. With a tax code on a line, a tax date in a period whose tax return is prepared, approved or filed, for a registration covering the company, is refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision P6): such a period's late items go to its amendment or the next return."
+        tax_document:
+          $ref: "#/components/schemas/TaxDocumentReference"
+          description: "The tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3): given only with `fiscal_period` and a tax code on a line (422 `ledger.invalid_tax_document` on `tax_document` otherwise; one of a kind not listed is the same code on `tax_document.kind`). Its `date` is the entry's tax date, so its tax is reported in the return of the period the document is dated in, not the period of the posting date; `tax_date`, when given too, equals it (422 `ledger.invalid_tax_document` on `tax_date`). The document decides the date, so it is not held to the open returns (`ledger.tax_date_in_return` does not apply): a document dated in a period whose return is prepared, approved or filed is a late item of that period, for its amendment or the next return (ADR-0049 decision P7)."
         fiscal_period:
           type: integer
           format: int32
           minimum: 13
           maximum: 16
-          description: "A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of the company's fiscal calendar: the entry posts into it instead of the regular period of its posting date. The posting date must be in the year's last regular period, whose dates the special periods share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409 `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`: refused until the tax specialist confirms how year-end adjustments enter the returns, product owner 2026-11-05, ADR-0060 question 2). Absent: the regular period of the posting date. A parked entry (`parkJournalEntry`) keeps it and is held to these rules again when it is posted."
+          description: "A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of the company's fiscal calendar: the entry posts into it instead of the regular period of its posting date. The posting date must be in the year's last regular period, whose dates the special periods share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409 `ledger.period_not_open`). A line carries a tax code only in an entry of a company in the United Arab Emirates that names the tax invoice or tax credit note its VAT rests on (`tax_document`); any other is 422 `ledger.special_period_tax_code` (the UAE tax specialist's answer of 2026-11-09, ADR-0060 §3 and question 2: accruals, provisions and reclassifications carry no VAT; another country's tax codes stay refused until its tax specialist answers). Absent: the regular period of the posting date. A parked entry (`parkJournalEntry`) keeps it and is held to these rules again when it is posted."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it."
@@ -30524,7 +30537,7 @@ components:
           format: int32
           minimum: 13
           maximum: 16
-          description: "A special period for the reversal (ADR-0060 §3), by the rules of a manual entry's `fiscal_period`: its posting date, the original's unless `posting_date` is given, in the year's last regular period (422 `ledger.special_period_date`), a special period the calendar has (422 `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409 `ledger.period_not_open`), and an original without tax codes (422 `ledger.special_period_tax_code`). Absent: the regular period of the reversal's posting date."
+          description: "A special period for the reversal (ADR-0060 §3), by the rules of a manual entry's `fiscal_period`: its posting date, the original's unless `posting_date` is given, in the year's last regular period (422 `ledger.special_period_date`), a special period the calendar has (422 `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409 `ledger.period_not_open`), and an original without tax codes, or one of a company in the United Arab Emirates that names its tax document (`tax_document`), which the reversal then names too (422 `ledger.special_period_tax_code` otherwise). Absent: the regular period of the reversal's posting date."
         header_text:
           type: string
           description: Header text of the reversal entry.
@@ -30532,6 +30545,34 @@ components:
       additionalProperties: false
       examples:
         - posting_date: "2026-10-09"
+    TaxDocumentReference:
+      type: object
+      description: "A tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3; the UAE tax specialist's answer of 2026-11-09): what the entry says of it, not a document the ERP holds or checks."
+      required:
+        - kind
+        - number
+        - date
+      properties:
+        kind:
+          type: string
+          description: "`tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [tax_invoice, tax_credit_note]
+          maxLength: 20
+        number:
+          type: string
+          description: The document's number, as its issuer printed it.
+          minLength: 1
+          maxLength: 64
+          pattern: "^\\S(.*\\S)?$"
+        date:
+          type: string
+          format: date
+          description: "The date the document was issued: the entry's tax date, which decides the return its tax is reported in."
+      additionalProperties: false
+      examples:
+        - kind: tax_credit_note
+          number: "TCN-2026-0042"
+          date: "2026-08-15"
     JournalEntryPage:
       type: object
       description: One page of journal entries.
@@ -31153,6 +31194,10 @@ components:
               format: date
               description: "Tax date the entry was parked with; absent: its posting date."
               readOnly: true
+            tax_document:
+              $ref: "#/components/schemas/TaxDocumentReference"
+              description: "The tax invoice or tax credit note its VAT rests on (`JournalEntryCreate` `tax_document`), whose date is the tax date it is posted with; absent: none."
+              readOnly: true
             fiscal_period:
               type: integer
               format: int32
@@ -31285,6 +31330,32 @@ components:
             - "null"
           format: date
           description: "Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4). Send null to clear: the posting date then. With a tax code on a line, a tax date in a period whose tax return is prepared, approved or filed, for a registration covering the company, is refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision P6): such a period's late items go to its amendment or the next return."
+        tax_document:
+          type:
+            - object
+            - "null"
+          description: "The tax invoice or tax credit note the entry's VAT rests on, by the rules of a manual entry's `tax_document` (ADR-0060 §3), replaced as a whole. Send null to remove it."
+          required:
+            - kind
+            - number
+            - date
+          properties:
+            kind:
+              type: string
+              description: "`tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open enumeration: values may be added within /v1."
+              x-extensible-enum: [tax_invoice, tax_credit_note]
+              maxLength: 20
+            number:
+              type: string
+              description: The document's number, as its issuer printed it.
+              minLength: 1
+              maxLength: 64
+              pattern: "^\\S(.*\\S)?$"
+            date:
+              type: string
+              format: date
+              description: "The date the document was issued: the entry's tax date."
+          additionalProperties: false
         fiscal_period:
           type:
             - integer

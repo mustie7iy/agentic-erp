@@ -1260,7 +1260,9 @@ companies (all in the tenant, under RLS). A registration change is financial
     return (P7, the period lock above): an invoice's invoice date, a
     credit memo's named invoice's, a reversal's original's, a down
     payment's payment date, a cash discount's payment date, a goods
-    movement's posting date, and the entries of migration runs. A manual
+    movement's posting date, the date of the tax document a year-end
+    adjustment names (ADR-0060 As built, C10), and the entries of
+    migration runs. A manual
     adjustment for a filed period (the adjustments above) is dated in an
     open period and reported in the next return. Entries without tax are
     not held. A parked entry is checked when it is posted, not when

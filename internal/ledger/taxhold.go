@@ -45,7 +45,13 @@ var errNoTaxReturns = errors.New("ledger: no tax returns port to hold the tax da
 // heldTaxDate reports whether the entry's tax date is held to the open
 // returns: a manual entry's (the ledger's own, given or its posting
 // date), or one a posting context says a person chose (Posting.TaxDateChosen).
+// One a tax document decides (ADR-0060 §3) is not: dated in a period a
+// return already reports, its tax is that period's late item, for its
+// amendment or the next return (P7), as an invoice's is.
 func (in NewEntry) heldTaxDate() bool {
+	if in.TaxDocument != nil {
+		return false
+	}
 	return in.SourceContext == "" || in.SourceContext == "ledger" || in.taxDateChosen
 }
 
