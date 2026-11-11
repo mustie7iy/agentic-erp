@@ -46,11 +46,10 @@ const (
 	// A supplier's items that fix a payment method are left out, never
 	// paid by another, when the method cannot pay them (router.fixed;
 	// ADR-0038, product owner 2026-11-10): it is no longer an active
-	// method of the company, the supplier may not be paid by it, or the
-	// run was proposed for one house bank, which pays by no method. No
-	// ranked bank for it is NoHouseBank.
+	// method of the company, or the run was proposed for one house bank,
+	// which pays by no method. No ranked bank for it is NoHouseBank. The
+	// supplier's own methods do not restrict it.
 	MethodNotActive      = "method_not_active"
-	MethodNotAllowed     = "method_not_allowed"
 	FixedMethodInBankRun = "fixed_method_in_bank_run"
 )
 

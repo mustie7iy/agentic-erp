@@ -2424,10 +2424,11 @@ each fixed method's items a payment of their own by that method
 alone. One items payment per run and supplier for the items that fix none
 (`payment_items_once_unfixed`) and one per fixed method
 (`payment_items_once_per_method`) replace `payment_items_once`
-(000254-000257). A group whose fixed method cannot pay it (not an active
-method of the company, not among the supplier's methods, no ranked house
-bank, or a run proposed for one house bank, which pays by no method) is
-left out with the reason, as is one a release drops, in
+(000254-000257). A fixed method need not be among the supplier's methods,
+which restrict the run order alone (product owner 2026-11-10). A group
+whose fixed method cannot pay it (not an active method of the company, no
+ranked house bank, or a run proposed for one house bank, which pays by no
+method) is left out with the reason, as is one a release drops, in
 `payments.method_exclusion` (one row per run, supplier and method),
 beside `payment_exclusion`, which keeps the supplier's items that fix
 none; a payment counts as dropped when its own group has an exclusion.

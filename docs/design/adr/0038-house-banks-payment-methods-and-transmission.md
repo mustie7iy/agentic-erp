@@ -1183,24 +1183,34 @@ behaviour:
   group"). So when the run order pays a supplier's items that fix none by
   T and other items of it fix T, the run makes two payments by T, in the
   same bank file, and nets each apart. Each payment says why it is paid by
-  its method (`payment_method_source`: `run_order` or `item`). Whether
-  these two should be one payment is asked of the product owner (the
-  rule's first sentence, "one payment per supplier per method", read
-  alone, would merge them).
+  its method (`payment_method_source`: `run_order` or `item`). The
+  product owner confirmed that the two stay apart (2026-11-10), as that
+  a run proposed for one house bank leaves fixed-method items out
+  (below).
 - **A fixed method that cannot pay.** The group is left out of the run
   with a reason, never paid by another method (`router.fixed`):
   `method_not_active`, the method is no longer an active method of the
-  company (it was when the document was entered); `method_not_allowed`,
-  it is not among the supplier's `payment_methods` in the company;
-  `no_house_bank`, no active house bank in the run currency is ranked for
-  it. A reason the supplier itself has, or a debit balance, comes first.
-  `method_not_allowed` is stricter than SAP as the specialist describes it
-  (ZLSCH "wins over both" the run's order and ZWELS): the Decision says the
-  methods a supplier may be paid by come from its company data, and
-  leaving the item out, named, is the safe side of a payment; lifting it
-  is one case in `router.fixed` if the product owner prefers SAP's rule,
-  which matters most for items migrated with a ZLSCH their vendor's ZWELS
-  lacks.
+  company (it was when the document was entered); `no_house_bank`, no
+  active house bank in the run currency is ranked for it. A reason the
+  supplier itself has, or a debit balance, comes first.
+- **The supplier's methods do not restrict it** (product owner
+  2026-11-10, matching SAP as the specialist describes it, A4(c): ZLSCH
+  "wins over both" the run's order and ZWELS). An item fixing a method
+  that is not among its supplier's `payment_methods` in the company is
+  paid by that method, as any other fixed item: the supplier's list
+  restricts the run order alone (`router.route`), so the Decision's
+  "the methods a supplier may be paid by come from its company data"
+  holds for the items that fix none. This replaces the first build, which
+  left such a group out with `method_not_allowed`. Decided by default
+  with it: the reason `method_not_allowed` is removed from the contract
+  and the code, since no run can write it and it was never released (it
+  was added in the same batch, so `oasdiff` against `main` shows no
+  removal, and the enumeration is open in any case). The check
+  constraint of `payments.method_exclusion.reason_code` (000253) still
+  admits the value: a migration is not changed for a value nothing
+  writes, and no row carries it. A supplier without any method in the
+  company is still paid for an item that fixes one; its items that fix
+  none stay `no_house_bank`, as before.
 - **A run proposed for one house bank** pays by no method (the Decision:
   no method on its payments or its one file), so it cannot honour a fixed
   one: it leaves every group fixing a method out with
@@ -1225,18 +1235,18 @@ behaviour:
   since the proposal as before, excluding the group that payment paid;
   the step run twice drops nothing twice (the dropped payment is skipped).
 - **The liquidity forecast** routes an item that fixes a method by that
-  method alone, on the bank ranked for it, and nets a supplier's items
-  fixing a method apart from its others, per method, as a run does
-  (ADR-0051 §5); an item whose fixed method cannot pay it has no bank and
-  no method, as an item no ranked bank pays, and is still forecast on its
-  day (the forecast does not judge a run's exclusions other than a blocked
+  method alone, on the bank ranked for it, whether or not its supplier's
+  methods include it, and nets a supplier's items fixing a method apart
+  from its others, per method, as a run does (ADR-0051 §5; one router,
+  `router.items`, serves both); an item whose fixed method cannot pay it
+  (not active, or no bank ranked) has no bank and no method, as an item
+  no ranked bank pays, and is still forecast on its day (the forecast does not judge a run's exclusions other than a blocked
   supplier's).
 - **Contract** (additions only): `payment_method` on a supplier invoice
   (read, create, update), on an open item (`listOpenItems`) and on a
   payment exclusion; `payment_method_source` on a payment; the exclusion
-  reasons `method_not_active`, `method_not_allowed` and
-  `fixed_method_in_bank_run`; 422 `payables.unknown_payment_method`. No
-  event changes: `payment_excluded` names its payment, as before.
+  reasons `method_not_active` and `fixed_method_in_bank_run`; 422
+  `payables.unknown_payment_method`. No event changes: `payment_excluded` names its payment, as before.
 - **During an upgrade.** A replica of the release before neither writes
   nor reads a fixed method: an invoice it posts keeps none on its open
   item, and a run it proposes pays every item by the run order. So fixed

@@ -55132,11 +55132,11 @@ type PaymentExclusion struct {
 	// payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a
 	// payment method are judged apart from its others, per fixed method (`payment_method`), for every
 	// reason here, and are left out when the method cannot pay them, never paid by another:
-	// `method_not_active` (the method is not an active payment method of the company),
-	// `method_not_allowed` (it is not among the supplier's `payment_methods` in the company),
-	// `no_house_bank` (no active house bank in the run currency is ranked for it) and
-	// `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method:
-	// propose a run without a house bank to pay them).
+	// `method_not_active` (the method is not an active payment method of the company), `no_house_bank` (no
+	// active house bank in the run currency is ranked for it) and `fixed_method_in_bank_run` (the run was
+	// proposed for one house bank, which pays by no method: propose a run without a house bank to pay
+	// them). The supplier's `payment_methods` do not restrict a fixed method: they restrict the run order
+	// alone, and an item fixing a method they lack is paid by it.
 	ReasonCode string `json:"reason_code"`
 	// The payment method the items left out fix (their invoices' `payment_method`; ADR-0038): the
 	// exclusion is of the supplier's items fixing this method alone, and `amount` what they would have
