@@ -482,9 +482,11 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.shards.outputs.race) }}
     runs-on: ubuntu-latest
-    # Above go test's -timeout 35m (scripts/ci-shards.sh) plus the set-up,
-    # so a hung package is named by go test before the runner stops the job.
-    timeout-minutes: 45
+    # A shard is planned at about 25 minutes. Each go test in it (the whole
+    # packages together, then each part of a split one) has -timeout 35m
+    # (scripts/ci-shards.sh), so a hung one is named by go test before
+    # this limit stops the runner.
+    timeout-minutes: 60
     permissions:
       contents: read
     services:
@@ -590,9 +592,8 @@ jobs:
       - name: Tests of this shard, instrumented
         env:
           SHARD: ${{ matrix.shard }}
-        run: |
-          mkdir -p coverage-profile
-          COVERAGE_OUT="coverage-profile/shard-$SHARD.profile" ./scripts/ci-shards.sh run coverage "$SHARD"
+          COVERAGE_DIR: coverage-profile
+        run: ./scripts/ci-shards.sh run coverage "$SHARD"
       - name: Hand the shard's profile to the gate
         # The run's own cache entry, a few megabytes (one line per block),
         # named by the run so that no other run restores it: the workflows
@@ -609,7 +610,9 @@ jobs:
     # statements, counted over the shards' profiles together, with the
     # exclusions and the report of the whole-suite run. One restore step
     # per shard, which scripts/ci-shards.sh check holds equal to the plan;
-    # a shard whose profile is missing fails its step.
+    # a shard whose profile is missing fails its step, and the gate names
+    # the profiles from the plan itself (ci-shards.sh gate), so it cannot
+    # count fewer shards than the plan has.
     needs: [changes, shards, coverage-shard]
     if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
     runs-on: ubuntu-latest
@@ -647,7 +650,9 @@ jobs:
           restore-keys: coverage-${{ github.run_id }}-shard4-
           fail-on-cache-miss: true
       - name: Coverage gate
-        run: ./scripts/coverage.sh gate coverage-profile/shard-1.profile coverage-profile/shard-2.profile coverage-profile/shard-3.profile coverage-profile/shard-4.profile
+        env:
+          COVERAGE_DIR: coverage-profile
+        run: ./scripts/ci-shards.sh gate
 
   fuzz:
     # On every event whenever code changed: a pull request (since PO

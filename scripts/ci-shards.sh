@@ -19,8 +19,11 @@
 #   ci-shards.sh verify DIR PARTS [FLAG] the parts hold every test the
 #                                        compiled test binary lists (go test
 #                                        FLAG... -list); run race does it
-#   ci-shards.sh run race|coverage N     runs shard N (coverage: writes the
-#                                        profile COVERAGE_OUT names)
+#   ci-shards.sh run race|coverage N     runs shard N (coverage: writes
+#                                        COVERAGE_DIR/shard-N.profile)
+#   ci-shards.sh gate                    the coverage gate on the profile of
+#                                        every shard of the plan, each of
+#                                        which must be in COVERAGE_DIR
 #
 # Weights. scripts/ci-shard-weights.txt holds the seconds one race run of a
 # package took on a GitHub runner, two packages at a time (`-p 2`), for the
@@ -37,8 +40,11 @@
 # build, which keeps a job near the 25 minutes the plan aims at.
 #
 # The coverage plan deals whole packages to COVERAGE_SHARDS shards the same
-# way; ci.yml's coverage job restores exactly that many profiles, which
-# `check` holds.
+# way. ci.yml's coverage job restores one profile per shard, each in a step
+# of its own, which `check` holds equal to the plan; and `gate` names the
+# profiles itself, one per shard of the plan, so that no list in the
+# workflow can fall short of it: a shard whose profile is not there fails
+# the gate.
 #
 # CI_SHARDS_PACKAGES names a file of package directories to plan instead of
 # `go list`'s, and CI_SHARDS_ROOT the tree they are in: the script's tests
@@ -191,8 +197,9 @@ run_race() {
   awk '{printf "  %s%s (%s)\n", $2, ($4 > 1 ? " part " $3 "/" $4 : ""), $5}' <<<"$mine"
   cd "$root"
   while read -r dir; do whole+=("./$dir"); done < <(awk '$4 == 1 {print $2}' <<<"$mine")
-  # -timeout 35m, under the job's limit, so go test names a hung package
-  # before the runner stops the job.
+  # -timeout 35m on each go test below: a shard is planned at about 20
+  # minutes of tests in all, so the limit only guards against a hang, which
+  # go test then names before the job's 60 minutes stop the runner.
   if [ "${#whole[@]}" -gt 0 ]; then
     go test -race -shuffle=on -count=3 -timeout 35m -p 2 "${whole[@]}" || rc=1
   fi
@@ -204,16 +211,34 @@ run_race() {
   return "$rc"
 }
 
+# profile N is where shard N's coverage profile is kept.
+profile() {
+  echo "${COVERAGE_DIR:?COVERAGE_DIR: the directory of the coverage profiles}/shard-$1.profile"
+}
+
+# coverage_gate applies the gate to the profiles of all the plan's shards
+# (scripts/coverage.sh gate, which refuses a missing or empty one).
+coverage_gate() {
+  local profiles=() n out
+  for n in $(seq 1 "$COVERAGE_SHARDS"); do
+    out="$(profile "$n")" || return 1
+    profiles+=("$out")
+  done
+  "$here/coverage.sh" gate "${profiles[@]}"
+}
+
 # run_coverage N runs shard N's packages instrumented and leaves their
-# reduced profile in COVERAGE_OUT (scripts/coverage.sh run).
+# reduced profile in COVERAGE_DIR (scripts/coverage.sh run).
 run_coverage() {
-  local n="$1" planned pkgs=() dir
+  local n="$1" planned pkgs=() dir out
+  out="$(profile "$n")" || return 1
   planned="$(plan coverage)" || return 1
   while read -r dir; do pkgs+=("./$dir"); done < <(awk -v n="$n" '$1 == n {print $2}' <<<"$planned")
   [ "${#pkgs[@]}" -gt 0 ] || { echo "ci-shards: the coverage plan has no shard $n" >&2; return 1; }
   echo "coverage shard $n of $COVERAGE_SHARDS: ${pkgs[*]}"
   cd "$root"
-  ./scripts/coverage.sh run "${COVERAGE_OUT:?COVERAGE_OUT: where to write the shard profile}" "${pkgs[@]}"
+  mkdir -p "$(dirname "$out")"
+  "$here/coverage.sh" run "$out" "${pkgs[@]}"
 }
 
 case "${1:-}" in
@@ -237,6 +262,7 @@ verify)
   shift
   verify_tests "$@"
   ;;
+gate) coverage_gate ;;
 run)
   case "${2:-}" in
   race) run_race "${3:?shard number}" ;;
@@ -245,7 +271,7 @@ run)
   esac
   ;;
 *)
-  echo "usage: ci-shards.sh plan race|coverage | matrix | check | tests DIR PART PARTS | verify DIR PARTS [FLAG...] | run race|coverage N" >&2
+  echo "usage: ci-shards.sh plan race|coverage | matrix | check | tests DIR PART PARTS | verify DIR PARTS [FLAG...] | run race|coverage N | gate" >&2
   exit 2
   ;;
 esac

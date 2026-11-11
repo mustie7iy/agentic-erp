@@ -128,6 +128,18 @@ is "the parts hold every test the binary lists" "$(PATH="$work/bin:$PATH" shards
 ghost() { PATH="$work/bin:$PATH" GHOST=TestGenerated shards verify internal/heavy 2 -race; }
 refuses "a test the files do not show fails the shard that runs the package" "^TestGenerated\$" ghost
 
+# The gate takes the profile of every shard of the plan, named by the plan.
+m=github.com/mustie7iy/agentic-erp
+mkdir -p "$work/profiles"
+for n in 1 2 3 4; do printf '%s\n' "mode: set" "$m/internal/p$n/x.go:1.1,2.2 $n 1" >"$work/profiles/shard-$n.profile"; done
+is "the gate counts the profiles of all the plan's shards" "$(COVERAGE_DIR="$work/profiles" shards gate)" "statement coverage: 10 of 10 statements (minimum 100.0%)"
+gate() { COVERAGE_DIR="$work/profiles" shards gate; }
+gate5() { CI_SHARDS_COVERAGE=5 gate; }
+refuses "a plan of more shards than profiles fails the gate" "no profile at $work/profiles/shard-5.profile" gate5
+mv "$work/profiles/shard-3.profile" "$work/profiles/kept"
+refuses "a shard whose profile is missing fails the gate" "no profile at $work/profiles/shard-3.profile" gate
+refuses "the gate needs the profiles' directory" "COVERAGE_DIR" shards gate
+
 refuses "a mode the plan does not know" "plan race\|coverage" shards plan fast
 refuses "no command" "usage: ci-shards.sh" shards
 finished

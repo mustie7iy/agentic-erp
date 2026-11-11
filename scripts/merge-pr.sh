@@ -24,9 +24,13 @@
 #     queued or in progress refuses the merge as a red one does (10-11 Nov
 #     2026: a batch merged while the run on the batch before it was still
 #     going, and that run then failed). A full run counts as green when it
-#     succeeded, or when its ci-ok never ran and every other job, the test
-#     job among them, succeeded or was skipped (11 Nov: an outage left
-#     ci-ok unqueued and GitHub called the run failed). --fix-forward as
+#     succeeded, or when its ci-ok never ran (it is absent or has no
+#     conclusion) and the jobs ci-ok requires of a manual run each ran and
+#     succeeded (changes, tracker, shards, every race and coverage shard,
+#     coverage, fuzz and test) with every other job succeeded or skipped
+#     (11 Nov: an outage left ci-ok unqueued and GitHub called the run
+#     failed). A job that is missing is not green: the outage that keeps
+#     ci-ok from starting can keep another late job from starting. --fix-forward as
 #     the second argument merges regardless: the pull request that repairs
 #     main is the one thing that merges while main is red;
 #   - a pull request changing deploy/environments (or carrying the
@@ -99,16 +103,28 @@ main_is_green() {
     return 1
   fi
   # Not a success by GitHub's word. It is still green when ci-ok never ran
-  # and every job that did is green; a ci-ok that ran and failed, or any
-  # other job failed, cancelled or unfinished, is red.
+  # and the run did what ci-ok would have asked of it: each job a manual
+  # run must run (ci.yml's ci-ok) is there and succeeded, a matrix's every
+  # shard, and any other job succeeded or was skipped. A ci-ok that ran
+  # (failed, cancelled, timed out), a required job missing or skipped, or
+  # any job failed, cancelled or unfinished, is red.
   jobs="$(jobs_of "$id")" || jobs=$'unreadable\tunreadable'
-  bad="$(awk -F'\t' '$1 == "ci-ok" { if ($2 == "failure") print $1 ": " $2; next }
-    $2 != "success" && $2 != "skipped" { print $1 ": " $2 }' <<<"$jobs")"
-  if [ -z "$bad" ] && grep -qx $'test\tsuccess' <<<"$jobs"; then
-    echo "merge-pr: main's latest full run ($id) ended $conclusion without its ci-ok having run; every other job is green, so it counts as green"
+  bad="$(awk -F'\t' '
+    BEGIN { n = split("changes tracker shards race coverage-shard coverage fuzz test", required, " ") }
+    $1 == "ci-ok" { if ($2 != "PENDING") print $1 ": " $2; next }
+    {
+      name = $1
+      sub(/ [(].*$/, "", name) # a shard, "race (3)", is its matrix job
+      must = 0
+      for (i = 1; i <= n; i++) if (name == required[i]) { must = 1; seen[name] = 1 }
+      if ($2 != "success" && !(!must && $2 == "skipped")) print $1 ": " $2
+    }
+    END { for (i = 1; i <= n; i++) if (!(required[i] in seen)) print required[i] ": missing" }' <<<"$jobs")"
+  if [ -z "$bad" ]; then
+    echo "merge-pr: main's latest full run ($id) ended $conclusion without its ci-ok having run; every job it requires ran and is green, so it counts as green"
     return 0
   fi
-  echo "merge-pr: main is red: its latest full run ($id) ended $conclusion ($(tr '\n' ' ' <<<"${bad:-the test job did not succeed}" | sed 's/ $//')); only the fix forward merges (--fix-forward)" >&2
+  echo "merge-pr: main is red: its latest full run ($id) ended $conclusion ($(tr '\n' ' ' <<<"$bad" | sed 's/ $//')); only the fix forward merges (--fix-forward)" >&2
   return 1
 }
 
@@ -117,9 +133,11 @@ main_is_green() {
 # succeeded (or, for documentation alone, were skipped).
 github_held_the_gates() {
   local runs run sha jobs docs=false rc=0 gate
+  # Every ci-ok must name its run: one that names none is not passed over
+  # because another names one.
   runs="$($GH pr view "$pr" --json statusCheckRollup --jq '[.statusCheckRollup[] | select(.name == "ci-ok") | (.detailsUrl // "")
-    | capture("/actions/runs/(?<run>[0-9]+)") | .run] | unique | .[]')"
-  if [ -z "$runs" ]; then
+    | (capture("/actions/runs/(?<run>[0-9]+)") // {run: "none"}) | .run] | unique | .[]')" || runs=""
+  if [ -z "$runs" ] || grep -qx none <<<"$runs"; then
     echo "merge-pr: no GitHub run found behind ci-ok on $head" >&2
     return 1
   fi

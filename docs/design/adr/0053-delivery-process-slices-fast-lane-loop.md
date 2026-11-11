@@ -194,8 +194,8 @@ elsewhere.
   rather than cancelling it; the red-`main` rule is enforced by
   `merge-pr.sh`, which also refuses while `main`'s full run is still going,
   with `--fix-forward` for the repair; a full run GitHub calls failed
-  counts as green when only its `ci-ok` did not run and every other job is
-  green.
+  counts as green when only its `ci-ok` did not run and every job `ci-ok`
+  requires of a manual run is there and succeeded.
 - Kept local on purpose: the static checks and the performance budgets (a
   shared runner is too noisy to time a budget on a pull request). `main`'s
   manual run still runs the budgets at scale 2, as before.

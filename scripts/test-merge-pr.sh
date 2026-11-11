@@ -216,6 +216,10 @@ pull "$code" SUCCESS 10 11
 expect "every ci-ok run of the head must have held the gates" refused "run 11 did not hold the gate"
 echo "{\"headRefOid\":\"$code\",\"statusCheckRollup\":[{\"name\":\"ci-ok\",\"conclusion\":\"SUCCESS\",\"workflowName\":\"ci\"}],\"files\":[],\"comments\":[]}" >"$fake/pr.json"
 expect "a ci-ok that names no run refuses a light report" refused "no GitHub run found behind ci-ok"
+pull "$code" SUCCESS 10
+jq -c '.statusCheckRollup += [{name: "ci-ok", conclusion: "SUCCESS", workflowName: "ci"}]' "$fake/pr.json" >"$fake/pr2.json"
+mv "$fake/pr2.json" "$fake/pr.json"
+expect "one ci-ok that names no run refuses though another names a run that held the gates" refused "no GitHub run found behind ci-ok"
 
 # Documentation alone: the suite's jobs are rightly skipped.
 pull "$docs" SUCCESS 12
@@ -234,18 +238,50 @@ main_runs workflow_dispatch queued:none:20 completed:success:19
 expect "a full run on main queued refuses, whatever the one before" refused "main's latest full run \(20\) is queued"
 expect "the fix forward merges while main's full run is going" merged "^merge $code\$" --fix-forward
 main_runs workflow_dispatch completed:failure:21
-run_ 21 "$code" workflow_dispatch changes=success test=failure fuzz=success ci-ok=failure
+full=(changes=success tracker=success shards=success race=success coverage-shard=success coverage=success fuzz=success test=success signing=success release-scripts=skipped short=skipped)
+run_ 21 "$code" workflow_dispatch "${full[@]/test=success/test=failure}" ci-ok=failure
 expect "a red full run refuses" refused "main is red: its latest full run \(21\) ended failure \(test: failure ci-ok: failure\)"
 expect "the fix forward merges on a red main" merged "--fix-forward: merging whatever main's runs say" --fix-forward
-run_ 21 "$code" workflow_dispatch changes=success tracker=success test=success race=success fuzz=success short=skipped ci-ok=none
-expect "a full run GitHub failed with ci-ok never run and every job green counts as green" merged "ended failure without its ci-ok having run"
-run_ 21 "$code" workflow_dispatch changes=success test=success fuzz=success ci-ok=failure
+# The outage of 11 Nov: GitHub calls the run failed, ci-ok never ran. It is
+# green only when every job ci-ok requires of a manual run ran and passed.
+run_ 21 "$code" workflow_dispatch "${full[@]}" ci-ok=none
+expect "a full run GitHub failed with ci-ok unqueued and every required job green counts as green" merged "ended failure without its ci-ok having run"
+run_ 21 "$code" workflow_dispatch "${full[@]}"
+expect "the same with no ci-ok job at all" merged "ended failure without its ci-ok having run"
+run_ 21 "$code" workflow_dispatch "${full[@]}" ci-ok=failure
 expect "a ci-ok that ran and failed is red" refused "ended failure \(ci-ok: failure\)"
-run_ 21 "$code" workflow_dispatch changes=success fuzz=success ci-ok=none
-expect "green jobs without the test job are not a green full run" refused "the test job did not succeed"
+run_ 21 "$code" workflow_dispatch "${full[@]}" ci-ok=cancelled
+expect "a ci-ok that was cancelled is red" refused "ended failure \(ci-ok: cancelled\)"
+# without JOB... is the green full run less the jobs named.
+without() {
+  local keep=() j drop
+  for j in "${full[@]}"; do
+    drop=false
+    for name in "$@"; do [ "${j%%=*}" != "$name" ] || drop=true; done
+    [ "$drop" = true ] || keep+=("$j")
+  done
+  run_ 21 "$code" workflow_dispatch "${keep[@]}" ci-ok=none
+}
+for job in changes tracker shards race coverage-shard coverage fuzz test; do
+  without "$job"
+  expect "a full run without its $job job is not green" refused "ended failure \($job: missing\)"
+done
+without race coverage
+expect "every missing job is named" refused "\(race: missing coverage: missing\)"
+without fuzz
+run_ 21 "$code" workflow_dispatch "${full[@]/fuzz=success/fuzz=skipped}" ci-ok=none
+expect "a required job skipped is not green" refused "ended failure \(fuzz: skipped\)"
+run_ 21 "$code" workflow_dispatch "${full[@]/race=success/race=skipped}" ci-ok=none
+expect "a race matrix skipped whole is not green" refused "ended failure \(race: skipped\)"
+run_ 21 "$code" workflow_dispatch "${full[@]/coverage-shard=success/coverage-shard=failure}" ci-ok=none
+expect "one failed coverage shard is red" refused "ended failure \(coverage-shard \(2\): failure\)"
+run_ 21 "$code" workflow_dispatch "${full[@]/signing=success/signing=failure}" ci-ok=none
+expect "another job failed is red" refused "ended failure \(signing: failure\)"
+run_ 21 "$code" workflow_dispatch "${full[@]/test=success/test=none}" ci-ok=none
+expect "a job without a conclusion is red" refused "ended failure \(test: PENDING\)"
 main_runs workflow_dispatch completed:cancelled:22
 run_ 22 "$code" workflow_dispatch changes=success test=cancelled race=cancelled ci-ok=failure
-expect "a cancelled full run refuses: main's state is not known" refused "ended cancelled \(test: cancelled race \(2\): cancelled ci-ok: failure\)"
+expect "a cancelled full run refuses: main's state is not known" refused "ended cancelled \(test: cancelled race \(2\): cancelled ci-ok: failure"
 echo "[]" >"$fake/runs-workflow_dispatch.json"
 expect "no full run yet merges" merged "^merge $code\$"
 green

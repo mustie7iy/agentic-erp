@@ -267,7 +267,9 @@ larger or self-hosted ones:
   gate (`coverage-shard`, one job per shard, then `coverage`, which applies
   the gate to the shards' profiles together, with the exclusions and the
   failure report of the whole-suite gate) and fuzzing 30 s per target
-  (`fuzz`), all on clean Linux runners in parallel. The shards are
+  (`fuzz`), all on clean Linux runners in parallel, as far as the
+  account's limit of concurrent jobs allows (some twenty jobs a run; the
+  rest queue). The shards are
   computed, never listed (`scripts/ci-shards.sh`, the `shards` job): the
   packages come from `go list`, each weighted by the seconds one race run
   of it took on a runner (`scripts/ci-shard-weights.txt`, main's run
@@ -286,7 +288,9 @@ larger or self-hosted ones:
   (`go test -list`) and fails on one no part runs. The coverage shards
   hand their profiles (reduced to one line per block) to the gate through
   the run's own cache entries, named by the run, since the workflows pin
-  the cache action and no artifact action. The deploy workflow does not
+  the cache action and no artifact action; the gate names the profiles
+  from the plan itself (`ci-shards.sh gate`), one per shard, and fails on
+  one that is not there. The deploy workflow does not
   run on pull requests; the promotion workflows do, as before.
 - **Merging:** `scripts/merge-pr.sh <n>` merges with a merge commit only
   when `ci-ok` succeeded on the head commit, a passing local report exists
@@ -356,11 +360,14 @@ larger or self-hosted ones:
   latest push run that finished without being cancelled (a newer push
   cancels an older run, which proves nothing) and the latest manual run. A
   manual run counts as green when it succeeded, or when its `ci-ok` never
-  ran and every other job, `test` among them, succeeded or was skipped (on
-  2026-11-11 a GitHub Actions outage left `ci-ok` unqueued and the run read
-  as failed with every job green); a `ci-ok` that ran and failed, or any
-  other job failed, cancelled or unfinished, is red, a cancelled run
-  included: start it again. `merge-pr.sh <n> --fix-forward` merges
+  ran (absent, or without a conclusion) and every job `ci-ok` requires of a
+  manual run is there and succeeded (`changes`, `tracker`, `shards`, every
+  `race` and `coverage-shard` job, `coverage`, `fuzz` and `test`), with any
+  other job succeeded or skipped (on 2026-11-11 a GitHub Actions outage
+  left `ci-ok` unqueued and the run read as failed with every job green);
+  a `ci-ok` that ran and did not succeed, a required job missing or
+  skipped, or any job failed, cancelled or unfinished, is red, a cancelled
+  run included: start it again. `merge-pr.sh <n> --fix-forward` merges
   regardless, for the one pull request that repairs `main`. The merge that turned it red is reverted at once, or fixed
   forward within the hour when the fix is clear and small; nothing else
   merges meanwhile, and a release is cut only from a green `main`. A
