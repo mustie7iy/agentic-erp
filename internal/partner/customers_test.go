@@ -39,7 +39,8 @@ func customer(name, companies string) string {
 }
 
 // companyOf is the partner's one entry of the list (supplier_companies or
-// customer_companies) as "account term blocked".
+// customer_companies) as "legal entity, account (its number), term,
+// blocked".
 func companyOf(t *testing.T, p map[string]any, list string) string {
 	t.Helper()
 	items := apitest.List(t, p, list)
@@ -47,7 +48,11 @@ func companyOf(t *testing.T, p map[string]any, list string) string {
 		t.Fatalf("%s: got %d entries, want 1 (%v)", list, len(items), items)
 	}
 	c, _ := items[0].(map[string]any) // a nil map prints as missing fields below
-	return fmt.Sprint(c["legal_entity_id"], " ", c["reconciliation_account_id"], " ", c["payment_term_code"], " ", c["is_posting_blocked"])
+	account := fmt.Sprint(c["reconciliation_account_id"])
+	if number, named := c["reconciliation_account_number"]; named { // a representation names the account; a change's payload does not
+		account += " (" + fmt.Sprint(number) + ")"
+	}
+	return fmt.Sprint(c["legal_entity_id"], " ", account, " ", c["payment_term_code"], " ", c["is_posting_blocked"])
 }
 
 // asCustomer reads the partner as receivables and credit do, and what the
@@ -76,7 +81,7 @@ func TestCustomerCompanyData(t *testing.T) {
 	ar := e.receivables(t)
 	p, c := e.create(t, customer("Northwind Traders", e.customerData(ar, "NT30", "")))
 	pid := id(p)
-	want := fmt.Sprint(e.le, " ", ar, " NT30 false")
+	want := fmt.Sprint(e.le, " ", ar, " (120000) NT30 false")
 
 	t.Run("created pending with its company data", func(t *testing.T) {
 		if p["status"] != "pending" {
@@ -152,7 +157,7 @@ func TestCustomerCompanyData(t *testing.T) {
 		}
 		e.in(t).mustApply(t, id(ch))
 		got, _ := e.in(t).Must(200, "GET", "/v1/business-partners/"+pid, "", "")
-		if company := companyOf(t, got, "customer_companies"); company != fmt.Sprint(e.le, " ", ar, " NT60 true") {
+		if company := companyOf(t, got, "customer_companies"); company != fmt.Sprint(e.le, " ", ar, " (120000) NT60 true") {
 			t.Errorf("customer company after the update: got %s, want term NT60, blocked", company)
 		}
 		const blocked = "the customer is blocked for posting in this legal entity"
@@ -169,6 +174,18 @@ func TestCustomerCompanyData(t *testing.T) {
 		e.in(t).mustApply(t, id(update(t, e.customerData(ar, "NT60", ""))))
 		if cust, _, block := e.asCustomer(t, pid); cust.IsPostingBlocked || block != "" {
 			t.Errorf("after the data was replaced without a block: got blocked %v and posting block %q, want neither", cust.IsPostingBlocked, block)
+		}
+	})
+
+	t.Run("listed with its account named", func(t *testing.T) {
+		page, _ := e.in(t).Must(200, "GET", "/v1/business-partners?role=customer", "", "")
+		items := apitest.List(t, page, "items")
+		if len(items) != 1 {
+			t.Fatalf("customers listed: got %d, want 1", len(items))
+		}
+		listed, _ := items[0].(map[string]any)
+		if got := companyOf(t, listed, "customer_companies"); got != fmt.Sprint(e.le, " ", ar, " (120000) NT60 false") {
+			t.Errorf("listed customer company: got %s, want the account named 120000", got)
 		}
 	})
 
@@ -227,8 +244,21 @@ func TestCustomersRead(t *testing.T) {
 		}
 		got, _ := e.in(t).Must(200, "GET", "/v1/business-partners/"+id(supplier), "", "")
 		if s, c := companyOf(t, got, "supplier_companies"), companyOf(t, got, "customer_companies"); s != fmt.Sprint(e.le, " ", e.recon, " NT30 false") ||
-			c != fmt.Sprint(e.le, " ", ar, " NT30 false") {
+			c != fmt.Sprint(e.le, " ", ar, " (120000) NT30 false") {
 			t.Errorf("company data of both roles: got supplier %s and customer %s, want each on its own reconciliation account", s, c)
+		}
+	})
+	t.Run("an account the ledger does not know", func(t *testing.T) {
+		// No request leaves one: the account is checked when the data is
+		// requested and accounts are never deleted. The read fails rather
+		// than return the id unnamed.
+		pgtest.Exec(t, `UPDATE partner.customer_company SET reconciliation_account_id = gen_random_uuid(), version = version + 1 WHERE partner_id = $1`,
+			uuid.MustParse(id(supplier)))
+		if status, m, _ := e.in(t).Do("GET", "/v1/business-partners/"+id(supplier), "", ""); status != 500 {
+			t.Errorf("reading a customer whose account the ledger does not know: got %d %v, want 500", status, m)
+		}
+		if status, m, _ := e.in(t).Do("GET", "/v1/business-partners?role=customer", "", ""); status != 500 {
+			t.Errorf("listing a customer whose account the ledger does not know: got %d %v, want 500", status, m)
 		}
 	})
 	if _, _, err := (partner.Customers{}).Customer(context.Background(), uuid.New(), e.le); err == nil {

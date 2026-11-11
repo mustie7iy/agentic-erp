@@ -27419,6 +27419,7 @@ components:
       required:
         - legal_entity_id
         - reconciliation_account_id
+        - reconciliation_account_number
         - payment_term_code
         - is_posting_blocked
       properties:
@@ -27431,6 +27432,11 @@ components:
           type: string
           format: uuid
           description: "Receivables reconciliation account (ledger context): a customer reconciliation account of the legal entity, read with `GET /v1/accounts/{id}`."
+          readOnly: true
+        reconciliation_account_number:
+          type: string
+          description: "The reconciliation account's number in the legal entity's chart of accounts, as it is now."
+          example: "1200"
           readOnly: true
         payment_term_code:
           type: string
@@ -27445,6 +27451,7 @@ components:
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dcb"
+          reconciliation_account_number: "1200"
           payment_term_code: NT30
           is_posting_blocked: false
     CustomerCompanyInput:

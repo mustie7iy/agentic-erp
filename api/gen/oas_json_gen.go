@@ -69176,6 +69176,10 @@ func (s *CustomerCompany) encodeFields(e *jx.Encoder) {
 		json.EncodeUUID(e, s.ReconciliationAccountID)
 	}
 	{
+		e.FieldStart("reconciliation_account_number")
+		e.Str(s.ReconciliationAccountNumber)
+	}
+	{
 		e.FieldStart("payment_term_code")
 		e.Str(s.PaymentTermCode)
 	}
@@ -69185,11 +69189,12 @@ func (s *CustomerCompany) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCustomerCompany = [4]string{
+var jsonFieldsNameOfCustomerCompany = [5]string{
 	0: "legal_entity_id",
 	1: "reconciliation_account_id",
-	2: "payment_term_code",
-	3: "is_posting_blocked",
+	2: "reconciliation_account_number",
+	3: "payment_term_code",
+	4: "is_posting_blocked",
 }
 
 // Decode decodes CustomerCompany from json.
@@ -69225,8 +69230,20 @@ func (s *CustomerCompany) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"reconciliation_account_id\"")
 			}
-		case "payment_term_code":
+		case "reconciliation_account_number":
 			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.ReconciliationAccountNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reconciliation_account_number\"")
+			}
+		case "payment_term_code":
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.PaymentTermCode = string(v)
@@ -69238,7 +69255,7 @@ func (s *CustomerCompany) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"payment_term_code\"")
 			}
 		case "is_posting_blocked":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Bool()
 				s.IsPostingBlocked = bool(v)
@@ -69259,7 +69276,7 @@ func (s *CustomerCompany) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

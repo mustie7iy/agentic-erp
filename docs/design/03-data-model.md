@@ -722,7 +722,9 @@ legal entity as a whole, the posting block included (`is_posting_blocked`,
 false when left out), so a block is set and lifted by an approved change;
 legal entities the change does not name keep their data, and none is
 deleted. The partner's representation returns `customer_companies` of the
-legal entities the caller may act in, ordered by legal entity id. Approval
+legal entities the caller may act in, ordered by legal entity id, each
+with its reconciliation account's number beside the id (read from the
+ledger through `Accounts.AccountNumbers`, once per page). Approval
 of a customer's creation publishes `CustomerApproved` (the partner, its
 number and the legal entities it has customer data in), beside
 `SupplierApproved` for a partner that is both; an applied update names
@@ -752,9 +754,14 @@ determination, tax, statement rules, asset accounts, FX adjustment,
 withholding, retained earnings, accruals) may name such an account, and it
 is not revalued as a balance. Decided by default (07 §7.7): nothing but the
 configuration creates accounts, and the ledger has known the kind since
-000005, so the flag details what T74a needs; the SAP configuration draft
-does not yet map MITKZ D, since customers are not taken over from SAP in
-the first version.
+000005, so the flag details what T74a needs. A customer reconciliation
+account's open items in a foreign currency are revalued as a supplier's
+are: the account is named in `fx_valuation.accounts` with its adjustment
+account (ADR-0042), and a run refuses one that is not. The SAP
+configuration draft does not yet map MITKZ D, since customers are not
+taken over from SAP in the first version: until it does, a drafted chart's
+receivables accounts must be flagged by the reviewer before the first
+activation, because an activated account's kind cannot change.
 
 Not built in the first version (plan-breadth-week1, "Later"): sales-area
 data and partner functions, contact persons, customer payment methods and

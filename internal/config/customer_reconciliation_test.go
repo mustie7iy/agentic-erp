@@ -19,8 +19,10 @@ func withReceivables(t *testing.T) *Config {
 }
 
 // TestCustomerReconciliationValid: an asset flagged customer_reconciliation
-// validates, the flag is a structural change, as the chart's are, and each
-// use of an account that a partner's items alone may post refuses it.
+// validates, the flag is a structural change, as the chart's are, its
+// open items are valued as a supplier's (fx_valuation.accounts with an
+// adjustment account), and each use of an account that a partner's items
+// alone may post refuses it.
 func TestCustomerReconciliationValid(t *testing.T) {
 	if fs := Validate(withReceivables(t), currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("a customer reconciliation account: got %v, want no errors", fs)
@@ -28,6 +30,11 @@ func TestCustomerReconciliationValid(t *testing.T) {
 	diffs, _ := Diff(withAssets(t), withReceivables(t)) // Diff never fails
 	if got := MaxTier(diffs); got != TierStructural {
 		t.Errorf("tier of a new customer reconciliation account: got %d, want %d", got, TierStructural)
+	}
+	valued := withReceivables(t)
+	valued.Companies[0].FXValuation.Accounts = []FXValuationAccount{{Account: "120000", Adjustment: "169000", UnrealisedGain: "400000", UnrealisedLoss: "610000"}}
+	if fs := Validate(valued, currency.Seeded()); HasErrors(fs) {
+		t.Errorf("a customer reconciliation account valued through its items into an adjustment account: got %v, want no errors", fs)
 	}
 	const chart, co = "companies[1000].chart_of_accounts[120000]", "companies[1000]"
 	flag := func(mutate func(*Account)) func(c *Config) {
@@ -51,10 +58,15 @@ func TestCustomerReconciliationValid(t *testing.T) {
 			co + ".asset_accounts[MACHINES].clearing", "supplier or customer reconciliation account"},
 		{"as an FX adjustment", func(c *Config) {
 			c.Companies[0].FXValuation.Accounts = []FXValuationAccount{{Account: "211000", Adjustment: "120000", UnrealisedGain: "400000", UnrealisedLoss: "610000"}}
-		}, co + ".fx_valuation.accounts[211000].adjustment", "reconciles no supplier"},
-		{"valued through its items", func(c *Config) {
+		}, co + ".fx_valuation.accounts[211000].adjustment", "reconciles no supplier or customer"},
+		{"valued through its items without an adjustment account", func(c *Config) {
 			c.Companies[0].FXValuation.Accounts = []FXValuationAccount{{Account: "120000", UnrealisedGain: "400000", UnrealisedLoss: "610000"}}
-		}, co + ".fx_valuation.accounts[120000]", "neither a vendor reconciliation account nor revalue_foreign_currency"},
+		}, co + ".fx_valuation.accounts[120000].adjustment", "reconciles no supplier or customer"},
+		{"for a tax code", func(c *Config) { c.Companies[0].TaxCodes[0].Account = "120000" },
+			co + ".tax_codes[" + withReceivables(t).Companies[0].TaxCodes[0].Code + "].account", "customer reconciliation account"},
+		{"for a tax component", func(c *Config) {
+			c.Companies[0].TaxCodes[0].Components = []TaxComponent{{Key: "gst", AccountKey: KeyInput, Account: "120000", Rates: []TaxRate{{RatePercent: "5"}}}}
+		}, co + ".tax_codes[" + withReceivables(t).Companies[0].TaxCodes[0].Code + "].components[gst].account", "customer reconciliation account"},
 		{"for withholding", func(c *Config) {
 			c.Companies[0].Account("120000").Type = Liability
 			c.Companies[0].WithholdingTaxCodes = []WithholdingTaxCode{{Code: "W1", Description: "Withholding", RatePercent: "10", Account: "120000",

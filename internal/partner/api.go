@@ -32,7 +32,8 @@ func partnerToAPI(p Partner) gen.BusinessPartner {
 			PlanningGroup: apitypes.OptString(s.PlanningGroup)})
 	}
 	for _, c := range p.CustomerCompanies {
-		out.CustomerCompanies = append(out.CustomerCompanies, gen.CustomerCompany(c))
+		out.CustomerCompanies = append(out.CustomerCompanies, gen.CustomerCompany{LegalEntityID: c.LegalEntityID,
+			ReconciliationAccountID: c.ReconciliationAccountID, PaymentTermCode: c.PaymentTermCode, IsPostingBlocked: c.IsPostingBlocked})
 	}
 	for _, a := range p.Addresses {
 		ga := gen.Address{ID: gen.NewOptUUID(a.ID), Purpose: a.Purpose, Line1: a.Line1, Line2: apitypes.OptString(a.Line2), City: a.City,
@@ -84,15 +85,53 @@ func nameGroupCompanies(ctx context.Context, les LegalEntities, access authz.Acc
 	return nil
 }
 
+// nameAccounts gives each customer company of the partners its
+// reconciliation account's number as the ledger has it now, reading the
+// accounts of a page once (ADR-0053: an id comes with the reference its
+// consumer needs). The account was the ledger's when the data was
+// requested, and accounts are never deleted, so one the ledger does not
+// know is an error.
+func nameAccounts(ctx context.Context, accounts Accounts, reps ...*gen.BusinessPartner) error {
+	var ids []uuid.UUID
+	for _, rep := range reps {
+		for _, c := range rep.CustomerCompanies {
+			ids = append(ids, c.ReconciliationAccountID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	numbers, err := accounts.AccountNumbers(ctx, ids)
+	if err != nil {
+		return fmt.Errorf("partner: name the reconciliation accounts of customers: %w", err)
+	}
+	for _, rep := range reps {
+		for i := range rep.CustomerCompanies {
+			c := &rep.CustomerCompanies[i]
+			number, ok := numbers[c.ReconciliationAccountID]
+			if !ok {
+				return fmt.Errorf("partner: name reconciliation account %s of business partner %s: the ledger has no account with the id",
+					c.ReconciliationAccountID, rep.ID)
+			}
+			c.ReconciliationAccountNumber = number
+		}
+	}
+	return nil
+}
+
 // partnerOut is the partner as the caller sees it: the company data of
-// the legal entities the caller may act in, the group company named.
+// the legal entities the caller may act in, the group company and the
+// customer data's reconciliation accounts named.
 func (e *Endpoints) partnerOut(ctx context.Context, p Partner) (gen.BusinessPartner, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return gen.BusinessPartner{}, err
 	}
 	out := partnerToAPI(visible(p, access))
-	return out, nameGroupCompanies(ctx, e.LegalEntities, access, &out)
+	if err := nameGroupCompanies(ctx, e.LegalEntities, access, &out); err != nil {
+		return out, err
+	}
+	return out, nameAccounts(ctx, e.Accounts, &out)
 }
 
 func changeToAPI(c Change) gen.PartnerChange {
@@ -280,6 +319,9 @@ func (e *Endpoints) ListBusinessPartners(ctx context.Context, params gen.ListBus
 		reps[i] = &items[i]
 	}
 	if err := nameGroupCompanies(ctx, e.LegalEntities, access, reps...); err != nil { // each company once for the page
+		return nil, err
+	}
+	if err := nameAccounts(ctx, e.Accounts, reps...); err != nil {
 		return nil, err
 	}
 	return &gen.BusinessPartnerPage{Items: items, NextPageToken: next}, nil

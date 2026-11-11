@@ -2,6 +2,7 @@ package ledger_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -119,5 +120,42 @@ func TestCustomerReconciliationAccounts(t *testing.T) {
 				t.Errorf("the refusal's detail: got %q, want it to say %q", detail, c.detail)
 			}
 		})
+	}
+}
+
+// TestCustomerItemsRevalued (T74a, ADR-0042): a customer's open item in a
+// foreign currency is revalued as a supplier's is, once the configuration
+// names the receivables account with its adjustment account: a USD
+// receivable of 100.00 booked at 0.8 and valued at 0.9 gains 10.00, on
+// the adjustment account against the unrealised gain.
+func TestCustomerItemsRevalued(t *testing.T) {
+	e := setup(t)
+	doc := revaluationDoc(withReceivables(t), true)
+	de := doc.Company("2000")
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "120099", Name: "Receivables valuation", Type: config.Asset})
+	de.FXValuation.Accounts = append(de.FXValuation.Accounts,
+		config.FXValuationAccount{Account: "120000", Adjustment: "120099", UnrealisedGain: "400000", UnrealisedLoss: "610000"})
+	applyRevaluation(t, e, doc)
+	settleRate(t, e, "USD", "2026-01-01", "0.8")
+	revaluationRate(t, e, "USD", "EUR", "2026-03-15", "0.9")
+	ar, adjustment, revenue := settleAccount(t, e, "2000", "120000"), settleAccount(t, e, "2000", "120099"), settleAccount(t, e, "2000", "400000")
+	customer := e.newCustomer(t, "BP00000021", true)
+	revaluationPost(t, e, e.de, "2026-03-02", "USD", ledger.PostingLine{AccountID: ar, Amount: 10000, PartnerID: &customer},
+		ledger.PostingLine{AccountID: revenue, Amount: -10000})
+	run, _ := e.Must(201, "POST", "/v1/revaluation-runs", preview(e.de, "2026-03-31"), "")
+	var entry ledger.Entry
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		entry, err = ledger.GetEntry(ctx, uuid.MustParse(apitest.String(t, run, "valuation_entry_id")))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	numbers := map[uuid.UUID]string{adjustment: "120099", revenue: "400000"}
+	var got []string
+	for _, l := range entry.Lines {
+		got = append(got, fmt.Sprintf("%s %d %d", numbers[l.AccountID], l.TC, l.LC))
+	}
+	if want := "120099 1000 1000 | 400000 -1000 -1000"; strings.Join(got, " | ") != want {
+		t.Errorf("valuation entry of the customer's item: got %s, want %s", strings.Join(got, " | "), want)
 	}
 }

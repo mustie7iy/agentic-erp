@@ -662,6 +662,21 @@ func fiscalYear(y, m int) []period {
 // Accounts answers the partner context's questions about accounts.
 type Accounts struct{}
 
+// AccountNumbers returns the accounts' numbers by id, for the partner
+// context to name the reconciliation accounts its company data holds by
+// id (T74a); an id of no account is left out.
+func (Accounts) AccountNumbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	names, err := AssetReads{}.AccountNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]string, len(names))
+	for id, a := range names {
+		out[id] = a.Number
+	}
+	return out, nil
+}
+
 // IsReconciliationAccount reports whether the account is an active
 // reconciliation account of the kind with settings in the legal entity. The
 // down payment account is not one: it is an alternative reconciliation

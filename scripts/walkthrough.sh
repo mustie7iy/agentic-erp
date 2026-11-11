@@ -5672,15 +5672,6 @@ step_asset_order_expenses() {
   passed
 }
 
-# step_close is the financial close (ADR-0058), the story's last step: it
-# stays last, and each slice of T64 adds its part before the sign-off
-# (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
-# the process owner approves; Carla reads the year's close calendar, each
-# period's planned first and last due dates on the company's business days.
-# Then the close's checklist (T64b), its depreciation check (T64k) with a
-# late asset in the previous period's close (T64l), its other checks
-# (T64c), its accrual proposals (T64e), its variances (T64h) and their
-# comments (T64i) and, last, its sign-off (T64d), which locks the period.
 # step_customer is the customer with its data in a company (T74a, 03
 # §3.6): Ada adds Maple's trade receivables account, a customer
 # reconciliation account, through a governed change of the chart; Ruth, the
@@ -5716,7 +5707,7 @@ step_customer() {
   body="{\"kind\": \"organization\", \"name\": \"Northwind Traders\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"@ACCOUNT@\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys machined parts from Maple\"}"
   refused 422 partner.invalid_reconciliation_account createBusinessPartner -body "${body//@ACCOUNT@/$ap}"
   expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "customer_companies[0].reconciliation_account_id"
-  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_id | acct), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_number), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
     createBusinessPartner -body "${body//@ACCOUNT@/$ar}"
   CUSTOMER=$(field .id)
   expect "the new customer's status" "$(field .status)" pending
@@ -5724,17 +5715,27 @@ step_customer() {
   say "Its create change waits for the approver of partner master data, Carla, as a supplier's does:"
   approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its purchase order"
   as ruth
-  api 200 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_id | acct), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
+  api 200 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_number), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
     getBusinessPartner -p "id=$CUSTOMER"
   expect "the customer's status" "$(field .status)" active
-  expect "the customer's company data" "$(field '[.customer_companies[] | "\(.legal_entity_id) \(.reconciliation_account_id) \(.payment_term_code) \(.is_posting_blocked)"] | join(", ")')" \
-    "$LE $ar NT30 false"
+  expect "the customer's company data" \
+    "$(field '[.customer_companies[] | "\(.legal_entity_id) \(.reconciliation_account_id) \(.reconciliation_account_number) \(.payment_term_code) \(.is_posting_blocked)"] | join(", ")')" \
+    "$LE $ar 1200 NT30 false"
   expect "no supplier data on a customer" "$(field '.supplier_companies | length')" 0
   api 200 '.items[] | "customer \(.number) \(.name), \(.country_code), \(.status)"' listBusinessPartners -p role=customer -p name_prefix=Northwind
   expect "the customers named Northwind" "$(field '[.items[].id] | join(" ")')" "$CUSTOMER"
   passed
 }
 
+# step_close is the financial close (ADR-0058), the story's last step: it
+# stays last, and each slice of T64 adds its part before the sign-off
+# (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
+# the process owner approves; Carla reads the year's close calendar, each
+# period's planned first and last due dates on the company's business days.
+# Then the close's checklist (T64b), its depreciation check (T64k) with a
+# late asset in the previous period's close (T64l), its other checks
+# (T64c), its accrual proposals (T64e), its variances (T64h) and their
+# comments (T64i) and, last, its sign-off (T64d), which locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada

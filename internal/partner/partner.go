@@ -86,6 +86,10 @@ type Accounts interface {
 	// subledger of the kind (supplier or customer) and can be posted in the
 	// legal entity.
 	IsReconciliationAccount(ctx context.Context, legalEntity, account uuid.UUID, kind string) (bool, error)
+	// AccountNumbers returns the accounts' numbers by id, leaving out an
+	// id of no account: a customer's company data is read with its
+	// reconciliation account's number (T74a).
+	AccountNumbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 	// IsWithholdingTaxCode reports whether the code is an active
 	// withholding tax code of the legal entity (T46e).
 	IsWithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error)

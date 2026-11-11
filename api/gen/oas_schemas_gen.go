@@ -28098,6 +28098,8 @@ type CustomerCompany struct {
 	// Receivables reconciliation account (ledger context): a customer reconciliation account of the legal
 	// entity, read with `GET /v1/accounts/{id}`.
 	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
+	// The reconciliation account's number in the legal entity's chart of accounts, as it is now.
+	ReconciliationAccountNumber string `json:"reconciliation_account_number"`
 	// Payment terms: a code of the configuration's `payment_terms`.
 	PaymentTermCode string `json:"payment_term_code"`
 	// Postings to this customer are blocked in this legal entity: a journal line naming the customer there
@@ -28113,6 +28115,11 @@ func (s *CustomerCompany) GetLegalEntityID() uuid.UUID {
 // GetReconciliationAccountID returns the value of ReconciliationAccountID.
 func (s *CustomerCompany) GetReconciliationAccountID() uuid.UUID {
 	return s.ReconciliationAccountID
+}
+
+// GetReconciliationAccountNumber returns the value of ReconciliationAccountNumber.
+func (s *CustomerCompany) GetReconciliationAccountNumber() string {
+	return s.ReconciliationAccountNumber
 }
 
 // GetPaymentTermCode returns the value of PaymentTermCode.
@@ -28133,6 +28140,11 @@ func (s *CustomerCompany) SetLegalEntityID(val uuid.UUID) {
 // SetReconciliationAccountID sets the value of ReconciliationAccountID.
 func (s *CustomerCompany) SetReconciliationAccountID(val uuid.UUID) {
 	s.ReconciliationAccountID = val
+}
+
+// SetReconciliationAccountNumber sets the value of ReconciliationAccountNumber.
+func (s *CustomerCompany) SetReconciliationAccountNumber(val string) {
+	s.ReconciliationAccountNumber = val
 }
 
 // SetPaymentTermCode sets the value of PaymentTermCode.
