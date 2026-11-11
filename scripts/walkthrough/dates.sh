@@ -42,3 +42,22 @@ date_add() {
 utc_day() {
   ZONE=UTC company_day "$@"
 }
+
+# first_working_day CALENDAR DAY LAG... is the first of the days LAG days
+# after DAY, in the order given, that is a working day of the calendar, or
+# nothing when none is. CALENDAR is a file with a company's calendar as
+# its configuration holds it (calendars[]: weekend, holidays[].date): a
+# working day is neither one of its weekend days (Saturday and Sunday
+# when it names none) nor one of its holidays, the rule the cash position
+# and the forecast move a flow to the next working day by (ADR-0048,
+# ADR-0051 §5; config.BusinessDay). Calendar arithmetic in UTC, as
+# date_add's.
+first_working_day() {
+  local calendar=$1 day=$2
+  shift 2
+  jq -r --arg d "$day" '(.weekend // [] | if length == 0 then ["saturday", "sunday"] else . end) as $weekend
+    | [.holidays[]?.date] as $holidays
+    | [$ARGS.positional[] | ($d | strptime("%Y-%m-%d") | mktime) + tonumber * 86400
+      | select((strftime("%A") | ascii_downcase) as $w | $weekend | index($w) | not)
+      | strftime("%Y-%m-%d") | select(. as $day | $holidays | index($day) | not)][0] // ""' "$calendar" --args "$@"
+}

@@ -7035,7 +7035,7 @@ step_cash_export() {
   hook=$(field .id)
   field .secret >"$WORK/hook/secret"
   expect "a whsec_ secret, shown once" "$(cut -c1-6 "$WORK/hook/secret")" "whsec_"
-  as tom
+  forecast_receipt
   say "Tom takes the month-end snapshot. Taking it queues its export to every active treasury connector of Maple; the"
   say "server's exporter sends it in the background, as the bank file transmitter sends bank files:"
   QUIET=1 api 201 '' takeCashSnapshot -body "{\"legal_entity_id\": \"$LE\", \"name\": \"Month-end treasury report\"}"
@@ -7064,6 +7064,37 @@ step_cash_export() {
   expect "recognised as a resend" "$(field .resend)" true
   cash_webhook "$hook" "$snap"
   passed
+}
+
+# forecast_receipt has Tom record a receipt before the month-end snapshot,
+# on a day step 38's metrics read that snapshot for: a week from today,
+# else a month (30 days), else today, the first of them that is one of
+# Maple's working days, since the forecast moves a flow off any other day
+# (ADR-0051 §5). Without it the snapshot has a flow on one of those days
+# only by the weekday the walkthrough runs on and none on a holiday
+# (Remembrance Day 2026, ci:batch64). FORECAST_RECEIPT_DAY is that day:
+# empty when none of the three is a working day (25 December 2026: New
+# Year's Day a week on, a Sunday a month on), and then nothing is
+# recorded. Maple's calendar, as the active configuration holds it, is
+# kept in calendar.json for step 38. The record names no house bank, so
+# the cash position does not count it.
+forecast_receipt() {
+  local today
+  as ada
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  field "[.items[0].document.calendars[]? | select(.company == \"$CC\")][0] // {}" >"$WORK/calendar.json"
+  as tom
+  today=$(company_day)
+  FORECAST_RECEIPT_DAY=$(first_working_day "$WORK/calendar.json" "$today" 7 30 0) || fail "Maple's calendar could not be read for its working days"
+  if [ -z "$FORECAST_RECEIPT_DAY" ]; then
+    say "Neither today ($today), a week nor a month from it is one of Maple's working days: Tom expects no receipt then."
+    return 0
+  fi
+  say "Tom expects a customer's CAD 1,750.00 on $FORECAST_RECEIPT_DAY, one of Maple's working days (a week from today, else a"
+  say "month, else today), and records it before the month-end snapshot (a memo record without a house bank):"
+  api 201 '"memo record \(.reference): \(.amount.amount) \(.amount.currency) on \(.value_date), \(.liquidity_item), \(.status)"' createMemoRecord \
+    -body "{\"legal_entity_id\": \"$LE\", \"amount\": {\"amount\": \"1750.00\", \"currency\": \"CAD\"}, \"value_date\": \"$FORECAST_RECEIPT_DAY\", \"liquidity_item\": \"REC_CUSTOMERS\", \"description\": \"Lakefield Supply, invoice 1044\", \"reference\": \"WT-1044\"}"
+  expect "the receipt's status" "$(field .status)" active
 }
 
 # cash_webhook HOOK SNAPSHOT shows the webhook announcing the snapshot:
@@ -7253,7 +7284,7 @@ step_cash_forecast_analytics() {
     say "days), not the one taken on demand later ($(amount "$on_demand")), as the variance would compare against it."
     expect "the three days' CAD forecast, the daily snapshot's" "$(amount "$total")" "$(amount "$preferred")"
   else
-    expect "today's snapshot forecasts one of those days" "$seen" 1
+    forecast_seen "$snapshot_day" "$seen"
   fi
   forecast_accuracy_analytics "$snapshot_day"
   as rita
@@ -7266,6 +7297,35 @@ step_cash_forecast_analytics() {
   expect "Rita's CAD accuracy of $snapshot_day, Tom's" "$(field '[.rows[] | select(.[0].value == "CAD") | .[4].value // "-"][0]')" "$ACCURACY_CAD"
   as tom
   passed
+}
+
+# forecast_seen DAY SEEN checks that the three reads of step 38 compared
+# something: SEEN is 1 when the snapshot of DAY has a CAD line on DAY, a
+# week or a month (30 days) after it. The forecast moves every flow to a
+# working day of Maple's calendar (blocked suppliers', which the metrics
+# leave out, apart), so the snapshot has a line there only on a working
+# day: step 35's receipt WT-1044, recorded for the first of the three that
+# is one, and none when none is. Only when Toronto's midnight passed
+# between the receipt and its snapshot is the receipt on another day, and
+# nothing told.
+forecast_seen() {
+  local day=$1 seen=$2 working lag on=0
+  working=$(first_working_day "$WORK/calendar.json" "$day" 0 7 30) || fail "Maple's calendar could not be read for its working days"
+  for lag in 0 7 30; do
+    if [ "$(date_add "$day" "$lag")" = "$FORECAST_RECEIPT_DAY" ]; then on=1; fi
+  done
+  if [ -z "$working" ]; then
+    say "Neither $day, a week nor a month from it is one of Maple's working days, and the forecast moves every flow to"
+    say "one: today's snapshot has nothing on the three days."
+    expect "today's snapshot forecasts none of those days, none a working day" "$seen" 0
+  elif [ "$on" = 1 ]; then
+    expect "today's snapshot forecasts one of those days, the receipt WT-1044's ($FORECAST_RECEIPT_DAY)" "$seen" 1
+    expect "WT-1044's line in today's snapshot, on its day" \
+      "$(jq -r --arg d "$FORECAST_RECEIPT_DAY" '[.items[] | select(.source == "memo" and .value_date == $d and .amount.amount == "1750.00")] | length' "$WORK/forecast_lines.json")" 1
+  else
+    say "Toronto's midnight passed between the receipt WT-1044 (step 35, for ${FORECAST_RECEIPT_DAY:-no day}) and its snapshot of $day: the"
+    say "receipt is on none of the snapshot's three days, so whether one of them has a line is the weekday's doing."
+  fi
 }
 
 # forecast_accuracy_analytics DAY is the forecast's variance and accuracy

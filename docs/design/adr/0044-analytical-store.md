@@ -795,7 +795,12 @@ Decisions:
   `TestSourceForecastErrors`; `store.TestParity` (every query of the three
   metrics, permissions `forecast`, isolation and tamper of
   `cash_snapshots`, each lag's figure in "not vacuous"); the
-  walkthrough's step 38.
+  walkthrough's step 38. Its three reads compare a line on every date
+  that can have one: step 35 records a receipt (WT-1044) on the first
+  working day among a week, 30 days and no days from the snapshot's, since
+  the forecast moves every flow to a working day; before, the story had a
+  line there only by the weekday it ran on, and none on Remembrance Day
+  2026 (ci:batch64; `TestWalkthroughWorkingDays`).
 
 **The forecast's variance and accuracy (T53j3, ADR-0051 §11; product
 owner 2026-11-04 on WAPE; decided by default otherwise).** Dataset
