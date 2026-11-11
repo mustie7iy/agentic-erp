@@ -7151,13 +7151,15 @@ func (s *AssetOffsetAccount) SetName(val string) {
 	s.Name = val
 }
 
-// Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` +
-// `price_difference`.
+// Amounts in profit or loss, debit positive (an expense). By invoices and credit memos, on the price
+// difference account: `expensed` = `tax_not_recovered` + `price_difference`. By GR/IR clearings, a
+// figure of its own that `expensed` does not include: `gr_ir_cleared`.
 // Ref: #/components/schemas/AssetOrderExpenseAmounts
 type AssetOrderExpenseAmounts struct {
 	TaxNotRecovered Money `json:"tax_not_recovered"`
 	PriceDifference Money `json:"price_difference"`
 	Expensed        Money `json:"expensed"`
+	GrIrCleared     Money `json:"gr_ir_cleared"`
 }
 
 // GetTaxNotRecovered returns the value of TaxNotRecovered.
@@ -7175,6 +7177,11 @@ func (s *AssetOrderExpenseAmounts) GetExpensed() Money {
 	return s.Expensed
 }
 
+// GetGrIrCleared returns the value of GrIrCleared.
+func (s *AssetOrderExpenseAmounts) GetGrIrCleared() Money {
+	return s.GrIrCleared
+}
+
 // SetTaxNotRecovered sets the value of TaxNotRecovered.
 func (s *AssetOrderExpenseAmounts) SetTaxNotRecovered(val Money) {
 	s.TaxNotRecovered = val
@@ -7190,7 +7197,13 @@ func (s *AssetOrderExpenseAmounts) SetExpensed(val Money) {
 	s.Expensed = val
 }
 
-// What was expensed on one asset purchase order item in the year, as recorded at posting.
+// SetGrIrCleared sets the value of GrIrCleared.
+func (s *AssetOrderExpenseAmounts) SetGrIrCleared(val Money) {
+	s.GrIrCleared = val
+}
+
+// What was expensed on one asset purchase order item in the year, as recorded at posting, and what
+// GR/IR clearings of it put in profit or loss.
 // Ref: #/components/schemas/AssetOrderExpenseItem
 type AssetOrderExpenseItem struct {
 	// The purchase order.
@@ -7210,6 +7223,7 @@ type AssetOrderExpenseItem struct {
 	TaxNotRecovered Money  `json:"tax_not_recovered"`
 	PriceDifference Money  `json:"price_difference"`
 	Expensed        Money  `json:"expensed"`
+	GrIrCleared     Money  `json:"gr_ir_cleared"`
 }
 
 // GetPurchaseOrderID returns the value of PurchaseOrderID.
@@ -7262,6 +7276,11 @@ func (s *AssetOrderExpenseItem) GetExpensed() Money {
 	return s.Expensed
 }
 
+// GetGrIrCleared returns the value of GrIrCleared.
+func (s *AssetOrderExpenseItem) GetGrIrCleared() Money {
+	return s.GrIrCleared
+}
+
 // SetPurchaseOrderID sets the value of PurchaseOrderID.
 func (s *AssetOrderExpenseItem) SetPurchaseOrderID(val uuid.UUID) {
 	s.PurchaseOrderID = val
@@ -7312,12 +7331,18 @@ func (s *AssetOrderExpenseItem) SetExpensed(val Money) {
 	s.Expensed = val
 }
 
+// SetGrIrCleared sets the value of GrIrCleared.
+func (s *AssetOrderExpenseItem) SetGrIrCleared(val Money) {
+	s.GrIrCleared = val
+}
+
 // What supplier invoices and credit memos expensed on a company's asset purchase order items in a
 // fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered
 // and the price difference, exact as posted, with their totals, and the amounts whose order item and
-// split were not recorded. History: a document posted now puts these amounts on the item's asset
-// clearing account, as part of the asset's cost, and adds nothing here. In the company's local
-// currency.
+// split were not recorded. What GR/IR clearings of those items put in profit or loss is a figure of
+// its own (`gr_ir_cleared`). History: a document or clearing posted now puts these amounts on the
+// item's asset clearing account, as part of the asset's cost, and adds nothing here. In the company's
+// local currency.
 // Ref: #/components/schemas/AssetOrderExpenses
 type AssetOrderExpenses struct {
 	// The company.
@@ -7334,7 +7359,8 @@ type AssetOrderExpenses struct {
 	EndDate time.Time `json:"end_date"`
 	// The company's local currency, every amount's.
 	Currency string `json:"currency"`
-	// This page's asset order items with a recorded posting in the year, by order number and item number.
+	// This page's asset order items with a recorded posting or a GR/IR clearing in profit or loss in the
+	// year, by order number and item number.
 	Items        []AssetOrderExpenseItem        `json:"items"`
 	Totals       AssetOrderExpenseAmounts       `json:"totals"`
 	Unattributed AssetOrderExpensesUnattributed `json:"unattributed"`

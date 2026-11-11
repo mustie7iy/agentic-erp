@@ -5586,11 +5586,11 @@ step_asset_order_expenses() {
   say "The year's report on what was expensed on asset purchase orders is history now: it shows what earlier postings"
   say "put on the price difference account, for the accountants to judge and correct by journal. This invoice adds nothing:"
   api 200 '(.items[] | "  order \(.purchase_order_number) item \(.po_item_no) \(.description) on \(.account_number) \(.account_name): tax not recovered \(.tax_not_recovered.amount), price difference \(.price_difference.amount), expensed \(.expensed.amount) \(.expensed.currency)"),
-    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency)",
+    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency); put in profit or loss by GR/IR clearings \(.totals.gr_ir_cleared.amount)",
     "  unattributed (earlier postings, split unknown): \(.unattributed.expensed.amount) \(.unattributed.expensed.currency) (debits \(.unattributed.debits.amount), credits \(.unattributed.credits.amount)) in \(.unattributed.entries) entries"' \
     getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
   expect "no row for the band saw: nothing of it was expensed" "$(field "[.items[] | select(.purchase_order_id == \"$po\")] | length")" 0
-  expect "nothing expensed on asset order items" "$(field '"\(.totals.tax_not_recovered.amount) \(.totals.price_difference.amount) \(.totals.expensed.amount) \(.totals.expensed.currency)"')" "0.00 0.00 0.00 CAD"
+  expect "nothing expensed on asset order items, by invoices or by GR/IR clearings" "$(field '"\(.totals.tax_not_recovered.amount) \(.totals.price_difference.amount) \(.totals.expensed.amount) \(.totals.gr_ir_cleared.amount) \(.totals.expensed.currency)"')" "0.00 0.00 0.00 0.00 CAD"
   expect "nothing unattributed" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.debits.amount) \(.unattributed.credits.amount) \(.unattributed.entries)"')" "0.00 0.00 0.00 0"
   passed
 }

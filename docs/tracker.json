@@ -1290,6 +1290,20 @@
        },
        {
         "s": "D",
+        "t": "The report on asset purchase orders is history, with GR/IR clearings as a figure of their own (product owner 2026-11-10): postings since the capitalisation do not appear as expensed; what GR/IR clearings of an asset's order item put in profit or loss before is shown per order item and in the totals (gr_ir_cleared), exact where the clearing's line names the order item; the contract says what cannot be attributed (clearings made in a source system before migration, manual entries) and that nothing is reposted or backfilled, correcting history being a journal entry the accountants decide from the report",
+        "r": "GET /v1/asset-order-expenses (AssetOrderExpenseItem.gr_ir_cleared, AssetOrderExpenseAmounts.gr_ir_cleared, description) · ledger.AssetReads.ClearedExpenses · assets.Purchases.Cleared, internal/assets/orderexpenses.go · TestAssetOrderExpenses, TestAssetOrderExpensesFailures · walkthrough step_asset_order_expenses (step 46) · ADR-0057 As built (B10, step 3, part 3) · 04-api-design",
+        "src": "po:2026-11-10",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A budget test for the report on asset purchase orders (GET /v1/asset-order-expenses), which had none: its rows are aggregated and paged in memory, so every page reads the company's whole year",
+        "r": "TestAssetOrderExpensesBudget (p95 1 s, the asset history sheet's report budget, over 2,000 asset order items among 22,000 with recorded lines, 1,000 unrecorded entries and 1,000 clearings) · ADR-0057 As built (B10, step 3, part 3)",
+        "src": "review:batch64",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "Depreciation stopped at held-for-sale classification, and a transfer's receiving asset depreciating the transfer's month (accounting specialist, po:2026-11-09, B11; IAS 16.55, IFRS 5, IAS 8.8): the monthly convention is accepted; to add: classifying an asset as held for sale from a period, after which runs no longer depreciate it (depreciation ceases at the earlier of that classification and derecognition), and a test that the receiver of an asset transfer depreciates the month the sender gives up, so no month is lost",
         "r": "T57k · migration 000250 (asset_terms.held_for_sale_*, asset_terms_held_for_sale, asset_terms_held_for_sale_prospective) · internal/assets (Plan.Stop in the walk; estimate.go heldForSale, stopsProspectively, writeHeldForSale) · PATCH /v1/assets/{id} terms[].held_for_sale_from, AssetTerms.held_for_sale, AssetSchedule.held_for_sale · TestHeldForSale, TestTransferReceiverDepreciatesItsMonth, TestScheduleWalkWithChanges, TestAssetHeldForSaleRules · walkthrough step_asset_held_for_sale (step 45) · ADR-0057 §7 Periods, §8 (answered), As built (T57k) · 03-data-model §3.21",
         "src": "po:2026-11-09",

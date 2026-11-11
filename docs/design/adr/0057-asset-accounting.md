@@ -135,7 +135,8 @@ Its ports, each run in the request's (or activity's) transaction under RLS
 - **`assets.Purchases`** (adapter over the ledger's and procurement's
   reads; B10, po:2026-11-10): what a company's recorded price difference
   lines of a fiscal year expensed per order item, what its invoice entries
-  expensed without a recorded order item, and orders' items with their
+  expensed without a recorded order item, what its GR/IR clearings put in
+  profit or loss per order item, and orders' items with their
   accounts, for the report on asset purchase orders (As built, B10 steps
   2 and 3).
 - **`assets.Companies`** (adapter over tenancy): the legal entity's code,
@@ -2981,6 +2982,37 @@ profit or loss. Built in three parts, each its own commit.
   report's clearing figure (part 3), for a journal entry to correct.
 - **`GrIrCleared`** is unchanged in payload; its description names the
   accounts.
+
+*Part 3: the report (`GET /v1/asset-order-expenses`).*
+- **History only.** The rows and `unattributed` are what postings made
+  before part 1 expensed (and what an older replica posted during the
+  upgrade); postings since capitalise and do not appear. The contract
+  says so, and that nothing is reposted or backfilled: correcting an
+  earlier posting is a journal entry the accountants decide from the
+  report.
+- **GR/IR clearings, a figure of their own** (`gr_ir_cleared`, per row
+  and in `totals`; `expensed` does not include it): what clearings of an
+  asset's order item put in profit or loss in the year, in local
+  currency, debit positive, so negative where goods received were never
+  invoiced. Exact per order item without a record of its own: a clearing
+  entry (`ledger.gr_ir_clearing_entry`) is all clearing items, each a
+  GR/IR line naming its order item followed by its counter line, so the
+  line after a GR/IR line is what that item cleared against
+  (`ledger.AssetReads.ClearedExpenses`, counter lines on profit and loss
+  accounts only; port `assets.Purchases.Cleared`). A row appears for an
+  asset's order item with a recorded posting or such a clearing.
+- **What cannot be attributed, said in the contract:** clearings made in
+  a source system before migration (the migrated documents do not say
+  which were clearings), and manual entries on the price difference
+  account, which name no order item. A clearing has no split into tax and
+  price difference. Nothing of this ledger's own clearings is
+  unattributed, and since a clearing is never reversed (no path), none
+  nets out.
+- **A budget test** (review:batch64; step 2 had none):
+  `TestAssetOrderExpensesBudget` holds the report to the asset history
+  sheet's report budget (p95 1 s; 01 §1.3 sizes neither) over a year
+  with 2,000 asset order items among 22,000 order items with recorded
+  lines; the rows are still aggregated and paged in memory.
 
 - **IFRS readings, the coordinator's, to be confirmed by the accounting
   specialist** (not verified against the standard here): (a) IAS 16.16

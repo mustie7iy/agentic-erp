@@ -108,6 +108,16 @@ type UnrecordedExpense struct {
 	Items           []OrderItemRef
 }
 
+// OrderItemCleared is what a company's GR/IR clearings of a fiscal year
+// put in profit or loss for one order item in the leading ledger, in
+// local currency, debit positive (an expense; negative: a credit, as for
+// goods received and never invoiced).
+type OrderItemCleared struct {
+	PurchaseOrderID uuid.UUID
+	POItemNo        int32
+	Amount          money.Minor
+}
+
 // OrderItemRef names a purchase order item.
 type OrderItemRef struct {
 	PurchaseOrderID uuid.UUID
@@ -188,4 +198,36 @@ func (AssetReads) UnrecordedExpenses(ctx context.Context, legalEntity uuid.UUID,
 		return nil
 	})
 	return out, errs.Wrapf(err, "ledger: unrecorded price differences of %s in %d", legalEntity, year)
+}
+
+// ClearedExpenses reads what the company's GR/IR clearings (T72e) of the
+// fiscal year put in profit or loss per order item (B10; ADR-0057 §6), by
+// order and item. A clearing entry (ledger.gr_ir_clearing_entry) is all
+// clearing items, each a GR/IR line naming its order item followed by its
+// counter line (itemLines), so the line after a GR/IR line is what that
+// item's clearing posted against: exact per item, without a record of
+// its own. Counter lines on balance sheet accounts are left out: an
+// asset's item cleared against its asset clearing account (product owner
+// 2026-11-10) adjusts the asset's cost, not profit or loss. A clearing is
+// never reversed (procurement's entry; no path), so none nets out.
+func (AssetReads) ClearedExpenses(ctx context.Context, legalEntity uuid.UUID, year int16) ([]OrderItemCleared, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.purchase_order_id, l.po_item_no, sum(c.amount_lc)::bigint
+		FROM ledger.gr_ir_clearing_entry ce
+		JOIN ledger.journal_line l ON l.tenant_id = ce.tenant_id AND l.fiscal_year = ce.fiscal_year AND l.journal_entry_id = ce.journal_entry_id
+			AND l.purchase_order_id IS NOT NULL
+		JOIN ledger.journal_line c ON c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year AND c.journal_entry_id = l.journal_entry_id
+			AND c.line_no = l.line_no + 1 AND c.purchase_order_id IS NULL
+		JOIN ledger.gl_account a ON a.tenant_id = c.tenant_id AND a.id = c.account_id
+		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id
+		WHERE ce.fiscal_year = $2 AND l.legal_entity_id = $1 AND g.is_leading AND NOT a.is_balance_sheet
+		GROUP BY l.purchase_order_id, l.po_item_no ORDER BY l.purchase_order_id, l.po_item_no`, legalEntity, year)
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (OrderItemCleared, error) {
+		var x OrderItemCleared
+		return x, r.Scan(&x.PurchaseOrderID, &x.POItemNo, &x.Amount)
+	})
+	return out, errs.Wrapf(err, "ledger: GR/IR clearings in profit or loss of %s in %d", legalEntity, year)
 }

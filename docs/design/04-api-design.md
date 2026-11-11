@@ -351,7 +351,11 @@ step 3): a document posted now puts an asset's order item's price
 difference and tax not recovered on the item's asset clearing account,
 as part of the asset's cost, and adds nothing here; nothing earlier is
 reposted, and correcting it is a journal entry the accountants decide
-from the report. GR/IR clearings are left out (not decided).
+from the report. What GR/IR clearings of an asset's order item put in
+profit or loss before is a figure of its own, per row and in `totals`
+(`gr_ir_cleared`), exact per order item; clearings made in a source
+system before migration and manual entries cannot be attributed and are
+not shown.
 
 The asset history sheet (ADR-0057 §9, T57i), `GET /v1/asset-history-sheet`
 (`assets.asset.read`, `x-slo-class: report`), reconciles a company's asset
