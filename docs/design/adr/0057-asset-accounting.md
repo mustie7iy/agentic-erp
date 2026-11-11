@@ -3008,8 +3008,9 @@ profit or loss. Built in three parts, each its own commit.
 - **What cannot be attributed, said in the contract:** clearings made in
   a source system before migration (the migrated documents do not say
   which were clearings), and manual entries on the price difference
-  account, which name no order item. The report's totals are summed with
-  `money.Sum` and fail rather than wrap. A clearing has no split into tax and
+  account, which name no order item. The rows' totals (`totals`) are summed with
+  `money.Sum` and fail rather than wrap; `unattributed` and each row's
+  price difference are still plain sums, as step 2 built them. A clearing has no split into tax and
   price difference. Nothing of this ledger's own clearings is
   unattributed, and since a clearing is never reversed (no path), none
   nets out.

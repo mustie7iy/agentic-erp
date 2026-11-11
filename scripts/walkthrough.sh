@@ -5604,7 +5604,10 @@ step_asset_order_expenses() {
   if [ "$(field .status)" = pending_approval ]; then
     approve priya "$(field .release_request_id)" "Budgeted dust extractor"
     as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$extractor"
   fi
+  expect "the extractor's order status" "$(field .status)" released
+  expect "the extractor's order valued through GR/IR" "$(field .valuation)" gr_ir
   api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$extractor\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
   QUIET=1 api 200 '' getPurchaseOrder -p "id=$extractor"
