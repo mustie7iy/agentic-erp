@@ -268,7 +268,6 @@ for job in changes tracker shards race coverage-shard coverage fuzz test; do
 done
 without race coverage
 expect "every missing job is named" refused "\(race: missing coverage: missing\)"
-without fuzz
 run_ 21 "$code" workflow_dispatch "${full[@]/fuzz=success/fuzz=skipped}" ci-ok=none
 expect "a required job skipped is not green" refused "ended failure \(fuzz: skipped\)"
 run_ 21 "$code" workflow_dispatch "${full[@]/race=success/race=skipped}" ci-ok=none
@@ -279,6 +278,23 @@ run_ 21 "$code" workflow_dispatch "${full[@]/signing=success/signing=failure}" c
 expect "another job failed is red" refused "ended failure \(signing: failure\)"
 run_ 21 "$code" workflow_dispatch "${full[@]/test=success/test=none}" ci-ok=none
 expect "a job without a conclusion is red" refused "ended failure \(test: PENDING\)"
+# The required jobs are ci-ok's, read from the workflow: one it comes to
+# require is required of a full run here without this script changing.
+run_ 21 "$code" workflow_dispatch "${full[@]}" ci-ok=none
+sed 's/\(workflow_dispatch:\*) required=.*\),"test"\]/\1,"test","budgets"]/' "$root/.github/workflows/ci.yml" >"$work/ci.yml"
+workflow() { CI_WORKFLOW="$1" expect "${@:2}"; }
+workflow "$work/ci.yml" "a job ci-ok comes to require is required of a full run" refused "ended failure \(budgets: missing\)"
+run_ 21 "$code" workflow_dispatch "${full[@]}" budgets=success ci-ok=none
+workflow "$work/ci.yml" "and counts once it ran" merged "ended failure without its ci-ok having run"
+grep -v 'workflow_dispatch:\*) required=' "$root/.github/workflows/ci.yml" >"$work/ci.yml"
+workflow "$work/ci.yml" "a workflow without ci-ok's list refuses" refused "could not be read from $work/ci.yml"
+workflow "$work/none.yml" "a workflow that is not there refuses" refused "could not be read from $work/none.yml"
+if [ "$(sed -n "s/^ *workflow_dispatch:\*) required='\(.*\)' ;;\$/\1/p" "$root/.github/workflows/ci.yml")" = '["changes","tracker","shards","race","coverage-shard","coverage","fuzz","test"]' ]; then
+  echo "ok   ci.yml's list for a manual run is the one the cases above stand on"
+else
+  echo "FAIL ci.yml's list for a manual run changed: bring the full run's fixture (full) in line" >&2
+  failed=1
+fi
 main_runs workflow_dispatch completed:cancelled:22
 run_ 22 "$code" workflow_dispatch changes=success test=cancelled race=cancelled ci-ok=failure
 expect "a cancelled full run refuses: main's state is not known" refused "ended cancelled \(test: cancelled race \(2\): cancelled ci-ok: failure"

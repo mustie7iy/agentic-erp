@@ -482,7 +482,7 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.shards.outputs.race) }}
     runs-on: ubuntu-latest
-    # A shard is planned at about 25 minutes. Each go test in it (the whole
+    # A shard is planned at about 25 minutes with its set-up. Each go test in it (the whole
     # packages together, then each part of a split one) has -timeout 35m
     # (scripts/ci-shards.sh), so a hung one is named by go test before
     # this limit stops the runner.
@@ -708,7 +708,9 @@ jobs:
     # a manual run: the same and test in place of short; on a push to main:
     # fuzz (signing and release-scripts when their inputs changed, test
     # never: it runs on demand). For documentation alone only changes and
-    # tracker run.
+    # tracker run. scripts/merge-pr.sh reads the manual run's list from the
+    # workflow_dispatch line below, as it is written, to judge a full run
+    # whose ci-ok never ran: keep the line's form.
     needs: [changes, tracker, shards, race, coverage-shard, coverage, short, test, fuzz, signing, release-scripts]
     if: always()
     runs-on: ubuntu-latest
@@ -723,10 +725,10 @@ jobs:
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
           case "$EVENT:$RUN" in
-            *:false) required='[]' ;;
-            pull_request:*) required='["shards","race","coverage-shard","coverage","fuzz","short"]' ;;
-            workflow_dispatch:*) required='["shards","race","coverage-shard","coverage","fuzz","test"]' ;;
-            push:*) required='["fuzz"]' ;;
+            *:false) required='["changes","tracker"]' ;;
+            pull_request:*) required='["changes","tracker","shards","race","coverage-shard","coverage","fuzz","short"]' ;;
+            workflow_dispatch:*) required='["changes","tracker","shards","race","coverage-shard","coverage","fuzz","test"]' ;;
+            push:*) required='["changes","tracker","fuzz"]' ;;
             *) echo "an event this job does not know: $EVENT" >&2; exit 1 ;;
           esac
           echo "must have succeeded on $EVENT (run=$RUN): $required"

@@ -52,6 +52,9 @@ case "${2:-}" in
   ;;
 esac
 GH="${GH:-gh}"
+# The workflow whose ci-ok says which jobs a manual run must run; tests
+# name another.
+CI_WORKFLOW="${CI_WORKFLOW:-$(dirname "$0")/../.github/workflows/ci.yml}"
 
 # One call, so the checks read are the head's. A head can carry several
 # ci-ok runs (a re-run, a reopened pull request): every one must pass.
@@ -81,7 +84,7 @@ jobs_of() {
 # main_is_green fails, saying why, while main is red or its full run is
 # still going (see the top).
 main_is_green() {
-  local push full id status conclusion jobs bad
+  local push full id status conclusion jobs bad required
   push="$($GH run list --repo "$repo" --workflow ci.yml --branch main --event push --limit 20 --json status,conclusion \
     --jq '[.[] | select(.status == "completed" and .conclusion != "cancelled")][0].conclusion // "none"')" || push=unreadable
   if [ "$push" != success ] && [ "$push" != none ]; then
@@ -108,9 +111,16 @@ main_is_green() {
   # shard, and any other job succeeded or was skipped. A ci-ok that ran
   # (failed, cancelled, timed out), a required job missing or skipped, or
   # any job failed, cancelled or unfinished, is red.
+  # The list is ci-ok's own, read from the workflow rather than copied
+  # here, so a job ci-ok comes to require is required here too.
+  required="$(sed -n "s/^ *workflow_dispatch:\*) required='\(\[.*\]\)' ;;\$/\1/p" "$CI_WORKFLOW" | jq -r 'join(" ")')" || required=""
+  if [ -z "$required" ] || [ "$(wc -l <<<"$required" | tr -d ' ')" != 1 ]; then
+    echo "merge-pr: main's latest full run ($id) ended $conclusion, and the jobs ci-ok requires of a manual run could not be read from $CI_WORKFLOW" >&2
+    return 1
+  fi
   jobs="$(jobs_of "$id")" || jobs=$'unreadable\tunreadable'
-  bad="$(awk -F'\t' '
-    BEGIN { n = split("changes tracker shards race coverage-shard coverage fuzz test", required, " ") }
+  bad="$(awk -F'\t' -v list="$required" '
+    BEGIN { n = split(list, required, " ") }
     $1 == "ci-ok" { if ($2 != "PENDING") print $1 ": " $2; next }
     {
       name = $1
@@ -153,7 +163,8 @@ github_held_the_gates() {
     fi
     jobs="$(jobs_of "$run")" || jobs="" # no job read: every gate missing, refused below
     # A matrix's jobs are named "race (3)", and a matrix skipped whole is one
-    # job named "race"; the coverage gate is "coverage".
+    # job named "race"; the coverage gate is "coverage". These four are the
+    # gates the light form leaves out (scripts/ci-local.sh), not ci-ok's list.
     for gate in '^race( [(]|$)' '^coverage-shard( [(]|$)' '^coverage$' '^fuzz$'; do
       if ! awk -F'\t' -v gate="$gate" -v docs="$docs" '
           $1 ~ gate { n++; if ($2 != "success" && !(docs == "true" && $2 == "skipped")) bad = 1 }

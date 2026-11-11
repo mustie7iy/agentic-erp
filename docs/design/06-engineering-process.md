@@ -362,8 +362,9 @@ larger or self-hosted ones:
   manual run counts as green when it succeeded, or when its `ci-ok` never
   ran (absent, or without a conclusion) and every job `ci-ok` requires of a
   manual run is there and succeeded (`changes`, `tracker`, `shards`, every
-  `race` and `coverage-shard` job, `coverage`, `fuzz` and `test`), with any
-  other job succeeded or skipped (on 2026-11-11 a GitHub Actions outage
+  `race` and `coverage-shard` job, `coverage`, `fuzz` and `test`: the list
+  is read from `ci.yml`'s `ci-ok`, not copied), with any other job
+  succeeded or skipped (on 2026-11-11 a GitHub Actions outage
   left `ci-ok` unqueued and the run read as failed with every job green);
   a `ci-ok` that ran and did not succeed, a required job missing or
   skipped, or any job failed, cancelled or unfinished, is red, a cancelled
@@ -611,7 +612,7 @@ larger or self-hosted ones:
 - `scripts/merge-pr.sh` requires one check, `ci-ok`: it fails unless the
   `changes` job (the secret scan and the skip decision) and the `tracker`
   job succeeded, no job failed or was cancelled, and every job the event
-  must run succeeded rather than was skipped: on a pull request `shards`,
+  must run succeeded rather than was skipped: besides those two, on a pull request `shards`,
   `race`, `coverage-shard`, `coverage`, `fuzz` and `short`; on a manual run
   the same with `test` in place of `short`; on a push to `main`, `fuzz`
   (`test` runs on demand, and the run passes without it); for
