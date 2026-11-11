@@ -111,7 +111,9 @@ func TestMigratedFixedPaymentMethod(t *testing.T) {
 			// data is not changed, and the reconciliation says so.
 			write(t, e.dir, "fixed.json", fixedTiny("S", "T"))
 			later := e.run(t, c, mode, false, e.DE.String())
-			e.act(t, later, "start")
+			if _, got := e.act(t, later, "start"); got["status"] != "loaded" {
+				t.Fatalf("the extract with the method SAP fixed later: got %v, want loaded: %v", got["status"], got["report"])
+			}
 			_, got = e.act(t, later, "reconcile")
 			if got["status"] != "failed" {
 				t.Fatalf("reconcile after SAP fixed a method on a loaded item: got %v, want failed: %v", got["status"], got["report"])

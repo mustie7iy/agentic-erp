@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -115,14 +116,17 @@ func TestFixedMethodsDiffer(t *testing.T) {
 	if got := fmt.Sprint(rc.rec.Diffs); got != wantDiffs {
 		t.Errorf("differences: got %s, want %s", got, wantDiffs)
 	}
-	for i, want := range []string{
+	var got []string
+	for _, c := range rc.rec.Checks {
+		got = append(got, fmt.Sprint(c.Name, " ", c.SAP, " ", c.Platform, " ", c.Pass))
+	}
+	want := []string{
 		"Open items fixing payment method S 1 0 false", "Open items fixing payment method S total -40.00 EUR 0.00 EUR false",
 		"Open items fixing payment method S: vendors with differences 0 1 false",
 		"Open items fixing payment method T 2 1 false", "Open items fixing payment method T total -85.00 EUR -60.00 EUR false",
 		"Open items fixing payment method T: vendors with differences 0 1 false",
-	} {
-		if c := rc.rec.Checks[i]; fmt.Sprint(c.Name, " ", c.SAP, " ", c.Platform, " ", c.Pass) != want {
-			t.Errorf("check %d: got %v, want %s", i, c, want)
-		}
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("checks: got %q, want %q", got, want)
 	}
 }

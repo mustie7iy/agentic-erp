@@ -154,3 +154,19 @@ func TestLineMethodsKeptOnOpenItems(t *testing.T) {
 		return err
 	})
 }
+
+// TestLineMethodRefusedWithGRIRItems: an entry with GR/IR items has its
+// lines built by the ledger, so a line's own payment method cannot be
+// kept by its number and is refused; such an entry fixes one for all its
+// supplier items instead (Posting.PaymentMethod).
+func TestLineMethodRefusedWithGRIRItems(t *testing.T) {
+	g := grirSetup(t)
+	s := "S"
+	err := apitest.InRequest(t, g.ten, g.ten.Human, func(ctx context.Context) error {
+		in := g.invoicePosting("2026-03-02", "EUR", uuid.New(), "2", price{unit: 5000, per: 1}, 10000)
+		in.Lines[0].PaymentMethod = &s
+		_, err := postings().Post(ctx, in)
+		return err
+	})
+	pgtest.CheckErr(t, err, "fixes one for all its items or has GR/IR items")
+}
