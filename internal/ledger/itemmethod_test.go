@@ -149,10 +149,14 @@ func TestLineMethodsKeptOnOpenItems(t *testing.T) {
 		_, err := postings().Post(ctx, opening())
 		return err
 	})
-	apitest.EveryFailure(t, e.ten, e.ten.Human, "open items by fixed method", func(ctx context.Context) error {
+	byMethod := func(ctx context.Context) error {
 		_, err := ledger.Reports{}.OpenItemsByMethod(ctx, e.de, 2026)
 		return err
-	})
+	}
+	if byMethod(context.Background()) == nil {
+		t.Error("open items by fixed method outside a unit of work: got no error, want one")
+	}
+	apitest.EveryFailure(t, e.ten, e.ten.Human, "open items by fixed method", byMethod)
 }
 
 // TestLineMethodRefusedWithGRIRItems: an entry with GR/IR items has its
