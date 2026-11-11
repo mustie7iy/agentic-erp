@@ -20,8 +20,10 @@ import (
 // 2026-10-25, when sources were first recorded, whose sources are in their
 // references, ADRs and history. It must match exactly and only ever falls: an
 // item given its real source, or removed, lowers it here, so no new item can
-// take a baseline item's place unseen in the diff.
-const baselineItems = 949
+// take a baseline item's place unseen in the diff. 936 since the thirteen
+// week 1 placeholders were split once into slices and "later" leaves, each
+// naming its source (po:2026-11-10, design/plan-breadth-week1.md).
+const baselineItems = 936
 
 // pilotItems is the number of leaves carrying "pilot": the pilot-ready list the
 // product owner approved on 2026-10-31, the finish line of the first pilot. It
