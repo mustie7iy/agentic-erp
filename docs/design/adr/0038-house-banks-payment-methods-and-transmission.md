@@ -45,8 +45,14 @@ and France, by EBICS.
   company data (SAP LFB1-ZWELS), not from the run. The configuration ranks,
   per method and currency, the house banks that pay with it. A proposal
   takes no house bank: it pays each supplier through the first method of
-  its company data that a ranked bank can pay, and the release writes one
-  bank file per house bank and method. The run's `house_bank_id` becomes
+  the company's run order that the supplier's company data allows and a
+  ranked bank can pay (amended 2026-11-10 on the SAP specialist's answer
+  A4(c): first this said "the first method of its company data", taking
+  ZWELS's letter order as the supplier's preference, which it is not; see
+  "As built: the run order of payment methods"), its items that fix a
+  payment method by that method, in a payment of their own (product owner
+  2026-11-10; "As built: an item's fixed payment method"), and the release
+  writes one bank file per house bank and method. The run's `house_bank_id` becomes
   nullable in the API and in the schema (a breaking change, accepted in
   `api/breaking-accepted.txt`); a run proposed for one bank keeps it and
   pays everyone through it, as before, with no method on its payments or
@@ -54,8 +60,8 @@ and France, by EBICS.
   names (`payments.currency_required` otherwise); a run proposed for one
   bank takes only that bank's currency (`payments.currency_mismatch`). In a
   run without a bank, a ranked bank whose account is in another currency
-  than the run's is skipped and the ranking's next bank, or the supplier's
-  next method, is tried; a supplier, or a down payment request, no ranked
+  than the run's is skipped and the ranking's next bank, or the next method
+  of the run order that the supplier allows, is tried; a supplier, or a down payment request, no ranked
   bank can pay is excluded with `no_house_bank`, not failed (product owner
   2026-10-19).
   The previous version reads a run without a bank as the zero id and
@@ -1009,8 +1015,9 @@ counterpart for is noted):
   to those ZWELS allows, and an item's fixed method (BSEG/ACDOCA-ZLSCH)
   wins over both; T042I's account (HKTID) tells which T012K account a bank
   pays from by method and currency. The Decision's "first method of its
-  company data" and the draft's one account per house bank are to change
-  (a tracker leaf; this ADR is amended in that step). The OData source maps it to
+  company data" is changed ("As built: the run order of payment methods",
+  below); an item's fixed method and the draft's one account per house
+  bank are to change (a tracker leaf each). The OData source maps it to
   `A_SupplierCompany`'s `PaymentMethodsList` (SAP Cloud SDK,
   https://help.sap.com/doc/505cd8d2cbd340a38eeae8b63b5df753/1.0/en-US/interfaces/_sap_cloud_sdk_vdm_business_partner_service.suppliercompanytype.html);
   the T042 tables, like T012K, come from file extracts.
@@ -1038,6 +1045,213 @@ counterpart for is noted):
   method, then the method's ranking in the active configuration through
   `listConfigVersions` (T: MAIN for CAD, MUSD for USD); step 3 shows the
   migrated supplier Laurentian Paper's methods through `getBusinessPartner`.
+
+
+## As built: the run order of payment methods (A4(c), first part, pilot)
+
+The SAP specialist answered (po:2026-11-09, A4(c), [M], to verify on the
+pilot system) that the letter order of LFB1-ZWELS is not the vendor's
+order of preference: the payment run (F110) tries the methods in the order
+entered in the run's parameters per company code, restricted to those
+ZWELS allows. The proposal took the first method of the supplier's own
+list. Decided by default, from that answer and the Decision above (the
+methods a supplier may be paid by come from its company data; the
+configuration holds what the company pays by):
+
+- **The order is the company's, in the configuration.** A company's
+  `payment_methods[]` each take an optional `order`, a number from 1, each
+  once in the company; a run tries the methods with an order first, lowest
+  first, then the others as the document lists them
+  (`config.Company.MethodsInRunOrder`). The order is a field, not only the
+  list's position, because the configuration's diff identifies methods by
+  code: a reordered list alone would be a change request without a change.
+  `order` is a posting-related change (tier 3), as a ranking is: it decides
+  which bank account pays. A run carries no order of its own: SAP enters
+  it per run, but nothing in the designs asks for a per-run choice, and a
+  run's parameters would let one person reorder what the approved
+  configuration set; a per-run order is new scope if the pilot wants it.
+- **Stored.** `payments.payment_method.run_order` (000251, checked from 1,
+  validated by 000252), the method's place in that order, written by
+  `payments.PaymentMethods` on every activation. It is nullable for good:
+  a replica of the release before writes none, and a method without one is
+  tried after those with one, by code, so the order is total at every read.
+- **The proposal.** A run without a house bank pays each supplier, and
+  each down payment request, by the first method of the company's order
+  that the supplier's `payment_methods` hold and that a house bank ranked
+  for the method and the run currency can pay; the supplier's list only
+  restricts, and its own order decides nothing (it is still stored and
+  returned as given). A supplier none of whose methods a ranked bank can
+  pay is excluded with `no_house_bank`, as before. The liquidity forecast
+  expects an item on the bank the same rule chooses. A run proposed for
+  one house bank is unchanged.
+- **Existing tenants: the default order.** 000251 gives each method its
+  position among its company's `payment_methods` in the active
+  configuration, which is what every later activation writes for a
+  document without an `order`: the default order is the order the active
+  configuration lists the methods in, and it does not move at the next
+  activation. A supplier with one method, or whose list was in that order,
+  is paid as before; a supplier whose list ranked a later method of the
+  company first is now paid by the company's earlier one. A replica of
+  the previous version keeps choosing by the supplier's list until the
+  upgrade completes (06 §6.4), as with the rollouts above, and an
+  activation whose document gives a method an `order` is refused while
+  such a replica runs (409 `config.replica_lacks_key`, the key
+  `companies[].payment_methods[].order`; As built, activation refused
+  while a replica lacks a key). A document that only lists its methods in
+  another order sets no new key, so such a replica may activate it during
+  the upgrade: it writes no `run_order`, the methods keep the places they
+  had, and the run order follows the document again only at the next
+  activation by an upgraded replica. So methods are not reordered during
+  an upgrade, or the configuration is activated again after it
+  (docs/migration.md, check list).
+- **The draft from SAP.** The run's parameters are not in the T042 tables
+  the extract carries (the specialist names the F110 parameters, no table;
+  where SAP stores them is not stated here and is on the pilot check list),
+  so the draft lists the methods in T042E's order as extracted and, for a
+  company with more than one, notes that the reviewer sets the order the
+  company's runs name. ZWELS still loads in its order as the supplier's
+  allowed methods.
+- **No contract change beyond descriptions.** A payment already names its
+  method and bank, an exclusion its reason, and the configuration document
+  is returned as stored; the descriptions of the supplier's
+  `payment_methods`, the run and the forecast's bank now state the rule.
+- **Walkthrough.** Step 2 gives the pilot company a wire method W with
+  order 1, before SAP's bank transfer T; step 7 gives Laurentian Paper the
+  methods T and W, in that order, proposes a run without a house bank and
+  shows it paid by W through RBC while the suppliers allowing T alone are
+  paid by T through MAIN; the run is rejected and the run from RBC follows.
+- **Still open** (tracker leaves, split from this one): an item's fixed
+  payment method (BSEG/ACDOCA-ZLSCH) honoured over both, and T042I's
+  account (HKTID) choosing the house bank's account. The first is built
+  on the platform's side in "As built: an item's fixed payment method",
+  below; taking ZLSCH over from SAP stays open.
+
+
+## As built: an item's fixed payment method (A4(c), second part, platform side; product owner 2026-11-10)
+
+The SAP specialist answered (po:2026-11-09, A4(c), [M], to verify on the
+pilot system) that an item can fix its payment method (BSEG/ACDOCA-ZLSCH),
+which wins over the run's order. The product owner decided the money rule
+on 2026-11-10 (po:2026-11-10):
+
+- **One payment per supplier per method.** A supplier's items that fix a
+  payment method form their own payment by that method; its items that fix
+  none go by the company's run order, as "the run order of payment
+  methods" built.
+- **A credit memo nets only within the group it falls in**: its own fixed
+  method's group, or the group of the items that fix none. Nothing nets
+  across methods.
+- **A group left in debit is excluded**, as a supplier in debit is today
+  (`debit_balance`); the supplier's other group is paid.
+
+The leaf is split once more (split:T45b): this section is the platform's
+side, an invoice fixing a method and runs honouring it; the SAP extract and
+load filling it from ACDOCA/BSEG ZLSCH stays a leaf of its own. Decided by
+default, from the Decision above, the run order's As built and existing
+behaviour:
+
+- **Where it is fixed.** A supplier invoice, credit memo or subsequent
+  debit or credit takes an optional `payment_method`
+  (`payables.supplier_invoice.payment_method`, 000253): at entry, and
+  changed or cleared by the invoice's PATCH while it is parked, under its
+  version and the row's lock as every change of a parked invoice, the
+  audit record of the change naming the method before and after. Posting
+  keeps it with the open item, as the item's terms are kept
+  (`ledger.open_item_payment_method`, insert-only; `ledger.Posting`'s
+  `PaymentMethod`), and a posted document is not changed: no document asks
+  for changing an open item's method after posting, and the ledger's item
+  data is history. SAP allows changing ZLSCH on an open item (FB02); doing
+  so here is new scope if the pilot wants it. A captured document fixes
+  none (a person may, before posting).
+- **What it may be.** An active payment method of the company, checked by
+  the payables context through the payments context's port
+  (`payments.PaymentMethods.IsPaymentMethod`), as a supplier's methods are
+  checked by the partner context: 422 `payables.unknown_payment_method`
+  otherwise. The database holds the code's form (one upper-case letter or
+  digit, as every method reference); no foreign key crosses contexts. The
+  check is made at entry and at each change, not again at posting.
+- **Groups.** A proposal splits each supplier's due items by the method
+  they fix (`byMethod`): those that fix none stay one candidate, then one
+  per fixed method, by code. Each group is judged apart for every existing
+  reason (the supplier blocked, no bank account, a bank change, a debit
+  balance) and then routed. A supplier none of whose items fixes a method
+  is proposed exactly as before: one payment by the run order, the same
+  end-to-end numbering.
+- **The same method twice.** A group is defined by what its items fix, not
+  by the method that ends up paying it, as the product owner's rule names
+  the groups (a credit memo's "own fixed method's group, or the unfixed
+  group"). So when the run order pays a supplier's items that fix none by
+  T and other items of it fix T, the run makes two payments by T, in the
+  same bank file, and nets each apart. Each payment says why it is paid by
+  its method (`payment_method_source`: `run_order` or `item`). Whether
+  these two should be one payment is asked of the product owner (the
+  rule's first sentence, "one payment per supplier per method", read
+  alone, would merge them).
+- **A fixed method that cannot pay.** The group is left out of the run
+  with a reason, never paid by another method (`router.fixed`):
+  `method_not_active`, the method is no longer an active method of the
+  company (it was when the document was entered); `method_not_allowed`,
+  it is not among the supplier's `payment_methods` in the company;
+  `no_house_bank`, no active house bank in the run currency is ranked for
+  it. A reason the supplier itself has, or a debit balance, comes first.
+  `method_not_allowed` is stricter than SAP as the specialist describes it
+  (ZLSCH "wins over both" the run's order and ZWELS): the Decision says the
+  methods a supplier may be paid by come from its company data, and
+  leaving the item out, named, is the safe side of a payment; lifting it
+  is one case in `router.fixed` if the product owner prefers SAP's rule,
+  which matters most for items migrated with a ZLSCH their vendor's ZWELS
+  lacks.
+- **A run proposed for one house bank** pays by no method (the Decision:
+  no method on its payments or its one file), so it cannot honour a fixed
+  one: it leaves every group fixing a method out with
+  `fixed_method_in_bank_run` and pays the supplier's other items from its
+  bank as before. Paying them in the run's one file would be paying them
+  another way. A run without a house bank pays them.
+- **Down payment requests** are unchanged: each is a payment of its own,
+  routed by the run order; a request fixes no method.
+- **Stored.** `payments.payment.method_fixed` (000253) marks a payment of
+  items fixing its method; one items payment per run and supplier for the
+  items that fix none (`payment_items_once_unfixed`, 000255) and one per
+  fixed method (`payment_items_once_per_method`, 000254) replace
+  `payment_items_once` (dropped by 000257, after both are built). A group
+  fixing a method that is left out has its exclusion in
+  `payments.method_exclusion`, one row per run, supplier and method, apart
+  from `payment_exclusion`, which keeps the supplier's items that fix none
+  one row per run and supplier as before (as `request_exclusion` keeps the
+  requests): no key of an existing table changes. A payment is dropped by
+  a release when its own group has an exclusion, so excluding one group
+  never hides the other's payment.
+- **The release** drops a payment whose item was reversed or cleared
+  since the proposal as before, excluding the group that payment paid;
+  the step run twice drops nothing twice (the dropped payment is skipped).
+- **The liquidity forecast** routes an item that fixes a method by that
+  method alone, on the bank ranked for it, and nets a supplier's items
+  fixing a method apart from its others, per method, as a run does
+  (ADR-0051 §5); an item whose fixed method cannot pay it has no bank and
+  no method, as an item no ranked bank pays, and is still forecast on its
+  day (the forecast does not judge a run's exclusions other than a blocked
+  supplier's).
+- **Contract** (additions only): `payment_method` on a supplier invoice
+  (read, create, update), on an open item (`listOpenItems`) and on a
+  payment exclusion; `payment_method_source` on a payment; the exclusion
+  reasons `method_not_active`, `method_not_allowed` and
+  `fixed_method_in_bank_run`; 422 `payables.unknown_payment_method`. No
+  event changes: `payment_excluded` names its payment, as before.
+- **During an upgrade.** A replica of the release before neither writes
+  nor reads a fixed method: an invoice it posts keeps none on its open
+  item, and a run it proposes pays every item by the run order. So fixed
+  methods are entered once the upgrade completes (06 §6.4), as proposals
+  without a bank waited in T45c. Rows written before mean what they
+  meant: no method fixed.
+- **Walkthrough.** Step 7: Alex fixes bank transfer T on Laurentian
+  Paper's freight invoice; the run without a house bank pays Laurentian
+  twice, the freight invoice by T through MAIN (`item`) and its other
+  items by W through RBC (`run_order`); the run from RBC leaves the
+  freight invoice out with `fixed_method_in_bank_run`, and the invoice is
+  reversed.
+- **Still open** (a tracker leaf): the SAP extract and load taking ZLSCH
+  over onto migrated open items (ACDOCA/BSEG), with the quality gate's
+  check of it against the company's methods.
 
 
 ## As built: activation refused while a replica lacks a key (T72m rollout, pilot)

@@ -21,7 +21,7 @@ func paymentMethods() payments.PaymentMethods {
 }
 
 // methodsOf are the legal entity's payment methods and rankings as
-// "code description active" and "method currency banks active".
+// "code description active run-order" and "method currency banks active".
 func methodsOf(t *testing.T, le uuid.UUID) (methods, rankings []string) {
 	t.Helper()
 	q := func(sql string) []string {
@@ -40,14 +40,17 @@ func methodsOf(t *testing.T, le uuid.UUID) (methods, rankings []string) {
 		}
 		return out
 	}
-	return q(`SELECT code || ' ' || description || ' ' || is_active FROM payments.payment_method WHERE legal_entity_id = $1 ORDER BY code`),
+	return q(`SELECT code || ' ' || description || ' ' || is_active || ' ' || coalesce(run_order::text, '-') FROM payments.payment_method
+			WHERE legal_entity_id = $1 ORDER BY code`),
 		q(`SELECT method || ' ' || currency || ' ' || array_to_string(house_banks, ',') || ' ' || is_active FROM payments.bank_ranking
 			WHERE legal_entity_id = $1 ORDER BY method, currency`)
 }
 
 // TestPaymentMethods: the configuration's payment methods and rankings are
 // kept per legal entity; changed ones are updated, removed ones become
-// inactive and come back when the document has them again (ADR-0038).
+// inactive and come back when the document has them again, and each
+// method takes its place in the company's run order: by its order where
+// the document gives one, else as listed (ADR-0038).
 func TestPaymentMethods(t *testing.T) {
 	e := setup(t)
 	m := paymentMethods()
@@ -67,7 +70,7 @@ func TestPaymentMethods(t *testing.T) {
 			t.Errorf("%s, rankings: got %v, want %v", step, gotR, rankings)
 		}
 	}
-	want("from the first configuration", []string{"T Bank transfer true"}, []string{"T USD MAIN true"})
+	want("from the first configuration", []string{"T Bank transfer true 1"}, []string{"T USD MAIN true"})
 
 	doc := fixture.Document(t)
 	// The rankings name house banks by code; HouseBanks keeps those.
@@ -77,10 +80,16 @@ func TestPaymentMethods(t *testing.T) {
 	doc.Companies[0].PaymentMethods = append(doc.Companies[0].PaymentMethods,
 		config.PaymentMethod{Code: "C", Description: "Cheque", Ranking: []config.BankRanking{{Currency: "USD", HouseBanks: []string{"MAIN"}}}})
 	apply(doc)
-	want("changed", []string{"C Cheque true", "T Wire true"}, []string{"C USD MAIN true", "T EUR MAIN true", "T USD HSBC,MAIN true"})
+	want("changed", []string{"C Cheque true 2", "T Wire true 1"}, []string{"C USD MAIN true", "T EUR MAIN true", "T USD HSBC,MAIN true"})
 
+	// Only the order changes: the cheque is tried first.
+	doc.Companies[0].PaymentMethods[1].Order = 1
+	apply(doc)
+	want("reordered", []string{"C Cheque true 1", "T Wire true 2"}, []string{"C USD MAIN true", "T EUR MAIN true", "T USD HSBC,MAIN true"})
+
+	// An inactive method keeps the place it had; it is not tried.
 	apply(fixture.Document(t))
-	want("back to the first", []string{"C Cheque false", "T Bank transfer true"}, []string{"C USD MAIN false", "T EUR MAIN false", "T USD MAIN true"})
+	want("back to the first", []string{"C Cheque false 1", "T Bank transfer true 1"}, []string{"C USD MAIN false", "T EUR MAIN false", "T USD MAIN true"})
 
 	var active, inactive bool
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {

@@ -40,15 +40,23 @@ type CashPayable struct {
 	// Blocked is why no run pays its supplier (SupplierBlocked or
 	// PaymentBlocked), or "".
 	Blocked string
-	// HouseBankCode and Method are the house bank the first of its
-	// supplier's payment methods ranks for the item's currency and that
-	// method, as a run proposed without a house bank routes it; "" when
-	// none fits.
+	// HouseBankCode and Method are the house bank ranked, for the item's
+	// currency, for the first method of the company's run order that its
+	// supplier may be paid by, and that method, as a run proposed without
+	// a house bank routes it; "" when none fits. An item that fixes its
+	// payment method (PayableItem.PaymentMethod) takes that method and
+	// the bank ranked for it, or neither when the method cannot pay it
+	// (router.fixed).
 	HouseBankCode, Method string
 	// PlanningGroup is its supplier's planning group in the legal entity,
 	// "" for none (ADR-0051 §4, T53e3).
 	PlanningGroup string
 }
+
+// FixedMethod is the payment method the item fixes, "" for none: a run
+// pays the supplier's items fixing it in a payment of their own, so the
+// forecast nets them apart (ADR-0038).
+func (c CashPayable) FixedMethod() string { return methodOf(c.PaymentMethod) }
 
 // Dates are the days a run would pay the item on, in the order the
 // liquidity forecast tries them (ADR-0051 §5): an invoice's cash discount
@@ -120,7 +128,9 @@ func (c CashPosition) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 			routers[it.Currency] = rt
 		}
 		payee, found := payees[it.PartnerID]
-		v, _ := rt.route(payee) // not routed: no bank, no method
+		// Not routed: no bank, no method. An item that fixes its method
+		// goes by it alone, as a run routes it (router.items).
+		v, _ := rt.items(payee, methodOf(it.PaymentMethod))
 		it.Blocked, it.Method, banks[i], it.PlanningGroup = blockedReason(payee, found), methodOf(v.method), v.bank, payee.PlanningGroup
 		if it.Kind != CashDownPayment {
 			it.Due = it.DueDate(payee.NetDays)

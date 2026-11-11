@@ -62,7 +62,9 @@ yet posted. A posting's fiscal period follows from its posting date (the
 regular period it falls in); a request names a period only for a year-end
 adjustment, a special period 13-16 on a manual entry, a parked one or the
 API's reversal, dated in the year's last regular period (`fiscal_period`,
-ADR-0060 §3).
+ADR-0060 §3). Such an adjustment carries a tax code only in a UAE company
+and with the tax invoice or tax credit note its VAT rests on
+(`tax_document`), whose date is its tax date (ADR-0060 As built, C10).
 
 **Effective-dated assignments** (role assignments, role permissions, company
 access, SoD rules) are created and then ended with `POST {id}:end`
@@ -194,7 +196,10 @@ problem, never only in `detail`: `payables.tax_mismatch` carries
 `calculated_tax` (the tax stated, the tax its codes' rates give, and each
 code's; ADR-0052 decision D3, T73e2), and `payables.match_outdated` carries
 `match_issues` (the issues the match at posting finds that its basis did
-not show, as `MatchIssue`s; T73e3).
+not show, as `MatchIssue`s; T73e3), and `payables.credit_exceeds_invoice`
+carries `credit_limit` (the invoice a credit names, its gross amount, the
+amount posted credits naming it already credit and the amount refused;
+product owner 2026-11-10, 03 §3.9).
 Each operation lists the codes its handler can answer in `x-problem-codes`,
 and the document lists those the request pipeline can answer on any
 operation (authentication, authorization, rate limits, idempotency,
@@ -330,6 +335,19 @@ profit center or a node of a profit center hierarchy), its actual as `GET
 /v1/profit-center-balances` reads it: profit and loss accounts only, the
 segments summed, paged by profit center and account.
 
+The report on asset purchase orders (ADR-0057 §6, As built B10; accounting
+specialist B10, po:2026-11-10), `GET /v1/asset-order-expenses`
+(`assets.asset.read`, `x-slo-class: report`), shows for a company and
+fiscal year what invoices and credit memos expensed on the price
+difference account for order items on an asset clearing account: per
+order item the tax not recovered, the price difference and their sum, in
+local currency, exact as recorded at posting, paged by order number and
+item, with `totals` of every row on every page and `unattributed`, what
+earlier postings whose order item and split were not recorded put on the
+account (the net, with debits and credits apart: it includes the same
+entries' other order items, so the debits bound the assets' share).
+GR/IR clearings are left out (not decided).
+
 The asset history sheet (ADR-0057 §9, T57i), `GET /v1/asset-history-sheet`
 (`assets.asset.read`, `x-slo-class: report`), reconciles a company's asset
 values over one fiscal year in one ledger (the leading one by default):
@@ -342,7 +360,12 @@ currency, a movement counted in the fiscal year it was posted in. By class
 in the year nor an opening value is left out. `totals` sums every row the
 filters (`class`) select, on every page, and the closing values of a
 company's classes equal the ledger's balances of their asset accounts. It
-reads year totals the postings keep, so it is exact at the read.
+reads year totals the postings keep, so it is exact at the read. Every row
+and the totals reconcile from opening to closing for cost and for
+accumulated depreciation, and a net book value is cost plus accumulated
+depreciation (IAS 16.73(d), (e); po:2026-11-09, B14); the impairment,
+business combination and translation lines are not on it (ADR-0057, As
+built, B14).
 
 Tax registrations (ADR-0049 §10, T61g) are the tax filing context's,
 read-only: the configuration sets them up. `GET /v1/tax-registrations`
@@ -745,7 +768,7 @@ with the month's total against the tenant's cap.
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | einvoicing | `e-invoices` (received from the tenant's accredited provider through an `einvoice_provider` connector, ADR-0061 §15, T65a: the companies the caller may act in, filtered by company, connector, status, fetch and when received, newest first); `/{id}/content` (the bytes as received, compared with their hash, human-only, T65b) | `:fetch` (202 with its `Operation`, carried out as the workflow `FetchEInvoices`, T65a; the same fetch scheduled once per period, T65b) |
-| consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; `/{id}/statements/{statement}`, its consolidated balance sheet or profit and loss by group account with reported, eliminations and consolidated figures and totals, §11, T68e; `/{id}/differences` and `/{id}/entries`, its intercompany differences per elimination and pair and its elimination entries with their lines, each with totals, §8, T68f; each member's investment entry against the member's share capital and acquisition, frozen by the first final run, and the profit's attribution to owners and non-controlling interests, §9, T68h, T68h2; a run only to a caller who may act in every company of its group) | `:discard` (T68d); `:finalize` and `/{id}/differences/{difference_id}:accept` (people only, T68g) |
+| consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; `/{id}/statements/{statement}`, its consolidated balance sheet or profit and loss by group account with reported, eliminations and consolidated figures and totals, §11, T68e, the profit and loss with other comprehensive income (the year's translation differences), total comprehensive income with its attribution and the translation reserve per company, As built: other comprehensive income, and what the run moved out of the profit as the translation part of group-currency revaluations, `revaluation_translation`, As built: the group-currency revaluation's translation part, and as the exchange differences on the group's designated net investments (`net_investments` on the group, from the configuration; `net_investment` per company and in the totals), As built: a net investment's exchange differences; `/{id}/differences` and `/{id}/entries`, its intercompany differences per elimination and pair and its elimination entries with their lines, each with totals, §8, T68f; each member's investment entry against the member's share capital and acquisition, frozen by the first final run, and the profit's attribution to owners and non-controlling interests, §9, T68h, T68h2; a run only to a caller who may act in every company of its group) | `:discard` (T68d); `:finalize` and `/{id}/differences/{difference_id}:accept` (people only, T68g) |
 | controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8) | `:lock`, `:unlock` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |

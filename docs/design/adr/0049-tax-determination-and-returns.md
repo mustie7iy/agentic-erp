@@ -543,7 +543,10 @@ commit-time check, like the balance trigger).
   output tax); a non-deductible component's tax and the part of a
   component's tax not recovered (a self-assessed claim's too) go on the
   item's line (for an item on a
-  GR/IR order, into what it invoices, so onto the price difference). A
+  GR/IR order, into what it invoices, so onto the price difference; the
+  ledger records that tax beside the price difference line with its order
+  item, `ledger.price_difference_item`, migration 000263, ADR-0057 As
+  built B10). A
   reverse charge code posts its self-assessed pair, the supplier owed the
   base only. The supplier's stated tax is held to the calculated within
   `companies[].invoice_tolerance.tax_units_per_code` minor units per code
@@ -1260,7 +1263,9 @@ companies (all in the tenant, under RLS). A registration change is financial
     return (P7, the period lock above): an invoice's invoice date, a
     credit memo's named invoice's, a reversal's original's, a down
     payment's payment date, a cash discount's payment date, a goods
-    movement's posting date, and the entries of migration runs. A manual
+    movement's posting date, the date of the tax document a year-end
+    adjustment names (ADR-0060 As built, C10), and the entries of
+    migration runs. A manual
     adjustment for a filed period (the adjustments above) is dated in an
     open period and reported in the next return. Entries without tax are
     not held. A parked entry is checked when it is posted, not when

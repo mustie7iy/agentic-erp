@@ -10,7 +10,9 @@ import (
 
 // withGroup is the fixture with a group chart, an elimination of
 // intercompany balances and the group ACME: company 2000 holding 80% of
-// company 1000 from 2026-11, its investment on a new asset account 150000.
+// company 1000 from 2026-11, its investment on a new asset account 150000,
+// with the parent's account 100000 with the member and the member's
+// 211000 with the parent designated as part of the net investment in it.
 // Every account of both companies maps to the group account of its type.
 func withGroup(t *testing.T) *Config {
 	t.Helper()
@@ -34,7 +36,8 @@ func withGroup(t *testing.T) *Config {
 		Eliminations: []Elimination{{Code: "IC_BALANCES", Name: "Intercompany receivables and payables", Accounts: []string{"G1250", "G2250"},
 			DifferenceAccount: "G6950", Tolerance: "10.00"}},
 		Groups: []ConsolidationGroup{{Code: "ACME", Name: "Acme group", Parent: "2000",
-			Members: []GroupMember{{Company: "1000", OwnershipPercent: "80", Origin: OriginAcquired, FirstPeriod: "2026-11", InvestmentAccount: "150000"}}}},
+			Members:        []GroupMember{{Company: "1000", OwnershipPercent: "80", Origin: OriginAcquired, FirstPeriod: "2026-11", InvestmentAccount: "150000"}},
+			NetInvestments: []NetInvestment{{Company: "2000", Account: "100000", Partner: "1000"}, {Company: "1000", Account: "211000", Partner: "2000"}}}},
 	}
 	parent := c.Company("2000")
 	parent.ChartOfAccounts = append(parent.ChartOfAccounts, Account{Number: "150000", Name: "Investment in Acme Corp US", Type: Asset, GroupAccount: "G1500"})
@@ -73,7 +76,7 @@ type consolidationCase struct {
 }
 
 func consolidationCases() []consolidationCase {
-	return slices.Concat(groupChartCases(), eliminationCases(), groupCases(), mappingCases())
+	return slices.Concat(groupChartCases(), eliminationCases(), groupCases(), netInvestmentCases(), mappingCases())
 }
 
 func account(number string, mutate func(*GroupAccount)) func(c *Config) {
@@ -185,6 +188,41 @@ func groupCases() []consolidationCase {
 	}
 }
 
+// netInvestmentCases are the rules of a group's net investment
+// designations (ADR-0059 As built: a net investment's exchange
+// differences).
+func netInvestmentCases() []consolidationCase {
+	const p = "consolidation.groups[ACME].net_investments"
+	first := func(mutate func(*NetInvestment)) func(c *Config) {
+		return func(c *Config) { mutate(&c.Consolidation.Groups[0].NetInvestments[0]) }
+	}
+	return []consolidationCase{
+		{"a company outside the group", first(func(n *NetInvestment) { n.Company = "3000" }), p + "[3000/100000/1000].company"},
+		{"a partner outside the group", first(func(n *NetInvestment) { n.Partner = "3000" }), p + "[2000/100000/3000].partner"},
+		{"a company as its own partner", first(func(n *NetInvestment) { n.Partner = "2000" }), p + "[2000/100000/2000].partner"},
+		{"an account not in the company's chart", first(func(n *NetInvestment) { n.Account = "999999" }), p + "[2000/999999/1000].account"},
+		{"an equity account", first(func(n *NetInvestment) { n.Account = "300000" }), p + "[2000/300000/1000].account"},
+		{"a revenue account", first(func(n *NetInvestment) { n.Account = "400000" }), p + "[2000/400000/1000].account"},
+		{"a designation twice", func(c *Config) {
+			g := &c.Consolidation.Groups[0]
+			g.NetInvestments = append(g.NetInvestments, g.NetInvestments[0])
+		}, p + "[2000/100000/1000]"},
+		// The member's own finding reports the company; its designation
+		// adds none for an account it cannot look up.
+		{"a designation of a member not in the document", func(c *Config) {
+			g := &c.Consolidation.Groups[0]
+			g.Members[0].Company = "9000"
+			g.NetInvestments = []NetInvestment{{Company: "9000", Account: "211000", Partner: "2000"}}
+		}, "consolidation.groups[ACME].members[9000].company"},
+		{"more than 200 designations", func(c *Config) {
+			g := &c.Consolidation.Groups[0]
+			for range 200 {
+				g.NetInvestments = append(g.NetInvestments, g.NetInvestments[0])
+			}
+		}, p},
+	}
+}
+
 func mappingCases() []consolidationCase {
 	const p = "companies[1000].chart_of_accounts[400000].group_account"
 	mapping := func(group string) func(c *Config) {
@@ -250,6 +288,14 @@ func TestConsolidationReads(t *testing.T) {
 		t.Errorf("first period: got %d-%d %v, want 2026-11 true", y, p, ok)
 	}
 	for _, c := range []struct {
+		year, period int
+		want         bool
+	}{{2026, 10, false}, {2026, 11, true}, {2026, 12, true}, {2025, 12, false}, {2027, 1, true}} {
+		if got := cs.Groups[0].Members[0].ConsolidatedIn(c.year, c.period); got != c.want {
+			t.Errorf("a member from 2026-11 consolidated in %d-%d: got %v, want %v", c.year, c.period, got, c.want)
+		}
+	}
+	for _, c := range []struct {
 		ownership string
 		want      bool
 	}{{"80", false}, {"100", true}, {"100.0000", true}, {"99.9999", false}, {"a hundred", false}} {
@@ -275,25 +321,28 @@ func TestConsolidationTiers(t *testing.T) {
 	cs.Groups[0].Name = "Acme"
 	cs.Groups[0].Members[0].OwnershipPercent = "90"
 	cs.Groups[0].Members[0].Origin = OriginIncorporated
+	cs.Groups[0].NetInvestments[1].Account = "100000"
 	cs.GroupAccount("G4000").Type = Expense
 	cs.Accounts = append(cs.Accounts, GroupAccount{Number: "G4100", Name: "Other revenue", Type: Revenue})
 	cs.Eliminations = append(cs.Eliminations, Elimination{Code: "IC_RESULTS", Name: "Results", Accounts: []string{"G4100"}, DifferenceAccount: "G6950", Tolerance: "0"})
 	changed.Company("1000").Account("400000").GroupAccount = "G4100"
 	diffs, _ := Diff(base, changed) // Diff never fails
 	want := map[string]Tier{
-		"consolidation.rate_type":                                    TierOperational,
-		"consolidation.accounts[G1000].name":                         TierCosmetic,
-		"consolidation.accounts[G4000].type":                         TierStructural,
-		"consolidation.accounts[G4100]":                              TierStructural,
-		"consolidation.eliminations[IC_BALANCES].name":               TierCosmetic,
-		"consolidation.eliminations[IC_BALANCES].tolerance":          TierOperational,
-		"consolidation.eliminations[IC_BALANCES].accounts[G2250]":    TierPostingRelated,
-		"consolidation.eliminations[IC_BALANCES].difference_account": TierPostingRelated,
-		"consolidation.eliminations[IC_RESULTS]":                     TierPostingRelated,
-		"consolidation.groups[ACME].name":                            TierCosmetic,
-		"consolidation.groups[ACME].members[1000].ownership_percent": TierStructural,
-		"consolidation.groups[ACME].members[1000].origin":            TierStructural,
-		"companies[1000].chart_of_accounts[400000].group_account":    TierStructural,
+		"consolidation.rate_type":                                      TierOperational,
+		"consolidation.accounts[G1000].name":                           TierCosmetic,
+		"consolidation.accounts[G4000].type":                           TierStructural,
+		"consolidation.accounts[G4100]":                                TierStructural,
+		"consolidation.eliminations[IC_BALANCES].name":                 TierCosmetic,
+		"consolidation.eliminations[IC_BALANCES].tolerance":            TierOperational,
+		"consolidation.eliminations[IC_BALANCES].accounts[G2250]":      TierPostingRelated,
+		"consolidation.eliminations[IC_BALANCES].difference_account":   TierPostingRelated,
+		"consolidation.eliminations[IC_RESULTS]":                       TierPostingRelated,
+		"consolidation.groups[ACME].name":                              TierCosmetic,
+		"consolidation.groups[ACME].members[1000].ownership_percent":   TierStructural,
+		"consolidation.groups[ACME].members[1000].origin":              TierStructural,
+		"consolidation.groups[ACME].net_investments[1000/211000/2000]": TierStructural,
+		"consolidation.groups[ACME].net_investments[1000/100000/2000]": TierStructural,
+		"companies[1000].chart_of_accounts[400000].group_account":      TierStructural,
 	}
 	if len(diffs) != len(want) {
 		t.Errorf("Diff: got %v, want %d changes", diffs, len(want))

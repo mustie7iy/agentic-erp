@@ -105,6 +105,13 @@ type Posting struct {
 	// GRIR moves purchase order items' GR/IR positions (T33): the ledger
 	// books each item's GR/IR line and its counter line next to Lines.
 	GRIR []GRIRItem
+	// Collective says the entry gathers lines of documents that have
+	// nothing to do with each other, as a migration's opening entry does
+	// (balances of accounts beside open vendor items): each partner line
+	// still takes its partner's trading partner, but none is given to the
+	// entry's other lines, which would make every balance intercompany
+	// when its vendors happen to name one company (ADR-0059 As built).
+	Collective bool
 	// Terms are the payment terms of the entry's supplier open items, kept
 	// with them (ledger.open_item_terms, T36b); nil for none.
 	Terms *ItemTerms
@@ -112,6 +119,11 @@ type Posting struct {
 	// item (T46f), kept with it (ledger.open_item_withholding): what was
 	// withheld at invoice is among Lines already, on the code's account.
 	Withholding []Withholding
+	// PaymentMethod is the payment method the document fixes for the
+	// entry's supplier open items (ADR-0038, SAP BSEG-ZLSCH), kept with
+	// them (ledger.open_item_payment_method): a payment run pays them by
+	// it alone. nil: none, paid by the company's run order.
+	PaymentMethod *string
 	// Rate is the rate from the entry's currency into the local one that a
 	// source system converted the lines at, recorded on the entry instead
 	// of the average rate valid on the posting date: a document migrated
@@ -255,7 +267,14 @@ type GRIRItem struct {
 	// TaxCode is an invoiced item's tax code: its GR/IR and price
 	// difference lines are the code's base (ADR-0049 §5).
 	TaxCode *string
-	Text    *string
+	// TaxBorne is the input tax an invoiced item bears, which Invoiced
+	// includes (a non-deductible component's, a part not recovered;
+	// ADR-0049 §8), signed as Invoiced. It moves no amount: the ledger
+	// records it beside the item's price difference line with the order
+	// item (ledger.price_difference_item; B10, ADR-0057 §6), so that what
+	// the line expenses can be told apart as tax and price difference.
+	TaxBorne money.Minor
+	Text     *string
 	// CostCenterID is the order item's cost center (ADR-0050 §6, T56e): a
 	// goods movement's counter line and an invoice's price difference line
 	// carry it, as SAP charges a non-valuated receipt's price difference to
@@ -402,7 +421,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	entry := NewEntry{LegalEntityID: in.LegalEntityID, DocumentType: in.DocumentType, DocumentDate: in.DocumentDate, PostingDate: in.PostingDate,
 		TaxDate: in.TaxDate, Currency: in.Currency, Reference: in.Reference, HeaderText: in.HeaderText, SourceContext: in.SourceContext,
 		SourceDocumentID: &in.SourceDocumentID, Lines: make([]NewLine, len(in.Lines)), taxItems: in.TaxItems, rate: in.Rate,
-		taxDateChosen: in.TaxDateChosen, LedgerID: in.LedgerID}
+		taxDateChosen: in.TaxDateChosen, LedgerID: in.LedgerID, collective: in.Collective}
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC, gc: l.GC,
@@ -415,10 +434,13 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	return posted, keepItemData(ctx, tx, posted, in)
 }
 
-// keepItemData keeps the payment terms and withholding taxes of a posted
-// entry's supplier open item.
+// keepItemData keeps the payment terms, the fixed payment method and the
+// withholding taxes of a posted entry's supplier open item.
 func keepItemData(ctx context.Context, tx pgx.Tx, entry Entry, in Posting) error {
 	if err := keepTerms(ctx, tx, entry, in.Terms); err != nil {
+		return err
+	}
+	if err := keepPaymentMethod(ctx, tx, entry, in.PaymentMethod); err != nil {
 		return err
 	}
 	return keepWithholding(ctx, tx, entry, in.Withholding)

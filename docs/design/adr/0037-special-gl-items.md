@@ -170,3 +170,34 @@ built, T72c) and from clearing only whole down payments (T46d): rather
 than guess which request a line belongs to, the clearing refuses a shape
 the ADR rules out. Refusing such an entry, rather than splitting it, is
 the default; no path posts one today (review:batch39).
+
+## As built: SAP's noted items are not migrated (bstat, review:batch63, 2026-11-10)
+SAP keeps a down payment request as a noted item: document status BSTAT
+`S`, special G/L indicator F, posting nothing to the G/L and shown among
+the vendor's open items only (the SAP specialist, po:2026-11-09, A14 [H]
+and A15 [M]). The migration read such a line as a journal line: a
+one-sided request stopped the run as an unbalanced document and as a
+special G/L indicator that is not migrated, and a noted document that
+balanced, in an extract without the indicator, was posted as a journal
+entry with an open payable. Decided by default from this ADR: a request
+is a payables document outside the ledger ("Requests as statistical
+ledger postings" is the alternative refused above), so a noted item is
+never a journal entry or an open item, and since nothing in SAP is wrong
+the run is not refused for one.
+- The scope sets the leading ledger's lines with BSTAT `S` aside
+  (`sap.FilterScope`, `Extract.Noted`), so nothing that reads the journal
+  lines posts, sums or counts one: the quality gate's document checks, the
+  load in both modes, the opening entry, the open items and the
+  reconciliation's SAP side. The report's `extract.acdoca` counts the
+  journal lines without them.
+- The quality gate reports them as `warning`s (`qualityCheck.noted`): per
+  company code how many lines in how many documents were left out and how
+  many are open, and each open one (AUGBL blank) by document and line with
+  its vendor (number and name), indicator, posting date and amount, in
+  its document currency too where that is not the company's. The open requests still
+  wanted are entered on the platform as down payment requests; they are
+  not migrated as payables requests (no ADR or tracker step asks for it:
+  T72c takes over paid down payments, special G/L A, only).
+- Only `S` is read. Which other values of BSTAT the pilot's ACDOCA holds,
+  and whether it holds noted items at all, is asked of the SAP specialist
+  (docs/migration.md, "What to check on a real SAP system").

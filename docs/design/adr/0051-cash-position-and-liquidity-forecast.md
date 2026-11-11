@@ -386,8 +386,13 @@ item is:
    date (`cash.payment_days`, weekdays the company runs payments, e.g.
    `[tue, thu]`; none configured: the date itself), not before the read
    date; an overdue item is expected on the next payment day;
-4. plus the value days of the bank the supplier's first method ranks for
-   the item's currency (`cash.value_days` per house bank and method,
+4. plus the value days of the bank ranked, for the item's currency, for
+   the first method of the company's run order that the supplier may be
+   paid by (first written as "the supplier's first method"; the order is
+   the company's since ADR-0038's amendment of 2026-11-10, as a proposal
+   routes it; an item that fixes its payment method takes the bank ranked
+   for that method, or none when the method cannot pay it: ADR-0038 As
+   built, an item's fixed payment method) (`cash.value_days` per house bank and method,
    default 0), and moved to the next working day of the company's
    calendar (`Config.Holiday`, ADR-0048: weekends and holidays).
 The rule reuses the proposer's due-date and discount-tier logic, moved
@@ -1053,7 +1058,25 @@ zone", split into T72n1-T72n6):
   supplier, UTC's, not by any one company's zone. No code changes: the
   run passed `database.Today` as before (amended by the product owner
   on 2026-11-02: the migration's bank accounts start the day before;
-  see "the migration's bank accounts on a cutover evening" below). Every other
+  see "the migration's bank accounts on a cutover evening" below).
+  **A run's cutover date is the company's (bstat, review:batch63,
+  2026-11-10).** The decision above is about the dates a run writes on
+  the platform. The day a run reads SAP's master data by is another
+  matter: a vendor's central address is the ADRC row valid on the cutover
+  date (po:2026-11-09, A1), and the run took UTC's day for it
+  (`database.Today`), so on a cutover evening in Toronto it chose the
+  address valid from the next day. A run's day is now each company's date
+  in its time zone at the run's instant (`config.CompanyDay` on
+  `Endpoints.Now`, which the API's clock is now wired to; a stored zone
+  that does not load fails the run), and a vendor is judged on the days
+  of the company codes it is set up in (LFB1): a row valid on any of them
+  counts, so where two companies' days differ and SAP's address changes
+  between them the vendor has two valid rows, loads without an address
+  and is warned of with both days named, as for any vendor with several.
+  The address still starts on the platform on UTC's day, and the bank
+  account the day before it, as decided above: partner refuses an earlier
+  start (`partner.backdated_address`) and a supplier's days stay one rule
+  for all its companies. Every other
   document is dated by its caller, or by the company's date where the
   caller leaves the date out (the posting dates and the tax activation
   day, below). The payment release's discount check (T72n3), center
@@ -1403,7 +1426,9 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   (a debit on the supplier account) tries its due date only, its document
   date, so it is due at the next payment day, as the proposer takes it
   (T34d). Then the value days of the house
-  bank the supplier's first payment method ranks for the item's currency
+  bank ranked, for the item's currency, for the first method of the
+  company's run order that the supplier may be paid by (ADR-0038 As built,
+  the run order of payment methods; first the supplier's first method)
   (`cash.value_days` by bank and method; none ranked: 0), and the next
   working day of the company's calendar; the payment day itself is not
   moved off a holiday, only the day at the bank, as §5 step 4 reads.
@@ -1418,7 +1443,10 @@ into T53e and T53e2-T53e4 in the tracker, src `split:T53e`):
   out. A credit memo alone is therefore never forecast as money coming in,
   and one beside an invoice in a discount tier nets on the tier's day, as
   the run that takes the invoice nets it. A flow is one supplier payment
-  (`count` counts payments).
+  (`count` counts payments). A supplier's items that fix a payment method
+  are a payment of their own in a run, so they are netted apart from its
+  items that fix none, per fixed method (`netting.method`; ADR-0038 As
+  built, an item's fixed payment method; product owner 2026-11-10).
 - **Amount.** What a run on that payment day pays the supplier: what each
   item owes less the cash discount of the tier open that day and the
   withholding tax deducted at payment (`ledger.PaymentWithholding` after

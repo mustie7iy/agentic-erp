@@ -11,6 +11,17 @@ type T001 struct {
 	BUTXT string `json:"BUTXT"`
 	WAERS string `json:"WAERS"`
 	LAND1 string `json:"LAND1,omitempty"`
+	// RCOMP is the company the company code is assigned to: the company ID
+	// a trading partner (LFA1-VBUND, ACDOCA-RASSC) names, which is not a
+	// company code. The migration reads it to tell which company code, and
+	// so which legal entity, a vendor's trading partner is (ADR-0059 As
+	// built, A2). The SAP specialist's answer names the trading partner as
+	// a "company ID" and not where a company code gets its own: that it is
+	// T001-RCOMP (check table T880), and that several company codes may
+	// share one, is stated from memory and to be confirmed
+	// (docs/migration.md, "What to check on a real SAP system"). Optional:
+	// an extract without it, as an OData one is, links no supplier.
+	RCOMP string `json:"RCOMP,omitempty"`
 }
 
 // SKB1 - G/L account master per company code, flattened with SKA1/SKAT.
@@ -54,6 +65,13 @@ type LFA1 struct {
 	// A1 [H]). Optional: an extract without it, as an OData one is, loads
 	// its suppliers without an address.
 	ADRNR string `json:"ADRNR,omitempty"`
+	// VBUND is the company ID of the vendor's trading partner: set on a
+	// vendor that is a company of the group, as the SAP specialist named
+	// the field (po:2026-11-09, A2(a) [H]). The load links the supplier to
+	// the legal entity of that company (T001-RCOMP), from which the ledger
+	// derives the trading partner of its documents' lines (ADR-0059 §4).
+	// Optional: an extract without it, as an OData one is, links none.
+	VBUND string `json:"VBUND,omitempty"`
 }
 
 // ADRC - central addresses (business address services), the authoritative
@@ -93,12 +111,14 @@ type LFB1 struct {
 	ZTERM string `json:"ZTERM"` // payment terms key
 	// ZWELS is the list of the payment methods to be considered (data
 	// element DZWELS, CHAR 10): one character per method (ZLSCH). The
-	// partner migration loads it, in its order, as the supplier's methods
-	// in the company (ADR-0038). The field and its data element are the
-	// ABAP dictionary's as a published mirror shows them
-	// (https://leanx.eu/en/sap/table/lfb1.html); that the order of its
-	// characters is SAP's order of preference is to be confirmed by an SAP
-	// specialist.
+	// partner migration loads it as the supplier's methods in the company
+	// (ADR-0038). The field and its data element are the ABAP dictionary's
+	// as a published mirror shows them
+	// (https://leanx.eu/en/sap/table/lfb1.html). The order of its
+	// characters is not an order of preference: the payment run tries the
+	// methods in the order of its own parameters per company code,
+	// restricted to those ZWELS allows (SAP specialist, po:2026-11-09,
+	// A4(c), [M], to verify on the pilot system).
 	ZWELS string `json:"ZWELS,omitempty"`
 }
 
@@ -199,6 +219,14 @@ type RSEG struct {
 	TBTKZ string `json:"TBTKZ,omitempty"`
 }
 
+// StatusNoted is the document status (ACDOCA/BSEG-BSTAT) of a noted item,
+// a statistical document such as a down payment request that posts
+// nothing to the G/L (the SAP specialist, po:2026-11-09, A14 [H], A15
+// [M]). The other values of BSTAT are not read: which of them ACDOCA
+// carries on the pilot's release is a question for the specialist
+// (docs/migration.md, "What to check on a real SAP system").
+const StatusNoted = "S"
+
 // ACDOCA - Universal Journal line item.
 type ACDOCA struct {
 	// RLDNR is the line's ledger. SAP holds a line once per ledger; a
@@ -289,6 +317,17 @@ type ACDOCA struct {
 	RCNTR   string `json:"RCNTR,omitempty"`
 	PRCTR   string `json:"PRCTR,omitempty"`
 	SEGMENT string `json:"SEGMENT,omitempty"`
+	// RASSC is the company ID of the line's trading partner, as the SAP
+	// specialist named the field (po:2026-11-09, A2(b) [H]). SAP gives it
+	// to a vendor line from the vendor's LFA1-VBUND and does not guarantee
+	// it on a document's other lines (A2(c) [M]: lines from materials
+	// management, tax, exchange and price difference and cash discount
+	// lines, documents with several vendors and lines a user cleared often
+	// lack it), so the load does not post it: a document's lines take their
+	// trading partner from its vendor line's supplier (ADR-0059 §4), and
+	// the quality gate reads RASSC only to report where SAP's lines say
+	// something else (internal/integration tradingpartner.go).
+	RASSC string `json:"RASSC,omitempty"`
 }
 
 // --- Controlling master data (ADR-0050 §10, T56h) ---
@@ -792,6 +831,27 @@ type Extract struct {
 	// both, so an extract file holds neither.
 	Ledger       string         `json:"-"`
 	OtherLedgers map[string]int `json:"-"`
+
+	// Noted are the scope's noted items (ACDOCA lines with BSTAT S, such
+	// as down payment requests), which FilterScope takes out of ACDOCA:
+	// SAP posts nothing to the G/L for one (the SAP specialist,
+	// po:2026-11-09, A14 [H], A15 [M]), so a migration run neither posts
+	// nor counts them and its quality gate reports them (review:batch63).
+	// An extract file holds them in ACDOCA, as SAP does.
+	Noted []ACDOCA `json:"-"`
+
+	// CompanyCodes are the company codes assigned to each company ID
+	// (T001-RCOMP, by CompanyID), in company code order, over
+	// every company code of the source, the scope's or not: a vendor's
+	// trading partner (LFA1-VBUND) is usually a company outside the scope.
+	// FilterScope derives it, so an extract file does not hold it.
+	CompanyCodes map[string][]string `json:"-"`
+
+	// NoTradingPartners says the source cannot carry trading partners: an
+	// OData extract's mapping has neither LFA1-VBUND nor ACDOCA-RASSC
+	// (ODataSource), which the quality gate reports once instead of the
+	// run loading intercompany suppliers unlinked without a word.
+	NoTradingPartners bool `json:"-"`
 
 	// VendorsWithoutPartner are the vendors (LFA1-LIFNR) of an OData
 	// extract that no business partner links to as its supplier, so whose

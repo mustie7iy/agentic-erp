@@ -6320,7 +6320,12 @@ func (s *AssetHistorySheet) SetNextPageToken(val OptString) {
 
 func (*AssetHistorySheet) getAssetHistorySheetRes() {}
 
-// One row of the asset history sheet: an asset class, or an asset with its class, and its values.
+// One row of the asset history sheet: an asset class, or an asset with its class, and its values, the
+// columns of `AssetHistorySheetValues` with the same signs. The row reconciles: `closing_cost` =
+// `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` =
+// `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`;
+// `opening_net_book_value` = `opening_cost` + `opening_accumulated`; `closing_net_book_value` =
+// `closing_cost` + `closing_accumulated`.
 // Ref: #/components/schemas/AssetHistorySheetRow
 type AssetHistorySheetRow struct {
 	// The asset class (`GET /v1/asset-classes`).
@@ -6534,7 +6539,8 @@ func (s *AssetHistorySheetRow) SetClosingNetBookValue(val Money) {
 // (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing
 // cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated
 // depreciation retirements took (positive) and transfers moved, closing accumulated depreciation;
-// opening and closing net book value.
+// opening and closing net book value. They reconcile as each row does: a closing value is its opening
+// value plus the year's columns, and a net book value is its cost plus its accumulated depreciation.
 // Ref: #/components/schemas/AssetHistorySheetValues
 type AssetHistorySheetValues struct {
 	OpeningCost            Money `json:"opening_cost"`
@@ -7143,6 +7149,364 @@ func (s *AssetOffsetAccount) SetNumber(val string) {
 // SetName sets the value of Name.
 func (s *AssetOffsetAccount) SetName(val string) {
 	s.Name = val
+}
+
+// Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` +
+// `price_difference`.
+// Ref: #/components/schemas/AssetOrderExpenseAmounts
+type AssetOrderExpenseAmounts struct {
+	TaxNotRecovered Money `json:"tax_not_recovered"`
+	PriceDifference Money `json:"price_difference"`
+	Expensed        Money `json:"expensed"`
+}
+
+// GetTaxNotRecovered returns the value of TaxNotRecovered.
+func (s *AssetOrderExpenseAmounts) GetTaxNotRecovered() Money {
+	return s.TaxNotRecovered
+}
+
+// GetPriceDifference returns the value of PriceDifference.
+func (s *AssetOrderExpenseAmounts) GetPriceDifference() Money {
+	return s.PriceDifference
+}
+
+// GetExpensed returns the value of Expensed.
+func (s *AssetOrderExpenseAmounts) GetExpensed() Money {
+	return s.Expensed
+}
+
+// SetTaxNotRecovered sets the value of TaxNotRecovered.
+func (s *AssetOrderExpenseAmounts) SetTaxNotRecovered(val Money) {
+	s.TaxNotRecovered = val
+}
+
+// SetPriceDifference sets the value of PriceDifference.
+func (s *AssetOrderExpenseAmounts) SetPriceDifference(val Money) {
+	s.PriceDifference = val
+}
+
+// SetExpensed sets the value of Expensed.
+func (s *AssetOrderExpenseAmounts) SetExpensed(val Money) {
+	s.Expensed = val
+}
+
+// What was expensed on one asset purchase order item in the year, as recorded at posting.
+// Ref: #/components/schemas/AssetOrderExpenseItem
+type AssetOrderExpenseItem struct {
+	// The purchase order.
+	PurchaseOrderID uuid.UUID `json:"purchase_order_id"`
+	// The purchase order's document number.
+	PurchaseOrderNumber string `json:"purchase_order_number"`
+	// The order item's number.
+	PoItemNo int32 `json:"po_item_no"`
+	// The order item's description.
+	Description string `json:"description"`
+	// The order item's account: an asset clearing account of the company.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName     string `json:"account_name"`
+	TaxNotRecovered Money  `json:"tax_not_recovered"`
+	PriceDifference Money  `json:"price_difference"`
+	Expensed        Money  `json:"expensed"`
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *AssetOrderExpenseItem) GetPurchaseOrderID() uuid.UUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderNumber returns the value of PurchaseOrderNumber.
+func (s *AssetOrderExpenseItem) GetPurchaseOrderNumber() string {
+	return s.PurchaseOrderNumber
+}
+
+// GetPoItemNo returns the value of PoItemNo.
+func (s *AssetOrderExpenseItem) GetPoItemNo() int32 {
+	return s.PoItemNo
+}
+
+// GetDescription returns the value of Description.
+func (s *AssetOrderExpenseItem) GetDescription() string {
+	return s.Description
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *AssetOrderExpenseItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *AssetOrderExpenseItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *AssetOrderExpenseItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetTaxNotRecovered returns the value of TaxNotRecovered.
+func (s *AssetOrderExpenseItem) GetTaxNotRecovered() Money {
+	return s.TaxNotRecovered
+}
+
+// GetPriceDifference returns the value of PriceDifference.
+func (s *AssetOrderExpenseItem) GetPriceDifference() Money {
+	return s.PriceDifference
+}
+
+// GetExpensed returns the value of Expensed.
+func (s *AssetOrderExpenseItem) GetExpensed() Money {
+	return s.Expensed
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *AssetOrderExpenseItem) SetPurchaseOrderID(val uuid.UUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderNumber sets the value of PurchaseOrderNumber.
+func (s *AssetOrderExpenseItem) SetPurchaseOrderNumber(val string) {
+	s.PurchaseOrderNumber = val
+}
+
+// SetPoItemNo sets the value of PoItemNo.
+func (s *AssetOrderExpenseItem) SetPoItemNo(val int32) {
+	s.PoItemNo = val
+}
+
+// SetDescription sets the value of Description.
+func (s *AssetOrderExpenseItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *AssetOrderExpenseItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *AssetOrderExpenseItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *AssetOrderExpenseItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetTaxNotRecovered sets the value of TaxNotRecovered.
+func (s *AssetOrderExpenseItem) SetTaxNotRecovered(val Money) {
+	s.TaxNotRecovered = val
+}
+
+// SetPriceDifference sets the value of PriceDifference.
+func (s *AssetOrderExpenseItem) SetPriceDifference(val Money) {
+	s.PriceDifference = val
+}
+
+// SetExpensed sets the value of Expensed.
+func (s *AssetOrderExpenseItem) SetExpensed(val Money) {
+	s.Expensed = val
+}
+
+// What supplier invoices and credit memos expensed on a company's asset purchase order items in a
+// fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered
+// and the price difference, exact as posted, with their totals, and the amounts whose order item and
+// split were not recorded. In the company's local currency.
+// Ref: #/components/schemas/AssetOrderExpenses
+type AssetOrderExpenses struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name.
+	CompanyName string `json:"company_name"`
+	// The fiscal year the postings were made in.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The fiscal year's first day.
+	StartDate time.Time `json:"start_date"`
+	// The fiscal year's last day.
+	EndDate time.Time `json:"end_date"`
+	// The company's local currency, every amount's.
+	Currency string `json:"currency"`
+	// This page's asset order items with a recorded posting in the year, by order number and item number.
+	Items        []AssetOrderExpenseItem        `json:"items"`
+	Totals       AssetOrderExpenseAmounts       `json:"totals"`
+	Unattributed AssetOrderExpensesUnattributed `json:"unattributed"`
+	// Opaque cursor for the next page of order items; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AssetOrderExpenses) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *AssetOrderExpenses) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *AssetOrderExpenses) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AssetOrderExpenses) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetStartDate returns the value of StartDate.
+func (s *AssetOrderExpenses) GetStartDate() time.Time {
+	return s.StartDate
+}
+
+// GetEndDate returns the value of EndDate.
+func (s *AssetOrderExpenses) GetEndDate() time.Time {
+	return s.EndDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *AssetOrderExpenses) GetCurrency() string {
+	return s.Currency
+}
+
+// GetItems returns the value of Items.
+func (s *AssetOrderExpenses) GetItems() []AssetOrderExpenseItem {
+	return s.Items
+}
+
+// GetTotals returns the value of Totals.
+func (s *AssetOrderExpenses) GetTotals() AssetOrderExpenseAmounts {
+	return s.Totals
+}
+
+// GetUnattributed returns the value of Unattributed.
+func (s *AssetOrderExpenses) GetUnattributed() AssetOrderExpensesUnattributed {
+	return s.Unattributed
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AssetOrderExpenses) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AssetOrderExpenses) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *AssetOrderExpenses) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *AssetOrderExpenses) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AssetOrderExpenses) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetStartDate sets the value of StartDate.
+func (s *AssetOrderExpenses) SetStartDate(val time.Time) {
+	s.StartDate = val
+}
+
+// SetEndDate sets the value of EndDate.
+func (s *AssetOrderExpenses) SetEndDate(val time.Time) {
+	s.EndDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *AssetOrderExpenses) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetItems sets the value of Items.
+func (s *AssetOrderExpenses) SetItems(val []AssetOrderExpenseItem) {
+	s.Items = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *AssetOrderExpenses) SetTotals(val AssetOrderExpenseAmounts) {
+	s.Totals = val
+}
+
+// SetUnattributed sets the value of Unattributed.
+func (s *AssetOrderExpenses) SetUnattributed(val AssetOrderExpensesUnattributed) {
+	s.Unattributed = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AssetOrderExpenses) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*AssetOrderExpenses) getAssetOrderExpensesRes() {}
+
+// What the rows cannot show: the amounts on the company's current price difference account, in the
+// year, of invoice and credit memo entries that clear GR/IR for at least one asset order item, on
+// lines without a recorded order item (posted before the record existed, or a reversal's rounding
+// residue). Their split between tax and price difference is unknown, and they include the price
+// differences of other order items on the same entries, of either sign: `expensed` is the net of those
+// lines (`debits` + `credits`) and may overstate or understate what was expensed on assets; `debits`,
+// the lines that are debits, is the most those entries can have expensed on assets. All zero when
+// everything is recorded, or when the company has no price difference account now.
+// Ref: #/components/schemas/AssetOrderExpensesUnattributed
+type AssetOrderExpensesUnattributed struct {
+	Expensed Money `json:"expensed"`
+	Debits   Money `json:"debits"`
+	Credits  Money `json:"credits"`
+	// How many journal entries the amount comes from.
+	Entries int32 `json:"entries"`
+}
+
+// GetExpensed returns the value of Expensed.
+func (s *AssetOrderExpensesUnattributed) GetExpensed() Money {
+	return s.Expensed
+}
+
+// GetDebits returns the value of Debits.
+func (s *AssetOrderExpensesUnattributed) GetDebits() Money {
+	return s.Debits
+}
+
+// GetCredits returns the value of Credits.
+func (s *AssetOrderExpensesUnattributed) GetCredits() Money {
+	return s.Credits
+}
+
+// GetEntries returns the value of Entries.
+func (s *AssetOrderExpensesUnattributed) GetEntries() int32 {
+	return s.Entries
+}
+
+// SetExpensed sets the value of Expensed.
+func (s *AssetOrderExpensesUnattributed) SetExpensed(val Money) {
+	s.Expensed = val
+}
+
+// SetDebits sets the value of Debits.
+func (s *AssetOrderExpensesUnattributed) SetDebits(val Money) {
+	s.Debits = val
+}
+
+// SetCredits sets the value of Credits.
+func (s *AssetOrderExpensesUnattributed) SetCredits(val Money) {
+	s.Credits = val
+}
+
+// SetEntries sets the value of Entries.
+func (s *AssetOrderExpensesUnattributed) SetEntries(val int32) {
+	s.Entries = val
 }
 
 // One page of assets.
@@ -16967,8 +17331,9 @@ type CashSnapshotFlow struct {
 	ValueDate time.Time `json:"value_date"`
 	// The last day a bucket's sum covers; absent at document level.
 	BucketEnd OptDate `json:"bucket_end"`
-	// The house bank the flow was expected on; absent when none (a supplier item takes the bank its
-	// supplier's first payment method ranks).
+	// The house bank the flow was expected on; absent when none (a supplier item takes the bank ranked for
+	// the first payment method of the company's run order that its supplier may be paid by, and one that
+	// fixes a payment method the bank ranked for that method, or none when the method cannot pay it).
 	HouseBankID OptUUID `json:"house_bank_id"`
 	// The house bank's code; present exactly when `house_bank_id` is.
 	HouseBankCode OptString `json:"house_bank_code"`
@@ -22043,7 +22408,9 @@ type ConsolidatedStatement struct {
 	// accept and preserve values not listed here; values may be added within /v1.
 	RunStatus string `json:"run_status"`
 	// The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read
-	// its figures, so they may no longer be the ledger's (ADR-0059 §10).
+	// its figures, so they may no longer be the ledger's, or the group's final run of the previous fiscal
+	// year's last period is no longer `opening_run_id`, so other comprehensive income is no longer the
+	// year's change (ADR-0059 §10).
 	Stale bool `json:"stale"`
 	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
@@ -22053,6 +22420,17 @@ type ConsolidatedStatement struct {
 	// The statement's rows on this page, by group account number.
 	Items  []ConsolidatedStatementRow  `json:"items"`
 	Totals ConsolidatedStatementTotals `json:"totals"`
+	// The profit and loss's: the group's final run of the previous fiscal year's last period
+	// (`GET /v1/consolidation-runs/{id}`) as this run found it when it started, whose translation
+	// differences are the reserve's opening balances; absent when the group had none, so the reserve opens
+	// at zero (the first fiscal year the group is consolidated in; a run started before the statement
+	// showed other comprehensive income). When that period is finalized, or finalized again, after this
+	// run started, the run is `stale`. Absent on the balance sheet.
+	OpeningRunID OptUUID `json:"opening_run_id"`
+	// The profit and loss's: the translation reserve of every company of the run, by company code, on
+	// every page; their `difference`s sum to the `reported` column of `totals.other_comprehensive_income`.
+	// Absent on the balance sheet.
+	TranslationReserve []ConsolidatedTranslationReserve `json:"translation_reserve"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 }
@@ -22115,6 +22493,16 @@ func (s *ConsolidatedStatement) GetItems() []ConsolidatedStatementRow {
 // GetTotals returns the value of Totals.
 func (s *ConsolidatedStatement) GetTotals() ConsolidatedStatementTotals {
 	return s.Totals
+}
+
+// GetOpeningRunID returns the value of OpeningRunID.
+func (s *ConsolidatedStatement) GetOpeningRunID() OptUUID {
+	return s.OpeningRunID
+}
+
+// GetTranslationReserve returns the value of TranslationReserve.
+func (s *ConsolidatedStatement) GetTranslationReserve() []ConsolidatedTranslationReserve {
+	return s.TranslationReserve
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -22180,6 +22568,16 @@ func (s *ConsolidatedStatement) SetItems(val []ConsolidatedStatementRow) {
 // SetTotals sets the value of Totals.
 func (s *ConsolidatedStatement) SetTotals(val ConsolidatedStatementTotals) {
 	s.Totals = val
+}
+
+// SetOpeningRunID sets the value of OpeningRunID.
+func (s *ConsolidatedStatement) SetOpeningRunID(val OptUUID) {
+	s.OpeningRunID = val
+}
+
+// SetTranslationReserve sets the value of TranslationReserve.
+func (s *ConsolidatedStatement) SetTranslationReserve(val []ConsolidatedTranslationReserve) {
+	s.TranslationReserve = val
 }
 
 // SetNextPageToken sets the value of NextPageToken.
@@ -22284,7 +22682,11 @@ func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
 
 // The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`,
 // `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`,
-// `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`.
+// `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`, then
+// `other_comprehensive_income`, `total_comprehensive_income` (their sum with the profit) and its
+// attribution to `comprehensive_income_non_controlling_interests` and
+// `comprehensive_income_owners_of_the_parent`, and `revaluation_translation` and `net_investment`, the
+// parts of other comprehensive income moved out of the profit.
 // Ref: #/components/schemas/ConsolidatedStatementTotals
 type ConsolidatedStatementTotals struct {
 	// The balance sheet's asset accounts summed; absent on the profit and loss.
@@ -22310,6 +22712,41 @@ type ConsolidatedStatementTotals struct {
 	// The profit and loss's: the profit's share attributable to the owners of the parent, the profit less
 	// `non_controlling_interests` in each column. Absent on the balance sheet.
 	OwnersOfTheParent OptConsolidatedFigures `json:"owners_of_the_parent"`
+	// The profit and loss's: the fiscal year's translation differences through the period, recognised in
+	// other comprehensive income and not in the profit (IAS 21.39(c), 21.41), debit positive, so a gain is
+	// negative. Reported: each company's translation difference at the run's period (its `cta` row) less
+	// its opening (`translation_reserve[].difference` summed). Eliminations: the run's elimination
+	// entries' lines on the `cta` account less the opening run's, the non-controlling interests' entries
+	// left out, which attribute the reserve and do not change it. The consolidated figure is the year's
+	// change of the group's translation reserve. It holds `revaluation_translation` and `net_investment`,
+	// which the profit does not. Absent on the balance sheet.
+	OtherComprehensiveIncome OptConsolidatedFigures `json:"other_comprehensive_income"`
+	// The profit and loss's: of `other_comprehensive_income`, the translation part of the companies'
+	// group-currency revaluation differences, moved out of the fiscal year's profit through the period
+	// (IAS 21.39(c); ADR-0042): `translation_reserve[].revaluation_translation` summed, reported by the
+	// companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked
+	// group amounts less it. Absent on the balance sheet.
+	RevaluationTranslation OptConsolidatedFigures `json:"revaluation_translation"`
+	// The profit and loss's: of `other_comprehensive_income`, the companies' exchange differences on
+	// monetary items designated as part of a net investment in a foreign operation, moved out of the
+	// fiscal year's profit through the period (IAS 21.32): `translation_reserve[].net_investment` summed,
+	// reported by the companies, so no elimination. Debit positive: the profit's revenue and expense rows
+	// are their booked group amounts less it and less `revaluation_translation`. Absent on the balance
+	// sheet.
+	NetInvestment OptConsolidatedFigures `json:"net_investment"`
+	// The profit and loss's: `profit` and `other_comprehensive_income` summed in each column. Absent on
+	// the balance sheet.
+	TotalComprehensiveIncome OptConsolidatedFigures `json:"total_comprehensive_income"`
+	// The profit and loss's: total comprehensive income's share attributable to non-controlling interests
+	// (IAS 1.81B): `non_controlling_interests` and their share of each member's translation difference
+	// (`translation_reserve[].non_controlling_interests` summed), an attribution and so zero reported;
+	// zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent
+	// on the balance sheet.
+	ComprehensiveIncomeNonControllingInterests OptConsolidatedFigures `json:"comprehensive_income_non_controlling_interests"`
+	// The profit and loss's: total comprehensive income's share attributable to the owners of the parent,
+	// `total_comprehensive_income` less `comprehensive_income_non_controlling_interests` in each column.
+	// Absent on the balance sheet.
+	ComprehensiveIncomeOwnersOfTheParent OptConsolidatedFigures `json:"comprehensive_income_owners_of_the_parent"`
 }
 
 // GetAssets returns the value of Assets.
@@ -22352,6 +22789,36 @@ func (s *ConsolidatedStatementTotals) GetOwnersOfTheParent() OptConsolidatedFigu
 	return s.OwnersOfTheParent
 }
 
+// GetOtherComprehensiveIncome returns the value of OtherComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) GetOtherComprehensiveIncome() OptConsolidatedFigures {
+	return s.OtherComprehensiveIncome
+}
+
+// GetRevaluationTranslation returns the value of RevaluationTranslation.
+func (s *ConsolidatedStatementTotals) GetRevaluationTranslation() OptConsolidatedFigures {
+	return s.RevaluationTranslation
+}
+
+// GetNetInvestment returns the value of NetInvestment.
+func (s *ConsolidatedStatementTotals) GetNetInvestment() OptConsolidatedFigures {
+	return s.NetInvestment
+}
+
+// GetTotalComprehensiveIncome returns the value of TotalComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) GetTotalComprehensiveIncome() OptConsolidatedFigures {
+	return s.TotalComprehensiveIncome
+}
+
+// GetComprehensiveIncomeNonControllingInterests returns the value of ComprehensiveIncomeNonControllingInterests.
+func (s *ConsolidatedStatementTotals) GetComprehensiveIncomeNonControllingInterests() OptConsolidatedFigures {
+	return s.ComprehensiveIncomeNonControllingInterests
+}
+
+// GetComprehensiveIncomeOwnersOfTheParent returns the value of ComprehensiveIncomeOwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) GetComprehensiveIncomeOwnersOfTheParent() OptConsolidatedFigures {
+	return s.ComprehensiveIncomeOwnersOfTheParent
+}
+
 // SetAssets sets the value of Assets.
 func (s *ConsolidatedStatementTotals) SetAssets(val OptConsolidatedFigures) {
 	s.Assets = val
@@ -22389,6 +22856,217 @@ func (s *ConsolidatedStatementTotals) SetNonControllingInterests(val OptConsolid
 
 // SetOwnersOfTheParent sets the value of OwnersOfTheParent.
 func (s *ConsolidatedStatementTotals) SetOwnersOfTheParent(val OptConsolidatedFigures) {
+	s.OwnersOfTheParent = val
+}
+
+// SetOtherComprehensiveIncome sets the value of OtherComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) SetOtherComprehensiveIncome(val OptConsolidatedFigures) {
+	s.OtherComprehensiveIncome = val
+}
+
+// SetRevaluationTranslation sets the value of RevaluationTranslation.
+func (s *ConsolidatedStatementTotals) SetRevaluationTranslation(val OptConsolidatedFigures) {
+	s.RevaluationTranslation = val
+}
+
+// SetNetInvestment sets the value of NetInvestment.
+func (s *ConsolidatedStatementTotals) SetNetInvestment(val OptConsolidatedFigures) {
+	s.NetInvestment = val
+}
+
+// SetTotalComprehensiveIncome sets the value of TotalComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) SetTotalComprehensiveIncome(val OptConsolidatedFigures) {
+	s.TotalComprehensiveIncome = val
+}
+
+// SetComprehensiveIncomeNonControllingInterests sets the value of ComprehensiveIncomeNonControllingInterests.
+func (s *ConsolidatedStatementTotals) SetComprehensiveIncomeNonControllingInterests(val OptConsolidatedFigures) {
+	s.ComprehensiveIncomeNonControllingInterests = val
+}
+
+// SetComprehensiveIncomeOwnersOfTheParent sets the value of ComprehensiveIncomeOwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) SetComprehensiveIncomeOwnersOfTheParent(val OptConsolidatedFigures) {
+	s.ComprehensiveIncomeOwnersOfTheParent = val
+}
+
+// A company's translation reserve in a consolidation run (ADR-0059 §7, §11; IAS 21.41, 21.52(b)):
+// the accumulated translation difference of the company's figures, kept per company for its
+// reclassification on a disposal (IAS 21.48), with the fiscal year's change through the period, which
+// is other comprehensive income, and that change's attribution. Every amount is in the group currency,
+// debit positive, so a gain is negative; `opening` and `difference` sum to `closing`, and the two
+// shares to `difference`.
+// Ref: #/components/schemas/ConsolidatedTranslationReserve
+type ConsolidatedTranslationReserve struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// Whether the company is the group's parent or a member (`ConsolidationRunMember.role`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Role string `json:"role"`
+	// A member's: the parent's ownership in percent as the run read it, a plain decimal; absent for the
+	// parent.
+	OwnershipPercent OptString `json:"ownership_percent"`
+	// The reserve at the end of the previous fiscal year: the company's translation difference in the run
+	// `opening_run_id` names; zero without one, or when that run did not include the company.
+	Opening Money `json:"opening"`
+	// The fiscal year's translation difference through the period, `closing` less `opening`: the company's
+	// part of other comprehensive income.
+	Difference Money `json:"difference"`
+	// The reserve at the run's period: the company's translation difference in this run (its `cta` row of
+	// `listConsolidationBalances`; zero without one).
+	Closing Money `json:"closing"`
+	// The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part
+	// of `closing`: the translation part of the company's group-currency revaluation differences (IAS
+	// 21.39(c)). A revaluation run values group currency on its own (ADR-0042), so a line of its entries
+	// on a profit and loss account books a group amount that is not its local amount translated; the
+	// profit keeps the line's local amount at its entry's local-to-group rate, the rate a posting of that
+	// date converts at, rounded once per line to the group currency's minor unit, half away from zero, and
+	// the rest of its booked group amount is here. Debit positive, so a gain moved out of the profit is
+	// negative, and the profit's revenue and expense rows are their booked group amounts less it. Zero for
+	// a company without revaluation entries in the year, and in a run started before the statement showed
+	// it, whose profit holds the booked group amounts.
+	RevaluationTranslation Money `json:"revaluation_translation"`
+	// The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part
+	// of `closing` and beside `revaluation_translation`: the exchange differences on the company's
+	// monetary items designated as part of a net investment in a foreign operation
+	// (`ConsolidationGroup.net_investments`; IAS 21.32). Of each line of the company's revaluation runs'
+	// entries on a profit and loss account that offsets a difference on a designated account's balance
+	// with its trading partner, this is the local amount at the entry's local-to-group rate, rounded once
+	// per line to the group currency's minor unit, half away from zero: what the profit would keep after
+	// `revaluation_translation`, so the two together are the line's whole booked group amount. Debit
+	// positive, so a gain moved out of the profit is negative. Zero for a company without a designated
+	// item revalued in the year, and in a run started before the statement showed it.
+	NetInvestment Money `json:"net_investment"`
+	// The part of `difference` attributable to non-controlling interests (IAS 21.41): `difference` times
+	// (100 - `ownership_percent`) / 100, rounded once to the group currency's minor unit, half away from
+	// zero. Zero for the parent and for a member held whole.
+	NonControllingInterests Money `json:"non_controlling_interests"`
+	// The part of `difference` attributable to the owners of the parent: `difference` less
+	// `non_controlling_interests`, so the rounding remainder is the owners'.
+	OwnersOfTheParent Money `json:"owners_of_the_parent"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidatedTranslationReserve) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidatedTranslationReserve) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidatedTranslationReserve) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetRole returns the value of Role.
+func (s *ConsolidatedTranslationReserve) GetRole() string {
+	return s.Role
+}
+
+// GetOwnershipPercent returns the value of OwnershipPercent.
+func (s *ConsolidatedTranslationReserve) GetOwnershipPercent() OptString {
+	return s.OwnershipPercent
+}
+
+// GetOpening returns the value of Opening.
+func (s *ConsolidatedTranslationReserve) GetOpening() Money {
+	return s.Opening
+}
+
+// GetDifference returns the value of Difference.
+func (s *ConsolidatedTranslationReserve) GetDifference() Money {
+	return s.Difference
+}
+
+// GetClosing returns the value of Closing.
+func (s *ConsolidatedTranslationReserve) GetClosing() Money {
+	return s.Closing
+}
+
+// GetRevaluationTranslation returns the value of RevaluationTranslation.
+func (s *ConsolidatedTranslationReserve) GetRevaluationTranslation() Money {
+	return s.RevaluationTranslation
+}
+
+// GetNetInvestment returns the value of NetInvestment.
+func (s *ConsolidatedTranslationReserve) GetNetInvestment() Money {
+	return s.NetInvestment
+}
+
+// GetNonControllingInterests returns the value of NonControllingInterests.
+func (s *ConsolidatedTranslationReserve) GetNonControllingInterests() Money {
+	return s.NonControllingInterests
+}
+
+// GetOwnersOfTheParent returns the value of OwnersOfTheParent.
+func (s *ConsolidatedTranslationReserve) GetOwnersOfTheParent() Money {
+	return s.OwnersOfTheParent
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidatedTranslationReserve) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidatedTranslationReserve) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidatedTranslationReserve) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetRole sets the value of Role.
+func (s *ConsolidatedTranslationReserve) SetRole(val string) {
+	s.Role = val
+}
+
+// SetOwnershipPercent sets the value of OwnershipPercent.
+func (s *ConsolidatedTranslationReserve) SetOwnershipPercent(val OptString) {
+	s.OwnershipPercent = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *ConsolidatedTranslationReserve) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *ConsolidatedTranslationReserve) SetDifference(val Money) {
+	s.Difference = val
+}
+
+// SetClosing sets the value of Closing.
+func (s *ConsolidatedTranslationReserve) SetClosing(val Money) {
+	s.Closing = val
+}
+
+// SetRevaluationTranslation sets the value of RevaluationTranslation.
+func (s *ConsolidatedTranslationReserve) SetRevaluationTranslation(val Money) {
+	s.RevaluationTranslation = val
+}
+
+// SetNetInvestment sets the value of NetInvestment.
+func (s *ConsolidatedTranslationReserve) SetNetInvestment(val Money) {
+	s.NetInvestment = val
+}
+
+// SetNonControllingInterests sets the value of NonControllingInterests.
+func (s *ConsolidatedTranslationReserve) SetNonControllingInterests(val Money) {
+	s.NonControllingInterests = val
+}
+
+// SetOwnersOfTheParent sets the value of OwnersOfTheParent.
+func (s *ConsolidatedTranslationReserve) SetOwnersOfTheParent(val Money) {
 	s.OwnersOfTheParent = val
 }
 
@@ -22567,8 +23245,13 @@ type ConsolidationBalance struct {
 	// The group amount as booked, each line at its posting date's rate; absent on a `cta` row.
 	AmountGcBooked OptMoney `json:"amount_gc_booked"`
 	// The translated group amount: the local amount at the closing rate for asset and liability accounts,
-	// rounded once half away from zero; the booked group amount otherwise; the translation difference on a
-	// `cta` row.
+	// rounded once half away from zero; the booked group amount otherwise, less, on a profit and loss
+	// account's row and on `prior_results`, the translation part of the company's group-currency
+	// revaluation differences (ADR-0042; `ConsolidatedTranslationReserve.revaluation_translation`), which
+	// is in the translation difference instead (IAS 21.39(c)), and less the rest of the exchange
+	// differences on a monetary item designated as part of a net investment in a foreign operation
+	// (`ConsolidatedTranslationReserve.net_investment`; IAS 21.32), so `amount_gc_booked` less `amount_gc`
+	// is what the run moved off the row; the translation difference on a `cta` row.
 	AmountGc Money `json:"amount_gc"`
 	// The closing rate the row was translated at, where one applied (asset and liability accounts).
 	ClosingRate OptString `json:"closing_rate"`
@@ -23214,6 +23897,10 @@ type ConsolidationGroup struct {
 	Parent        ConsolidationCompany `json:"parent"`
 	// The subsidiaries, by company code.
 	Members []ConsolidationMember `json:"members"`
+	// The monetary items designated as part of a net investment in a foreign operation of the group (IAS
+	// 21.32), by company code, account number and trading partner code; empty when the group designates
+	// none.
+	NetInvestments []ConsolidationNetInvestment `json:"net_investments"`
 }
 
 // GetCode returns the value of Code.
@@ -23241,6 +23928,11 @@ func (s *ConsolidationGroup) GetMembers() []ConsolidationMember {
 	return s.Members
 }
 
+// GetNetInvestments returns the value of NetInvestments.
+func (s *ConsolidationGroup) GetNetInvestments() []ConsolidationNetInvestment {
+	return s.NetInvestments
+}
+
 // SetCode sets the value of Code.
 func (s *ConsolidationGroup) SetCode(val string) {
 	s.Code = val
@@ -23264,6 +23956,11 @@ func (s *ConsolidationGroup) SetParent(val ConsolidationCompany) {
 // SetMembers sets the value of Members.
 func (s *ConsolidationGroup) SetMembers(val []ConsolidationMember) {
 	s.Members = val
+}
+
+// SetNetInvestments sets the value of NetInvestments.
+func (s *ConsolidationGroup) SetNetInvestments(val []ConsolidationNetInvestment) {
+	s.NetInvestments = val
 }
 
 func (*ConsolidationGroup) getConsolidationGroupRes() {}
@@ -23419,6 +24116,59 @@ func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
 	s.InvestmentAccount = val
 }
 
+// A monetary item designated as part of a net investment in a foreign operation (ADR-0059 As built: a
+// net investment's exchange differences; IAS 21.32): a company's account with a trading partner, a
+// long-term intercompany loan not expected to be settled, say. It is configuration
+// (`consolidation.groups[].net_investments[]`: `company`, `account`, `partner`), changed through a
+// change request as the group is; no flag on the company's account and nothing on a posting says it. A
+// consolidation run takes the exchange differences the company's revaluation runs book on the
+// account's balance with the partner (ADR-0042) out of the consolidated profit and into the company's
+// translation reserve, in other comprehensive income
+// (`ConsolidatedTranslationReserve.net_investment`), in every run that includes the partner (a run of
+// a period before a member's first does not); the company's own ledger and reports are unchanged. The
+// counterparty's exchange differences on the same item move only when its own account with this
+// company is designated too.
+// Ref: #/components/schemas/ConsolidationNetInvestment
+type ConsolidationNetInvestment struct {
+	// The company whose ledger carries the item and its exchange differences: the group's parent or a
+	// member.
+	Company ConsolidationCompany `json:"company"`
+	// The company's account holding the item: an asset or a liability of its chart of accounts.
+	Account AssetAccountRef `json:"account"`
+	// The trading partner the balance is with: another company of the group.
+	Partner ConsolidationCompany `json:"partner"`
+}
+
+// GetCompany returns the value of Company.
+func (s *ConsolidationNetInvestment) GetCompany() ConsolidationCompany {
+	return s.Company
+}
+
+// GetAccount returns the value of Account.
+func (s *ConsolidationNetInvestment) GetAccount() AssetAccountRef {
+	return s.Account
+}
+
+// GetPartner returns the value of Partner.
+func (s *ConsolidationNetInvestment) GetPartner() ConsolidationCompany {
+	return s.Partner
+}
+
+// SetCompany sets the value of Company.
+func (s *ConsolidationNetInvestment) SetCompany(val ConsolidationCompany) {
+	s.Company = val
+}
+
+// SetAccount sets the value of Account.
+func (s *ConsolidationNetInvestment) SetAccount(val AssetAccountRef) {
+	s.Account = val
+}
+
+// SetPartner sets the value of Partner.
+func (s *ConsolidationNetInvestment) SetPartner(val ConsolidationCompany) {
+	s.Partner = val
+}
+
 // A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the
 // closing rate it was translated at and its period's status and version when the run read its figures.
 // The translated figures are `GET /v1/consolidation-runs/{id}/balances`, the intercompany differences
@@ -23466,9 +24216,12 @@ type ConsolidationRun struct {
 	DifferenceCounts []ConsolidationDifferenceCount `json:"difference_counts"`
 	// Whether a company's leading-ledger period changed since the run read its figures: its version now
 	// differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and
-	// a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final
-	// but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent
-	// until every company of the run is translated.
+	// a relock, or an unlock request; or whether the group's final run of the previous fiscal year's last
+	// period is no longer the one the run's translation reserve opens from
+	// (`ConsolidatedStatement.opening_run_id`): that period was finalized, or finalized again, after the
+	// run started, so its other comprehensive income is no longer the year's change. A stale run cannot be
+	// finalized, and a stale final run stays final but no longer shows the ledger's figures; a new run of
+	// the period, finalized, supersedes it. Absent until every company of the run is translated.
 	Stale OptBool `json:"stale"`
 	// Who finalized it (`:finalize`); absent unless it is final or superseded.
 	FinalizedBy OptUUID `json:"finalized_by"`
@@ -26963,6 +27716,74 @@ func (*CreateYearClosePreconditionRequired) createYearCloseRes() {}
 type CreateYearCloseUnprocessableEntity Problem
 
 func (*CreateYearCloseUnprocessableEntity) createYearCloseRes() {}
+
+// The figures of a credit memo or subsequent credit refused at `:post` because the posted credits
+// naming its invoice, with it, would exceed that invoice's gross amount (422
+// `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's.
+// Ref: #/components/schemas/CreditLimit
+type CreditLimit struct {
+	// The invoice the credit names (its `reference_invoice_id`).
+	InvoiceID uuid.UUID `json:"invoice_id"`
+	// That invoice's document number.
+	InvoiceNumber string `json:"invoice_number"`
+	// That invoice's gross amount (`gross_amount`), the limit.
+	InvoiceGross Money `json:"invoice_gross"`
+	// The gross amounts of the posted credit memos and subsequent credits naming that invoice; a reversed
+	// one is not counted.
+	Credited Money `json:"credited"`
+	// The gross amount (`gross_amount`) of the credit refused.
+	Attempted Money `json:"attempted"`
+}
+
+// GetInvoiceID returns the value of InvoiceID.
+func (s *CreditLimit) GetInvoiceID() uuid.UUID {
+	return s.InvoiceID
+}
+
+// GetInvoiceNumber returns the value of InvoiceNumber.
+func (s *CreditLimit) GetInvoiceNumber() string {
+	return s.InvoiceNumber
+}
+
+// GetInvoiceGross returns the value of InvoiceGross.
+func (s *CreditLimit) GetInvoiceGross() Money {
+	return s.InvoiceGross
+}
+
+// GetCredited returns the value of Credited.
+func (s *CreditLimit) GetCredited() Money {
+	return s.Credited
+}
+
+// GetAttempted returns the value of Attempted.
+func (s *CreditLimit) GetAttempted() Money {
+	return s.Attempted
+}
+
+// SetInvoiceID sets the value of InvoiceID.
+func (s *CreditLimit) SetInvoiceID(val uuid.UUID) {
+	s.InvoiceID = val
+}
+
+// SetInvoiceNumber sets the value of InvoiceNumber.
+func (s *CreditLimit) SetInvoiceNumber(val string) {
+	s.InvoiceNumber = val
+}
+
+// SetInvoiceGross sets the value of InvoiceGross.
+func (s *CreditLimit) SetInvoiceGross(val Money) {
+	s.InvoiceGross = val
+}
+
+// SetCredited sets the value of Credited.
+func (s *CreditLimit) SetCredited(val Money) {
+	s.Credited = val
+}
+
+// SetAttempted sets the value of Attempted.
+func (s *CreditLimit) SetAttempted(val Money) {
+	s.Attempted = val
+}
 
 // The caller (getCurrentPrincipal): advisory, as the API decides every call.
 // Ref: #/components/schemas/CurrentPrincipal
@@ -32760,6 +33581,22 @@ func (s *GetAssetOKHeaders) SetResponse(val Asset) {
 
 func (*GetAssetOKHeaders) getAssetRes() {}
 
+type GetAssetOrderExpensesBadRequest Problem
+
+func (*GetAssetOrderExpensesBadRequest) getAssetOrderExpensesRes() {}
+
+type GetAssetOrderExpensesForbidden Problem
+
+func (*GetAssetOrderExpensesForbidden) getAssetOrderExpensesRes() {}
+
+type GetAssetOrderExpensesNotFound Problem
+
+func (*GetAssetOrderExpensesNotFound) getAssetOrderExpensesRes() {}
+
+type GetAssetOrderExpensesUnprocessableEntity Problem
+
+func (*GetAssetOrderExpensesUnprocessableEntity) getAssetOrderExpensesRes() {}
+
 type GetAssetRetirementBadRequest Problem
 
 func (*GetAssetRetirementBadRequest) getAssetRetirementRes() {}
@@ -38286,6 +39123,10 @@ type JournalEntry struct {
 	// Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4).
 	// Absent on entries posted before tax items (T61c), whose tax date is the posting date.
 	TaxDate OptDate `json:"tax_date"`
+	// The tax invoice or tax credit note the entry's VAT rests on, whose date is its tax date: a year-end
+	// adjustment posted into a special period with a tax code (`JournalEntryCreate` `tax_document`,
+	// ADR-0060 §3), and its reversal; absent on every other entry.
+	TaxDocument OptTaxDocumentReference `json:"tax_document"`
 	// Transaction currency.
 	Currency string `json:"currency"`
 	// Local currency.
@@ -38380,6 +39221,11 @@ func (s *JournalEntry) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *JournalEntry) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *JournalEntry) GetTaxDocument() OptTaxDocumentReference {
+	return s.TaxDocument
 }
 
 // GetCurrency returns the value of Currency.
@@ -38522,6 +39368,11 @@ func (s *JournalEntry) SetTaxDate(val OptDate) {
 	s.TaxDate = val
 }
 
+// SetTaxDocument sets the value of TaxDocument.
+func (s *JournalEntry) SetTaxDocument(val OptTaxDocumentReference) {
+	s.TaxDocument = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *JournalEntry) SetCurrency(val string) {
 	s.Currency = val
@@ -38638,15 +39489,28 @@ type JournalEntryCreate struct {
 	// refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its
 	// status (decision P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptDate `json:"tax_date"`
+	// The tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3): given
+	// only with `fiscal_period` and a tax code on a line (422 `ledger.invalid_tax_document` on
+	// `tax_document` otherwise; one of a kind not listed is the same code on `tax_document.kind`). Its
+	// `date` is the entry's tax date, so its tax is reported in the return of the period the document is
+	// dated in, not the period of the posting date; `tax_date`, when given too, equals it (422
+	// `ledger.invalid_tax_document` on `tax_date`). The document decides the date, so it is not held to
+	// the open returns (`ledger.tax_date_in_return` does not apply): a document dated in a period whose
+	// return is prepared, approved or filed is a late item of that period, for its amendment or the next
+	// return (ADR-0049 decision P7).
+	TaxDocument OptTaxDocumentReference `json:"tax_document"`
 	// A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of
 	// the company's fiscal calendar: the entry posts into it instead of the regular period of its posting
 	// date. The posting date must be in the year's last regular period, whose dates the special periods
 	// share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting
 	// date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409
-	// `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`:
-	// refused until the tax specialist confirms how year-end adjustments enter the returns, product owner
-	// 2026-11-05, ADR-0060 question 2). Absent: the regular period of the posting date. A parked entry
-	// (`parkJournalEntry`) keeps it and is held to these rules again when it is posted.
+	// `ledger.period_not_open`). A line carries a tax code only in an entry of a company in the United
+	// Arab Emirates that names the tax invoice or tax credit note its VAT rests on (`tax_document`); any
+	// other is 422 `ledger.special_period_tax_code` (the UAE tax specialist's answer of 2026-11-09,
+	// ADR-0060 §3 and question 2: accruals, provisions and reclassifications carry no VAT; another
+	// country's tax codes stay refused until its tax specialist answers). Absent: the regular period of
+	// the posting date. A parked entry (`parkJournalEntry`) keeps it and is held to these rules again when
+	// it is posted.
 	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Transaction currency; every line amount must use it.
 	Currency string `json:"currency"`
@@ -38691,6 +39555,11 @@ func (s *JournalEntryCreate) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *JournalEntryCreate) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *JournalEntryCreate) GetTaxDocument() OptTaxDocumentReference {
+	return s.TaxDocument
 }
 
 // GetFiscalPeriod returns the value of FiscalPeriod.
@@ -38751,6 +39620,11 @@ func (s *JournalEntryCreate) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *JournalEntryCreate) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetTaxDocument sets the value of TaxDocument.
+func (s *JournalEntryCreate) SetTaxDocument(val OptTaxDocumentReference) {
+	s.TaxDocument = val
 }
 
 // SetFiscalPeriod sets the value of FiscalPeriod.
@@ -38899,8 +39773,10 @@ type JournalEntryReverse struct {
 	// its posting date, the original's unless `posting_date` is given, in the year's last regular period
 	// (422 `ledger.special_period_date`), a special period the calendar has (422
 	// `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409
-	// `ledger.period_not_open`), and an original without tax codes (422 `ledger.special_period_tax_code`).
-	// Absent: the regular period of the reversal's posting date.
+	// `ledger.period_not_open`), and an original without tax codes, or one of a company in the United Arab
+	// Emirates that names its tax document (`tax_document`), which the reversal then names too (422
+	// `ledger.special_period_tax_code` otherwise). Absent: the regular period of the reversal's posting
+	// date.
 	FiscalPeriod OptInt32 `json:"fiscal_period"`
 	// Header text of the reversal entry.
 	HeaderText OptString `json:"header_text"`
@@ -45092,9 +45968,11 @@ type MigrationDiff struct {
 	// `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>`
 	// or `open items of partner <id> (<name>)` (the number of open payable items),
 	// `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items
-	// in a foreign document currency, in it), `cost center <KOKRS>/<KOSTL>` or
-	// `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), or
-	// `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
+	// in a foreign document currency, in it), `trading partner <company code>` or `trading partner <id>`
+	// (the open payables per trading partner: by the SAP company code the vendors' trading partner,
+	// LFA1-VBUND, is, or by the id alone of a legal entity no vendor of the extract names; ADR-0059),
+	// `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050
+	// §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
 	// `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center
 	// reports', documents mode).
 	Key string `json:"key"`
@@ -47032,6 +47910,11 @@ type OpenItem struct {
 	// The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others,
 	// which are due by their supplier's current terms.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
+	// The payment method the item's document fixed when it posted (SAP BSEG-ZLSCH; ADR-0038), on a
+	// supplier item: a payment run pays the item by this method alone, in a payment of its own, and leaves
+	// it out with the reason when the method cannot pay it. Absent on an item that fixes none, which is
+	// paid by the company's run order.
+	PaymentMethod OptString `json:"payment_method"`
 	// Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never
 	// netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and
 	// preserve values not listed here; values may be added within /v1.
@@ -47098,6 +47981,11 @@ func (s *OpenItem) GetPaymentTerms() OptItemPaymentTerms {
 	return s.PaymentTerms
 }
 
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *OpenItem) GetPaymentMethod() OptString {
+	return s.PaymentMethod
+}
+
 // GetSpecialGl returns the value of SpecialGl.
 func (s *OpenItem) GetSpecialGl() OptString {
 	return s.SpecialGl
@@ -47161,6 +48049,11 @@ func (s *OpenItem) SetReference(val OptString) {
 // SetPaymentTerms sets the value of PaymentTerms.
 func (s *OpenItem) SetPaymentTerms(val OptItemPaymentTerms) {
 	s.PaymentTerms = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *OpenItem) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetSpecialGl sets the value of SpecialGl.
@@ -49066,6 +49959,52 @@ func (o OptCountryPackSignOff) Or(d CountryPackSignOff) CountryPackSignOff {
 	return d
 }
 
+// NewOptCreditLimit returns new OptCreditLimit with value set to v.
+func NewOptCreditLimit(v CreditLimit) OptCreditLimit {
+	return OptCreditLimit{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCreditLimit is optional CreditLimit.
+type OptCreditLimit struct {
+	Value CreditLimit
+	Set   bool
+}
+
+// IsSet returns true if OptCreditLimit was set.
+func (o OptCreditLimit) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCreditLimit) Reset() {
+	var v CreditLimit
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCreditLimit) SetTo(v CreditLimit) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCreditLimit) Get() (v CreditLimit, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCreditLimit) Or(d CreditLimit) CreditLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptDate returns new OptDate with value set to v.
 func NewOptDate(v time.Time) OptDate {
 	return OptDate{
@@ -50878,6 +51817,74 @@ func (o OptNilNullableEntrySchedule) Or(d NullableEntrySchedule) NullableEntrySc
 	return d
 }
 
+// NewOptNilParkedJournalEntryUpdateTaxDocument returns new OptNilParkedJournalEntryUpdateTaxDocument with value set to v.
+func NewOptNilParkedJournalEntryUpdateTaxDocument(v ParkedJournalEntryUpdateTaxDocument) OptNilParkedJournalEntryUpdateTaxDocument {
+	return OptNilParkedJournalEntryUpdateTaxDocument{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNilParkedJournalEntryUpdateTaxDocument is optional nullable ParkedJournalEntryUpdateTaxDocument.
+type OptNilParkedJournalEntryUpdateTaxDocument struct {
+	Value ParkedJournalEntryUpdateTaxDocument
+	Set   bool
+	Null  bool
+}
+
+// IsSet returns true if OptNilParkedJournalEntryUpdateTaxDocument was set.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNilParkedJournalEntryUpdateTaxDocument) Reset() {
+	var v ParkedJournalEntryUpdateTaxDocument
+	o.Value = v
+	o.Set = false
+	o.Null = false
+}
+
+// SetTo sets value to v.
+func (o *OptNilParkedJournalEntryUpdateTaxDocument) SetTo(v ParkedJournalEntryUpdateTaxDocument) {
+	o.Set = true
+	o.Null = false
+	o.Value = v
+}
+
+// IsNull returns true if value is Null.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) IsNull() bool { return o.Null }
+
+// SetToNull sets value to null.
+func (o *OptNilParkedJournalEntryUpdateTaxDocument) SetToNull() {
+	o.Set = true
+	o.Null = true
+	var v ParkedJournalEntryUpdateTaxDocument
+	o.Value = v
+}
+
+// IsEmpty returns true if the field was omitted from the payload (not Set and not Null).
+func (o OptNilParkedJournalEntryUpdateTaxDocument) IsEmpty() bool {
+	return !o.Set && !o.Null
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) Get() (v ParkedJournalEntryUpdateTaxDocument, ok bool) {
+	if o.Null {
+		return v, false
+	}
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNilParkedJournalEntryUpdateTaxDocument) Or(d ParkedJournalEntryUpdateTaxDocument) ParkedJournalEntryUpdateTaxDocument {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptNilString returns new OptNilString with value set to v.
 func NewOptNilString(v string) OptNilString {
 	return OptNilString{
@@ -51606,6 +52613,52 @@ func (o OptSupplierInvoicePost) Get() (v SupplierInvoicePost, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptSupplierInvoicePost) Or(d SupplierInvoicePost) SupplierInvoicePost {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptTaxDocumentReference returns new OptTaxDocumentReference with value set to v.
+func NewOptTaxDocumentReference(v TaxDocumentReference) OptTaxDocumentReference {
+	return OptTaxDocumentReference{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptTaxDocumentReference is optional TaxDocumentReference.
+type OptTaxDocumentReference struct {
+	Value TaxDocumentReference
+	Set   bool
+}
+
+// IsSet returns true if OptTaxDocumentReference was set.
+func (o OptTaxDocumentReference) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptTaxDocumentReference) Reset() {
+	var v TaxDocumentReference
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptTaxDocumentReference) SetTo(v TaxDocumentReference) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptTaxDocumentReference) Get() (v TaxDocumentReference, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptTaxDocumentReference) Or(d TaxDocumentReference) TaxDocumentReference {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -52358,6 +53411,9 @@ type ParkedJournalEntry struct {
 	PostingDate time.Time `json:"posting_date"`
 	// Tax date the entry was parked with; absent: its posting date.
 	TaxDate OptDate `json:"tax_date"`
+	// The tax invoice or tax credit note its VAT rests on (`JournalEntryCreate` `tax_document`), whose
+	// date is the tax date it is posted with; absent: none.
+	TaxDocument OptTaxDocumentReference `json:"tax_document"`
 	// The special period (ADR-0060 §3) it is to be posted into, held to a manual entry's rules for one
 	// when it is parked, changed and posted; absent: the regular period of its posting date. A period
 	// close's `no_parked_entries` check leaves an entry naming one out: it is the year's.
@@ -52469,6 +53525,11 @@ func (s *ParkedJournalEntry) GetPostingDate() time.Time {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntry) GetTaxDate() OptDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *ParkedJournalEntry) GetTaxDocument() OptTaxDocumentReference {
+	return s.TaxDocument
 }
 
 // GetFiscalPeriod returns the value of FiscalPeriod.
@@ -52619,6 +53680,11 @@ func (s *ParkedJournalEntry) SetPostingDate(val time.Time) {
 // SetTaxDate sets the value of TaxDate.
 func (s *ParkedJournalEntry) SetTaxDate(val OptDate) {
 	s.TaxDate = val
+}
+
+// SetTaxDocument sets the value of TaxDocument.
+func (s *ParkedJournalEntry) SetTaxDocument(val OptTaxDocumentReference) {
+	s.TaxDocument = val
 }
 
 // SetFiscalPeriod sets the value of FiscalPeriod.
@@ -52799,6 +53865,9 @@ type ParkedJournalEntryUpdate struct {
 	// posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision
 	// P6): such a period's late items go to its amendment or the next return.
 	TaxDate OptNilDate `json:"tax_date"`
+	// The tax invoice or tax credit note the entry's VAT rests on, by the rules of a manual entry's
+	// `tax_document` (ADR-0060 §3), replaced as a whole. Send null to remove it.
+	TaxDocument OptNilParkedJournalEntryUpdateTaxDocument `json:"tax_document"`
 	// The special period to post into, by the rules of a manual entry's `fiscal_period` (ADR-0060 §3).
 	// Send null to remove it: the regular period of the posting date then.
 	FiscalPeriod OptNilInt32 `json:"fiscal_period"`
@@ -52830,6 +53899,11 @@ func (s *ParkedJournalEntryUpdate) GetPostingDate() OptDate {
 // GetTaxDate returns the value of TaxDate.
 func (s *ParkedJournalEntryUpdate) GetTaxDate() OptNilDate {
 	return s.TaxDate
+}
+
+// GetTaxDocument returns the value of TaxDocument.
+func (s *ParkedJournalEntryUpdate) GetTaxDocument() OptNilParkedJournalEntryUpdateTaxDocument {
+	return s.TaxDocument
 }
 
 // GetFiscalPeriod returns the value of FiscalPeriod.
@@ -52877,6 +53951,11 @@ func (s *ParkedJournalEntryUpdate) SetTaxDate(val OptNilDate) {
 	s.TaxDate = val
 }
 
+// SetTaxDocument sets the value of TaxDocument.
+func (s *ParkedJournalEntryUpdate) SetTaxDocument(val OptNilParkedJournalEntryUpdateTaxDocument) {
+	s.TaxDocument = val
+}
+
 // SetFiscalPeriod sets the value of FiscalPeriod.
 func (s *ParkedJournalEntryUpdate) SetFiscalPeriod(val OptNilInt32) {
 	s.FiscalPeriod = val
@@ -52900,6 +53979,48 @@ func (s *ParkedJournalEntryUpdate) SetHeaderText(val OptNilString) {
 // SetLines sets the value of Lines.
 func (s *ParkedJournalEntryUpdate) SetLines(val []JournalLineInput) {
 	s.Lines = val
+}
+
+// The tax invoice or tax credit note the entry's VAT rests on, by the rules of a manual entry's
+// `tax_document` (ADR-0060 §3), replaced as a whole. Send null to remove it.
+type ParkedJournalEntryUpdateTaxDocument struct {
+	// `tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open
+	// enumeration: values may be added within /v1.
+	Kind string `json:"kind"`
+	// The document's number, as its issuer printed it.
+	Number string `json:"number"`
+	// The date the document was issued: the entry's tax date.
+	Date time.Time `json:"date"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ParkedJournalEntryUpdateTaxDocument) GetKind() string {
+	return s.Kind
+}
+
+// GetNumber returns the value of Number.
+func (s *ParkedJournalEntryUpdateTaxDocument) GetNumber() string {
+	return s.Number
+}
+
+// GetDate returns the value of Date.
+func (s *ParkedJournalEntryUpdateTaxDocument) GetDate() time.Time {
+	return s.Date
+}
+
+// SetKind sets the value of Kind.
+func (s *ParkedJournalEntryUpdateTaxDocument) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetNumber sets the value of Number.
+func (s *ParkedJournalEntryUpdateTaxDocument) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetDate sets the value of Date.
+func (s *ParkedJournalEntryUpdateTaxDocument) SetDate(val time.Time) {
+	s.Date = val
 }
 
 // One line of a parked journal entry, in transaction currency.
@@ -53685,9 +54806,10 @@ type Payment struct {
 	// The payment journal entry's document number; present exactly when `journal_entry_id` is.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// What the payment pays: `items`, the supplier's open items netted (at most one such payment per
-	// supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never
-	// netted, whose posting puts the down payment on the down payment account. Open enumeration: clients
-	// must accept and preserve values not listed here; values may be added within /v1.
+	// supplier and run for its items that fix no payment method, and one per payment method its items fix,
+	// `payment_method_source`), or `down_payment`, one down payment request (ADR-0037), paid whole and
+	// never netted, whose posting puts the down payment on the down payment account. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
 	Kind OptString `json:"kind"`
 	// The down payment request a payment of kind `down_payment` pays.
 	DownPaymentRequestID OptUUID `json:"down_payment_request_id"`
@@ -53700,6 +54822,13 @@ type Payment struct {
 	HouseBankCode OptString `json:"house_bank_code"`
 	// Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank.
 	PaymentMethod OptString `json:"payment_method"`
+	// Why the payment is paid by its `payment_method`; present exactly when `payment_method` is.
+	// `run_order`: the first method of the company's run order that the supplier may be paid by and a
+	// ranked house bank pays with. `item`: its items fix the method (their invoices' `payment_method`),
+	// which wins over the run order; such a payment holds the supplier's items fixing that method alone.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	PaymentMethodSource OptString `json:"payment_method_source"`
 	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
 }
@@ -53832,6 +54961,11 @@ func (s *Payment) GetHouseBankCode() OptString {
 // GetPaymentMethod returns the value of PaymentMethod.
 func (s *Payment) GetPaymentMethod() OptString {
 	return s.PaymentMethod
+}
+
+// GetPaymentMethodSource returns the value of PaymentMethodSource.
+func (s *Payment) GetPaymentMethodSource() OptString {
+	return s.PaymentMethodSource
 }
 
 // GetItems returns the value of Items.
@@ -53969,6 +55103,11 @@ func (s *Payment) SetPaymentMethod(val OptString) {
 	s.PaymentMethod = val
 }
 
+// SetPaymentMethodSource sets the value of PaymentMethodSource.
+func (s *Payment) SetPaymentMethodSource(val OptString) {
+	s.PaymentMethodSource = val
+}
+
 // SetItems sets the value of Items.
 func (s *Payment) SetItems(val []PaymentItem) {
 	s.Items = val
@@ -53990,8 +55129,21 @@ type PaymentExclusion struct {
 	// `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`,
 	// `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves
 	// out a supplier, or a request, of a run proposed without a house bank when none of the supplier's
-	// payment methods has a house bank ranked for the run currency (T45c).
+	// payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a
+	// payment method are judged apart from its others, per fixed method (`payment_method`), for every
+	// reason here, and are left out when the method cannot pay them, never paid by another:
+	// `method_not_active` (the method is not an active payment method of the company),
+	// `method_not_allowed` (it is not among the supplier's `payment_methods` in the company),
+	// `no_house_bank` (no active house bank in the run currency is ranked for it) and
+	// `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method:
+	// propose a run without a house bank to pay them).
 	ReasonCode string `json:"reason_code"`
+	// The payment method the items left out fix (their invoices' `payment_method`; ADR-0038): the
+	// exclusion is of the supplier's items fixing this method alone, and `amount` what they would have
+	// been paid. Absent on the exclusion of the supplier's items that fix none, and on a request's. A run
+	// lists at most one exclusion per supplier for its items without a fixed method and one per fixed
+	// method, so a supplier may appear more than once.
+	PaymentMethod OptString `json:"payment_method"`
 	// The down payment request left out, when the exclusion is a request's (T46c): a run lists one
 	// exclusion per supplier for its items and one per request left out, so a supplier may appear more
 	// than once, not necessarily next to each other (the listing is ordered by supplier for items and by
@@ -54025,6 +55177,11 @@ func (s *PaymentExclusion) GetSupplierName() string {
 // GetReasonCode returns the value of ReasonCode.
 func (s *PaymentExclusion) GetReasonCode() string {
 	return s.ReasonCode
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *PaymentExclusion) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetDownPaymentRequestID returns the value of DownPaymentRequestID.
@@ -54070,6 +55227,11 @@ func (s *PaymentExclusion) SetSupplierName(val string) {
 // SetReasonCode sets the value of ReasonCode.
 func (s *PaymentExclusion) SetReasonCode(val string) {
 	s.ReasonCode = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *PaymentExclusion) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetDownPaymentRequestID sets the value of DownPaymentRequestID.
@@ -54636,9 +55798,14 @@ type PaymentRunPropose struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// House bank to pay every supplier from; its currency is the run currency. Without it, each supplier
-	// is paid through the first of its payment methods that a house bank ranked for the method and the run
-	// currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with
-	// `no_house_bank`.
+	// is paid through the first payment method of the company's run order (the configuration's
+	// `payment_methods`, by their `order`, else as listed) that the supplier may be paid by and that a
+	// house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked
+	// bank can pay by a method of theirs are excluded with `no_house_bank`. A supplier's items that fix a
+	// payment method (`payment_method` of their invoice) are paid by that method alone, in one payment per
+	// fixed method beside the payment of its other items, and never net with items of another method; a
+	// run proposed for one house bank pays by no method, so it leaves such items out
+	// (`fixed_method_in_bank_run`) and pays the others.
 	HouseBankID OptUUID `json:"house_bank_id"`
 	// The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house
 	// bank's currency.
@@ -57745,6 +58912,9 @@ type Problem struct {
 	// With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it
 	// again, with what it found (ADR-0058 §7).
 	FailingChecks []FailingCheck `json:"failing_checks"`
+	// With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount,
+	// what posted credits naming it already credit, and the gross amount of the one refused.
+	CreditLimit OptCreditLimit `json:"credit_limit"`
 }
 
 // GetType returns the value of Type.
@@ -57802,6 +58972,11 @@ func (s *Problem) GetFailingChecks() []FailingCheck {
 	return s.FailingChecks
 }
 
+// GetCreditLimit returns the value of CreditLimit.
+func (s *Problem) GetCreditLimit() OptCreditLimit {
+	return s.CreditLimit
+}
+
 // SetType sets the value of Type.
 func (s *Problem) SetType(val string) {
 	s.Type = val
@@ -57855,6 +59030,11 @@ func (s *Problem) SetMatchIssues(val []MatchIssue) {
 // SetFailingChecks sets the value of FailingChecks.
 func (s *Problem) SetFailingChecks(val []FailingCheck) {
 	s.FailingChecks = val
+}
+
+// SetCreditLimit sets the value of CreditLimit.
+func (s *Problem) SetCreditLimit(val OptCreditLimit) {
+	s.CreditLimit = val
 }
 
 // Merged schema.
@@ -66371,8 +67551,9 @@ type SupplierCompany struct {
 	// The withholding taxes deducted from the supplier in this legal entity (SAP LFBW; T46e): codes of the
 	// company's `withholding_tax_codes` in the configuration.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
-	// The methods the supplier may be paid by in this legal entity, in order of preference (SAP
-	// LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration.
+	// The methods the supplier may be paid by in this legal entity (SAP LFB1-ZWELS; ADR-0038): codes of
+	// the company's `payment_methods` in the configuration. The list restricts the methods a payment run
+	// pays the supplier by; the order they are tried in is the company's, not this list's.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the
 	// configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when
@@ -66473,11 +67654,12 @@ type SupplierCompanyInput struct {
 	// company's configuration, each once. The list replaces the supplier's codes in the legal entity:
 	// leaving it out takes every code off the supplier there, as the other company data is replaced too.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
-	// The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038):
-	// active payment methods of the company's configuration, each once. A payment proposal pays the
-	// supplier through the first method a ranked house bank can pay. The list replaces the supplier's
-	// methods in the legal entity: leaving it out takes every method off the supplier there, as the other
-	// company data is replaced too.
+	// The methods the supplier may be paid by in this legal entity (ADR-0038): active payment methods of
+	// the company's configuration, each once. A payment proposal pays the supplier through the first
+	// method of the company's run order (the configuration's `payment_methods`, by their `order`, else as
+	// listed) that is in this list and that a ranked house bank can pay; the order of this list decides
+	// nothing. The list replaces the supplier's methods in the legal entity: leaving it out takes every
+	// method off the supplier there, as the other company data is replaced too.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the
 	// configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the
@@ -66607,6 +67789,14 @@ type SupplierInvoice struct {
 	// before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount),
 	// and on invoices posted before terms were kept.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
+	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
+	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
+	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
+	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// (`listPaymentExclusions`), never paid by another method. Absent: the item is paid by the company's
+	// run order. Changed while the document is parked (`updateSupplierInvoice`); its open item keeps the
+	// method it posted with.
+	PaymentMethod OptString `json:"payment_method"`
 	// Journal entry that reversed the posting (status `reversed`).
 	ReversalEntryID OptUUID `json:"reversal_entry_id"`
 	// Approval request for an invoice exception, if any.
@@ -66744,6 +67934,11 @@ func (s *SupplierInvoice) GetJournalEntryID() OptUUID {
 // GetPaymentTerms returns the value of PaymentTerms.
 func (s *SupplierInvoice) GetPaymentTerms() OptItemPaymentTerms {
 	return s.PaymentTerms
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *SupplierInvoice) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetReversalEntryID returns the value of ReversalEntryID.
@@ -66896,6 +68091,11 @@ func (s *SupplierInvoice) SetPaymentTerms(val OptItemPaymentTerms) {
 	s.PaymentTerms = val
 }
 
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *SupplierInvoice) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
+}
+
 // SetReversalEntryID sets the value of ReversalEntryID.
 func (s *SupplierInvoice) SetReversalEntryID(val OptUUID) {
 	s.ReversalEntryID = val
@@ -67012,6 +68212,14 @@ type SupplierInvoiceCreate struct {
 	// The posted invoice a credit memo or subsequent debit/credit corrects (optional); never on an
 	// invoice.
 	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
+	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
+	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
+	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// (`listPaymentExclusions`), never paid by another method. A code that is not an active payment method
+	// of the legal entity is 422 `payables.unknown_payment_method`. Left out: the item is paid by the
+	// company's run order.
+	PaymentMethod OptString `json:"payment_method"`
 	// How the invoice entered the system; scanned documents use `:capture`. Open enumeration: clients must
 	// accept and preserve values not listed here; values may be added within /v1.
 	Source OptString `json:"source"`
@@ -67074,6 +68282,11 @@ func (s *SupplierInvoiceCreate) GetKind() OptString {
 // GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
 func (s *SupplierInvoiceCreate) GetReferenceInvoiceID() OptUUID {
 	return s.ReferenceInvoiceID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *SupplierInvoiceCreate) GetPaymentMethod() OptString {
+	return s.PaymentMethod
 }
 
 // GetSource returns the value of Source.
@@ -67144,6 +68357,11 @@ func (s *SupplierInvoiceCreate) SetKind(val OptString) {
 // SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
 func (s *SupplierInvoiceCreate) SetReferenceInvoiceID(val OptUUID) {
 	s.ReferenceInvoiceID = val
+}
+
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *SupplierInvoiceCreate) SetPaymentMethod(val OptString) {
+	s.PaymentMethod = val
 }
 
 // SetSource sets the value of Source.
@@ -67466,6 +68684,10 @@ type SupplierInvoiceUpdate struct {
 	PurchaseOrderID OptNilUUID `json:"purchase_order_id"`
 	// The posted invoice a credit memo or subsequent debit/credit corrects. Send null to clear.
 	ReferenceInvoiceID OptNilUUID `json:"reference_invoice_id"`
+	// The payment method the document fixes (ADR-0038), an active payment method of the legal entity (422
+	// `payables.unknown_payment_method` otherwise). Send null to clear: the item is paid by the company's
+	// run order.
+	PaymentMethod OptNilString `json:"payment_method"`
 	// Complete list of items.
 	Items []SupplierInvoiceItem `json:"items"`
 	// Custom fields.
@@ -67510,6 +68732,11 @@ func (s *SupplierInvoiceUpdate) GetPurchaseOrderID() OptNilUUID {
 // GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
 func (s *SupplierInvoiceUpdate) GetReferenceInvoiceID() OptNilUUID {
 	return s.ReferenceInvoiceID
+}
+
+// GetPaymentMethod returns the value of PaymentMethod.
+func (s *SupplierInvoiceUpdate) GetPaymentMethod() OptNilString {
+	return s.PaymentMethod
 }
 
 // GetItems returns the value of Items.
@@ -67562,6 +68789,11 @@ func (s *SupplierInvoiceUpdate) SetReferenceInvoiceID(val OptNilUUID) {
 	s.ReferenceInvoiceID = val
 }
 
+// SetPaymentMethod sets the value of PaymentMethod.
+func (s *SupplierInvoiceUpdate) SetPaymentMethod(val OptNilString) {
+	s.PaymentMethod = val
+}
+
 // SetItems sets the value of Items.
 func (s *SupplierInvoiceUpdate) SetItems(val []SupplierInvoiceItem) {
 	s.Items = val
@@ -67591,6 +68823,52 @@ func (*TakeCashSnapshotPreconditionRequired) takeCashSnapshotRes() {}
 type TakeCashSnapshotUnprocessableEntity Problem
 
 func (*TakeCashSnapshotUnprocessableEntity) takeCashSnapshotRes() {}
+
+// A tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3; the UAE
+// tax specialist's answer of 2026-11-09): what the entry says of it, not a document the ERP holds or
+// checks.
+// Ref: #/components/schemas/TaxDocumentReference
+type TaxDocumentReference struct {
+	// `tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Kind string `json:"kind"`
+	// The document's number, as its issuer printed it.
+	Number string `json:"number"`
+	// The date the document was issued: the entry's tax date, which decides the return its tax is reported
+	// in.
+	Date time.Time `json:"date"`
+}
+
+// GetKind returns the value of Kind.
+func (s *TaxDocumentReference) GetKind() string {
+	return s.Kind
+}
+
+// GetNumber returns the value of Number.
+func (s *TaxDocumentReference) GetNumber() string {
+	return s.Number
+}
+
+// GetDate returns the value of Date.
+func (s *TaxDocumentReference) GetDate() time.Time {
+	return s.Date
+}
+
+// SetKind sets the value of Kind.
+func (s *TaxDocumentReference) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetNumber sets the value of Number.
+func (s *TaxDocumentReference) SetNumber(val string) {
+	s.Number = val
+}
+
+// SetDate sets the value of Date.
+func (s *TaxDocumentReference) SetDate(val time.Time) {
+	s.Date = val
+}
 
 // A tax identifier, masked.
 // Ref: #/components/schemas/TaxIdentifier
@@ -69490,6 +70768,7 @@ func (*TooManyRequestsHeaders) getAnalyticsModelRes()                     {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()                    {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                   {}
 func (*TooManyRequestsHeaders) getAssetHistorySheetRes()                  {}
+func (*TooManyRequestsHeaders) getAssetOrderExpensesRes()                 {}
 func (*TooManyRequestsHeaders) getAssetRes()                              {}
 func (*TooManyRequestsHeaders) getAssetRetirementRes()                    {}
 func (*TooManyRequestsHeaders) getAssetScheduleRes()                      {}
@@ -69995,6 +71274,7 @@ func (*UnauthorizedHeaders) getAnalyticsModelRes()                     {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()                    {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                   {}
 func (*UnauthorizedHeaders) getAssetHistorySheetRes()                  {}
+func (*UnauthorizedHeaders) getAssetOrderExpensesRes()                 {}
 func (*UnauthorizedHeaders) getAssetRes()                              {}
 func (*UnauthorizedHeaders) getAssetRetirementRes()                    {}
 func (*UnauthorizedHeaders) getAssetScheduleRes()                      {}

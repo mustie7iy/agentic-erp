@@ -375,7 +375,8 @@ func Integration(cfg Config) *integration.Endpoints {
 	return &integration.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Accounts: ledger.Accounts{}, Settings: configuration.Settings{},
 		Partners: partner.Migration{Ports: partners}, Suppliers: partner.Suppliers{}, Orders: procurementEndpoints(cfg), OrderLocks: procurement.Orders{}, OrderValues: procurement.Orders{},
 		Invoices: payablesEndpoints(cfg, uploads(cfg)), InvoiceCounts: payables.Invoices{}, Invoiced: payables.Invoices{}, Postings: postings(), Reports: ledger.Reports{}, Centers: ledger.CenterMigration{}, Actuals: ledger.AssignmentBalances{},
-		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS}
+		Secrets: resolver(cfg.Secrets), Requesters: identity.Actors{}, Keys: cfg.FieldKeys, Resolver: net.DefaultResolver, Receiver: cfg.WebhookReceiver, ExtractDir: cfg.ExtractDir, Workflows: cfg.Workflows != nil, RefuseEBICS: cfg.RefuseEBICS,
+		Now: cfg.Now} // the clock a migration run's day is read from (the company's date, review:batch63)
 }
 
 // procurementEndpoints is the procurement context as the API wires it.
@@ -392,7 +393,8 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 	return &payables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
 		Orders: procurement.Orders{}, Postings: postings(), Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{},
 		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
-		Payments: payments.Reservations{}, OrderNumbers: procurement.Orders{}, Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, Now: cfg.Now}
+		Payments: payments.Reservations{}, Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: procurement.Orders{},
+		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, Now: cfg.Now}
 }
 
 // uploads is the API's direct-upload service (ADR-0020).

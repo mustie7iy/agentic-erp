@@ -1,0 +1,2 @@
+ALTER TABLE consolidation.run_member DROP CONSTRAINT run_member_revaluation_translation;
+ALTER TABLE consolidation.run_member DROP COLUMN revaluation_translation_gc;

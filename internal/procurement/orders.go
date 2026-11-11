@@ -172,6 +172,39 @@ func (Orders) Numbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]strin
 	return out, nil
 }
 
+// ItemAccount is a purchase order item with the account it is assigned
+// to: what a report on order items shows beside the ledger's amounts.
+type ItemAccount struct {
+	PurchaseOrderID uuid.UUID
+	DocumentNumber  string
+	ItemNo          int32
+	Description     string
+	AccountID       uuid.UUID
+}
+
+// ItemAccounts returns the items of the purchase orders with their
+// accounts, by order and item number, removed items included: a posting
+// made on an item before a change removed it still names it. An id that
+// names no order has no items.
+func (Orders) ItemAccounts(ctx context.Context, ids []uuid.UUID) ([]ItemAccount, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT po.id, po.document_number, i.item_no, i.description, i.account_id
+		FROM procurement.purchase_order po
+		JOIN procurement.purchase_order_item i ON i.tenant_id = po.tenant_id AND i.purchase_order_id = po.id
+		WHERE po.id = ANY($1) ORDER BY po.id, i.item_no`, ids)
+	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (ItemAccount, error) {
+		var a ItemAccount
+		return a, r.Scan(&a.PurchaseOrderID, &a.DocumentNumber, &a.ItemNo, &a.Description, &a.AccountID)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("procurement: items of %d purchase orders: %w", len(ids), err)
+	}
+	return out, nil
+}
+
 // CreateOrder creates a draft purchase order, as POST /v1/purchase-orders
 // does, for loads that go through the application services.
 func (e *Endpoints) CreateOrder(ctx context.Context, in NewOrder) (PurchaseOrder, error) {

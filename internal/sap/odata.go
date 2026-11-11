@@ -52,6 +52,14 @@ var DefaultEntities = []EntityMapping{
 	{Table: "SKB1", Service: "API_GLACCOUNTINCOMPANYCODE_SRV", Entity: "A_GLAccountInCompanyCode", CompanyField: "CompanyCode",
 		Fields: map[string]string{"BUKRS": "CompanyCode", "SAKNR": "GLAccount", "TXT50": "GLAccountLongName",
 			"XBILK": "IsBalanceSheetAccount", "MITKZ": "ReconciliationAccountType"}},
+	// LFA1-VBUND, the vendor's trading partner, and T001-RCOMP, the company
+	// ID it names, are not mapped: the SAP specialist named the tables'
+	// fields (po:2026-11-09, A2) and no property of A_Supplier or
+	// A_CompanyCode for them, and of the journal item only PartnerCompany
+	// for ACDOCA-RASSC at low confidence (A7 [L]), which the load does not
+	// post. So an OData extract links no supplier to a group company; the
+	// extract says so (NoTradingPartners) and the quality gate reports it
+	// (ADR-0059 As built; docs/migration.md, "What to check").
 	{Table: "LFA1", Service: "API_BUSINESS_PARTNER", Entity: "A_Supplier",
 		Fields: map[string]string{"LIFNR": "Supplier", "NAME1": "SupplierName", "LAND1": "Country",
 			"STCD1": "TaxNumber1", "SPERR": "PostingIsBlocked"}},
@@ -119,6 +127,10 @@ var DefaultEntities = []EntityMapping{
 	// so the quality gate cannot tell an OData extract's ledgers apart as
 	// it does a file extract's (review:T56h4); the API's ledger property
 	// is to be mapped from the pilot's $metadata (T56h5).
+	// Nor is ACDOCA-BSTAT, the document status (review:batch63): an OData
+	// extract cannot tell a noted item, which a file extract's scope sets
+	// aside (FilterScope), until the API's property for it is confirmed
+	// (docs/migration.md, "What to check on a real SAP system").
 	// OKB9's default account assignments (TKA3A, TKA3C, TKA3P; T56h3) have
 	// no released OData API (the SAP specialist, PO 2026-11-09): only a
 	// file extract carries them.
@@ -159,8 +171,14 @@ func (o *ODataSource) Extract(ctx context.Context, scope Scope) (*Extract, error
 	var e Extract
 	_ = json.Unmarshal(data, &e)
 	e.VendorsWithoutPartner = unlinked
+	e.NoTradingPartners = !carries(entities, "LFA1", "VBUND")
 	// Supplier-level tables are fetched unfiltered; narrow them to the scope.
 	return FilterScope(&e, scope), nil
+}
+
+// carries reports whether a mapping of the table reads the SAP field.
+func carries(entities []EntityMapping, table, field string) bool {
+	return slices.ContainsFunc(entities, func(em EntityMapping) bool { return em.Table == table && em.Fields[field] != "" })
 }
 
 // PartnerLink is the extraction's table of business partner -> supplier

@@ -29,7 +29,8 @@ var (
 
 // withGroups is fixture.Consolidation's group ACME, company 2000 holding
 // the whole of 1000, to which it adds all of Maple (3000, in CAD) from 2026-01 on
-// a new account 151000, named before 1000 so the members are sorted; and
+// a new account 151000, named before 1000 so the members are sorted, and
+// three net investment designations out of their order; and
 // the group EURO: company 4000 holding 60% of 5000 from 2026-06 on its
 // account 150000, both copies of 2000 with house banks of their own.
 func withGroups(doc *config.Config) {
@@ -40,6 +41,8 @@ func withGroups(doc *config.Config) {
 		GroupAccount: "G1500"})
 	g := &doc.Consolidation.Groups[0]
 	g.Members = append([]config.GroupMember{{Company: "3000", OwnershipPercent: "100", Origin: config.OriginIncorporated, FirstPeriod: "2026-01", InvestmentAccount: "151000"}}, g.Members...)
+	g.NetInvestments = []config.NetInvestment{{Company: "2000", Account: "100000", Partner: "3000"}, {Company: "2000", Account: "100000", Partner: "1000"},
+		{Company: "1000", Account: "211000", Partner: "2000"}}
 	for _, c := range []struct {
 		co        fixture.Company
 		iban, bic string
@@ -87,14 +90,24 @@ func groupLine(g map[string]any) string {
 		members = append(members, fmt.Sprintf("%s at %s%% %s from %v-%v on %s %s", company(m), m["ownership_percent"], m["origin"], m["first_fiscal_year"],
 			m["first_fiscal_period"], inv["number"], inv["name"]))
 	}
-	return fmt.Sprintf("%s %s in %s: %s holds [%s]", g["code"], g["name"], g["group_currency"], company(g["parent"].(map[string]any)),
-		strings.Join(members, "; "))
+	var investments []string
+	for _, n := range g["net_investments"].([]any) {
+		n := n.(map[string]any)
+		a, co, tp := n["account"].(map[string]any), n["company"].(map[string]any), n["partner"].(map[string]any)
+		investments = append(investments, fmt.Sprintf("%s's %s %s with %s (%v, %v)", company(co), a["number"], a["name"], company(tp), co["legal_entity_id"] != nil,
+			tp["legal_entity_id"] != nil))
+	}
+	return fmt.Sprintf("%s %s in %s: %s holds [%s], net investments [%s]", g["code"], g["name"], g["group_currency"], company(g["parent"].(map[string]any)),
+		strings.Join(members, "; "), strings.Join(investments, "; "))
 }
 
 const (
 	acme = "ACME Acme group in EUR: 2000 Acme GmbH EUR holds [1000 Acme Corp US USD at 100% incorporated from 2026-11 on 150000 Investment in Acme " +
-		"Corp US; 3000 Maple Inc CAD at 100% incorporated from 2026-1 on 151000 Investment in Maple Inc]"
-	euro = "EURO Euro group in EUR: 4000 Acme France EUR holds [5000 Acme Italia EUR at 60% acquired from 2026-6 on 150000 Investment in Acme Italia]"
+		"Corp US; 3000 Maple Inc CAD at 100% incorporated from 2026-1 on 151000 Investment in Maple Inc], net investments [1000 Acme Corp US USD's " +
+		"211000 Accounts Payable - Domestic with 2000 Acme GmbH EUR (true, true); 2000 Acme GmbH EUR's 100000 Bank - Operating with 1000 Acme Corp US USD (true, true); " +
+		"2000 Acme GmbH EUR's 100000 Bank - Operating with 3000 Maple Inc CAD (true, true)]"
+	euro = "EURO Euro group in EUR: 4000 Acme France EUR holds [5000 Acme Italia EUR at 60% acquired from 2026-6 on 150000 Investment in Acme Italia], " +
+		"net investments []"
 )
 
 func want(t *testing.T, what string, got []string, want ...string) {

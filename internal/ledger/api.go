@@ -51,6 +51,7 @@ func entryToAPI(e Entry) gen.JournalEntry {
 	if e.TaxDate != nil {
 		out.TaxDate.SetTo(*e.TaxDate)
 	}
+	out.TaxDocument = taxDocumentToAPI(e.TaxDocument)
 	return out
 }
 
@@ -226,7 +227,8 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 	in := NewEntry{LegalEntityID: req.LegalEntityID, LedgerID: apitypes.Ptr[uuid.UUID](req.LedgerID), LedgerGroup: apitypes.Ptr[string](req.LedgerGroup),
 		DocumentType: req.DocumentType.Or("SA"), DocumentDate: req.DocumentDate, PostingDate: req.PostingDate, TaxDate: apitypes.Ptr[time.Time](req.TaxDate),
 		Currency: req.Currency, Reference: apitypes.Ptr[string](req.Reference),
-		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines)), special: specialOf(req.FiscalPeriod)}
+		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines)), special: specialOf(req.FiscalPeriod),
+		TaxDocument: taxDocumentIn(req.TaxDocument)}
 	for i, l := range req.Lines {
 		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
 			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText), TaxJurisdiction: apitypes.Ptr[string](l.TaxJurisdiction),
@@ -451,7 +453,7 @@ func (e *Endpoints) ListOpenItems(ctx context.Context, params gen.ListOpenItemsP
 		page.Items[i] = gen.OpenItem{FiscalYear: int32(o.FiscalYear), JournalEntryID: o.EntryID, LineNo: o.LineNo, LegalEntityID: o.LegalEntityID,
 			AccountID: o.AccountID, PartnerID: apitypes.OptUUID(o.PartnerID), PostingDate: o.PostingDate, Amount: apitypes.Money(o.TC, o.CurrencyTC, o.ExpTC),
 			AmountLc: apitypes.Money(o.LC, o.CurrencyLC, o.ExpLC), DocumentNumber: o.DocumentNumber, Reference: apitypes.OptString(o.Reference),
-			SpecialGl: apitypes.OptString(o.SpecialGL)}
+			SpecialGl: apitypes.OptString(o.SpecialGL), PaymentMethod: apitypes.OptString(o.PaymentMethod)}
 		if o.Terms != nil {
 			page.Items[i].PaymentTerms.SetTo(TermsToAPI(*o.Terms))
 		}

@@ -233,11 +233,12 @@ func itemRefs(p Payment) []ledger.ItemRef {
 // dropPayment takes a payment that can never post out of its releasing
 // run: an item it settles was reversed, or is no longer open, since the
 // proposal (neither changes back). Its supplier is excluded with the
-// reason, its items are freed here and in the ledger, the run's total no
-// longer counts it, and the release goes on with the other payments, so a
-// run is never stuck releasing on a payment no retry can post. The run is
-// read FOR UPDATE by the release step, and a dropped payment is skipped by
-// every later step, so it is dropped once.
+// reason (for a payment of items fixing a method, those items alone), its
+// items are freed here and in the ledger, the run's total no longer counts
+// it, and the release goes on with the other payments, so a run is never
+// stuck releasing on a payment no retry can post. The run is read FOR
+// UPDATE by the release step, and a dropped payment is skipped by every
+// later step, so it is dropped once.
 func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Principal, r Run, p Payment, unpayable map[ledger.ItemRef]string) error {
 	reason := ItemNotOpen
 	for _, why := range unpayable {
@@ -245,8 +246,13 @@ func (e *Endpoints) dropPayment(ctx context.Context, tx pgx.Tx, actor reqctx.Pri
 			reason = ItemReversed
 		}
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
-		VALUES ($1, $2, $3, $4, $5)`, actor.TenantID, r.ID, p.SupplierID, reason, p.Amount); err != nil {
+	// The exclusion is of the group the payment pays: the supplier's items
+	// fixing its method, or those that fix none (dropped).
+	if _, err := tx.Exec(ctx, `WITH fixed AS (INSERT INTO payments.method_exclusion (tenant_id, id, payment_run_id, supplier_id, payment_method, reason_code, amount)
+			SELECT $1, $6, $2, $3, $7, $4, $5 WHERE $8)
+		INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount)
+		SELECT $1, $2, $3, $4, $5 WHERE NOT $8`, actor.TenantID, r.ID, p.SupplierID, reason, p.Amount, uuid.Must(uuid.NewV7()), p.Method,
+		p.MethodFixed); err != nil {
 		return fmt.Errorf("payments: exclude supplier %s from run %s: %w", p.SupplierID, r.ID, err)
 	}
 	freed, err := tx.Exec(ctx, `UPDATE payments.payment_item SET is_active = false WHERE payment_id = $1 AND is_active`, p.ID)

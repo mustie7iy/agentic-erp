@@ -184,8 +184,9 @@ func (c cashPayments) Payables(ctx context.Context, legalEntity uuid.UUID, on ti
 	out := make([]cash.Payable, len(ps))
 	for i, p := range ps {
 		out[i] = cash.Payable{Source: cashSources[p.Kind], Supplier: p.PartnerID, Currency: p.Currency, Due: p.Due, Blocked: p.Blocked != "",
-			BankCode: p.HouseBankCode, Method: p.Method, Dates: p.Dates(), Pays: p.Pays, Lines: cashLines(p.Lines), PlanningGroup: p.PlanningGroup,
-			Document: cash.Document{Kind: cashDocuments[p.Kind], ID: p.Document, Number: p.Number}}
+			BankCode: p.HouseBankCode, Method: p.Method, FixedMethod: p.FixedMethod(), Dates: p.Dates(), Pays: p.Pays, Lines: cashLines(p.Lines),
+			PlanningGroup: p.PlanningGroup,
+			Document:      cash.Document{Kind: cashDocuments[p.Kind], ID: p.Document, Number: p.Number}}
 	}
 	return out, err
 }

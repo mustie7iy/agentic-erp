@@ -1245,17 +1245,18 @@ type Invoker interface {
 	// `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
 	// sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
 	// `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
-	// moved since the run read its figures, so run the group again). The first final run including a
-	// member freezes its acquisition figures (its `acquisition`), which every later run of the group reads
-	// instead of measuring them; finalizing a run whose figures for a member differ from those another
-	// final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the
-	// group again). Finalizations of one group and period wait for each other, so the second sees the
-	// first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch`
-	// when it or its differences moved since). Each run that changes is published as
-	// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
-	// act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the
-	// caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403
-	// `identity.permission_missing` otherwise). Human-only.
+	// moved since the run read its figures, or the previous fiscal year's last period was finalized after
+	// the run started, so that its translation reserve no longer opens from the group's final run of it;
+	// run the group again). The first final run including a member freezes its acquisition figures (its
+	// `acquisition`), which every later run of the group reads instead of measuring them; finalizing a run
+	// whose figures for a member differ from those another final run froze since it was computed is
+	// refused (409 `consolidation.acquisition_changed`: run the group again). Finalizations of one group
+	// and period wait for each other, so the second sees the first's final run and supersedes it.
+	// `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved
+	// since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group
+	// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+	// Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows
+	// figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
 	//
 	// POST /v1/consolidation-runs/{id}:finalize
 	FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (FinalizeConsolidationRunRes, error)
@@ -1357,10 +1358,64 @@ type Invoker interface {
 	// `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
 	// token is issued only by asset. Read from one database state (a repeatable-read snapshot), so
 	// `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
-	// 404. Reads only.
+	// 404. Reads only. Every row and `totals` reconcile for cost, for accumulated depreciation and for the
+	// carrying amount: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`;
+	// `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` +
+	// `transfers_accumulated`; a net book value is its cost plus its accumulated depreciation. These are
+	// the lines of IAS 16.73(d) and (e) the system holds data for (accounting specialist, 2026-11-09,
+	// B14): the gross carrying amount and accumulated depreciation at the beginning and end of the year,
+	// additions, disposals with the cost and the accumulated depreciation they removed, depreciation for
+	// the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed
+	// (none are posted), acquisitions through business combinations (none are recorded), and net exchange
+	// differences on translation, which belong to a consolidated sheet in the group's presentation
+	// currency; the sheet is one company's in its local currency. An asset classified as held for sale
+	// stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired.
 	//
 	// GET /v1/asset-history-sheet
 	GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error)
+	// GetAssetOrderExpenses invokes getAssetOrderExpenses operation.
+	//
+	// The materiality report of a company and fiscal year on asset purchases through purchase orders
+	// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
+	// the price differences that supplier invoices and credit memos expensed on the company's price
+	// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
+	// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
+	// so an auditor can judge whether it is material. An order item is an asset's when its account is an
+	// asset clearing account of the company in the active configuration
+	// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
+	// the item's account as the order has it now decides, removed items included. Only orders valued
+	// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
+	// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
+	// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+	// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
+	// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
+	// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
+	// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
+	// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
+	// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
+	// ledger records beside each price difference line since that record exists. `totals` sums every row,
+	// on every page. `unattributed` states what the rows cannot show: the amounts on the company's current
+	// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
+	// clear GR/IR for at least one asset order item, on lines that have no such record (postings made
+	// before the record existed, and the rounding residue a reversal clears). Such a line names no order
+	// item and its split between tax and price difference is unknown, so the amounts are not spread over
+	// the rows: where such an entry also invoices other order items, their price differences are in it
+	// too, of either sign. `expensed` is therefore the net of everything those lines posted and may
+	// overstate or understate what was expensed on assets; `debits` is the sum of the lines that are
+	// debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those
+	// that are credits (negative); `entries` counts the entries. All are zero when every such posting is
+	// recorded, and also when the company has no price difference account in its account determination
+	// now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings
+	// of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+	// difference account (whether they count as expensed is not decided); an item whose price difference
+	// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
+	// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
+	// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
+	// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
+	// the caller cannot act in is 404. Reads only.
+	//
+	// GET /v1/asset-order-expenses
+	GetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (GetAssetOrderExpensesRes, error)
 	// GetAssetRetirement invokes getAssetRetirement operation.
 	//
 	// One retirement with its asset, what it took per ledger and its journal entries (ADR-0057 §8). One
@@ -1641,13 +1696,26 @@ type Invoker interface {
 	// without figures has a row of zeros. With totals over the whole statement, each with the same three
 	// columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
 	// through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
-	// revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on
-	// the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
-	// which leave no balance between the run's companies on an elimination's accounts and put each pair's
-	// difference on the elimination's difference account; the investment's elimination follows with T68h.
-	// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-	// never changes; `stale` says whether a company's period changed since the run read its figures
-	// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
+	// revenue, the expenses and the profit with its attribution, and, below the profit, other
+	// comprehensive income (`other_comprehensive_income`: the fiscal year's translation differences
+	// through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive
+	// income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B),
+	// with the translation reserve per company (`translation_reserve`: its opening, the year's difference,
+	// its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's
+	// difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes
+	// it out of the profit's rows and into the reserve, so other comprehensive income holds it
+	// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The exchange differences
+	// on a monetary item designated as part of a net investment in a foreign operation
+	// (`ConsolidationGroup.net_investments`) go the same way, whole (`net_investment`, per company and in
+	// the totals; IAS 21.32). The reserve opens at what the group's final run of the previous fiscal
+	// year's last period showed when this run started (`opening_run_id`), at zero without one. The
+	// eliminations are the run's elimination entries' lines on the account summed
+	// (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance
+	// between the run's companies on an elimination's accounts and put each pair's difference on the
+	// elimination's difference account; the investment's elimination follows with T68h. The statement is
+	// read from the run's stored rows alone, so a computed, final or superseded run's never changes;
+	// `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10,
+	// T68g). Refused for a run that is queued, running, failed or discarded (409
 	// `consolidation.run_not_computed`) and for a statement other than these two (404
 	// `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 	// (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -2623,18 +2691,20 @@ type Invoker interface {
 	// booked group amount and the translated group amount, and the closing rate where one applied: on
 	// asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
 	// account (`prior_results`, translated at their booked group amounts) and the translation difference
-	// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
-	// account's number and name, the company account's number and name and the trading partner's code and
-	// name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within
-	// a company the rows follow the group account's number, the company account's (none first), the
-	// trading partner's code (none first) and the kind, so two runs of the same figures number them alike.
-	// With totals over the filter: the local amounts per local currency, and the booked and translated
-	// group amounts in the group currency (each company's translated rows sum to zero). Filters: company,
-	// group account, company account, trading partner and kind. A run still queued shows none, a running
-	// one those of the companies translated so far. Besides `consolidation.read` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may
-	// not act in is not found (404), as a run that does not exist. Read from one database state (a
-	// repeatable-read snapshot), so its page and totals agree.
+	// on the `cta` account (`cta`, a group amount alone), where a profit and loss account's row and
+	// `prior_results` leave the translation part of the company's group-currency revaluation differences
+	// to the translation difference (`ConsolidationBalance.amount_gc`; IAS 21.39(c)), each with the
+	// company's code and name, the group account's number and name, the company account's number and name
+	// and the trading partner's code and name (to a caller who may act in that company; its id alone
+	// otherwise, as a journal line's). Within a company the rows follow the group account's number, the
+	// company account's (none first), the trading partner's code (none first) and the kind, so two runs of
+	// the same figures number them alike. With totals over the filter: the local amounts per local
+	// currency, and the booked and translated group amounts in the group currency (each company's
+	// translated rows sum to zero). Filters: company, group account, company account, trading partner and
+	// kind. A run still queued shows none, a running one those of the companies translated so far. Besides
+	// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group
+	// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+	// Read from one database state (a repeatable-read snapshot), so its page and totals agree.
 	//
 	// GET /v1/consolidation-runs/{id}/balances
 	ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error)
@@ -3701,7 +3771,14 @@ type Invoker interface {
 	// documents posted on the order since (another invoice past the received quantity, a credit memo past
 	// the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
 	// match, or the match its exception was approved on, did not have; the problem's `match_issues` are
-	// those issues.
+	// those issues. A credit memo or subsequent credit naming an invoice (`reference_invoice_id`), on a
+	// purchase order or not, posts only while the gross amounts of the posted credit memos and subsequent
+	// credits naming that invoice, with its own `gross_amount`, do not exceed that invoice's
+	// `gross_amount`: 422 `payables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving
+	// the invoice, its gross amount, the amount already credited and the amount refused. The limit is the
+	// invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a reversed
+	// credit frees its amount; a credit naming no invoice has no such limit. It is checked under a lock on
+	// the named invoice, so of two credits posted at once that together exceed it one is refused.
 	//
 	// POST /v1/supplier-invoices/{id}:post
 	PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error)
@@ -19475,17 +19552,18 @@ func (c *Client) sendFileTaxReturn(ctx context.Context, request *TaxReturnFile, 
 // `consolidation.period_not_locked`, naming the companies: lock them, through each company's close
 // sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409
 // `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version
-// moved since the run read its figures, so run the group again). The first final run including a
-// member freezes its acquisition figures (its `acquisition`), which every later run of the group reads
-// instead of measuring them; finalizing a run whose figures for a member differ from those another
-// final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the
-// group again). Finalizations of one group and period wait for each other, so the second sees the
-// first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch`
-// when it or its differences moved since). Each run that changes is published as
-// ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not
-// act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the
-// caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403
-// `identity.permission_missing` otherwise). Human-only.
+// moved since the run read its figures, or the previous fiscal year's last period was finalized after
+// the run started, so that its translation reserve no longer opens from the group's final run of it;
+// run the group again). The first final run including a member freezes its acquisition figures (its
+// `acquisition`), which every later run of the group reads instead of measuring them; finalizing a run
+// whose figures for a member differ from those another final run froze since it was computed is
+// refused (409 `consolidation.acquisition_changed`: run the group again). Finalizations of one group
+// and period wait for each other, so the second sees the first's final run and supersedes it.
+// `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved
+// since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group
+// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+// Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows
+// figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only.
 //
 // POST /v1/consolidation-runs/{id}:finalize
 func (c *Client) FinalizeConsolidationRun(ctx context.Context, params FinalizeConsolidationRunParams) (FinalizeConsolidationRunRes, error) {
@@ -20851,7 +20929,18 @@ func (c *Client) sendGetAssetAcquisition(ctx context.Context, params GetAssetAcq
 // `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
 // token is issued only by asset. Read from one database state (a repeatable-read snapshot), so
 // `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
-// 404. Reads only.
+// 404. Reads only. Every row and `totals` reconcile for cost, for accumulated depreciation and for the
+// carrying amount: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`;
+// `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` +
+// `transfers_accumulated`; a net book value is its cost plus its accumulated depreciation. These are
+// the lines of IAS 16.73(d) and (e) the system holds data for (accounting specialist, 2026-11-09,
+// B14): the gross carrying amount and accumulated depreciation at the beginning and end of the year,
+// additions, disposals with the cost and the accumulated depreciation they removed, depreciation for
+// the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed
+// (none are posted), acquisitions through business combinations (none are recorded), and net exchange
+// differences on translation, which belong to a consolidated sheet in the group's presentation
+// currency; the sheet is one company's in its local currency. An asset classified as held for sale
+// stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired.
 //
 // GET /v1/asset-history-sheet
 func (c *Client) GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (GetAssetHistorySheetRes, error) {
@@ -21072,6 +21161,222 @@ func (c *Client) sendGetAssetHistorySheet(ctx context.Context, params GetAssetHi
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAssetHistorySheetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAssetOrderExpenses invokes getAssetOrderExpenses operation.
+//
+// The materiality report of a company and fiscal year on asset purchases through purchase orders
+// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
+// the price differences that supplier invoices and credit memos expensed on the company's price
+// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
+// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
+// so an auditor can judge whether it is material. An order item is an asset's when its account is an
+// asset clearing account of the company in the active configuration
+// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
+// the item's account as the order has it now decides, removed items included. Only orders valued
+// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
+// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
+// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
+// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
+// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
+// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
+// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
+// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
+// ledger records beside each price difference line since that record exists. `totals` sums every row,
+// on every page. `unattributed` states what the rows cannot show: the amounts on the company's current
+// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
+// clear GR/IR for at least one asset order item, on lines that have no such record (postings made
+// before the record existed, and the rounding residue a reversal clears). Such a line names no order
+// item and its split between tax and price difference is unknown, so the amounts are not spread over
+// the rows: where such an entry also invoices other order items, their price differences are in it
+// too, of either sign. `expensed` is therefore the net of everything those lines posted and may
+// overstate or understate what was expensed on assets; `debits` is the sum of the lines that are
+// debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those
+// that are credits (negative); `entries` counts the entries. All are zero when every such posting is
+// recorded, and also when the company has no price difference account in its account determination
+// now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings
+// of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+// difference account (whether they count as expensed is not decided); an item whose price difference
+// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
+// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
+// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
+// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
+// the caller cannot act in is 404. Reads only.
+//
+// GET /v1/asset-order-expenses
+func (c *Client) GetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (GetAssetOrderExpensesRes, error) {
+	res, err := c.sendGetAssetOrderExpenses(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (res GetAssetOrderExpensesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssetOrderExpenses"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/asset-order-expenses"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssetOrderExpensesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/asset-order-expenses"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAssetOrderExpensesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssetOrderExpensesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -24509,13 +24814,26 @@ func (c *Client) sendGetConnector(ctx context.Context, params GetConnectorParams
 // without figures has a row of zeros. With totals over the whole statement, each with the same three
 // columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit
 // through the period (the profit and loss's), which together sum to zero; for the profit and loss, the
-// revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on
-// the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f),
-// which leave no balance between the run's companies on an elimination's accounts and put each pair's
-// difference on the elimination's difference account; the investment's elimination follows with T68h.
-// The statement is read from the run's stored rows alone, so a computed, final or superseded run's
-// never changes; `stale` says whether a company's period changed since the run read its figures
-// (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409
+// revenue, the expenses and the profit with its attribution, and, below the profit, other
+// comprehensive income (`other_comprehensive_income`: the fiscal year's translation differences
+// through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive
+// income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B),
+// with the translation reserve per company (`translation_reserve`: its opening, the year's difference,
+// its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's
+// difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes
+// it out of the profit's rows and into the reserve, so other comprehensive income holds it
+// (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The exchange differences
+// on a monetary item designated as part of a net investment in a foreign operation
+// (`ConsolidationGroup.net_investments`) go the same way, whole (`net_investment`, per company and in
+// the totals; IAS 21.32). The reserve opens at what the group's final run of the previous fiscal
+// year's last period showed when this run started (`opening_run_id`), at zero without one. The
+// eliminations are the run's elimination entries' lines on the account summed
+// (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance
+// between the run's companies on an elimination's accounts and put each pair's difference on the
+// elimination's difference account; the investment's elimination follows with T68h. The statement is
+// read from the run's stored rows alone, so a computed, final or superseded run's never changes;
+// `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10,
+// T68g). Refused for a run that is queued, running, failed or discarded (409
 // `consolidation.run_not_computed`) and for a statement other than these two (404
 // `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read`
 // (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not
@@ -41226,18 +41544,20 @@ func (c *Client) sendListConnectors(ctx context.Context, params ListConnectorsPa
 // booked group amount and the translated group amount, and the closing rate where one applied: on
 // asset and liability accounts), the results of earlier fiscal years on the `retained_earnings`
 // account (`prior_results`, translated at their booked group amounts) and the translation difference
-// on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group
-// account's number and name, the company account's number and name and the trading partner's code and
-// name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within
-// a company the rows follow the group account's number, the company account's (none first), the
-// trading partner's code (none first) and the kind, so two runs of the same figures number them alike.
-// With totals over the filter: the local amounts per local currency, and the booked and translated
-// group amounts in the group currency (each company's translated rows sum to zero). Filters: company,
-// group account, company account, trading partner and kind. A run still queued shows none, a running
-// one those of the companies translated so far. Besides `consolidation.read` the caller needs
-// `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may
-// not act in is not found (404), as a run that does not exist. Read from one database state (a
-// repeatable-read snapshot), so its page and totals agree.
+// on the `cta` account (`cta`, a group amount alone), where a profit and loss account's row and
+// `prior_results` leave the translation part of the company's group-currency revaluation differences
+// to the translation difference (`ConsolidationBalance.amount_gc`; IAS 21.39(c)), each with the
+// company's code and name, the group account's number and name, the company account's number and name
+// and the trading partner's code and name (to a caller who may act in that company; its id alone
+// otherwise, as a journal line's). Within a company the rows follow the group account's number, the
+// company account's (none first), the trading partner's code (none first) and the kind, so two runs of
+// the same figures number them alike. With totals over the filter: the local amounts per local
+// currency, and the booked and translated group amounts in the group currency (each company's
+// translated rows sum to zero). Filters: company, group account, company account, trading partner and
+// kind. A run still queued shows none, a running one those of the companies translated so far. Besides
+// `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group
+// whose parent or a member the caller may not act in is not found (404), as a run that does not exist.
+// Read from one database state (a repeatable-read snapshot), so its page and totals agree.
 //
 // GET /v1/consolidation-runs/{id}/balances
 func (c *Client) ListConsolidationBalances(ctx context.Context, params ListConsolidationBalancesParams) (ListConsolidationBalancesRes, error) {
@@ -62376,7 +62696,14 @@ func (c *Client) sendPostRevaluationRun(ctx context.Context, request *Revaluatio
 // documents posted on the order since (another invoice past the received quantity, a credit memo past
 // the invoiced one), a change of the order or of the tolerances leave it with an issue its clean
 // match, or the match its exception was approved on, did not have; the problem's `match_issues` are
-// those issues.
+// those issues. A credit memo or subsequent credit naming an invoice (`reference_invoice_id`), on a
+// purchase order or not, posts only while the gross amounts of the posted credit memos and subsequent
+// credits naming that invoice, with its own `gross_amount`, do not exceed that invoice's
+// `gross_amount`: 422 `payables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving
+// the invoice, its gross amount, the amount already credited and the amount refused. The limit is the
+// invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a reversed
+// credit frees its amount; a credit naming no invoice has no such limit. It is checked under a lock on
+// the named invoice, so of two credits posted at once that together exceed it one is refused.
 //
 // POST /v1/supplier-invoices/{id}:post
 func (c *Client) PostSupplierInvoice(ctx context.Context, request OptSupplierInvoicePost, params PostSupplierInvoiceParams) (PostSupplierInvoiceRes, error) {

@@ -645,6 +645,13 @@
      },
      {
       "s": "D",
+      "t": "Credits naming an invoice stay within its gross (pre-existing finding of the c11fix review, batch 62: an invoice of 119.00 took credit memos of 119.00 and then 1,190.00, since a document without an order is not matched; rule decided by the product owner on 2026-11-10): the posted credit memos and subsequent credits naming an invoice, plus the one being posted, may not exceed that invoice's gross amount, checked at :post under the invoice's FOR UPDATE lock so two concurrent credits cannot both pass (422 payables.credit_exceeds_invoice, the problem's credit_limit giving the invoice, its gross, the amount already credited and the amount refused); a reversed credit frees its amount, a paid invoice is credited up to its gross, a credit naming no invoice stays unlimited, with or without a purchase order, the order's quantity rules unchanged; only posted credits count; an application rule with no database constraint, so earlier over-credits stand",
+      "r": "internal/payables post.go requireReference, requireWithinInvoice · TestCreditsStayWithinTheirInvoice · TestConcurrentCreditsSerialize · problem.CreditLimit · api/openapi.yaml CreditLimit · 03 §3.9 · 04 §4.6 · ADR-0034 As built (crlimit) · TestVAT201Golden's credit memos name no invoice · walkthrough step 6",
+      "src": "review:batch62 · po:2026-11-10",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "The SAP load's receipts step takes its locks in one order (pre-existing finding on T72b2): its first receipt takes the legal entity's goods_receipt number range (and journal_we), then a later receipt on an order an earlier run loaded locks that order's items, while a concurrent POST /v1/goods-receipts holds those items and waits on the range, so the two deadlock; e.g. every item lock is taken before the first receipt posts",
       "r": "internal/integration/load.go receipts",
       "src": "review:batch19",
@@ -1254,9 +1261,23 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The order item and the tax borne recorded on price difference lines (accounting specialist B10, po:2026-11-09; product owner 2026-11-10, option B): the materiality report could not be exact, since an invoiced order item's price difference and the input tax it bears post as one line on price_difference that names no order item; from now on the ledger records, beside each such line of an invoice or credit memo on an order valued through GR/IR, the order item and the tax borne (transaction and local currency, debit positive as the document), a reversal recording its original's negated; nothing posts differently; lines posted before stay unknown, never backfilled",
+        "r": "migration 000263 (ledger.price_difference_item, insert-only: the line's foreign key, a GR/IR line refused, price_difference_item_tax_sign) · internal/ledger/pricedifference.go (keepPriceDifferences, reversePriceDifferences), GRIRItem.TaxBorne · internal/payables/post.go (invoiceLines) · TestPriceDifferencesRecorded, TestPriceDifferencesReversed, TestGRIRDatabaseFailures, TestTaxBorneRecordedOnPriceDifferences, TestPriceDifferenceItems · ADR-0057 As built (B10, step 1) · ADR-0049 §8 · 03-data-model §3.7",
+        "src": "po:2026-11-10 · po:2026-11-09",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "The B10 materiality report (accounting specialist B10, po:2026-11-09; product owner 2026-11-10, option B; IAS 16.16(a), IAS 8.8): per company and fiscal year, the non-recovered tax and the price differences expensed on order items that are assets, exact for postings recorded with their order item and stating how much comes from earlier postings whose split is unknown, so the auditor can judge materiality; GR/IR clearings (T72e) left out until the product owner decides whether they count as expensed",
+        "r": "GET /v1/asset-order-expenses (getAssetOrderExpenses, AssetOrderExpenses, x-slo-class report, x-snapshot) · internal/assets/orderexpenses.go (port assets.Purchases) · ledger.AssetReads.OrderItemExpenses, UnrecordedExpenses · procurement.Orders.ItemAccounts · TestAssetOrderExpenses, TestAssetOrderExpensesRefused, TestAssetOrderExpensesFailures · walkthrough step_asset_order_expenses (step 46) · ADR-0057 §2, §10, Questions for the product owner (answered), As built (B10, step 2) · 04-api-design",
+        "src": "po:2026-11-10 · po:2026-11-09",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "Non-refundable purchase tax and price differences in an asset's cost, after a materiality report (accounting specialist, po:2026-11-09, B10; IAS 16.16(a), IAS 8.8): first a report of the amounts expensed on asset purchase orders (price differences on price_difference, input tax not recovered), so the auditor can judge their materiality, the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment; then, before the first year end, an order item's price difference and non-recoverable tax capitalised on the asset rather than expensed (ADR-0057's question on price differences and non-recovered tax)",
-        "r": "ADR-0057 §6, Questions for the product owner (answered) · ledger price difference · payables input tax",
+        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a)): the posting change itself, after the materiality report; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment (ADR-0057's question on price differences and non-recovered tax)",
+        "r": "ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 1) · ledger price difference · payables input tax",
         "src": "po:2026-11-09",
         "c": []
        },
@@ -1275,9 +1296,32 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "The asset history sheet's available IAS 16.73 lines (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): opening accumulated depreciation, depreciation for the year, and disposals showing the cost and the accumulated depreciation removed, so every class and asset reconciles from opening to closing for cost, for accumulated depreciation and to the carrying amount. The columns were built by T57i (opening_accumulated, depreciation, retirements, retirements_accumulated); this step states the reconciliation and the lines left out in the contract and proves it for an asset acquired in the year, one disposed of in it, one with a change in estimate (T57j) and one held for sale (T57k)",
+        "r": "GET /v1/asset-history-sheet (getAssetHistorySheet, AssetHistorySheetRow, AssetHistorySheetValues: the reconciliation and the lines not carried, described; no column added or renamed) · TestAssetHistorySheetReconciles · walkthrough step_asset_history_sheet (step 34, sheet_reconciles by class and by asset, the retired press's row) and step_asset_held_for_sale (step 45, the lathe's and the milling machine's rows) · ADR-0057 §9, As built (B14) · 04-api-design",
+        "src": "po:2026-11-09",
+        "c": []
+       },
+       {
         "s": "T",
-        "t": "The asset history sheet's missing IAS 16.73 lines (accounting specialist, po:2026-11-09, B14): impairment losses recognised and reversed, acquisitions through business combinations, and net exchange differences on translation for the consolidated schedule in the group's presentation currency; and IAS 16.73(a)-(c) per class (measurement basis, methods, useful lives or rates) as notes text. The opening accumulated depreciation, the year's depreciation and the cost and accumulated depreciation retirements remove, which the answer lists as missing, are already columns (ADR-0057 §9: the question named fewer lines than are built)",
-        "r": "ADR-0057 §9 (answered) · GET /v1/asset-history-sheet",
+        "t": "Impairment of assets and its history sheet lines, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(d), (e)): postings of impairment losses recognised and reversed on an asset per ledger, and the sheet's lines for them, accumulated depreciation shown with accumulated impairment. Not built: the assets context posts no impairment today (ADR-0057 §1)",
+        "r": "ADR-0057 §1, §9, As built (B14) · GET /v1/asset-history-sheet",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-11-09 · adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A consolidated asset history sheet in the group's presentation currency with net exchange differences on translation, before the pilot's first year end (accounting specialist, po:2026-11-09, B14; IAS 16.73(e)): today's sheet is one company's in its local currency",
+        "r": "ADR-0057 §9, As built (B14) · ADR-0059 · GET /v1/asset-history-sheet",
+        "src": "po:2026-11-09",
+        "pilot": "po:2026-11-09 · adr:ADR-0057",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "IAS 16.73(a)-(c) per asset class as notes text (accounting specialist, po:2026-11-09, B14): the measurement basis, the depreciation methods and the useful lives or rates, the remainder of the leaf on the sheet's missing lines; the product owner's decision of 2026-11-09 on B14 names neither a date nor a form for it",
+        "r": "ADR-0057 §9 (answered), As built (B14) · GET /v1/asset-classes",
         "src": "po:2026-11-09",
         "c": []
        }
@@ -1807,7 +1851,7 @@
       ]
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Year-end close designed (ADR-0060, product owner 2026-11-04, T64m): special periods 13-16 take manual entries; a retained earnings account per company; the balance carry-forward per company, ledger and year stored as balances, chained, stale when a period is opened, re-run by a person; a year close in closing whose sign-off locks the year",
       "r": "ADR-0060 · T64m (split T64m1-T64m6)",
       "c": [
@@ -1854,9 +1898,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A UAE VAT code on a year-end adjustment only with a tax document (UAE tax specialist, po:2026-11-09, C10 [M]; VAT Executive Regulation): a special-period posting may carry a VAT code of a UAE registration when it references a tax invoice or tax credit note, its return period derived from that document's date, the statutory annual adjustments (input tax apportionment, the capital assets scheme) going to the first return after the end of the tax year or adjustment period; accruals, provisions and reclassifications keep ledger.special_period_tax_code, as do Canadian codes until the tax specialist answers for the GST34 (ADR-0060 question 2)",
-        "r": "ADR-0060 §3, question 2 (answered for the UAE) · ledger special periods · taxfiling VAT 201",
+        "r": "ADR-0060 §3, question 2 (answered for the UAE), As built C10 · ledger.specialPeriodTax, checkTaxDocument · tax_document on postJournalEntry, parkJournalEntry, updateParkedJournalEntry · migrations 000258, 000259 · walkthrough step 41 (uae_year_end_adjustment)",
         "src": "po:2026-11-09",
         "c": []
        }
@@ -2001,24 +2045,24 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The translation difference in other comprehensive income, with the non-controlling interest's share (accounting specialist, po:2026-11-09, B3; IAS 21.39(c), 21.41, 21.52(b), IAS 1.81B): the consolidated statements show each member's translation difference as other comprehensive income, not only on the cta account of the balance sheet, and profit and total comprehensive income each attributed to owners of the parent and to non-controlling interests; the interest's part of the difference goes to NCI, not the group's reserve (ADR-0059 §9's translation share), and the reserve stays per subsidiary for its reclassification on disposal (IAS 21.48)",
-        "r": "ADR-0059 §7, §11, question 1 (answered) · consolidation statements · T68h",
+        "s": "D",
+        "t": "The translation difference in other comprehensive income, with the non-controlling interest's share (accounting specialist, po:2026-11-09, B3; IAS 21.39(c), 21.41, 21.52(b), IAS 1.81B): the consolidated statements show each member's translation difference as other comprehensive income, not only on the cta account of the balance sheet, and profit and total comprehensive income each attributed to owners of the parent and to non-controlling interests; the interest's part of the difference goes to NCI, not the group's reserve (ADR-0059 §9's translation share), and the reserve stays per subsidiary for its reclassification on disposal (IAS 21.48); built: the profit and loss shows, below the profit, other_comprehensive_income (the fiscal year's translation differences through the period: each company's reserve less its opening, the reserve in the group's final run of the previous fiscal year's period 12 as the run found it when it started, run.opening_run_id, zero without one; the run is stale once that period's final run is another), total_comprehensive_income and its attribution, and translation_reserve per company (opening, difference, closing, the interest's share by the part the parent does not hold, rounded once half away from zero, the remainder the owners'); the balance sheet keeps the accumulated reserve and balances. A run still consolidates only members held whole, so the interest's share is zero until the nci entry of the leaf split from T68h, which also moves its accumulated share from the reserve to the nci account; walkthrough step 40 (consolidation_comprehensive_income)",
+        "r": "db/migrations/000260 · consolidation.run.opening_run_id · GET /v1/consolidation-runs/{id}/statements/profit_and_loss · internal/consolidation comprehensive.go · TestOtherComprehensiveIncome · TestInterestShare · TestConsolidationRunOpeningRules · ADR-0059 §7, §11, As built (other comprehensive income), question 1 (answered) · T68h",
         "src": "po:2026-11-09",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "Group-currency revaluation's translation part moved out of profit or loss in consolidation (accounting specialist, po:2026-11-09, B4 correction 1; IAS 21.39(c)): ADR-0042 values group currency on its own, so a revaluation's group difference is not its local difference translated; the consolidation run keeps in profit or loss only the functional-currency difference translated and moves the rest to other comprehensive income and the member's translation reserve, where ADR-0059 §7 takes income and expenses at their booked group amounts today",
-        "r": "ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, question 1 (answered) · consolidation run",
+        "r": "db/migrations/000261 · consolidation.run_member.revaluation_translation_gc · ledger.ConsolidationReads.BalancesThrough (revaluation lines) · internal/consolidation translate.go (revaluationPart) · GET /v1/consolidation-runs/{id}/statements/profit_and_loss (revaluation_translation) · TestRevaluationTranslationPart · TestRevaluationParts · TestConsolidationRevaluationTranslationRules · walkthrough consolidation_revaluation_translation · ADR-0059 As built (the group-currency revaluation's translation part) · ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, question 1 (answered) · consolidation run",
         "src": "po:2026-11-09",
         "c": []
        },
        {
-        "s": "T",
-        "t": "Exchange differences on a net investment in a foreign operation in other comprehensive income (accounting specialist, po:2026-11-09, B4 correction 2; IAS 21.32, 21.45): a monetary item forming part of the net investment in a foreign operation (a long-term intercompany loan not expected to be settled) is designated as such, how decided in the step, and the consolidation moves its exchange differences to other comprehensive income; other intragroup monetary items keep theirs in profit or loss",
-        "r": "ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, §8, question 1 (answered) · consolidation run",
-        "src": "po:2026-11-09",
+        "s": "D",
+        "t": "Exchange differences on a net investment in a foreign operation in other comprehensive income (accounting specialist, po:2026-11-09, B4 correction 2; IAS 21.32, 21.45): a monetary item forming part of the net investment in a foreign operation (a long-term intercompany loan not expected to be settled) is designated as such, per account and trading partner in the group's consolidation configuration (po:2026-11-10, option b: no flag on the company's account, no designation per open item, no change to posting or to a member's ledger), and the consolidation moves its exchange differences to other comprehensive income; other intragroup monetary items keep theirs in profit or loss. Built for the differences a company's revaluation runs book, where they arise; not built: realised differences on a settled open item and the reclassification on a disposal (IAS 21.48), both listed for the specialist in the ADR",
+        "r": "db/migrations/000262 · consolidation.run_member.net_investment_gc · config consolidation.groups[].net_investments[] (NetInvestment) · ledger.ConsolidationReads.BalancesThrough (RevaluationLine.ValuedAccountID) · internal/consolidation translate.go (netInvestment) · GET /v1/consolidation-groups/{code} (net_investments) · GET /v1/consolidation-runs/{id}/statements/profit_and_loss (net_investment) · TestNetInvestmentExchangeDifferences · TestNetInvestmentParts · TestNetInvestmentsOfARun · TestRevaluationLinesNameTheirValuedAccount · TestConsolidationNetInvestmentRules · walkthrough consolidation_revaluation · ADR-0059 As built (a net investment's exchange differences) · ADR-0042 (the group-currency difference in consolidation) · ADR-0059 §7, §8, question 1 (answered) · consolidation run",
+        "src": "po:2026-11-09 · po:2026-11-10",
         "c": []
        },
        {
@@ -9340,6 +9384,13 @@
       "r": "(post-pilot, PO 2026-10-21)",
       "src": "baseline",
       "c": []
+     },
+     {
+      "s": "T",
+      "t": "An OData extract cannot tell SAP's noted items: the mapping of API_JOURNALENTRYITEMBASIC_SRV carries no document status (ACDOCA-BSTAT), so a noted document that balances would still post with an open payable from an OData extract, while a file extract's is set aside; map the API's property once the pilot's $metadata and the SAP specialist confirm it and whether the service returns noted items at all (docs/migration.md, what to check: noted items and the document status)",
+      "r": "internal/sap odata.go (the mapping's comment) · found by go-reviewer in the step bstat, round 1 (Pre-existing)",
+      "src": "review:batch63",
+      "c": []
      }
     ]
    },
@@ -9392,10 +9443,34 @@
       "c": []
      },
      {
+      "s": "D",
+      "t": "Payment method order from the company, not from LFB1-ZWELS (SAP specialist, po:2026-11-09, A4(c) [M], to verify on the pilot system; first part of the leaf of that name): SAP's payment run tries the methods in the order of its own parameters per company code, restricted to those the vendor's ZWELS allows, where a proposal paid each supplier through the first method of its company data in ZWELS's letter order. A run without a house bank now tries the company's methods in the configuration's order (payment_methods[].order, else the order they are listed in), restricted to those the supplier may be paid by; existing tenants' methods take the order of the active configuration. Confirmed, unchanged: a lower RANGF ranks first [H]; a T042A row without a currency applies to every currency without a row of its own [M]",
+      "r": "ADR-0038 Decision (payment methods, amended), As built (the run order of payment methods) · config.PaymentMethod.Order, Company.MethodsInRunOrder, validation (order from 1, each once), tier 3 · migrations 000251 (payments.payment_method.run_order, backfilled from the active configuration), 000252 (check validated) · payments.PaymentMethods.Apply, rankedRouter, router.route (proposal and liquidity forecast) · delivery/sapconfig paymethods.go (note for a company with several methods) · api/openapi.yaml descriptions · TestMethodsInRunOrder, TestMethodOrderIsAChange, TestRouteByTheCompanysOrder, TestProposalMethodOrder, TestProposalPerBankAndMethod, TestPaymentMethods, TestPaymentMethodRunOrderBackfilled, TestPaymentMethodSchema · walkthrough step 7 (method_order) · docs/migration.md (check list: the order the pilot's runs enter)",
+      "src": "split:T45b · po:2026-11-09",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "An item's fixed payment method honoured by payment runs, the platform's side (SAP specialist, po:2026-11-09, A4(c), to verify on the pilot system; product owner 2026-11-10; second part of the leaf on the payment method order, split once more): a supplier invoice or credit memo may fix its payment method (SAP BSEG-ZLSCH), an active method of its company, changed while parked and kept with its open item at posting. A proposal pays a supplier's items fixing a method in a payment of their own by that method, beside the payment of its items that fix none by the company's run order; a credit memo nets within its own group alone, and a group left in debit is excluded while the other is paid. A fixed method that cannot pay its items leaves them out of the run with the reason, never paid by another method: method_not_active, method_not_allowed (stricter than SAP, where ZLSCH wins over ZWELS: asked of the product owner), no_house_bank, and fixed_method_in_bank_run in a run proposed for one house bank, which pays by no method. The liquidity forecast routes and nets such items the same way. Items that fix no method are proposed as before",
+      "r": "ADR-0038 Decision (amended), As built (an item's fixed payment method) · ADR-0051 §5 · 03-data-model §3.7, §3.10 · api/openapi.yaml: payment_method on SupplierInvoice, SupplierInvoiceCreate, SupplierInvoiceUpdate, OpenItem and PaymentExclusion, payment_method_source on Payment, three exclusion reasons, 422 payables.unknown_payment_method · migrations 000253 (payables.supplier_invoice.payment_method, ledger.open_item_payment_method, payments.payment.method_fixed, payments.method_exclusion), 000254-000255 (payment_items_once_per_method, payment_items_once_unfixed), 000256 (checks validated), 000257 (payment_items_once dropped) · payables fixedMethod, Change.PaymentMethod · ledger.Posting.PaymentMethod, keepPaymentMethod, PayableItem.PaymentMethod · payments byMethod, router.fixed, router.items, proposal.excludeItems, dropped, dropPayment, CashPayable.FixedMethod · cash netting.method · TestFixedPaymentMethod (db, payables), TestFixedMethodKeptOnOpenItems, TestFixedMethodPaidApart, TestFixedMethodGroupsNetApart, TestFixedMethodThatCannotPay, TestFixedMethodPaymentDropped, TestRouteItemsFixingAMethod, TestItemsWithoutAFixedMethodAreProposedAsBefore, TestLiquidityForecastFixedMethod · walkthrough step 7 (method_order, step_payment) · docs/migration.md",
+      "src": "split:T45b · po:2026-11-09 · po:2026-11-10",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
       "s": "T",
-      "t": "Payment method order from the payment run, not from LFB1-ZWELS (SAP specialist, po:2026-11-09, A4(c) [M], to verify on the pilot system): SAP's payment run tries the methods in the order of its own parameters per company code, restricted to those the vendor's ZWELS allows, and an item's fixed payment method (BSEG/ACDOCA-ZLSCH) wins over both, while ADR-0038 pays each supplier through the first method of its company data in ZWELS's letter order. To change: the order of methods tried comes from the run or the company's configuration, a supplier's methods only restrict it, and a migrated open item's fixed method is taken over and honoured; and T042I's account (HKTID, a T012K account) chooses a house bank's account per method and currency [H], where the configuration draft takes one account per house bank today; ADR-0038 amended in the step. Confirmed, unchanged: a lower RANGF ranks first [H]; a T042A row without a currency applies to every currency without a row of its own [M]",
-      "r": "ADR-0038 Decision (payment methods), As built (SAP payment methods, answered) · delivery/sapconfig paymethods.go · payments proposal · internal/integration (ZWELS, ZLSCH) · docs/migration.md",
-      "src": "po:2026-11-09",
+      "t": "A migrated open item's fixed payment method taken over from SAP (SAP specialist, po:2026-11-09, A4, to verify on the pilot system; the SAP side of the leaf on an item's fixed payment method, split from it): the extract carries ACDOCA/BSEG-ZLSCH on supplier open items, the quality gate refuses a method the company's active configuration lacks, as it refuses a vendor's unknown method, and the load keeps it with the migrated open item (ledger.Posting.PaymentMethod), so a payment run pays it by that method alone. Until then a migrated item that fixed a method in SAP is paid by the company's run order (docs/migration.md check list). Follows the trading-partner change of the ACDOCA load",
+      "r": "ADR-0038 As built (an item's fixed payment method, still open) · internal/sap (ZLSCH on open items), internal/integration (quality gate, load) · ledger.Posting.PaymentMethod · docs/migration.md",
+      "src": "split:T45b · po:2026-11-09 · po:2026-11-10",
+      "pilot": "po:2026-10-31 · adr:ADR-0038",
+      "c": []
+     },
+     {
+      "s": "T",
+      "t": "T042I's account chooses a house bank's account per method and currency (SAP specialist, po:2026-11-09, A4 [H]; third part of the leaf on the payment method order): T042I gives, per house bank, payment method and currency, the account (HKTID, a T012K account) the payment run pays from; without it the bank is known but not its account. The configuration draft takes one account per house bank (the first T012K row) today and does not read HKTID. To build: the extract's T012K carries HKTID, and the draft ranks for a method and currency the account T042I names",
+      "r": "ADR-0038 As built (SAP payment methods: no counterpart, noted; the run order of payment methods, still open) · delivery/sapconfig sapconfig.go (houseBanks), paymethods.go (ranking, subaccounts) · internal/sap T012K, T042I · docs/migration.md",
+      "src": "split:T45b · po:2026-11-09",
       "pilot": "po:2026-10-31 · adr:ADR-0038",
       "c": []
      },
@@ -9504,10 +9579,24 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "D",
       "t": "SAP's trading partner on migrated intercompany documents (ADR-0059 question 4, answered po:2026-11-05: a migration leaf once an SAP specialist confirms the fields; the SAP specialist answered po:2026-11-09, A2): the extract reads the vendor's LFA1-VBUND (KNA1-VBUND for a customer) [H] and each line's ACDOCA-RASSC [H]; SAP does not guarantee RASSC on every line of a document [M] (lines from MIRO and GR/IR, tax, exchange and price difference and cash discount lines, documents with several vendors and lines a user cleared often lack it), so the load gives a whole intercompany document the trading partner of its vendor line, as ADR-0059 §4's derivation does on the platform, instead of requiring it on each SAP line; how a VBUND names the tenant's legal entity is settled in the step; checked on the pilot's data with the specialist's query (documents whose vendor line has a RASSC that another line lacks)",
-      "r": "ADR-0059 §4, question 4 (answered) · internal/sap (LFA1, ACDOCA) · internal/integration load · docs/migration.md",
+      "r": "ADR-0059 §4, question 4 (answered), As built (SAP's trading partner on migrated intercompany documents) · internal/sap (LFA1 VBUND, ACDOCA RASSC, T001 RCOMP, Extract.CompanyCodes) · internal/integration tradingpartner.go (the supplier's group company from VBUND, the gate's warnings, the open payables by trading partner) · ledger Reports.OpenPayablesByTradingPartner, Posting.Collective (the opening entry's balances take no trading partner) · docs/migration.md · walkthrough step 3 (migration_group_company, migrated_trading_partner). Settled in the step: a VBUND names the legal entity of the company code T001-RCOMP assigns to it (RCOMP from memory, for the specialist); one that names none is a warning",
       "src": "po:2026-11-05 · po:2026-11-09 · adr:ADR-0059",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "SAP's noted items are not posted or counted (ACDOCA-BSTAT S, such as down payment requests, special G/L F): they post nothing to the G/L in SAP (SAP specialist, po:2026-11-09, A14 [H], A15 [M]), but the load read them as journal lines, so a one-sided request stopped the run as unbalanced and a noted document that balanced was posted with an open payable; the scope sets them aside, in both modes nothing posts, sums or counts one, and the quality gate reports them as warnings, per company and each open one",
+      "r": "internal/sap FilterScope, Extract.Noted, StatusNoted · internal/integration noted.go (qualityCheck.noted), recaccounts.go · TestNotedItemsAreNotMigrated (mock extract, both modes), TestNotedItemsReported, TestFilterScopeKeepsTheLeadingLedger · ADR-0037 As built (SAP's noted items are not migrated, bstat) · ADR-0060 §9 · docs/migration.md (noted items; what to check: BSTAT's other values, whether ACDOCA holds noted items)",
+      "src": "review:batch63",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migration run's day is the company's date, not UTC's: the cutover date a vendor's central address (ADRC) must be valid on was the database's UTC day, so on a cutover evening in Toronto the run took the address valid from the next day; it is each company's date in its time zone at the run's instant, a vendor judged on the days of the company codes it is set up in; the dates the run writes on the platform (a supplier's bank account and address valid_from) stay partner's UTC rule (product owner 2026-10-31 and 2026-11-02)",
+      "r": "internal/integration cutover.go (companyDays, target.cutoverDays), addresses.go, runs.go (target.configure) · internal/app Integration (Endpoints.Now wired) · TestRunDayIsTheCompanysDay (Toronto, Dubai), TestRunDayZoneLost, TestCompanyDays, TestCutoverDays, TestCentralAddressAcrossDays · ADR-0051 As built (a run's cutover date is the company's, bstat) · 03-data-model · docs/migration.md (vendor addresses)",
+      "src": "review:batch63",
       "c": []
      }
     ]

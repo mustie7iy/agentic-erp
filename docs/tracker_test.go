@@ -93,8 +93,16 @@ const baselineItems = 949
 // and segment halves (+1), the empty-WAERS house bank leaf tagged as the
 // SAP house bank leaf it changes (+1), and SAP amounts in internal or
 // external format (D10's planning default), tagged as the foreign-currency
-// open items leaf (+1).
-const pilotItems = 114
+// open items leaf (+1). 116 since the payment method order leaf was split
+// in three (a4c): the company's run order, an item's fixed method and
+// T042I's account, the two new leaves inheriting the tag (+2). 117 since
+// the item's fixed method was split once more (a4b): the platform's side,
+// built, and taking ZLSCH over from SAP, which inherits the tag (+1). 119
+// since batch 64: the two year-end leaves B14 split off the asset history
+// sheet's missing lines, impairment and the consolidated sheet in the
+// group's currency, each wanted before the pilot's first year end
+// (po:2026-11-09), tagged by the coordinator (+2).
+const pilotItems = 119
 
 // accepted lists the sources an item may name, several joined by " · ":
 //

@@ -76,18 +76,22 @@ func (consolidationLedger) Accounts(ctx context.Context, company uuid.UUID) ([]c
 	return out, err
 }
 
-func (consolidationLedger) BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16) ([]consolidation.Balance, error) {
+func (consolidationLedger) BalancesThrough(ctx context.Context, company uuid.UUID, year, period int16, valued []uuid.UUID) ([]consolidation.Balance, []consolidation.RevaluationLine, error) {
 	leading, err := ledger.ConsolidationReads{}.LeadingLedger(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	bs, err := ledger.ConsolidationReads{}.BalancesThrough(ctx, company, leading, year, period)
-	out := make([]consolidation.Balance, len(bs))
+	bs, ls, err := ledger.ConsolidationReads{}.BalancesThrough(ctx, company, leading, year, period, valued)
+	balances, lines := make([]consolidation.Balance, len(bs)), make([]consolidation.RevaluationLine, len(ls))
 	for i, b := range bs {
-		out[i] = consolidation.Balance{AccountID: b.AccountID, TradingPartnerID: b.TradingPartnerID, FiscalYear: b.FiscalYear, Period: b.Period,
+		balances[i] = consolidation.Balance{AccountID: b.AccountID, TradingPartnerID: b.TradingPartnerID, FiscalYear: b.FiscalYear, Period: b.Period,
 			LC: b.LC, GC: b.GC}
 	}
-	return out, err
+	for i, l := range ls {
+		lines[i] = consolidation.RevaluationLine{AccountID: l.AccountID, TradingPartnerID: l.TradingPartnerID, ValuedAccountID: l.ValuedAccountID,
+			FiscalYear: l.FiscalYear, Period: l.Period, LC: l.LC, GC: l.GC, Rate: l.Rate}
+	}
+	return balances, lines, err
 }
 
 func (consolidationLedger) RateOn(ctx context.Context, rateType, from, to string, date time.Time) (consolidation.Rate, bool, error) {

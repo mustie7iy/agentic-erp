@@ -2953,7 +2953,7 @@ func TestDownPaymentPayments(t *testing.T) {
 		insert func(tx pgx.Tx) error
 		fails  string
 	}{
-		{"a second items payment", pay("items", nil), "payment_items_once"},
+		{"a second items payment", pay("items", nil), "payment_items_once_unfixed"},
 		{"the request twice", pay("down_payment", request), "payment_request_once"},
 		{"a down payment without its request", pay("down_payment", nil), "payment_down_payment_request"},
 		{"items naming a request", pay("items", id()), "payment_down_payment_request"},
@@ -3035,7 +3035,8 @@ func TestWithholdingTaxCodes(t *testing.T) {
 // TestPaymentMethodSchema: a payment method's code is one upper-case
 // letter or digit; a ranking belongs to a method of its legal entity, in a
 // known currency, and ranks at least one house bank; a supplier has up to
-// ten methods, each one upper-case letter or digit (ADR-0038).
+// ten methods, each one upper-case letter or digit (ADR-0038). A method's
+// place in the run order, where it has one, is from 1 (000251).
 func TestPaymentMethodSchema(t *testing.T) {
 	need(t)
 	f := newFixture(t)
@@ -3057,7 +3058,14 @@ func TestPaymentMethodSchema(t *testing.T) {
 				payment_methods, created_by, updated_by) VALUES ($1, $2, $3, $4, 'NT30', `+list+`, $5, $5)`, f.tenant, supplier, f.entity, f.ap, f.actor)
 		}
 	}
+	ordered := func(code string, order int) func(tx pgx.Tx) error {
+		return func(tx pgx.Tx) error {
+			return exec(tx, `INSERT INTO payments.payment_method (tenant_id, legal_entity_id, code, description, run_order, created_by, updated_by)
+				VALUES ($1, $2, $3, 'M', $4, $5, $5)`, f.tenant, f.entity, code, order, f.actor)
+		}
+	}
 	mustApp(t, f.tenant, method("T"))
+	mustApp(t, f.tenant, ordered("S", 1))
 	mustApp(t, f.tenant, ranking("T", "USD", []string{"MAIN", "HSBC"}))
 	mustApp(t, f.tenant, methods(f.supplier, `ARRAY['T', 'U']`))
 	for _, c := range []struct {
@@ -3067,6 +3075,8 @@ func TestPaymentMethodSchema(t *testing.T) {
 	}{
 		{"a two-character method", method("TT"), "payment_method_code_check"},
 		{"a lower-case method", method("t"), "payment_method_code_check"},
+		{"a run order of zero", ordered("Z", 0), "payment_method_run_order"},
+		{"a run order below zero", ordered("Z", -1), "payment_method_run_order"},
 		{"a ranking of no method", ranking("U", "USD", []string{"MAIN"}), "bank_ranking_tenant_id_legal_entity_id_method_fkey"},
 		{"a ranking in an unknown currency", ranking("T", "XXY", []string{"MAIN"}), "bank_ranking_currency_fkey"},
 		{"a ranking of no bank", ranking("T", "EUR", []string{}), "bank_ranking_house_banks_check"},

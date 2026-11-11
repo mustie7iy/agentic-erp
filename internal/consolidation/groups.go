@@ -1,6 +1,7 @@
 package consolidation
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -101,10 +102,12 @@ func (e *Endpoints) GetConsolidationGroup(ctx context.Context, params gen.GetCon
 	return &out, nil
 }
 
-// toAPI is a visible group with its companies named and its members in
-// company code order; visible has found each company's legal entity, and
-// validation keeps each investment account in the parent's chart and each
-// first period well formed.
+// toAPI is a visible group with its companies named, its members in
+// company code order and its net investment designations by company,
+// account and trading partner; visible has found each company's legal
+// entity, and validation keeps each investment account in the parent's
+// chart, each first period well formed and each designation's companies
+// in the group and its account in its company's chart.
 func (r groupReader) toAPI(g config.ConsolidationGroup) gen.ConsolidationGroup {
 	company := func(code string) gen.ConsolidationCompany {
 		le := r.companies[code]
@@ -114,10 +117,19 @@ func (r groupReader) toAPI(g config.ConsolidationGroup) gen.ConsolidationGroup {
 	for _, a := range r.doc.Company(g.Parent).ChartOfAccounts {
 		names[a.Number] = a.Name
 	}
+	investments := slices.Clone(g.NetInvestments)
+	slices.SortFunc(investments, func(a, b config.NetInvestment) int {
+		return cmp.Or(strings.Compare(a.Company, b.Company), strings.Compare(a.Account, b.Account), strings.Compare(a.Partner, b.Partner))
+	})
 	members := slices.Clone(g.Members)
 	slices.SortFunc(members, func(a, b config.GroupMember) int { return strings.Compare(a.Company, b.Company) })
 	out := gen.ConsolidationGroup{Code: g.Code, Name: g.Name, GroupCurrency: r.currency, Parent: company(g.Parent),
-		Members: make([]gen.ConsolidationMember, len(members))}
+		Members: make([]gen.ConsolidationMember, len(members)), NetInvestments: make([]gen.ConsolidationNetInvestment, len(investments))}
+	for i, n := range investments {
+		// Validated: the account is in the company's chart.
+		out.NetInvestments[i] = gen.ConsolidationNetInvestment{Company: company(n.Company), Partner: company(n.Partner),
+			Account: gen.AssetAccountRef{Number: n.Account, Name: r.doc.Company(n.Company).Account(n.Account).Name}}
+	}
 	for i, m := range members {
 		c := company(m.Company)
 		year, period, _ := m.First() // validated: well formed

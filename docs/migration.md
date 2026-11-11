@@ -98,6 +98,74 @@ tax, and a tax that is not the code's rate of the down payment (SAP's gross
 display, where the down payment includes its tax). A down payment SAP cleared
 loads in `balances` mode only, since SAP's clearing of it is not taken over.
 
+SAP's noted items are not migrated (review:batch63, ADR-0037 As built). A
+noted item (ACDOCA-BSTAT `S`), such as a down payment request (special G/L
+F), posts nothing to the G/L in SAP (A14 [H], A15 [M]), so in either mode
+it loads as no journal entry and counts as no open item, in no total and
+no check: the run's scope sets these lines aside, and `extract.acdoca`
+counts the journal lines without them. The quality gate reports them as
+warnings: one keyed by the company code with how many lines in how many
+documents were left out and how many of them are open, and one per open
+line (AUGBL blank) keyed `<BUKRS>/<GJAHR>/<BELNR>/<DOCLN>` with its vendor
+(number and name), special G/L indicator, posting date and amount in
+company currency, and in its document currency where that is another. A
+request that is still wanted is entered on the platform as a down payment
+request after the load. The extract must carry ACDOCA-BSTAT for this: an
+extract without it (the OData mapping does not carry it) cannot tell a
+noted item, which then stops the run as an unbalanced document or, if it
+balances, would post.
+
+SAP's trading partner is taken over through the supplier (ADR-0059 §4 and
+As built; the SAP specialist, A2). A vendor that is a company of the group
+names it in its master, LFA1-VBUND, a company ID; SAP gives the vendor's
+journal lines the same (ACDOCA-RASSC) but does not guarantee it on a
+document's other lines. So in either mode the load does not post RASSC
+line by line: it links the supplier it creates to the legal entity that
+company is (the supplier's `group_company`), and the ledger gives every
+line naming the supplier that trading partner and, when a document's
+vendor lines all name the same one, its other lines too, as it does for
+every posting on the platform. A company ID is no company code: the load
+takes the company code SAP assigns to it (T001-RCOMP, read from every
+company code of the extract file, the scope's or not) and the legal
+entity of that code, whatever its status, so the legal entity of the
+other company only has to exist, not to be migrated or configured. In
+`documents` mode an intercompany invoice's expense and tax lines carry
+the trading partner with its vendor line, and its payment's lines keep
+it; in `balances` mode the open vendor items carry it and the account
+balances none, whatever the open items name: an opening entry gathers
+lines that belong to no one document. The quality gate
+warns and never refuses, a group having companies that are not on the
+platform:
+
+- a vendor whose trading partner names no legal entity, keyed by the
+  vendor number: its company ID is assigned to no company code of the
+  extract or to several, or its company code is no legal entity of the
+  tenant. The supplier loads linked to no company and its documents
+  without a trading partner, which a consolidation run lists as
+  `no_trading_partner`. Create the legal entity before the run to have it
+  linked.
+- vendor lines whose own trading partner (RASSC) is not their vendor's
+  master's, keyed `<BUKRS>/<LIFNR>` with how many lines carry which: they
+  load with the master's (a vendor linked, relinked or unlinked since the
+  posting).
+- lines carrying a trading partner in documents without a vendor line
+  (an intercompany loan or recharge posted between G/L accounts), keyed
+  by the company code with their number: they load without one.
+- other lines of a document with vendor lines that carry another trading
+  partner than the load gives them, keyed by the company code with their
+  number: they load with the one the document's vendors share, or with
+  none where those name different ones, none or a company that is no
+  legal entity, and with none in a `balances` run's opening entry.
+- once, keyed `VBUND`, an extract that cannot carry trading partners: the
+  OData mapping reads neither field, so an OData run links no supplier.
+
+A supplier an earlier run loaded keeps the group company it has: a later
+run does not link it, since a supplier's group company changes through a
+partner change with its approval, and lines already posted keep theirs
+(ADR-0006). The reconciliation then shows SAP's open payables under the
+trading partner against none on the platform. Customers are not migrated,
+so KNA1-VBUND is not read.
+
 In either mode an order SAP valued through GR/IR (a line on its GR/IR account,
 T030 WRX, names the order item, ACDOCA EBELN/EBELP) loads valued through GR/IR
 (T72f, ADR-0034): its receipts (MSEG 101) are recorded without posting again,
@@ -466,6 +534,15 @@ ACDOCA, so no plan filter is needed.
   payments), in total and per vendor, in that currency, where either side has
   any: the controls in company currency cannot tell an item loaded with the
   wrong document amount
+- Open payables by trading partner (ordinary items and down payments), in
+  total and per trading partner, where either side has any: SAP's open
+  vendor items under the company their vendor's master names (LFA1-VBUND,
+  by its company code; none for a vendor whose trading partner is the
+  company itself or no legal entity), against the platform's open supplier
+  items as their lines carry a trading partner, which a consolidation run
+  reads (differences listed by `trading partner <company code>`, or
+  `trading partner <id>` for a legal entity no vendor of the extract
+  names; ADR-0059)
 - Vendor count per company code
 - Cost centers and profit centers per company code, where either side has
   any: SAP's of the company code against the platform's active ones that
@@ -548,7 +625,11 @@ A finding or a difference names what it is about by SAP's reference where
 there is one: a refused supplier, its posting block included, by the vendor
 number (`LFA1`, `<LIFNR>`), a vendor's open items by `vendor <LIFNR>`. Open
 items of a platform supplier that is no migrated vendor, which SAP cannot
-name, are keyed `partner <id> (<name>)`.
+name, are keyed `partner <id> (<name>)`. A trading partner is named by the
+SAP company code its company ID is assigned to (`trading partner 2000`),
+never by the platform's name of that company, which a person running the
+migration may not be allowed to read; one no vendor of the extract names
+is keyed by the legal entity's id alone.
 
 When the run ends, `reconciled` or `failed`, its `MigrationRunCompleted`
 event (api/asyncapi.yaml) carries the report's headline figures as
@@ -683,8 +764,8 @@ others record a confirmation.
   without a name or a ranking, or a ranked bank the company does not have or
   in another currency, is noted and refused by validation until a reviewer
   corrects it. T042E amount limits and T042I bank subaccounts have no
-  counterpart and are noted. Suppliers' methods come from LFB1-ZWELS, in
-  order: the quality gate refuses a method the company's configuration
+  counterpart and are noted. Suppliers' methods come from LFB1-ZWELS, the
+  methods allowed: the quality gate refuses a method the company's configuration
   lacks, or one listed twice (ADR-0038). Confirm the tables and fields in
   your release, that a lower RANGF ranks first, and that ZWELS's order is
   the order of preference. Answered (A4): the tables and fields are as
@@ -696,8 +777,30 @@ others record a confirmation.
   its own [M]. ZWELS's letter order is **not** the order of preference [M]:
   the payment run (F110) tries the methods in the order of its own
   parameters per company code, restricted to those ZWELS allows, and an
-  item's fixed method wins over both. The method order and T042I's account
-  are a tracker leaf; verify both on the pilot system.
+  item's fixed method wins over both. Built (ADR-0038 As built, the run
+  order of payment methods): a proposal tries the company's methods in the
+  configuration's order (`payment_methods[].order`, else the order they are
+  listed in) and a supplier's ZWELS only restricts them. The draft lists a
+  company's methods in T042E's order as extracted and notes, for a company
+  with several, that the order is the reviewer's to set. **Check on the
+  pilot system:** which order the company's payment runs (F110) enter their
+  methods in, per paying company code, and set `order` to match before the
+  first proposal without a house bank (not during an upgrade of the cell:
+  a replica of the release before stores no order, so a change of the
+  methods' order made then takes effect only once the configuration is
+  activated again after the upgrade); that ZWELS's letter order is indeed
+  not used [M]; and where the pilot's release keeps a run's parameters, if
+  the order is to be extracted rather than read off a run (not stated by
+  the specialist, so not assumed here). An item's fixed method and T042I's
+  account are tracker leaves of their own; verify both on the pilot system.
+  The platform honours a method fixed on an invoice entered here (ADR-0038
+  As built, an item's fixed payment method): its item is paid by that
+  method alone, in a payment of its own, and left out of a run, with the
+  reason, when the method cannot pay it. Taking ZLSCH over onto migrated
+  open items is not built yet (its own leaf): until it is, a migrated item
+  that fixed a method in SAP is paid by the company's run order here, so
+  list the open items with a ZLSCH before the first run. Fixed methods
+  are entered only once an upgrade of the cell has completed.
 - Vendor addresses: the load first took the vendor's street with house
   number, city, postal code and region from LFA1 STRAS, ORT01, PSTLZ and
   REGIO (product owner 2026-11-04, ADR-0054 As built), field names written
@@ -707,7 +810,12 @@ others record a confirmation.
   load now reads ADRC (sapvend): LFA1-ADRNR = ADRC-ADDRNUMBER in the
   extract's client, the row with ADRC-NATION blank (the international
   version; other values are other scripts) and ADRC-DATE_FROM <= the run's
-  day <= ADRC-DATE_TO; street ADRC-STREET followed by ADRC-HOUSE_NUM1 and
+  day <= ADRC-DATE_TO, the run's day being the company's date in its time
+  zone when the run starts, not UTC's (review:batch63, ADR-0051 As built:
+  for a vendor set up in several company codes a row valid on any of
+  their days counts, so an address SAP changes between two companies'
+  days is one of several and is warned of; the address starts on the
+  platform on UTC's day, partner's rule); street ADRC-STREET followed by ADRC-HOUSE_NUM1 and
   ADRC-HOUSE_NUM2, further lines ADRC-STR_SUPPL1/2/3 and ADRC-LOCATION as
   the address's second line, city ADRC-CITY1, postal code ADRC-POST_CODE1,
   region ADRC-REGION, country ADRC-COUNTRY (LFA1-LAND1 when blank). A blank
@@ -722,6 +830,45 @@ others record a confirmation.
   system:** whether its countries print the house number before the street
   (the load keeps SAP's field order, street then number, and does not
   apply SAP's per-country address layout, which the answers do not give).
+- The trading partner (ADR-0059 §4, the migration leaf). Answered (A2):
+  the vendor's is LFA1-VBUND ("company ID of trading partner"; KNA1-VBUND
+  for a customer) [H] and the journal line's ACDOCA-RASSC [H] (BSEG-VBUND
+  on the entry view); SAP does not guarantee RASSC on every line of a
+  document [M, to verify on the pilot system]: the vendor line always has
+  it, lines from materials management (MIRO, GR/IR), generated lines (tax,
+  exchange and price differences, cash discount), documents with several
+  vendors and lines a user cleared often lack it. The load therefore
+  derives a document's trading partner from its vendor line's supplier.
+  Run the specialist's query on the pilot's data to see how far SAP's
+  lines differ (documents whose vendor line has a trading partner that
+  another line lacks):
+
+  ```sql
+  SELECT a.rbukrs, a.gjahr, a.belnr, b.docln, b.racct, b.ktosl
+  FROM acdoca a JOIN acdoca b
+    ON b.rldnr = a.rldnr AND b.rbukrs = a.rbukrs AND b.gjahr = a.gjahr AND b.belnr = a.belnr
+  WHERE a.koart = 'K' AND a.rassc <> '' AND b.rassc = '' AND a.rldnr = '0L';
+  ```
+
+  **Not in the answer, stated from memory, for the specialist:** that the
+  company a company code belongs to is T001-RCOMP (check table T880), the
+  field the load reads to tell which company code a VBUND is; that
+  several company codes may share one company (the gate then warns, the
+  company ID naming no one legal entity); and that VBUND, RASSC and RCOMP
+  hold the company ID in the same ALPHA form (the load compares them
+  without leading zeros and blanks). The extract must export T001 for
+  every company code, not only the scope's, with RCOMP, and LFA1 with
+  VBUND; an extract without either links no supplier and says nothing,
+  since a blank VBUND is also what a vendor outside the group has. Also to
+  check on the pilot's data: intercompany documents posted without a
+  vendor line (loans, recharges between G/L accounts), which load without
+  a trading partner and are warned of, and vendors whose VBUND was set or
+  changed after documents were posted. The OData mapping carries none of
+  the three fields: the answer names the tables' fields, and of the APIs
+  only `A_JournalEntryItemBasic`'s `PartnerCompany` for RASSC [L] (A7),
+  which the load does not post; a property of `A_Supplier` for VBUND and
+  of `A_CompanyCode` for RCOMP is to be found in the pilot's `$metadata`.
+  Until then an OData run warns once and links no supplier.
 - The controlling master data (T56h; ADR-0050 §10 states the tables from
   memory, and internal/sap's types say which fields are not even in its
   list): that CSKS carries KOKRS, KOSTL, DATAB, DATBI, BUKRS, KOSAR, VERAK,
@@ -883,6 +1030,22 @@ others record a confirmation.
   period 000 carry-forward and a valuation posted to the account are named
   but not told apart (the extract carries no POPER, AWTYP or T030H); verify
   the check against the pilot's data.
+- **Noted items and the document status (BSTAT)** (review:batch63): the
+  load leaves out the lines with ACDOCA-BSTAT `S` and reports them, on the
+  specialist's answers A14 and A15. Still to ask the SAP specialist, none
+  of it assumed by the code: (a) whether ACDOCA on the pilot's release
+  holds noted items at all, or only BSEG and the vendor open item views
+  do, in which case the extract never has one and BSTAT need not be
+  exported; (b) which other values of BSTAT can appear in ACDOCA and
+  whether any of them marks lines that must not be loaded as journal
+  lines either (from memory, to be confirmed and not relied on: BKPF-BSTAT
+  also knows parked, recurring, sample and clearing documents, and
+  S/4HANA has values for postings to one ledger group and for balance
+  carry-forward lines); (c) whether a noted item's line carries the
+  reconciliation account or the special G/L account of T074, and an amount
+  in HSL; (d) whether the OData service used
+  (API_JOURNALENTRYITEMBASIC_SRV) returns noted items and exposes their
+  status. Until (d) is answered an OData extract cannot tell a noted item.
 
 **Facts still awaited from the pilot customer** (the customer questionnaire
 of 2026-11-09, not answered yet). Each has a **planning default, to be

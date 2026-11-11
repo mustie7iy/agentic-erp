@@ -5936,6 +5936,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -6364,6 +6365,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -6509,6 +6511,7 @@ paths:
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -6666,6 +6669,7 @@ paths:
         - ledger.currency_mismatch
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -11122,6 +11126,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_source
         - payables.unknown_tax_code
@@ -11277,6 +11282,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_tax_code
         - payables.unknown_unit
@@ -11510,6 +11516,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_tax_code
         - payables.unknown_unit
@@ -11626,7 +11633,7 @@ paths:
       tags:
         - payables
       summary: Post a supplier invoice
-      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an invoice changed after its match, including a hold and release by hand, is matched again, and an edit unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when documents posted on the order since (another invoice past the received quantity, a credit memo past the invoiced one), a change of the order or of the tolerances leave it with an issue its clean match, or the match its exception was approved on, did not have; the problem's `match_issues` are those issues."
+      description: "Posts the invoice to the ledger (supplier reconciliation, expense or GR/IR, input tax). Requires status `parked`, a clean latest match of the invoice as it now stands for PO-based invoices (or an exception approved at the invoice's current version; 409 `payables.match_required` otherwise: an invoice changed after its match, including a hold and release by hand, is matched again, and an edit unlinks an approved exception), an open period and an unblocked supplier. The invoice is matched again under its order items' locks: 409 `payables.match_outdated`, the invoice left parked, when documents posted on the order since (another invoice past the received quantity, a credit memo past the invoiced one), a change of the order or of the tolerances leave it with an issue its clean match, or the match its exception was approved on, did not have; the problem's `match_issues` are those issues. A credit memo or subsequent credit naming an invoice (`reference_invoice_id`), on a purchase order or not, posts only while the gross amounts of the posted credit memos and subsequent credits naming that invoice, with its own `gross_amount`, do not exceed that invoice's `gross_amount`: 422 `payables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a reversed credit frees its amount; a credit naming no invoice has no such limit. It is checked under a lock on the named invoice, so of two credits posted at once that together exceed it one is refused."
       x-permission: payables.invoice.post
       x-problem-codes:
         - config.no_number_range
@@ -11683,6 +11690,7 @@ paths:
         - payables.already_captured
         - payables.amount_too_large
         - payables.amounts_mismatch
+        - payables.credit_exceeds_invoice
         - payables.duplicate_invoice
         - payables.invalid_status
         - payables.invalid_tax_code
@@ -14316,7 +14324,7 @@ paths:
       tags:
         - consolidation
       summary: Finalize a consolidation run
-      description: "Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10, T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it), so the history of what was finalized, by whom and on which figures stays readable (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`, or have the companies correct their postings and run the group again); when a company's leading-ledger period was not locked when the run read its figures or is not locked now (409 `consolidation.period_not_locked`, naming the companies: lock them, through each company's close sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409 `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version moved since the run read its figures, so run the group again). The first final run including a member freezes its acquisition figures (its `acquisition`), which every later run of the group reads instead of measuring them; finalizing a run whose figures for a member differ from those another final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the group again). Finalizations of one group and period wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
+      description: "Makes a computed consolidation run the group's consolidated figures of its period (ADR-0059 §10, T68g): it becomes `final`, with who finalized it and when, and the group's previous final run of the period, if any, becomes `superseded` by it (`superseded_by`; the response's `supersedes` names it), so the history of what was finalized, by whom and on which figures stays readable (`listConsolidationRuns?status=superseded`); a final run is never changed or discarded. Refused when the run is not computed (409 `consolidation.run_not_computed`); while one of its intercompany differences is open (409 `consolidation.differences_open`, naming how many: accept them, `:accept`, or have the companies correct their postings and run the group again); when a company's leading-ledger period was not locked when the run read its figures or is not locked now (409 `consolidation.period_not_locked`, naming the companies: lock them, through each company's close sign-off or `lockFiscalPeriod`, and run the group again); and when the run is stale (409 `consolidation.run_stale`, naming the companies and any pending unlock request: a period's version moved since the run read its figures, or the previous fiscal year's last period was finalized after the run started, so that its translation reserve no longer opens from the group's final run of it; run the group again). The first final run including a member freezes its acquisition figures (its `acquisition`), which every later run of the group reads instead of measuring them; finalizing a run whose figures for a member differ from those another final run froze since it was computed is refused (409 `consolidation.acquisition_changed`: run the group again). Finalizations of one group and period wait for each other, so the second sees the first's final run and supersedes it. `If-Match` is the run's ETag (412 `request.version_mismatch` when it or its differences moved since). Each run that changes is published as ConsolidationRunChanged and audited. A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Besides `consolidation.run.finalize` the caller needs `ledger.entry.read`, since the run shows figures (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Human-only."
       x-permission: consolidation.run.finalize
       x-also-permissions:
         - ledger.entry.read
@@ -14371,7 +14379,7 @@ paths:
       tags:
         - consolidation
       summary: List a consolidation run's translated balances
-      description: "A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per company, one row per company account and trading partner (`balance`, with the local amount, the booked group amount and the translated group amount, and the closing rate where one applied: on asset and liability accounts), the results of earlier fiscal years on the `retained_earnings` account (`prior_results`, translated at their booked group amounts) and the translation difference on the `cta` account (`cta`, a group amount alone), each with the company's code and name, the group account's number and name, the company account's number and name and the trading partner's code and name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within a company the rows follow the group account's number, the company account's (none first), the trading partner's code (none first) and the kind, so two runs of the same figures number them alike. With totals over the filter: the local amounts per local currency, and the booked and translated group amounts in the group currency (each company's translated rows sum to zero). Filters: company, group account, company account, trading partner and kind. A run still queued shows none, a running one those of the companies translated so far. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      description: "A consolidation run's translated balances (ADR-0059 §7, T68d), by company code and line: per company, one row per company account and trading partner (`balance`, with the local amount, the booked group amount and the translated group amount, and the closing rate where one applied: on asset and liability accounts), the results of earlier fiscal years on the `retained_earnings` account (`prior_results`, translated at their booked group amounts) and the translation difference on the `cta` account (`cta`, a group amount alone), where a profit and loss account's row and `prior_results` leave the translation part of the company's group-currency revaluation differences to the translation difference (`ConsolidationBalance.amount_gc`; IAS 21.39(c)), each with the company's code and name, the group account's number and name, the company account's number and name and the trading partner's code and name (to a caller who may act in that company; its id alone otherwise, as a journal line's). Within a company the rows follow the group account's number, the company account's (none first), the trading partner's code (none first) and the kind, so two runs of the same figures number them alike. With totals over the filter: the local amounts per local currency, and the booked and translated group amounts in the group currency (each company's translated rows sum to zero). Filters: company, group account, company account, trading partner and kind. A run still queued shows none, a running one those of the companies translated so far. Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -14843,7 +14851,7 @@ paths:
       tags:
         - consolidation
       summary: Get a consolidated statement of a run
-      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit. The eliminations are the run's elimination entries' lines on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance between the run's companies on an elimination's accounts and put each pair's difference on the elimination's difference account; the investment's elimination follows with T68h. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes; `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
+      description: "A consolidated statement of a computed, final or superseded consolidation run (ADR-0059 §11, T68e): the balance sheet (`balance_sheet`: the group chart's asset, liability and equity accounts, the `cta`, `retained_earnings` and `nci` accounts among them) or the profit and loss (`profit_and_loss`: its revenue and expense accounts), one row per group account of the statement's types in the configuration version the run read, in number order, cursor-paged by number. Each row has the account's number, name, type and role, the companies' translated figures on it summed (`reported`: the total of `listConsolidationBalances?group_account=` for it), the run's eliminations on it (`eliminations`) and their sum (`consolidated`), each in the group currency and debit positive, as the trial balance shows them: a credit balance, and so a profit, is negative. A group account without figures has a row of zeros. With totals over the whole statement, each with the same three columns: for the balance sheet, the assets, liabilities and equity and the fiscal year's profit through the period (the profit and loss's), which together sum to zero; for the profit and loss, the revenue, the expenses and the profit with its attribution, and, below the profit, other comprehensive income (`other_comprehensive_income`: the fiscal year's translation differences through the period, which are not part of the profit; IAS 21.39(c), 21.41), total comprehensive income and its attribution to non-controlling interests and to the owners of the parent (IAS 1.81B), with the translation reserve per company (`translation_reserve`: its opening, the year's difference, its closing and the difference's two shares; IAS 21.52(b)). A group-currency revaluation's difference beyond its local difference translated (ADR-0042) is a translation effect: the run takes it out of the profit's rows and into the reserve, so other comprehensive income holds it (`revaluation_translation`, per company and in the totals; IAS 21.39(c)). The exchange differences on a monetary item designated as part of a net investment in a foreign operation (`ConsolidationGroup.net_investments`) go the same way, whole (`net_investment`, per company and in the totals; IAS 21.32). The reserve opens at what the group's final run of the previous fiscal year's last period showed when this run started (`opening_run_id`), at zero without one. The eliminations are the run's elimination entries' lines on the account summed (`listConsolidationEntries`): its intercompany entries (ADR-0059 §8, T68f), which leave no balance between the run's companies on an elimination's accounts and put each pair's difference on the elimination's difference account; the investment's elimination follows with T68h. The statement is read from the run's stored rows alone, so a computed, final or superseded run's never changes; `stale` says whether a company's period changed since the run read its figures (ADR-0059 §10, T68g). Refused for a run that is queued, running, failed or discarded (409 `consolidation.run_not_computed`) and for a statement other than these two (404 `request.not_found`). Besides `consolidation.read` the caller needs `ledger.entry.read` (`x-also-permissions`). A run of a group whose parent or a member the caller may not act in is not found (404), as a run that does not exist. Read from one database state (a repeatable-read snapshot), so its page and totals agree."
       x-permission: consolidation.read
       x-also-permissions:
         - ledger.entry.read
@@ -14858,7 +14866,7 @@ paths:
         - name: statement
           in: path
           required: true
-          description: "The statement: `balance_sheet` or `profit_and_loss`."
+          description: "The statement: `balance_sheet` or `profit_and_loss`, which shows other comprehensive income below the profit."
           schema:
             type: string
             description: "Consolidated statement. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -15908,6 +15916,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
         - ledger.ledger_not_kept
@@ -18321,7 +18330,7 @@ paths:
       tags:
         - assets
       summary: Get the asset history sheet
-      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the reconciliation of the assets' carrying amounts from the year's opening to its closing, by class (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired, negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost), the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the catch-ups of retirements and transfers, with their reversals), the accumulated depreciation retirements took (positive) and transfers moved, the closing accumulated depreciation; and the opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening value plus the year's columns, and the closing cost and accumulated depreciation of a company's classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the read: the totals are kept with every movement. A class or asset with neither a movement posted in the year nor an opening value has no row; its sums are zero. By class every class comes in one response, by class code; by asset the assets are ordered and paged by asset number, each with its class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page token is issued only by asset. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only."
+      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the reconciliation of the assets' carrying amounts from the year's opening to its closing, by class (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired, negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost), the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the catch-ups of retirements and transfers, with their reversals), the accumulated depreciation retirements took (positive) and transfers moved, the closing accumulated depreciation; and the opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening value plus the year's columns, and the closing cost and accumulated depreciation of a company's classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the read: the totals are kept with every movement. A class or asset with neither a movement posted in the year nor an opening value has no row; its sums are zero. By class every class comes in one response, by class code; by asset the assets are ordered and paged by asset number, each with its class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page token is issued only by asset. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only. Every row and `totals` reconcile for cost, for accumulated depreciation and for the carrying amount: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`; a net book value is its cost plus its accumulated depreciation. These are the lines of IAS 16.73(d) and (e) the system holds data for (accounting specialist, 2026-11-09, B14): the gross carrying amount and accumulated depreciation at the beginning and end of the year, additions, disposals with the cost and the accumulated depreciation they removed, depreciation for the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed (none are posted), acquisitions through business combinations (none are recorded), and net exchange differences on translation, which belong to a consolidated sheet in the group's presentation currency; the sheet is one company's in its local currency. An asset classified as held for sale stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired."
       x-permission: assets.asset.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -18377,6 +18386,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AssetHistorySheet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-order-expenses:
+    get:
+      operationId: getAssetOrderExpenses
+      x-slo-class: report
+      x-snapshot: true
+      tags:
+        - assets
+      summary: Report what was expensed on asset purchase order items
+      description: "The materiality report of a company and fiscal year on asset purchases through purchase orders (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and the price differences that supplier invoices and credit memos expensed on the company's price difference account for purchase order items that are assets, which IAS 16 counts in the asset's cost. The assets themselves are capitalised at the order price; this report shows what was left out, so an auditor can judge whether it is material. An order item is an asset's when its account is an asset clearing account of the company in the active configuration (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on; the item's account as the order has it now decides, removed items included. Only orders valued through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own line and is capitalised with it. `items` has one row per such order item with a recorded posting in the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item bore: a non-deductible component's tax and the part of a component's tax not recovered, with the share of a difference to the supplier's stated tax that is a cost, which goes on its code's first item), `price_difference` (what the invoiced amount differed from the order price of the invoiced quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price difference account. Credit memos, subsequent credits and reversals count negative; a posting counts in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the ledger records beside each price difference line since that record exists. `totals` sums every row, on every page. `unattributed` states what the rows cannot show: the amounts on the company's current price difference account, in the year, of invoice and credit memo entries (and their reversals) that clear GR/IR for at least one asset order item, on lines that have no such record (postings made before the record existed, and the rounding residue a reversal clears). Such a line names no order item and its split between tax and price difference is unknown, so the amounts are not spread over the rows: where such an entry also invoices other order items, their price differences are in it too, of either sign. `expensed` is therefore the net of everything those lines posted and may overstate or understate what was expensed on assets; `debits` is the sum of the lines that are debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those that are credits (negative); `entries` counts the entries. All are zero when every such posting is recorded, and also when the company has no price difference account in its account determination now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price difference account (whether they count as expensed is not decided); an item whose price difference and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company's legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year the postings were made in.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the asset order items with what was expensed on them, the totals of all of them, and what is unattributed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetOrderExpenses"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -20980,6 +21042,7 @@ paths:
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
         - ledger.invalid_tax_code
+        - ledger.invalid_tax_document
         - ledger.invalid_validity
         - ledger.item_already_cleared
         - ledger.jurisdiction_not_levied
@@ -22710,6 +22773,7 @@ paths:
         - payables.unit_mismatch
         - payables.unknown_currency
         - payables.unknown_kind
+        - payables.unknown_payment_method
         - payables.unknown_po_item
         - payables.unknown_source
         - payables.unknown_tax_code
@@ -24722,6 +24786,9 @@ components:
           items:
             $ref: "#/components/schemas/FailingCheck"
           description: "With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it again, with what it found (ADR-0058 §7)."
+        credit_limit:
+          $ref: "#/components/schemas/CreditLimit"
+          description: "With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount, what posted credits naming it already credit, and the gross amount of the one refused."
       examples:
         - type: "https://errors.example.com/request/not-found"
           title: Raise the tier 2 approval limit
@@ -24760,6 +24827,46 @@ components:
               tax:
                 amount: "19.00"
                 currency: EUR
+    CreditLimit:
+      type: object
+      description: "The figures of a credit memo or subsequent credit refused at `:post` because the posted credits naming its invoice, with it, would exceed that invoice's gross amount (422 `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's."
+      readOnly: true
+      required:
+        - invoice_id
+        - invoice_number
+        - invoice_gross
+        - credited
+        - attempted
+      properties:
+        invoice_id:
+          type: string
+          format: uuid
+          description: The invoice the credit names (its `reference_invoice_id`).
+        invoice_number:
+          type: string
+          description: That invoice's document number.
+        invoice_gross:
+          $ref: "#/components/schemas/Money"
+          description: That invoice's gross amount (`gross_amount`), the limit.
+        credited:
+          $ref: "#/components/schemas/Money"
+          description: "The gross amounts of the posted credit memos and subsequent credits naming that invoice; a reversed one is not counted."
+        attempted:
+          $ref: "#/components/schemas/Money"
+          description: The gross amount (`gross_amount`) of the credit refused.
+      additionalProperties: false
+      examples:
+        - invoice_id: 018f3c1e-7b2a-7c44-9d1e-2f6a5b0c9e11
+          invoice_number: "5100000042"
+          invoice_gross:
+            amount: "119.00"
+            currency: EUR
+          credited:
+            amount: "100.00"
+            currency: EUR
+          attempted:
+            amount: "19.01"
+            currency: EUR
     CodeTax:
       type: object
       description: The tax calculated at one tax code's rates.
@@ -27241,7 +27348,7 @@ components:
             pattern: "^[A-Z0-9]{1,4}$"
         payment_methods:
           type: array
-          description: "The methods the supplier may be paid by in this legal entity, in order of preference (SAP LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration."
+          description: "The methods the supplier may be paid by in this legal entity (SAP LFB1-ZWELS; ADR-0038): codes of the company's `payment_methods` in the configuration. The list restricts the methods a payment run pays the supplier by; the order they are tried in is the company's, not this list's."
           maxItems: 10
           items:
             type: string
@@ -27287,7 +27394,7 @@ components:
             pattern: "^[A-Z0-9]{1,4}$"
         payment_methods:
           type: array
-          description: "The methods the supplier may be paid by in this legal entity, in order of preference (ADR-0038): active payment methods of the company's configuration, each once. A payment proposal pays the supplier through the first method a ranked house bank can pay. The list replaces the supplier's methods in the legal entity: leaving it out takes every method off the supplier there, as the other company data is replaced too."
+          description: "The methods the supplier may be paid by in this legal entity (ADR-0038): active payment methods of the company's configuration, each once. A payment proposal pays the supplier through the first method of the company's run order (the configuration's `payment_methods`, by their `order`, else as listed) that is in this list and that a ranked house bank can pay; the order of this list decides nothing. The list replaces the supplier's methods in the legal entity: leaving it out takes every method off the supplier there, as the other company data is replaced too."
           maxItems: 10
           items:
             type: string
@@ -30236,6 +30343,10 @@ components:
           format: date
           description: "Tax date: the lines' tax codes' rates applied on it and its return reports their tax (ADR-0049 §4). Absent on entries posted before tax items (T61c), whose tax date is the posting date."
           readOnly: true
+        tax_document:
+          $ref: "#/components/schemas/TaxDocumentReference"
+          description: "The tax invoice or tax credit note the entry's VAT rests on, whose date is its tax date: a year-end adjustment posted into a special period with a tax code (`JournalEntryCreate` `tax_document`, ADR-0060 §3), and its reversal; absent on every other entry."
+          readOnly: true
         currency:
           type: string
           description: Transaction currency.
@@ -30466,12 +30577,15 @@ components:
           type: string
           format: date
           description: "Tax date: the date the lines' tax codes must be valid on, whose rates apply and whose return reports their tax (ADR-0049 §4); defaults to the posting date. With a tax code on a line, a tax date in a period whose tax return is prepared, approved or filed, for a registration covering the company, is refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision P6): such a period's late items go to its amendment or the next return."
+        tax_document:
+          $ref: "#/components/schemas/TaxDocumentReference"
+          description: "The tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3): given only with `fiscal_period` and a tax code on a line (422 `ledger.invalid_tax_document` on `tax_document` otherwise; one of a kind not listed is the same code on `tax_document.kind`). Its `date` is the entry's tax date, so its tax is reported in the return of the period the document is dated in, not the period of the posting date; `tax_date`, when given too, equals it (422 `ledger.invalid_tax_document` on `tax_date`). The document decides the date, so it is not held to the open returns (`ledger.tax_date_in_return` does not apply): a document dated in a period whose return is prepared, approved or filed is a late item of that period, for its amendment or the next return (ADR-0049 decision P7)."
         fiscal_period:
           type: integer
           format: int32
           minimum: 13
           maximum: 16
-          description: "A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of the company's fiscal calendar: the entry posts into it instead of the regular period of its posting date. The posting date must be in the year's last regular period, whose dates the special periods share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409 `ledger.period_not_open`). No line may carry a tax code (422 `ledger.special_period_tax_code`: refused until the tax specialist confirms how year-end adjustments enter the returns, product owner 2026-11-05, ADR-0060 question 2). Absent: the regular period of the posting date. A parked entry (`parkJournalEntry`) keeps it and is held to these rules again when it is posted."
+          description: "A special period for a year-end adjustment (ADR-0060 §3), 13 up to 12 plus the special periods of the company's fiscal calendar: the entry posts into it instead of the regular period of its posting date. The posting date must be in the year's last regular period, whose dates the special periods share (422 `ledger.special_period_date`); a special period the calendar does not have in the posting date's year is 422 `ledger.no_fiscal_period`; it must be open in every ledger posted to (409 `ledger.period_not_open`). A line carries a tax code only in an entry of a company in the United Arab Emirates that names the tax invoice or tax credit note its VAT rests on (`tax_document`); any other is 422 `ledger.special_period_tax_code` (the UAE tax specialist's answer of 2026-11-09, ADR-0060 §3 and question 2: accruals, provisions and reclassifications carry no VAT; another country's tax codes stay refused until its tax specialist answers). Absent: the regular period of the posting date. A parked entry (`parkJournalEntry`) keeps it and is held to these rules again when it is posted."
         currency:
           type: string
           description: "Transaction currency; every line amount must use it."
@@ -30520,7 +30634,7 @@ components:
           format: int32
           minimum: 13
           maximum: 16
-          description: "A special period for the reversal (ADR-0060 §3), by the rules of a manual entry's `fiscal_period`: its posting date, the original's unless `posting_date` is given, in the year's last regular period (422 `ledger.special_period_date`), a special period the calendar has (422 `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409 `ledger.period_not_open`), and an original without tax codes (422 `ledger.special_period_tax_code`). Absent: the regular period of the reversal's posting date."
+          description: "A special period for the reversal (ADR-0060 §3), by the rules of a manual entry's `fiscal_period`: its posting date, the original's unless `posting_date` is given, in the year's last regular period (422 `ledger.special_period_date`), a special period the calendar has (422 `ledger.no_fiscal_period`), open in every ledger of the original's posting group (409 `ledger.period_not_open`), and an original without tax codes, or one of a company in the United Arab Emirates that names its tax document (`tax_document`), which the reversal then names too (422 `ledger.special_period_tax_code` otherwise). Absent: the regular period of the reversal's posting date."
         header_text:
           type: string
           description: Header text of the reversal entry.
@@ -30528,6 +30642,34 @@ components:
       additionalProperties: false
       examples:
         - posting_date: "2026-10-09"
+    TaxDocumentReference:
+      type: object
+      description: "A tax invoice or tax credit note a year-end adjustment carrying VAT rests on (ADR-0060 §3; the UAE tax specialist's answer of 2026-11-09): what the entry says of it, not a document the ERP holds or checks."
+      required:
+        - kind
+        - number
+        - date
+      properties:
+        kind:
+          type: string
+          description: "`tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum: [tax_invoice, tax_credit_note]
+          maxLength: 20
+        number:
+          type: string
+          description: The document's number, as its issuer printed it.
+          minLength: 1
+          maxLength: 64
+          pattern: "^\\S(.*\\S)?$"
+        date:
+          type: string
+          format: date
+          description: "The date the document was issued: the entry's tax date, which decides the return its tax is reported in."
+      additionalProperties: false
+      examples:
+        - kind: tax_credit_note
+          number: "TCN-2026-0042"
+          date: "2026-08-15"
     JournalEntryPage:
       type: object
       description: One page of journal entries.
@@ -31149,6 +31291,10 @@ components:
               format: date
               description: "Tax date the entry was parked with; absent: its posting date."
               readOnly: true
+            tax_document:
+              $ref: "#/components/schemas/TaxDocumentReference"
+              description: "The tax invoice or tax credit note its VAT rests on (`JournalEntryCreate` `tax_document`), whose date is the tax date it is posted with; absent: none."
+              readOnly: true
             fiscal_period:
               type: integer
               format: int32
@@ -31281,6 +31427,32 @@ components:
             - "null"
           format: date
           description: "Tax date: the date the lines' tax codes' rates apply on and their tax is reported in (ADR-0049 §4). Send null to clear: the posting date then. With a tax code on a line, a tax date in a period whose tax return is prepared, approved or filed, for a registration covering the company, is refused at posting with 409 `ledger.tax_date_in_return`, naming the period, the return and its status (decision P6): such a period's late items go to its amendment or the next return."
+        tax_document:
+          type:
+            - object
+            - "null"
+          description: "The tax invoice or tax credit note the entry's VAT rests on, by the rules of a manual entry's `tax_document` (ADR-0060 §3), replaced as a whole. Send null to remove it."
+          required:
+            - kind
+            - number
+            - date
+          properties:
+            kind:
+              type: string
+              description: "`tax_invoice` or `tax_credit_note`; another value is 422 `ledger.invalid_tax_document`. Open enumeration: values may be added within /v1."
+              x-extensible-enum: [tax_invoice, tax_credit_note]
+              maxLength: 20
+            number:
+              type: string
+              description: The document's number, as its issuer printed it.
+              minLength: 1
+              maxLength: 64
+              pattern: "^\\S(.*\\S)?$"
+            date:
+              type: string
+              format: date
+              description: "The date the document was issued: the entry's tax date."
+          additionalProperties: false
         fiscal_period:
           type:
             - integer
@@ -31427,6 +31599,10 @@ components:
         payment_terms:
           $ref: "#/components/schemas/ItemPaymentTerms"
           description: The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others, which are due by their supplier's current terms.
+          readOnly: true
+        payment_method:
+          type: string
+          description: "The payment method the item's document fixed when it posted (SAP BSEG-ZLSCH; ADR-0038), on a supplier item: a payment run pays the item by this method alone, in a payment of its own, and leaves it out with the reason when the method cannot pay it. Absent on an item that fixes none, which is paid by the company's run order."
           readOnly: true
         special_gl:
           type: string
@@ -36152,6 +36328,10 @@ components:
               $ref: "#/components/schemas/ItemPaymentTerms"
               description: "The payment terms the invoice posted with (T36b): its order's term, else its supplier's in the legal entity, counted from the invoice date; a correction naming an invoice has that invoice's. Absent before posting, on a credit memo or subsequent credit naming no invoice (due at once, no discount), and on invoices posted before terms were kept."
               readOnly: true
+            payment_method:
+              type: string
+              description: "The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the company's configuration (`payment_methods[].code`). A payment run pays the document's open item by this method alone, in a payment of its own beside the supplier's items that fix none, whatever the company's run order; when the method cannot pay it the item is left out of the run with the reason (`listPaymentExclusions`), never paid by another method. Absent: the item is paid by the company's run order. Changed while the document is parked (`updateSupplierInvoice`); its open item keeps the method it posted with."
+              pattern: "^[A-Z0-9]$"
             reversal_entry_id:
               type: string
               format: uuid
@@ -36273,6 +36453,10 @@ components:
           type: string
           format: uuid
           description: "The posted invoice a credit memo or subsequent debit/credit corrects (optional); never on an invoice."
+        payment_method:
+          type: string
+          description: "The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the company's configuration (`payment_methods[].code`). A payment run pays the document's open item by this method alone, in a payment of its own beside the supplier's items that fix none, whatever the company's run order; when the method cannot pay it the item is left out of the run with the reason (`listPaymentExclusions`), never paid by another method. A code that is not an active payment method of the legal entity is 422 `payables.unknown_payment_method`. Left out: the item is paid by the company's run order."
+          pattern: "^[A-Z0-9]$"
         source:
           type: string
           description: "How the invoice entered the system; scanned documents use `:capture`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
@@ -36353,6 +36537,12 @@ components:
             - "null"
           format: uuid
           description: The posted invoice a credit memo or subsequent debit/credit corrects. Send null to clear.
+        payment_method:
+          type:
+            - string
+            - "null"
+          description: "The payment method the document fixes (ADR-0038), an active payment method of the legal entity (422 `payables.unknown_payment_method` otherwise). Send null to clear: the item is paid by the company's run order."
+          pattern: "^[A-Z0-9]$"
         items:
           type: array
           items:
@@ -36957,7 +37147,7 @@ components:
           description: When the release was approved.
           readOnly: true
     PaymentRun:
-      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks each supplier's payment methods rank (ADR-0038)."
+      description: "A payment run (SAP F110): a proposal of payments to suppliers in one currency, from one house bank or, proposed without one, from the house banks the company's payment methods rank, each supplier by the first method of the company's run order that it may be paid by, and its items that fix a payment method by that method, in a payment of their own (ADR-0038)."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -37074,7 +37264,7 @@ components:
         house_bank_id:
           type: string
           format: uuid
-          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first of its payment methods that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay are excluded with `no_house_bank`."
+          description: "House bank to pay every supplier from; its currency is the run currency. Without it, each supplier is paid through the first payment method of the company's run order (the configuration's `payment_methods`, by their `order`, else as listed) that the supplier may be paid by and that a house bank ranked for the method and the run currency pays with (ADR-0038), and suppliers no ranked bank can pay by a method of theirs are excluded with `no_house_bank`. A supplier's items that fix a payment method (`payment_method` of their invoice) are paid by that method alone, in one payment per fixed method beside the payment of its other items, and never net with items of another method; a run proposed for one house bank pays by no method, so it leaves such items out (`fixed_method_in_bank_run`) and pays the others."
         currency:
           type: string
           description: "The run currency (ISO 4217), required without `house_bank_id`; with it, it may only repeat the house bank's currency."
@@ -37294,7 +37484,7 @@ components:
               readOnly: true
             kind:
               type: string
-              description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "What the payment pays: `items`, the supplier's open items netted (at most one such payment per supplier and run for its items that fix no payment method, and one per payment method its items fix, `payment_method_source`), or `down_payment`, one down payment request (ADR-0037), paid whole and never netted, whose posting puts the down payment on the down payment account. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - items
                 - down_payment
@@ -37320,6 +37510,13 @@ components:
             payment_method:
               type: string
               description: "Payment method it is paid by (SAP ZLSCH); absent in a run proposed for one house bank."
+              readOnly: true
+            payment_method_source:
+              type: string
+              description: "Why the payment is paid by its `payment_method`; present exactly when `payment_method` is. `run_order`: the first method of the company's run order that the supplier may be paid by and a ranked house bank pays with. `item`: its items fix the method (their invoices' `payment_method`), which wins over the run order; such a payment holds the supplier's items fixing that method alone. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - run_order
+                - item
               readOnly: true
             items:
               type: array
@@ -37447,7 +37644,7 @@ components:
           readOnly: true
         reason_code:
           type: string
-          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c)."
+          description: "Why the supplier was excluded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1. A release also excludes, with `item_reversed` or `item_not_open`, a supplier whose payment it dropped because an item can no longer be paid. `tax_code_invalid` leaves out a down payment request whose input tax code is not valid on the run date (T46c), or whose stated tax no longer matches the tax at the run date's rate (ADR-0049 §4), naming the code and both rates (`tax_code`, `request_tax_rate_percent`, `run_date_tax_rate_percent`); a request's exclusion names it (`down_payment_request_id`, `down_payment_request_number`), and the supplier's items may still be paid. `no_house_bank` leaves out a supplier, or a request, of a run proposed without a house bank when none of the supplier's payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a payment method are judged apart from its others, per fixed method (`payment_method`), for every reason here, and are left out when the method cannot pay them, never paid by another: `method_not_active` (the method is not an active payment method of the company), `method_not_allowed` (it is not among the supplier's `payment_methods` in the company), `no_house_bank` (no active house bank in the run currency is ranked for it) and `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method: propose a run without a house bank to pay them)."
           x-extensible-enum:
             - supplier_blocked
             - payment_blocked
@@ -37459,6 +37656,13 @@ components:
             - item_not_open
             - tax_code_invalid
             - no_house_bank
+            - method_not_active
+            - method_not_allowed
+            - fixed_method_in_bank_run
+          readOnly: true
+        payment_method:
+          type: string
+          description: "The payment method the items left out fix (their invoices' `payment_method`; ADR-0038): the exclusion is of the supplier's items fixing this method alone, and `amount` what they would have been paid. Absent on the exclusion of the supplier's items that fix none, and on a request's. A run lists at most one exclusion per supplier for its items without a fixed method and one per fixed method, so a supplier may appear more than once."
           readOnly: true
         down_payment_request_id:
           type: string
@@ -41583,6 +41787,7 @@ components:
         - group_currency
         - parent
         - members
+        - net_investments
       properties:
         code:
           type: string
@@ -41606,6 +41811,13 @@ components:
             $ref: "#/components/schemas/ConsolidationMember"
           description: "The subsidiaries, by company code."
           readOnly: true
+        net_investments:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/ConsolidationNetInvestment"
+          description: "The monetary items designated as part of a net investment in a foreign operation of the group (IAS 21.32), by company code, account number and trading partner code; empty when the group designates none."
+          readOnly: true
       examples:
         - code: MAPLE
           name: Maple group
@@ -41625,6 +41837,35 @@ components:
               first_fiscal_year: 2026
               first_fiscal_period: 11
               investment_account: {number: "1700", name: Investment in Acme Corp US}
+          net_investments:
+            - company:
+                legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6b
+                company_code: "3000"
+                company_name: Maple Industries Canada
+                local_currency: CAD
+              account: {number: "1250", name: Intercompany receivables}
+              partner:
+                legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+                company_code: "1000"
+                company_name: Acme Corp US
+                local_currency: USD
+    ConsolidationNetInvestment:
+      type: object
+      description: "A monetary item designated as part of a net investment in a foreign operation (ADR-0059 As built: a net investment's exchange differences; IAS 21.32): a company's account with a trading partner, a long-term intercompany loan not expected to be settled, say. It is configuration (`consolidation.groups[].net_investments[]`: `company`, `account`, `partner`), changed through a change request as the group is; no flag on the company's account and nothing on a posting says it. A consolidation run takes the exchange differences the company's revaluation runs book on the account's balance with the partner (ADR-0042) out of the consolidated profit and into the company's translation reserve, in other comprehensive income (`ConsolidatedTranslationReserve.net_investment`), in every run that includes the partner (a run of a period before a member's first does not); the company's own ledger and reports are unchanged. The counterparty's exchange differences on the same item move only when its own account with this company is designated too."
+      required:
+        - company
+        - account
+        - partner
+      properties:
+        company:
+          $ref: "#/components/schemas/ConsolidationCompany"
+          description: "The company whose ledger carries the item and its exchange differences: the group's parent or a member."
+        account:
+          $ref: "#/components/schemas/AssetAccountRef"
+          description: "The company's account holding the item: an asset or a liability of its chart of accounts."
+        partner:
+          $ref: "#/components/schemas/ConsolidationCompany"
+          description: "The trading partner the balance is with: another company of the group."
     ConsolidationCompany:
       type: object
       description: "A company of a consolidation group: its legal entity, company code, name and local currency."
@@ -41799,7 +42040,7 @@ components:
           description: "The number of its intercompany differences per status present (`GET /v1/consolidation-runs/{id}/differences`), in the order matched, within_tolerance, open, accepted, outside_group, no_trading_partner; empty until its companies are matched (ADR-0059 §8)."
           items: {$ref: "#/components/schemas/ConsolidationDifferenceCount"}
           readOnly: true
-        stale: {type: boolean, description: "Whether a company's leading-ledger period changed since the run read its figures: its version now differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent until every company of the run is translated.", readOnly: true}
+        stale: {type: boolean, description: "Whether a company's leading-ledger period changed since the run read its figures: its version now differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and a relock, or an unlock request; or whether the group's final run of the previous fiscal year's last period is no longer the one the run's translation reserve opens from (`ConsolidatedStatement.opening_run_id`): that period was finalized, or finalized again, after the run started, so its other comprehensive income is no longer the year's change. A stale run cannot be finalized, and a stale final run stays final but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent until every company of the run is translated.", readOnly: true}
         finalized_by: {type: string, format: uuid, description: "Who finalized it (`:finalize`); absent unless it is final or superseded.", readOnly: true}
         finalized_by_name: {type: string, description: "Their name; absent unless it is final or superseded.", readOnly: true}
         finalized_at: {type: string, format: date-time, description: "When it was finalized; absent unless it is final or superseded.", readOnly: true}
@@ -41924,7 +42165,7 @@ components:
         trading_partner: {$ref: "#/components/schemas/TradingPartner"}
         amount_lc: {$ref: "#/components/schemas/Money", description: "The local amount, in the company's local currency; absent on a `cta` row."}
         amount_gc_booked: {$ref: "#/components/schemas/Money", description: "The group amount as booked, each line at its posting date's rate; absent on a `cta` row."}
-        amount_gc: {$ref: "#/components/schemas/Money", description: "The translated group amount: the local amount at the closing rate for asset and liability accounts, rounded once half away from zero; the booked group amount otherwise; the translation difference on a `cta` row."}
+        amount_gc: {$ref: "#/components/schemas/Money", description: "The translated group amount: the local amount at the closing rate for asset and liability accounts, rounded once half away from zero; the booked group amount otherwise, less, on a profit and loss account's row and on `prior_results`, the translation part of the company's group-currency revaluation differences (ADR-0042; `ConsolidatedTranslationReserve.revaluation_translation`), which is in the translation difference instead (IAS 21.39(c)), and less the rest of the exchange differences on a monetary item designated as part of a net investment in a foreign operation (`ConsolidatedTranslationReserve.net_investment`; IAS 21.32), so `amount_gc_booked` less `amount_gc` is what the run moved off the row; the translation difference on a `cta` row."}
         closing_rate: {type: string, description: "The closing rate the row was translated at, where one applied (asset and liability accounts).", readOnly: true}
       examples:
         - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
@@ -42112,7 +42353,7 @@ components:
           x-extensible-enum: [computed, final, superseded]
           description: "The run's status (`ConsolidationRun.status`): a draft (`computed`), the group's consolidated figures of the period (`final`), or a final run a later one superseded. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
-        stale: {type: boolean, description: "The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read its figures, so they may no longer be the ledger's (ADR-0059 §10).", readOnly: true}
+        stale: {type: boolean, description: "The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read its figures, so they may no longer be the ledger's, or the group's final run of the previous fiscal year's last period is no longer `opening_run_id`, so other comprehensive income is no longer the year's change (ADR-0059 §10).", readOnly: true}
         statement:
           type: string
           x-extensible-enum: [balance_sheet, profit_and_loss]
@@ -42124,6 +42365,11 @@ components:
           items: {$ref: "#/components/schemas/ConsolidatedStatementRow"}
           description: "The statement's rows on this page, by group account number."
         totals: {$ref: "#/components/schemas/ConsolidatedStatementTotals"}
+        opening_run_id: {type: string, format: uuid, description: "The profit and loss's: the group's final run of the previous fiscal year's last period (`GET /v1/consolidation-runs/{id}`) as this run found it when it started, whose translation differences are the reserve's opening balances; absent when the group had none, so the reserve opens at zero (the first fiscal year the group is consolidated in; a run started before the statement showed other comprehensive income). When that period is finalized, or finalized again, after this run started, the run is `stale`. Absent on the balance sheet.", readOnly: true}
+        translation_reserve:
+          type: array
+          items: {$ref: "#/components/schemas/ConsolidatedTranslationReserve"}
+          description: "The profit and loss's: the translation reserve of every company of the run, by company code, on every page; their `difference`s sum to the `reported` column of `totals.other_comprehensive_income`. Absent on the balance sheet."
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
       examples:
         - run_id: 0192a000-0000-7000-8000-000000000c01
@@ -42185,7 +42431,7 @@ components:
         consolidated: {$ref: "#/components/schemas/Money", description: "The reported figures and the eliminations summed."}
     ConsolidatedStatementTotals:
       type: object
-      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`, `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`."
+      description: "The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`, `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`, `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`, then `other_comprehensive_income`, `total_comprehensive_income` (their sum with the profit) and its attribution to `comprehensive_income_non_controlling_interests` and `comprehensive_income_owners_of_the_parent`, and `revaluation_translation` and `net_investment`, the parts of other comprehensive income moved out of the profit."
       required: [profit]
       properties:
         assets: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The balance sheet's asset accounts summed; absent on the profit and loss."}
@@ -42196,6 +42442,46 @@ components:
         profit: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The fiscal year's profit through the period: the revenue and expense accounts summed, debit positive, so a profit is negative and a loss positive. On the balance sheet it closes the statement: assets, liabilities, equity and profit sum to zero."}
         non_controlling_interests: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to non-controlling interests (IAS 1.81B), read from the run's non-controlling interest entries, so zero reported; zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance sheet."}
         owners_of_the_parent: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the profit's share attributable to the owners of the parent, the profit less `non_controlling_interests` in each column. Absent on the balance sheet."}
+        other_comprehensive_income: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: the fiscal year's translation differences through the period, recognised in other comprehensive income and not in the profit (IAS 21.39(c), 21.41), debit positive, so a gain is negative. Reported: each company's translation difference at the run's period (its `cta` row) less its opening (`translation_reserve[].difference` summed). Eliminations: the run's elimination entries' lines on the `cta` account less the opening run's, the non-controlling interests' entries left out, which attribute the reserve and do not change it. The consolidated figure is the year's change of the group's translation reserve. It holds `revaluation_translation` and `net_investment`, which the profit does not. Absent on the balance sheet."}
+        revaluation_translation: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: of `other_comprehensive_income`, the translation part of the companies' group-currency revaluation differences, moved out of the fiscal year's profit through the period (IAS 21.39(c); ADR-0042): `translation_reserve[].revaluation_translation` summed, reported by the companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked group amounts less it. Absent on the balance sheet."}
+        net_investment: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: of `other_comprehensive_income`, the companies' exchange differences on monetary items designated as part of a net investment in a foreign operation, moved out of the fiscal year's profit through the period (IAS 21.32): `translation_reserve[].net_investment` summed, reported by the companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked group amounts less it and less `revaluation_translation`. Absent on the balance sheet."}
+        total_comprehensive_income: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: `profit` and `other_comprehensive_income` summed in each column. Absent on the balance sheet."}
+        comprehensive_income_non_controlling_interests: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: total comprehensive income's share attributable to non-controlling interests (IAS 1.81B): `non_controlling_interests` and their share of each member's translation difference (`translation_reserve[].non_controlling_interests` summed), an attribution and so zero reported; zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent on the balance sheet."}
+        comprehensive_income_owners_of_the_parent: {$ref: "#/components/schemas/ConsolidatedFigures", description: "The profit and loss's: total comprehensive income's share attributable to the owners of the parent, `total_comprehensive_income` less `comprehensive_income_non_controlling_interests` in each column. Absent on the balance sheet."}
+    ConsolidatedTranslationReserve:
+      type: object
+      description: "A company's translation reserve in a consolidation run (ADR-0059 §7, §11; IAS 21.41, 21.52(b)): the accumulated translation difference of the company's figures, kept per company for its reclassification on a disposal (IAS 21.48), with the fiscal year's change through the period, which is other comprehensive income, and that change's attribution. Every amount is in the group currency, debit positive, so a gain is negative; `opening` and `difference` sum to `closing`, and the two shares to `difference`."
+      required: [legal_entity_id, company_code, company_name, role, opening, difference, closing, revaluation_translation, net_investment, non_controlling_interests, owners_of_the_parent]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company's legal entity.", readOnly: true}
+        company_code: {type: string, description: "The company code, as the run read it.", readOnly: true}
+        company_name: {type: string, description: "The company's name as it is now.", readOnly: true}
+        role:
+          type: string
+          x-extensible-enum: [parent, member]
+          description: "Whether the company is the group's parent or a member (`ConsolidationRunMember.role`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        ownership_percent: {type: string, description: "A member's: the parent's ownership in percent as the run read it, a plain decimal; absent for the parent.", readOnly: true}
+        opening: {$ref: "#/components/schemas/Money", description: "The reserve at the end of the previous fiscal year: the company's translation difference in the run `opening_run_id` names; zero without one, or when that run did not include the company."}
+        difference: {$ref: "#/components/schemas/Money", description: "The fiscal year's translation difference through the period, `closing` less `opening`: the company's part of other comprehensive income."}
+        closing: {$ref: "#/components/schemas/Money", description: "The reserve at the run's period: the company's translation difference in this run (its `cta` row of `listConsolidationBalances`; zero without one)."}
+        revaluation_translation: {$ref: "#/components/schemas/Money", description: "The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part of `closing`: the translation part of the company's group-currency revaluation differences (IAS 21.39(c)). A revaluation run values group currency on its own (ADR-0042), so a line of its entries on a profit and loss account books a group amount that is not its local amount translated; the profit keeps the line's local amount at its entry's local-to-group rate, the rate a posting of that date converts at, rounded once per line to the group currency's minor unit, half away from zero, and the rest of its booked group amount is here. Debit positive, so a gain moved out of the profit is negative, and the profit's revenue and expense rows are their booked group amounts less it. Zero for a company without revaluation entries in the year, and in a run started before the statement showed it, whose profit holds the booked group amounts."}
+        net_investment: {$ref: "#/components/schemas/Money", description: "The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part of `closing` and beside `revaluation_translation`: the exchange differences on the company's monetary items designated as part of a net investment in a foreign operation (`ConsolidationGroup.net_investments`; IAS 21.32). Of each line of the company's revaluation runs' entries on a profit and loss account that offsets a difference on a designated account's balance with its trading partner, this is the local amount at the entry's local-to-group rate, rounded once per line to the group currency's minor unit, half away from zero: what the profit would keep after `revaluation_translation`, so the two together are the line's whole booked group amount. Debit positive, so a gain moved out of the profit is negative. Zero for a company without a designated item revalued in the year, and in a run started before the statement showed it."}
+        non_controlling_interests: {$ref: "#/components/schemas/Money", description: "The part of `difference` attributable to non-controlling interests (IAS 21.41): `difference` times (100 - `ownership_percent`) / 100, rounded once to the group currency's minor unit, half away from zero. Zero for the parent and for a member held whole."}
+        owners_of_the_parent: {$ref: "#/components/schemas/Money", description: "The part of `difference` attributable to the owners of the parent: `difference` less `non_controlling_interests`, so the rounding remainder is the owners'."}
+      examples:
+        - legal_entity_id: 0190a3c4-5b6d-7e8f-9a0b-1c2d3e4f5a6c
+          company_code: "1000"
+          company_name: Acme Corp US
+          role: member
+          ownership_percent: "100"
+          opening: {amount: "-60.00", currency: CAD}
+          difference: {amount: "-40.00", currency: CAD}
+          closing: {amount: "-100.00", currency: CAD}
+          revaluation_translation: {amount: "-4.00", currency: CAD}
+          net_investment: {amount: "0.00", currency: CAD}
+          non_controlling_interests: {amount: "0.00", currency: CAD}
+          owners_of_the_parent: {amount: "-40.00", currency: CAD}
     GroupAccountRef:
       type: object
       description: "An account of the group chart, by number and name, in the configuration version a run read."
@@ -42958,7 +43244,7 @@ components:
         flow_no: {type: integer, format: int32, minimum: 1, description: "The flow the line is of: the lines of one flow share it; a bucket's sum has its own.", readOnly: true}
         value_date: {type: string, format: date, description: "The day the flow was expected at the bank (a blocked supplier's on its due date); a bucket's sum: the first day it covers.", readOnly: true}
         bucket_end: {type: string, format: date, description: "The last day a bucket's sum covers; absent at document level.", readOnly: true}
-        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank its supplier's first payment method ranks).", readOnly: true}
+        house_bank_id: {type: string, format: uuid, description: "The house bank the flow was expected on; absent when none (a supplier item takes the bank ranked for the first payment method of the company's run order that its supplier may be paid by, and one that fixes a payment method the bank ranked for that method, or none when the method cannot pay it).", readOnly: true}
         house_bank_code: {type: string, description: "The house bank's code; present exactly when `house_bank_id` is.", readOnly: true}
         source:
           type: string
@@ -44307,7 +44593,7 @@ components:
             closing_net_book_value: {amount: "11900.00", currency: CAD}
     AssetHistorySheetRow:
       type: object
-      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values."
+      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values, the columns of `AssetHistorySheetValues` with the same signs. The row reconciles: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`; `opening_net_book_value` = `opening_cost` + `opening_accumulated`; `closing_net_book_value` = `closing_cost` + `closing_accumulated`."
       required: [class_code, opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
       properties:
         class_code: {type: string, description: "The asset class (`GET /v1/asset-classes`).", readOnly: true}
@@ -44334,7 +44620,7 @@ components:
         closing_net_book_value: {$ref: "#/components/schemas/Money"}
     AssetHistorySheetValues:
       type: object
-      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; opening and closing net book value."
+      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; opening and closing net book value. They reconcile as each row does: a closing value is its opening value plus the year's columns, and a net book value is its cost plus its accumulated depreciation."
       required: [opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
       properties:
         opening_cost: {$ref: "#/components/schemas/Money"}
@@ -44349,6 +44635,88 @@ components:
         closing_accumulated: {$ref: "#/components/schemas/Money"}
         opening_net_book_value: {$ref: "#/components/schemas/Money"}
         closing_net_book_value: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpenses:
+      type: object
+      description: "What supplier invoices and credit memos expensed on a company's asset purchase order items in a fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered and the price difference, exact as posted, with their totals, and the amounts whose order item and split were not recorded. In the company's local currency."
+      required: [legal_entity_id, company_code, company_name, fiscal_year, start_date, end_date, currency, items, totals, unattributed]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The company., readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year the postings were made in., readOnly: true}
+        start_date: {type: string, format: date, description: "The fiscal year's first day.", readOnly: true}
+        end_date: {type: string, format: date, description: "The fiscal year's last day.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        items:
+          type: array
+          description: "This page's asset order items with a recorded posting in the year, by order number and item number."
+          items: {$ref: "#/components/schemas/AssetOrderExpenseItem"}
+        totals: {$ref: "#/components/schemas/AssetOrderExpenseAmounts"}
+        unattributed: {$ref: "#/components/schemas/AssetOrderExpensesUnattributed"}
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page of order items; absent on the last page."
+          maxLength: 2048
+      examples:
+        - legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2026
+          start_date: "2026-01-01"
+          end_date: "2026-12-31"
+          currency: CAD
+          items:
+            - purchase_order_id: 0192a000-0000-7000-8000-000000000501
+              purchase_order_number: "4500000012"
+              po_item_no: 1
+              description: CNC lathe
+              account_id: 0192a000-0000-7000-8000-000000000611
+              account_number: "159000"
+              account_name: Asset clearing
+              tax_not_recovered: {amount: "840.00", currency: CAD}
+              price_difference: {amount: "150.00", currency: CAD}
+              expensed: {amount: "990.00", currency: CAD}
+          totals:
+            tax_not_recovered: {amount: "840.00", currency: CAD}
+            price_difference: {amount: "150.00", currency: CAD}
+            expensed: {amount: "990.00", currency: CAD}
+          unattributed:
+            expensed: {amount: "0.00", currency: CAD}
+            debits: {amount: "0.00", currency: CAD}
+            credits: {amount: "0.00", currency: CAD}
+            entries: 0
+    AssetOrderExpenseItem:
+      type: object
+      description: "What was expensed on one asset purchase order item in the year, as recorded at posting."
+      required: [purchase_order_id, purchase_order_number, po_item_no, description, account_id, account_number, account_name, tax_not_recovered, price_difference, expensed]
+      properties:
+        purchase_order_id: {type: string, format: uuid, description: The purchase order., readOnly: true}
+        purchase_order_number: {type: string, description: "The purchase order's document number.", readOnly: true}
+        po_item_no: {type: integer, format: int32, description: "The order item's number.", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The order item's account: an asset clearing account of the company.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name.", readOnly: true}
+        tax_not_recovered: {$ref: "#/components/schemas/Money"}
+        price_difference: {$ref: "#/components/schemas/Money"}
+        expensed: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpenseAmounts:
+      type: object
+      description: "Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` + `price_difference`."
+      required: [tax_not_recovered, price_difference, expensed]
+      properties:
+        tax_not_recovered: {$ref: "#/components/schemas/Money"}
+        price_difference: {$ref: "#/components/schemas/Money"}
+        expensed: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpensesUnattributed:
+      type: object
+      description: "What the rows cannot show: the amounts on the company's current price difference account, in the year, of invoice and credit memo entries that clear GR/IR for at least one asset order item, on lines without a recorded order item (posted before the record existed, or a reversal's rounding residue). Their split between tax and price difference is unknown, and they include the price differences of other order items on the same entries, of either sign: `expensed` is the net of those lines (`debits` + `credits`) and may overstate or understate what was expensed on assets; `debits`, the lines that are debits, is the most those entries can have expensed on assets. All zero when everything is recorded, or when the company has no price difference account now."
+      required: [expensed, debits, credits, entries]
+      properties:
+        expensed: {$ref: "#/components/schemas/Money"}
+        debits: {$ref: "#/components/schemas/Money"}
+        credits: {$ref: "#/components/schemas/Money"}
+        entries: {type: integer, format: int32, description: "How many journal entries the amount comes from.", readOnly: true}
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."
@@ -47691,7 +48059,7 @@ components:
           description: SAP company code (T001 BUKRS).
         key:
           type: string
-          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it), `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center reports', documents mode)."
+          description: "What differs: an account number, `vendor <LIFNR>`, `down payments of vendor <LIFNR>`, `partner <id> (<name>)` or `down payments of partner <id> (<name>)` (a platform supplier that is no migrated vendor, by its id and name), `bank account of vendor <LIFNR>`, `order item <EBELN>/<EBELP>`, `GR/IR of order item <EBELN>/<EBELP>`, `open items of vendor <LIFNR>` or `open items of partner <id> (<name>)` (the number of open payable items), `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items in a foreign document currency, in it), `trading partner <company code>` or `trading partner <id>` (the open payables per trading partner: by the SAP company code the vendors' trading partner, LFA1-VBUND, is, or by the id alone of a legal entity no vendor of the extract names; ADR-0059), `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050 §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center reports', documents mode)."
         sap:
           type: string
           description: "SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load writes it, or a center's periods (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`, a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's slices that do not read)."

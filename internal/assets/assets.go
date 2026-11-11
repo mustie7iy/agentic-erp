@@ -330,6 +330,7 @@ type Endpoints struct {
 	Numbers   Numbers
 	Runs      Runs
 	Invoices  Invoices
+	Purchases Purchases
 	Pages     *pagination.Codec
 	Now       func() time.Time // the clock of an asset's creation date; nil: the wall clock
 	BatchSize int              // the most assets a depreciation run's batch takes; 0: 500

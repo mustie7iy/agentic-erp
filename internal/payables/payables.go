@@ -180,6 +180,13 @@ type Payments interface {
 	RequestRunOf(ctx context.Context, legalEntity, request uuid.UUID) (string, bool, error)
 }
 
+// PaymentMethods says whether a code is an active payment method of the
+// legal entity (payments context): what a document may fix as its
+// payment method (ADR-0038).
+type PaymentMethods interface {
+	IsPaymentMethod(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error)
+}
+
 // Endpoints implements the payables part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
@@ -197,6 +204,7 @@ type Endpoints struct {
 	Rates         Rates
 	Approvals     Opener
 	Payments      Payments
+	Methods       PaymentMethods    // the company's payment methods, which a document may fix one of
 	OrderNumbers  OrderNumbers      // resolves the order number a captured document prints
 	Extractor     capture.Extractor // reads captured documents; nil: capture is not available
 	Objects       blobstore.Store   // keeps captured documents; nil: only their hash is recorded, and downloads answer 503
@@ -255,6 +263,10 @@ type Invoice struct {
 	ReferenceInvoiceID *uuid.UUID // the posted invoice a correction names
 	// Terms are the payment terms the invoice posted with (T36b), or nil.
 	Terms *ledger.ItemTerms
+	// PaymentMethod is the payment method the document fixes for its open
+	// item (ADR-0038, SAP BSEG-ZLSCH), or nil: changed while parked, kept
+	// with the item when it posts (ledger.Posting.PaymentMethod).
+	PaymentMethod *string
 	// DocumentaryWarnings are what its document may lack for its input
 	// tax to be recovered, recorded when it posted (ADR-0049 §6).
 	DocumentaryWarnings []DocumentaryWarning
@@ -269,7 +281,7 @@ type Invoice struct {
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.supplier_id, i.supplier_reference, i.invoice_date, i.posting_date,
 		i.currency, c.exponent, i.gross_amount, i.tax_amount, i.purchase_order_id, i.status, i.hold_reason, i.source, i.capture_sha256, i.capture_object_ref,
 		i.journal_entry_year, i.journal_entry_id, i.reversal_entry_year, i.reversal_entry_id, i.workflow_request_id, i.extensions, i.extensions_schema, i.kind, i.reference_invoice_id,
-		i.tax_date, i.documentary_warnings,
+		i.tax_date, i.documentary_warnings, i.payment_method,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'purchase_order_id', t.purchase_order_id, 'po_item_no', t.po_item_no,
 			'description', t.description, 'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'amount', t.amount, 'tax_code', t.tax_code,
 			'account_id', t.account_id, 'cost_center_id', t.cost_center_id, 'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
@@ -284,7 +296,7 @@ func scanInvoice(row pgx.Row) (Invoice, error) {
 	err := row.Scan(append(append([]any{&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.SupplierID, &v.SupplierReference, &v.InvoiceDate,
 		&v.PostingDate, &v.Currency, &v.Exponent, &v.Gross, &v.Tax, &v.PurchaseOrderID, &v.Status, &v.HoldReason, &v.Source, &v.CaptureSHA256,
 		&v.CaptureObjectRef, &v.JournalEntryYear, &v.JournalEntryID, &v.ReversalEntryYear, &v.ReversalEntryID, &v.WorkflowRequestID, &v.Extensions,
-		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.DocumentaryWarnings, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
+		&v.ExtensionsSchema, &v.Kind, &v.ReferenceInvoiceID, &v.TaxDate, &v.DocumentaryWarnings, &v.PaymentMethod, &v.Items}, terms.fields()...), &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)...)
 	v.Terms = terms.terms()
 	return v, errs.Wrapf(err, "scan invoice")
 }
@@ -369,6 +381,9 @@ type Input struct {
 	// posted invoice a correction names (T34).
 	Kind               string
 	ReferenceInvoiceID *uuid.UUID
+	// PaymentMethod is the payment method the document fixes for its open
+	// item, an active method of the legal entity (ADR-0038); nil for none.
+	PaymentMethod *string
 	// held: the extensions were checked already, as a captured document's
 	// are (CheckHeld), against the schema version extensionsSchema.
 	held             bool
@@ -461,6 +476,9 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if err != nil {
 		return checked{}, err
 	}
+	if err := e.fixedMethod(ctx, le.ID, in.PaymentMethod); err != nil {
+		return checked{}, err
+	}
 	schema := in.extensionsSchema
 	if !in.held {
 		if schema, err = e.extensions().Check(ctx, in.Extensions); err != nil {
@@ -547,6 +565,25 @@ func (e *Endpoints) invoiceParties(ctx context.Context, in Input) (tenancy.Entit
 		return tenancy.Entity{}, partner.Supplier{}, invalid("payables.supplier_not_usable", "supplier_id", "The supplier cannot be invoiced: "+why+".")
 	}
 	return le, sup, nil
+}
+
+// fixedMethod checks the payment method a document fixes (ADR-0038): an
+// active payment method of the legal entity, as a supplier's methods are
+// checked. Whether the supplier may be paid by it and a house bank is
+// ranked for it is the payment run's to judge on its date, which leaves
+// the item out with the reason; the posted item keeps the method.
+func (e *Endpoints) fixedMethod(ctx context.Context, legalEntity uuid.UUID, code *string) error {
+	if code == nil {
+		return nil
+	}
+	ok, err := e.Methods.IsPaymentMethod(ctx, legalEntity, *code)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return invalid("payables.unknown_payment_method", "payment_method", "Payment method "+*code+" is not an active payment method of the legal entity.")
+	}
+	return nil
 }
 
 // notNegative refuses a negative gross or tax amount: the amounts are not

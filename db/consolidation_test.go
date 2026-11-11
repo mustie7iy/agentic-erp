@@ -222,6 +222,92 @@ func TestConsolidationRunRules(t *testing.T) {
 	}
 }
 
+// TestConsolidationRunOpeningRules (migration 000260; ADR-0059 §11, As
+// built: other comprehensive income): a run names the run its
+// translation reserve opens from once, as it starts running, and that run
+// is its group's final run of the previous fiscal year's period 12; an
+// import restores a run with its opening as exported.
+func TestConsolidationRunOpeningRules(t *testing.T) {
+	need(t)
+	const runRow = `INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start, period_end,
+		config_version, group_currency, rate_type, status, operation_id, created_by, updated_by, opening_run_id)
+		VALUES ($1, $2, $3, $4, ARRAY[$4, gen_random_uuid()]::uuid[], $5, $6, '2026-11-01', '2026-11-30', 7, 'CAD', 'average', 'queued',
+		gen_random_uuid(), $7, $7, $8)`
+	type scene struct{ tenant, actor, parent, earlier, run uuid.UUID }
+	// before is a run of the group, year and period, carried to the status.
+	before := func(s scene, group string, year, period int, status string) []stmt {
+		stmts := []stmt{step(runRow, s.tenant, s.earlier, group, s.parent, year, period, s.actor, nil)}
+		to := map[string]string{"running": "", "computed": ", computed_at = now()", "final": ", finalized_by = updated_by, finalized_at = now()"}
+		for _, next := range []string{"running", "computed", "final"} {
+			stmts = append(stmts, step(`UPDATE consolidation.run SET status = '`+next+`'`+to[next]+`, version = version + 1 WHERE id = $1`, s.earlier))
+			if next == status {
+				break
+			}
+		}
+		return stmts
+	}
+	queued := func(s scene) stmt { return step(runRow, s.tenant, s.run, "MAPLE", s.parent, 2026, 11, s.actor, nil) }
+	set := func(s scene, status string, opening any) stmt {
+		return step(`UPDATE consolidation.run SET status = $2, opening_run_id = $3, version = version + 1 WHERE id = $1`, s.run, status, opening)
+	}
+	named := func(s scene, group string, year, period int, status string) []stmt {
+		return append(before(s, group, year, period, status), queued(s), set(s, "running", s.earlier))
+	}
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a run naming the group's final run of the previous year's period 12 as it starts, kept while it is computed", func(s scene) []stmt {
+			return append(named(s, "MAPLE", 2025, 12, "final"), step(`UPDATE consolidation.run SET status = 'computed', computed_at = now(),
+				version = version + 1 WHERE id = $1`, s.run))
+		}, ""},
+		{"a run starting without an opening run", func(s scene) []stmt { return []stmt{queued(s), set(s, "running", nil)} }, ""},
+		{"a run queued with an opening run", func(s scene) []stmt {
+			return append(before(s, "MAPLE", 2025, 12, "final"), step(runRow, s.tenant, s.run, "MAPLE", s.parent, 2026, 11, s.actor, s.earlier))
+		}, "names its opening run when it starts running"},
+		{"an import's run with its opening run", func(s scene) []stmt {
+			return []stmt{step(`SELECT set_config('app.importing', $1, true)`, s.tenant.String()),
+				step(runRow, s.tenant, s.run, "MAPLE", s.parent, 2026, 11, s.actor, id())}
+		}, ""},
+		{"another tenant's import", func(s scene) []stmt {
+			return []stmt{step(`SELECT set_config('app.importing', $1, true)`, id().String()),
+				step(runRow, s.tenant, s.run, "MAPLE", s.parent, 2026, 11, s.actor, id())}
+		}, "names its opening run when it starts running"},
+		{"an opening run named once the run is running", func(s scene) []stmt {
+			return append(before(s, "MAPLE", 2025, 12, "final"), queued(s), set(s, "running", nil), set(s, "running", s.earlier))
+		}, "names its opening run once"},
+		{"an opening run named as the run fails", func(s scene) []stmt {
+			return append(before(s, "MAPLE", 2025, 12, "final"), queued(s), step(`UPDATE consolidation.run SET status = 'failed', opening_run_id = $2,
+				problem = '{"code": "x", "detail": "x"}', version = version + 1 WHERE id = $1`, s.run, s.earlier))
+		}, "names its opening run once"},
+		{"an opening run removed", func(s scene) []stmt {
+			return append(named(s, "MAPLE", 2025, 12, "final"), set(s, "running", nil))
+		}, "names its opening run once"},
+		{"an opening run replaced", func(s scene) []stmt {
+			return append(named(s, "MAPLE", 2025, 12, "final"), set(s, "running", id()))
+		}, "names its opening run once"},
+		{"an opening run that is not final", func(s scene) []stmt { return named(s, "MAPLE", 2025, 12, "computed") }, "is the final run of group MAPLE for 2025/12"},
+		{"an opening run of another period", func(s scene) []stmt { return named(s, "MAPLE", 2025, 11, "final") }, "is the final run of group MAPLE for 2025/12"},
+		{"an opening run of an earlier year", func(s scene) []stmt { return named(s, "MAPLE", 2024, 12, "final") }, "is the final run of group MAPLE for 2025/12"},
+		{"an opening run of another group", func(s scene) []stmt { return named(s, "OTHER", 2025, 12, "final") }, "is the final run of group MAPLE for 2025/12"},
+		{"an opening run that does not exist", func(s scene) []stmt { return []stmt{queued(s), set(s, "running", id())} }, "is the final run of group MAPLE for 2025/12"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), parent: id(), earlier: id(), run: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
 // TestConsolidationRunIsTheTenants: another tenant neither sees a run nor
 // adds members to it.
 func TestConsolidationRunIsTheTenants(t *testing.T) {
@@ -644,6 +730,107 @@ func TestConsolidationAcquisitionRules(t *testing.T) {
 			return with(running(s), step(`INSERT INTO consolidation.run_entry (tenant_id, run_id, entry_no, kind, legal_entity_id) VALUES ($1, $2, 1, 'investment', $3)`,
 				s.tenant, s.run, s.member), step(lineRow, s.tenant, s.run, s.member, "goodwill"))
 		}, "run_entry_line_component"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), parent: id(), member: id(), run: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestConsolidationRevaluationTranslationRules (migration 000261;
+// ADR-0059 As built: the group-currency revaluation's translation part):
+// the amount a run moves from a company's profit to its translation
+// reserve is recorded with the company's translation, none before it and
+// never changed after; a company translated without one moved nothing.
+func TestConsolidationRevaluationTranslationRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, actor, parent, member, run uuid.UUID }
+	running := func(s scene) []stmt {
+		return []stmt{step(`INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start,
+				period_end, config_version, group_currency, rate_type, status, operation_id, created_by, updated_by)
+				VALUES ($1, $2, 'MAPLE', $3, ARRAY[$3, $4]::uuid[], 2026, 11, '2026-11-01', '2026-11-30', 7, 'CAD', 'average', 'queued', gen_random_uuid(), $5, $5)`,
+			s.tenant, s.run, s.parent, s.member, s.actor),
+			step(`UPDATE consolidation.run SET status = 'running', version = version + 1`),
+			step(`INSERT INTO consolidation.run_member (tenant_id, run_id, legal_entity_id, company_code, role, ownership_percent, first_fiscal_year,
+				first_fiscal_period, local_currency, closing_rate, rate_valid_from) VALUES ($1, $2, $3, '1000', 'member', 100, 2026, 11, 'USD', 1.4, '2026-11-30')`,
+				s.tenant, s.run, s.member)}
+	}
+	translated := func(moved int) stmt {
+		return step(`UPDATE consolidation.run_member SET period_status = 'open', period_version = 3, translated_at = now(), revaluation_translation_gc = $1`, moved)
+	}
+	amount := step(`UPDATE consolidation.run_member SET revaluation_translation_gc = -400`)
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a company translated with the amount moved", func(s scene) []stmt { return append(running(s), translated(-400)) }, ""},
+		{"a company translated without one", func(s scene) []stmt {
+			return append(running(s), step(`UPDATE consolidation.run_member SET period_status = 'open', period_version = 3, translated_at = now()`))
+		}, ""},
+		{"an amount before the translation", func(s scene) []stmt { return append(running(s), amount) }, "run_member_revaluation_translation"},
+		{"an amount after the translation", func(s scene) []stmt { return append(running(s), translated(0), amount) }, "records its translation once"},
+		{"an amount changed", func(s scene) []stmt { return append(running(s), translated(-300), amount) }, "records its translation once"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), parent: id(), member: id(), run: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return all(tx, c.run(s)...) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestConsolidationNetInvestmentRules (migration 000262; ADR-0059 As
+// built: a net investment's exchange differences): the exchange
+// differences on its net investments a run moves from a company's profit
+// to its translation reserve are recorded with the company's
+// translation, none before it and never changed after; a company
+// translated without any moved nothing.
+func TestConsolidationNetInvestmentRules(t *testing.T) {
+	need(t)
+	type scene struct{ tenant, actor, parent, member, run uuid.UUID }
+	running := func(s scene) []stmt {
+		return []stmt{step(`INSERT INTO consolidation.run (tenant_id, id, group_code, parent_id, companies, fiscal_year, fiscal_period, period_start,
+				period_end, config_version, group_currency, rate_type, status, operation_id, created_by, updated_by)
+				VALUES ($1, $2, 'MAPLE', $3, ARRAY[$3, $4]::uuid[], 2026, 11, '2026-11-01', '2026-11-30', 7, 'CAD', 'average', 'queued', gen_random_uuid(), $5, $5)`,
+			s.tenant, s.run, s.parent, s.member, s.actor),
+			step(`UPDATE consolidation.run SET status = 'running', version = version + 1`),
+			step(`INSERT INTO consolidation.run_member (tenant_id, run_id, legal_entity_id, company_code, role, ownership_percent, first_fiscal_year,
+				first_fiscal_period, local_currency, closing_rate, rate_valid_from) VALUES ($1, $2, $3, '1000', 'member', 100, 2026, 11, 'USD', 1.4, '2026-11-30')`,
+				s.tenant, s.run, s.member)}
+	}
+	translated := func(moved int) stmt {
+		return step(`UPDATE consolidation.run_member SET period_status = 'open', period_version = 3, translated_at = now(), net_investment_gc = $1`, moved)
+	}
+	amount := step(`UPDATE consolidation.run_member SET net_investment_gc = -400`)
+	cases := []struct {
+		name string
+		run  func(s scene) []stmt
+		want string // empty: allowed
+	}{
+		{"a company translated with the amount moved", func(s scene) []stmt { return append(running(s), translated(-400)) }, ""},
+		{"a company translated without one", func(s scene) []stmt {
+			return append(running(s), step(`UPDATE consolidation.run_member SET period_status = 'open', period_version = 3, translated_at = now()`))
+		}, ""},
+		{"an amount before the translation", func(s scene) []stmt { return append(running(s), amount) }, "run_member_net_investment"},
+		{"an amount after the translation", func(s scene) []stmt { return append(running(s), translated(0), amount) }, "records its translation once"},
+		{"an amount changed", func(s scene) []stmt { return append(running(s), translated(-300), amount) }, "records its translation once"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

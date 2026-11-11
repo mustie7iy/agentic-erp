@@ -316,6 +316,33 @@ func (Reports) OpenDownPayments(ctx context.Context, legalEntity uuid.UUID, fisc
 	return sums, err
 }
 
+// OpenPayablesByTradingPartner sums the legal entity's open supplier items
+// of the fiscal year that carry a trading partner, ordinary items and
+// down payments alike, in local currency per trading partner, in the
+// leading ledger: the intercompany payables a consolidation run reads by
+// trading partner, which a migration run reconciles with SAP's
+// (ADR-0059 As built, the migration leaf).
+func (Reports) OpenPayablesByTradingPartner(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) (map[uuid.UUID]money.Minor, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT l.trading_partner_id, sum(l.amount_lc) FROM ledger.journal_line l
+		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
+		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
+		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 AND l.trading_partner_id IS NOT NULL
+			AND NOT EXISTS (SELECT FROM ledger.clearing_item c WHERE c.tenant_id = l.tenant_id AND c.fiscal_year = l.fiscal_year
+				AND c.journal_entry_id = l.journal_entry_id AND c.line_no = l.line_no)
+		GROUP BY l.trading_partner_id`, legalEntity, fiscalYear)
+	out := map[uuid.UUID]money.Minor{}
+	var partner uuid.UUID
+	var sum money.Minor
+	if _, err := pgx.ForEachRow(rows, []any{&partner, &sum}, func() error { out[partner] = sum; return nil }); err != nil {
+		return out, fmt.Errorf("ledger: open supplier items of %s %d by trading partner: %w", legalEntity, fiscalYear, err)
+	}
+	return out, nil
+}
+
 // OpenForeignItems sums the legal entity's open supplier items of the
 // fiscal year posted in a currency other than its local one, ordinary
 // items and down payments alike, in their transaction currency per

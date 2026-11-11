@@ -3,6 +3,7 @@ package integration
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -23,29 +24,32 @@ func addressesOf(e *sap.Extract) addresses {
 }
 
 // current is the central address a vendor master names (LFA1-ADRNR), in
-// its international version (NATION blank) valid on day, the cutover date
+// its international version (NATION blank) valid on the cutover date
 // (DATE_FROM to DATE_TO, both included, an initial one open-ended;
-// po:2026-11-09, A1). ok is false
-// when there is none, and why is then set when the vendor names an
-// address the extract holds no such row of, or several.
-func (as addresses) current(v sap.LFA1, day time.Time) (a sap.ADRC, ok bool, why string) {
+// po:2026-11-09, A1): days, the run's day in the time zones of the
+// vendor's companies (target.cutoverDays), on any of which a row counts
+// as valid. ok is false when there is none, and why is then set when the
+// vendor names an address the extract holds no such row of, or several:
+// also when the companies' days differ and SAP's address changes between
+// them, which no one day decides.
+func (as addresses) current(v sap.LFA1, days []time.Time) (a sap.ADRC, ok bool, why string) {
 	if v.ADRNR == "" {
 		return a, false, ""
 	}
-	on := day.Format("20060102")
 	var found []sap.ADRC
 	for _, r := range as[v.ADRNR] {
-		if r.NATION == "" && sapDay(r.DATE_FROM, "00010101") <= on && on <= sapDay(r.DATE_TO, "99991231") {
+		from, to := sapDay(r.DATE_FROM, "00010101"), sapDay(r.DATE_TO, "99991231")
+		if r.NATION == "" && slices.ContainsFunc(days, func(d time.Time) bool { on := d.Format("20060102"); return from <= on && on <= to }) {
 			found = append(found, r)
 		}
 	}
 	switch len(found) {
 	case 0:
-		return a, false, fmt.Sprintf("no central address (ADRC %s) valid on %s", v.ADRNR, day.Format(time.DateOnly))
+		return a, false, fmt.Sprintf("no central address (ADRC %s) valid on %s", v.ADRNR, daysText(days))
 	case 1:
 		return found[0], true, ""
 	}
-	return a, false, fmt.Sprintf("%d central addresses (ADRC %s) valid on %s", len(found), v.ADRNR, day.Format(time.DateOnly))
+	return a, false, fmt.Sprintf("%d central addresses (ADRC %s) valid on %s", len(found), v.ADRNR, daysText(days))
 }
 
 // sapDay is an SAP date as YYYYMMDD, or open when it is initial (blank
@@ -59,19 +63,20 @@ func sapDay(d, open string) string {
 
 // vendorAddress is the legal address a vendor master's central address
 // gives its supplier (ADRC through LFA1-ADRNR, po:2026-11-09, A1; ADR-0054
-// As built), valid from day, the day it is migrated. Line 1 is the street
+// As built): the one valid on the run's days (current), valid on the
+// platform from validFrom, partner's day (target.today). Line 1 is the street
 // followed by the house number and its supplement (STREET, HOUSE_NUM1,
 // HOUSE_NUM2), line 2 the street's further lines (STR_SUPPL1-3,
 // LOCATION); the country is ADRC's, the vendor's (LAND1) when it has
 // none. ok is false when the extract holds no address for it, and why is
 // then set when it holds one the platform cannot keep: none or several
-// valid on the day, a street without a city or a city without a street,
+// valid on the days, a street without a city or a city without a street,
 // which partner.address requires both of, or a text longer than a partner
 // address's (the contract's Address). Such a vendor loads without an
 // address, and the quality gate warns of it; nothing fails the run. A
 // blank house number is normal: many systems keep it in the street.
-func vendorAddress(v sap.LFA1, as addresses, day time.Time) (a partner.AddressInput, ok bool, why string) {
-	r, ok, why := as.current(v, day)
+func vendorAddress(v sap.LFA1, as addresses, days []time.Time, validFrom time.Time) (a partner.AddressInput, ok bool, why string) {
+	r, ok, why := as.current(v, days)
 	if !ok {
 		return a, false, why
 	}
@@ -96,7 +101,7 @@ func vendorAddress(v sap.LFA1, as addresses, day time.Time) (a partner.AddressIn
 		}
 	}
 	a = partner.AddressInput{Purpose: "legal", Line1: street, City: city, CountryCode: cmp.Or(strings.TrimSpace(r.COUNTRY), v.LAND1),
-		ValidFrom: partner.Date{Time: day}}
+		ValidFrom: partner.Date{Time: validFrom}}
 	a.Line2, a.PostalCode, a.Region = optional(more), optional(postal), optional(region)
 	return a, true, ""
 }

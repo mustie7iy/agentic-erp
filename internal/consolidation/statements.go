@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -89,7 +90,7 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 			return nil, err
 		}
 	}
-	s, stale, err := e.statementOf(ctx, tx, r)
+	s, stale, err := e.statementOf(ctx, tx, r, params.Statement)
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +99,9 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 	out := gen.ConsolidatedStatement{RunID: r.ID, GroupCode: r.GroupCode, GroupName: s.chart.Group(r.GroupCode).Name, FiscalYear: int32(r.FiscalYear),
 		Period: int32(r.Period), PeriodEnd: r.PeriodEnd, RunStatus: r.Status, Stale: stale, Statement: params.Statement, GroupCurrency: r.GroupCurrency,
 		Items: []gen.ConsolidatedStatementRow{}, Totals: s.totals(params.Statement)}
+	if params.Statement == ProfitAndLoss {
+		out.OpeningRunID, out.TranslationReserve = apitypes.OptUUID(s.oci.openingRun), s.reservesAPI()
+	}
 	for _, a := range s.accounts(types) {
 		if params.PageToken.Set && a.Number <= after.Number {
 			continue
@@ -116,8 +120,9 @@ func (e *Endpoints) GetConsolidatedStatement(ctx context.Context, params gen.Get
 // chart of the version it read, its figures per group account and the
 // group currency's minor units; and whether the run is stale (ADR-0059
 // §10), which a computed, final or superseded run, every company of it
-// translated, always knows.
-func (e *Endpoints) statementOf(ctx context.Context, tx pgx.Tx, r Run) (statement, bool, error) {
+// translated, always knows. The profit and loss also reads what follows
+// its profit (comprehensiveOf).
+func (e *Endpoints) statementOf(ctx context.Context, tx pgx.Tx, r Run, name string) (statement, bool, error) {
 	doc, err := e.version(ctx, r.ConfigVersion)
 	if err != nil {
 		return statement{}, false, fmt.Errorf("consolidation: configuration version %d of run %s: %w", r.ConfigVersion, r.ID, err)
@@ -138,7 +143,11 @@ func (e *Endpoints) statementOf(ctx context.Context, tx pgx.Tx, r Run) (statemen
 	if err != nil {
 		return statement{}, false, fmt.Errorf("consolidation: currency %s: %w", r.GroupCurrency, err)
 	}
-	return statement{chart: doc.Consolidation, sums: sums, nci: nci, group: r.GroupCurrency, exp: exp}, stale, nil
+	s := statement{chart: doc.Consolidation, sums: sums, nci: nci, group: r.GroupCurrency, exp: exp}
+	if name == ProfitAndLoss {
+		s.oci, err = e.comprehensiveOf(ctx, tx, r)
+	}
+	return s, stale, err
 }
 
 // nciProfit is the profit's share attributable to non-controlling
@@ -182,7 +191,8 @@ func accountSums(ctx context.Context, tx pgx.Tx, r Run) (map[string]columns, err
 type statement struct {
 	chart config.Consolidation
 	sums  map[string]columns
-	nci   money.Minor // the profit's share of non-controlling interests, an elimination
+	nci   money.Minor   // the profit's share of non-controlling interests, an elimination
+	oci   comprehensive // the profit and loss's other comprehensive income
 	group string
 	exp   int
 }
@@ -234,7 +244,9 @@ func (s statement) row(a config.GroupAccount) gen.ConsolidatedStatementRow {
 // revenue, expenses and the profit's attribution to non-controlling
 // interests (the run's nci entries, an elimination) and to the owners of
 // the parent (the rest), and on both the fiscal year's profit through the
-// period, which closes the balance sheet to zero.
+// period, which closes the balance sheet to zero; the profit and loss
+// then has other comprehensive income and total comprehensive income
+// with its attribution (comprehensiveTotals).
 func (s statement) totals(statement string) gen.ConsolidatedStatementTotals {
 	out := gen.ConsolidatedStatementTotals{Profit: s.figuresAPI(s.sum(config.Revenue, config.Expense))}
 	if statement == BalanceSheet {
@@ -249,5 +261,6 @@ func (s statement) totals(statement string) gen.ConsolidatedStatementTotals {
 	profit := s.sum(config.Revenue, config.Expense)
 	out.NonControllingInterests = gen.NewOptConsolidatedFigures(s.figuresAPI(nci))
 	out.OwnersOfTheParent = gen.NewOptConsolidatedFigures(s.figuresAPI(columns{reported: profit.reported, eliminations: profit.eliminations - nci.eliminations}))
+	s.comprehensiveTotals(&out, profit, nci)
 	return out
 }

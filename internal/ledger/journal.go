@@ -64,7 +64,11 @@ type Entry struct {
 	// TaxDate decides the tax rate and the return period (ADR-0049 §4);
 	// nil on entries posted before T61c, whose tax date is the posting
 	// date.
-	TaxDate          *time.Time
+	TaxDate *time.Time
+	// TaxDocument is the tax invoice or tax credit note a year-end
+	// adjustment's VAT rests on (ADR-0060 §3), whose date TaxDate is; nil
+	// on every other entry.
+	TaxDocument      *TaxDocument
 	CurrencyTC       string
 	CurrencyLC       string
 	CurrencyGC       string
@@ -137,6 +141,10 @@ type Line struct {
 	// (deriveTradingPartners): a clearing's, a settlement's, a bank
 	// posting's and a down payment transfer's.
 	offsets bool
+	// differs: the line is an invoiced order item's price difference line,
+	// recorded with that item and the tax it bears once the entry is
+	// posted (keepPriceDifferences); never read back from the database.
+	differs *priceDifference
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
@@ -156,6 +164,7 @@ const entrySelect = `SELECT e.id, e.legal_entity_id, e.ledger_id,
 		e.document_date, e.posting_date, e.tax_date, e.currency_tc, e.currency_lc, e.currency_gc, e.rate_tc_lc::text, e.rate_lc_gc::text,
 		e.reference, e.header_text, e.source_context, e.source_document_id, e.reversal_of_id, e.reversal_of_year, r.reversal_entry_id,
 		e.posting_group_id, e.ledger_group_id, e.posted_at, e.posted_by, ctc.exponent, clc.exponent, cgc.exponent,
+		e.tax_document_kind, e.tax_document_number, e.tax_document_date,
 		(SELECT json_agg(json_build_object('line_no', l.line_no, 'account_id', l.account_id, 'tc', l.amount_tc, 'lc', l.amount_lc,
 			'gc', l.amount_gc, 'partner_id', l.partner_id, 'tax_code', l.tax_code, 'quantity', trim_scale(l.quantity)::text,
 			'unit', l.uom_code, 'text', l.line_text, 'purchase_order_id', l.purchase_order_id, 'po_item_no', l.po_item_no,
@@ -179,10 +188,13 @@ const centerJoins = `
 
 func scanEntry(row pgx.Row) (Entry, error) {
 	var e Entry
+	var kind, number *string
+	var date *time.Time
 	err := errs.Wrapf(row.Scan(&e.ID, &e.LegalEntityID, &e.LedgerID, &e.Leading, &e.FiscalYear, &e.FiscalPeriod, &e.DocumentType, &e.DocumentNumber,
 		&e.DocumentDate, &e.PostingDate, &e.TaxDate, &e.CurrencyTC, &e.CurrencyLC, &e.CurrencyGC, &e.RateTCLC, &e.RateLCGC,
 		&e.Reference, &e.HeaderText, &e.SourceContext, &e.SourceDocumentID, &e.ReversalOfID, &e.ReversalOfYear, &e.ReversedByID,
-		&e.PostingGroupID, &e.LedgerGroupID, &e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &e.Lines), "scan journal entry")
+		&e.PostingGroupID, &e.LedgerGroupID, &e.PostedAt, &e.PostedBy, &e.ExpTC, &e.ExpLC, &e.ExpGC, &kind, &number, &date, &e.Lines), "scan journal entry")
+	e.TaxDocument = taxDocumentOf(kind, number, date)
 	return e, err
 }
 
@@ -220,6 +232,9 @@ type draft struct {
 	postingDate  time.Time
 	// taxDate is the entry's tax date; zero: its posting date.
 	taxDate time.Time
+	// taxDocument is the tax document it rests on (ADR-0060 §3), whose date
+	// taxDate then is; nil: none.
+	taxDocument *TaxDocument
 	// hold, when set, refuses a tax date held to the periods no tax return
 	// reports yet (holdTaxDate, ADR-0049 P6): a manual entry's, or one a
 	// person chose. A function, so its refusal is its makers' alone.
@@ -248,6 +263,9 @@ type draft struct {
 	// entry has items (writeTaxItems).
 	sourcedItems []sourcedTaxItem
 	givenItems   []PostingTaxItem
+	// collective: the entry gathers unrelated lines (Posting.Collective),
+	// so its partner lines' trading partner is not given to its others.
+	collective bool
 }
 
 // target is a ledger a posting goes to, with the status of its period.
@@ -373,7 +391,7 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		if err := assign(ctx, tx, d.entity.ID, year, d.postingDate, d.lines, true); err != nil {
 			return nil, err
 		}
-		if err := e.deriveTradingPartners(ctx, d.entity.ID, d.lines); err != nil {
+		if err := e.deriveTradingPartners(ctx, d.entity.ID, d.lines, !d.collective); err != nil {
 			return nil, err
 		}
 	}
@@ -462,14 +480,16 @@ func insertEntry(ctx context.Context, tx pgx.Tx, p reqctx.Principal, d draft, c 
 		}
 		reversalOf, reversalYear = &of, &d.reversalOf.FiscalYear
 	}
+	kind, number, date := d.taxDocument.columns()
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period,
 			document_type, document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc,
 			reference, header_text, source_context, source_document_id, reversal_of_id, reversal_of_year, posted_by, posting_group_id, ledger_group_id,
-			tax_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)`,
+			tax_date, tax_document_kind, tax_document_number, tax_document_date)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::numeric, $15::numeric, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25,
+			$26, $27, $28)`,
 		p.TenantID, h.year, h.id, d.entity.ID, h.ledger, h.period, d.documentType, h.number, d.documentDate, d.postingDate,
 		d.currencyTC, d.currencyLC, d.currencyGC, d.rateTCLC, d.rateLCGC, d.reference, d.headerText, d.sourceContext, d.sourceDocumentID,
-		reversalOf, reversalYear, p.ID, h.group, d.ledgerGroup, d.taxDay()); err != nil {
+		reversalOf, reversalYear, p.ID, h.group, d.ledgerGroup, d.taxDay(), kind, number, date); err != nil {
 		return Entry{}, fmt.Errorf("ledger: post entry %s: %w", h.id, err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id,
@@ -592,11 +612,15 @@ type NewEntry struct {
 	PostingDate  time.Time
 	// TaxDate is the date its tax codes' rates apply on and its tax is
 	// reported in; nil: the posting date (ADR-0049 §4).
-	TaxDate    *time.Time
-	Currency   string
-	Reference  *string
-	HeaderText *string
-	Lines      []NewLine
+	TaxDate *time.Time
+	// TaxDocument is the tax invoice or tax credit note a year-end
+	// adjustment carrying VAT rests on (ADR-0060 §3; checkTaxDocument):
+	// its date is then the tax date.
+	TaxDocument *TaxDocument
+	Currency    string
+	Reference   *string
+	HeaderText  *string
+	Lines       []NewLine
 	// The context and document a posting is made for; manual entries are
 	// the ledger's own (source "ledger", no document).
 	SourceContext    string
@@ -609,6 +633,8 @@ type NewEntry struct {
 	// taxDateChosen: a person chose TaxDate (Posting.TaxDateChosen), so
 	// it is held to the open returns as a manual entry's is.
 	taxDateChosen bool
+	// collective is Posting.Collective.
+	collective bool
 	// special is the special period a manual entry names (ADR-0060 §3), or
 	// nil: the regular period of PostingDate. Only the API's manual entries
 	// set it, so no other context's posting reaches a special period.
@@ -620,8 +646,12 @@ func (in NewEntry) specialNumber() int16 {
 	return deref(in.special, 0)
 }
 
-// taxDay is the entry's tax date: the one it names, else its posting date.
+// taxDay is the entry's tax date: its tax document's date, else the one
+// it names, else its posting date.
 func (in NewEntry) taxDay() time.Time {
+	if in.TaxDocument != nil {
+		return in.TaxDocument.Date
+	}
 	if in.TaxDate != nil {
 		return *in.TaxDate
 	}
@@ -1144,9 +1174,9 @@ func (e *Endpoints) postPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		in.taxItems = items
 	}
 	posted, err := e.post(ctx, tx, p, draft{entity: v.le, ledgers: v.choice.ledgers, ledgerGroup: v.choice.group, documentType: in.DocumentType, documentDate: in.DocumentDate,
-		postingDate: in.PostingDate, special: in.specialNumber(), taxDate: in.taxDay(), hold: e.holding(v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
+		postingDate: in.PostingDate, special: in.specialNumber(), taxDate: in.taxDay(), taxDocument: in.TaxDocument, hold: e.holding(v.le.ID, in.heldTaxDate(), in.taxDay(), v.lines), currencyTC: in.Currency, currencyLC: v.le.LocalCurrency, currencyGC: v.group, rateTCLC: rateLC.shown,
 		rateLCGC: rateGC.shown, reference: in.Reference, headerText: in.HeaderText, sourceContext: cmp.Or(in.SourceContext, "ledger"),
-		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems})
+		sourceDocumentID: in.SourceDocumentID, lines: v.lines, givenItems: in.taxItems, collective: in.collective})
 	if err != nil {
 		return Entry{}, err
 	}
@@ -1263,7 +1293,7 @@ func (e *Endpoints) reverseManually(ctx context.Context, id uuid.UUID, ifMatch f
 		if err != nil {
 			return Entry{}, err
 		}
-		if err := specialPeriod(ctx, tx, le.FiscalCalendarID, deref(postingDate, orig.PostingDate), *special, orig.Lines); err != nil {
+		if err := specialPeriod(ctx, tx, le, deref(postingDate, orig.PostingDate), *special, orig.Lines, orig.TaxDocument != nil); err != nil {
 			return Entry{}, err
 		}
 	}
@@ -1279,6 +1309,9 @@ func (e *Endpoints) reverse(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		return Entry{}, err
 	}
 	if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
+		return Entry{}, err
+	}
+	if err := reversePriceDifferences(ctx, tx, orig, rev); err != nil {
 		return Entry{}, err
 	}
 	return rev, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,
@@ -1351,7 +1384,7 @@ func (e *Endpoints) postReversal(ctx context.Context, tx pgx.Tx, p reqctx.Princi
 		items = nil // an original without items (its codes post to no account): the reversal's lines give its own
 	}
 	revs, err := e.postAll(ctx, tx, p, draft{entity: le, ledgers: ledgers, ledgerGroup: orig.LedgerGroupID, documentType: orig.DocumentType, documentDate: orig.DocumentDate,
-		postingDate: date, special: special, taxDate: orig.taxDay(), sourcedItems: items, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
+		postingDate: date, special: special, taxDate: orig.taxDay(), taxDocument: orig.TaxDocument, sourcedItems: items, currencyTC: orig.CurrencyTC, currencyLC: orig.CurrencyLC, currencyGC: orig.CurrencyGC, rateTCLC: orig.RateTCLC,
 		rateLCGC: orig.RateLCGC, reference: orig.Reference, headerText: headerText, sourceContext: orig.SourceContext,
 		sourceDocumentID: orig.SourceDocumentID, reversalOf: &orig, reversedCopies: copies, lines: lines})
 	if err != nil {

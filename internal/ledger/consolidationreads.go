@@ -18,8 +18,10 @@ import (
 // ConsolidationReads is what the ledger publishes to the consolidation
 // context (ADR-0059 §4a, T68d): the leading ledger, a company's posting
 // period with its status and version, its accounts, its balances through a
-// period per account and per account and trading partner, and a rate of a
-// type valid on a date. Each runs in the request's or activity's
+// period per account and per account and trading partner with the lines
+// of its revaluation runs' entries on profit and loss accounts (each
+// naming the account it values, for the accounts asked for), and a rate
+// of a type valid on a date. Each runs in the request's or activity's
 // transaction under row-level security (ADR-0003); consolidation reads no
 // ledger table itself, and the composition root adapts these to its
 // Ledger port.
@@ -189,21 +191,110 @@ const balancesThrough = `WITH f AS (
 	HAVING sum(x.lc) <> 0 OR sum(x.gc) <> 0
 	ORDER BY 1, 2 NULLS FIRST, 3, 4`
 
+// RevaluationLine is a line of one of a company's revaluation runs'
+// entries (ADR-0042) on a profit and loss account: its local and booked
+// group amounts, debit positive, and the local-to-group rate its entry
+// records, the posting date's, at which a posting in local currency
+// converts. A run values group currency on its own, so GC is not LC at
+// Rate; consolidation takes the rest out of the profit (ADR-0059 §7).
+// FiscalYear and Period are a profit and loss balance's (BalanceThrough):
+// the line's fiscal year, and its period in the year read through, 0 in
+// an earlier one. ValuedAccountID is the account whose difference the
+// line offsets, when it is one of the accounts the read was asked to
+// name (BalancesThrough's valued); nil otherwise.
+type RevaluationLine struct {
+	AccountID          uuid.UUID
+	TradingPartnerID   *uuid.UUID
+	ValuedAccountID    *uuid.UUID
+	FiscalYear, Period int16
+	LC, GC             money.Minor
+	Rate               *big.Rat
+}
+
+// figuresThrough reads, in one statement and so from one database state,
+// a company's balances through a period (balancesThrough, kind 0) and the
+// lines on profit and loss accounts of its revaluation runs' entries
+// through it (kind 1): each run's valuation entry and its reset, and, of
+// a cancelled run, their reversals, which keep the run as their source
+// and the rates of the entries they reverse (postReversal). Read apart,
+// a revaluation posted or cancelled between the two reads would leave
+// consolidation lines whose amounts the balances do not hold, or the
+// reverse. The balances come in balancesThrough's order, the lines by
+// account, trading partner, year, period, entry and line.
+//
+// A line names the account it values when that is one of $5's (CTE t,
+// not computed without any). No line records it: a run's entries have
+// two lines per total, in the totals' order (revaluationLines), the
+// difference on the valued account or its adjustment account and then
+// its offset on the unrealised gain or loss account, and a reversal
+// keeps its entry's line numbers (reversalLines); a run's totals are its
+// items with a difference per account, currency, trading partner and
+// direction, in the order of each one's first item (Revaluation.Totals,
+// RevaluedItem.Direction), and the items are insert-only. So total n's
+// offset is line 2n of each of the run's entries.
+const figuresThrough = `WITH b (account_id, tp, year, period, lc, gc) AS (` + balancesThrough + `), t AS (
+		SELECT i.run_id, i.account_id, 2 * row_number() OVER (PARTITION BY i.run_id ORDER BY min(i.item_no)) AS offset_line
+		FROM ledger.revaluation_run r
+		JOIN ledger.revaluation_item i ON i.tenant_id = r.tenant_id AND i.run_id = r.id
+		WHERE cardinality($5::uuid[]) > 0 AND r.legal_entity_id = $1 AND r.ledger_id = $2
+			AND (i.valued_lc <> i.amount_lc OR i.valued_gc <> i.amount_gc)
+		GROUP BY i.run_id, i.account_id, i.currency_tc, i.trading_partner_id,
+			CASE WHEN i.valued_lc <> i.amount_lc THEN i.valued_lc > i.amount_lc ELSE i.valued_gc > i.amount_gc END
+	)
+	SELECT 0, account_id, tp, year, period, lc, gc, NULL::text, NULL::uuid, NULL::uuid, NULL::int FROM b
+	UNION ALL
+	SELECT 1, l.account_id, l.trading_partner_id, l.fiscal_year, (CASE WHEN l.fiscal_year = $3 THEN l.fiscal_period ELSE 0 END)::smallint,
+		l.amount_lc, l.amount_gc, e.rate_lc_gc::text, t.account_id, l.journal_entry_id, l.line_no
+	FROM ledger.revaluation_run r
+	JOIN ledger.journal_entry e ON e.tenant_id = r.tenant_id AND e.source_context = 'ledger' AND e.source_document_id = r.id
+		AND e.ledger_id = r.ledger_id
+	JOIN ledger.journal_line l ON l.tenant_id = e.tenant_id AND l.fiscal_year = e.fiscal_year AND l.journal_entry_id = e.id
+	JOIN ledger.gl_account a ON a.id = l.account_id
+	LEFT JOIN t ON t.run_id = r.id AND t.offset_line = l.line_no AND t.account_id = ANY($5)
+	WHERE r.legal_entity_id = $1 AND r.ledger_id = $2 AND NOT a.is_balance_sheet
+		AND (l.fiscal_year < $3 OR (l.fiscal_year = $3 AND l.fiscal_period <= $4))
+	ORDER BY 1, 2, 3 NULLS FIRST, 4, 5, 10, 11`
+
 // BalancesThrough is the company's balances in the ledger through the
 // fiscal year's period, per account and trading partner (BalanceThrough),
 // those that are not zero in both currencies, by account, trading partner
-// (none first), year and period.
-func (ConsolidationReads) BalancesThrough(ctx context.Context, legalEntity, ledgerID uuid.UUID, year, period int16) ([]BalanceThrough, error) {
+// (none first), year and period; and, of the same database state
+// (figuresThrough), the lines of its revaluation runs' entries on profit
+// and loss accounts through the period (RevaluationLine), whose amounts
+// the balances hold. A line offsetting a difference of one of the valued
+// accounts names it; with none given no line names any.
+func (ConsolidationReads) BalancesThrough(ctx context.Context, legalEntity, ledgerID uuid.UUID, year, period int16, valued []uuid.UUID) ([]BalanceThrough, []RevaluationLine, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	rows, _ := tx.Query(ctx, balancesThrough, legalEntity, ledgerID, year, period)
-	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (BalanceThrough, error) {
-		var b BalanceThrough
-		return b, r.Scan(&b.AccountID, &b.TradingPartnerID, &b.FiscalYear, &b.Period, &b.LC, &b.GC)
+	if valued == nil {
+		valued = []uuid.UUID{} // an empty array, not NULL, whose cardinality is unknown
+	}
+	rows, _ := tx.Query(ctx, figuresThrough, legalEntity, ledgerID, year, period, valued)
+	var balances []BalanceThrough
+	var lines []RevaluationLine
+	var kind int
+	var b BalanceThrough
+	var rate *string
+	var valuedAccount, entry *uuid.UUID
+	var lineNo *int32
+	_, err = pgx.ForEachRow(rows, []any{&kind, &b.AccountID, &b.TradingPartnerID, &b.FiscalYear, &b.Period, &b.LC, &b.GC, &rate, &valuedAccount, &entry, &lineNo}, func() error {
+		v := b
+		v.TradingPartnerID = copied(b.TradingPartnerID) // pgx scans the next row into the same pointer
+		if kind == 0 {
+			balances = append(balances, v)
+			return nil
+		}
+		// A numeric(28,12) above zero, always a decimal.
+		lines = append(lines, RevaluationLine{AccountID: v.AccountID, TradingPartnerID: v.TradingPartnerID, ValuedAccountID: copied(valuedAccount),
+			FiscalYear: v.FiscalYear, Period: v.Period, LC: v.LC, GC: v.GC, Rate: money.ParseRat(*rate)})
+		return nil
 	})
-	return out, errs.Wrapf(err, "ledger: balances of %s through %d/%d", legalEntity, year, period)
+	if err != nil {
+		return nil, nil, fmt.Errorf("ledger: balances of %s through %d/%d: %w", legalEntity, year, period, err)
+	}
+	return balances, lines, nil
 }
 
 // RateOn is the latest rate of the type from one currency to another

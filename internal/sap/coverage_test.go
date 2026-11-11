@@ -313,17 +313,24 @@ func TestMockLineCenters(t *testing.T) {
 // TestFilterScopeKeepsTheLeadingLedger: a scope keeps the journal lines of
 // its leading ledger, 0L unless it names another (review:T56h4), and counts
 // its lines of the other ledgers, by RLDNR, leaving out those of other
-// company codes and years.
+// company codes and years. The leading ledger's noted items (BSTAT S) are
+// no journal lines: they are set aside in Noted (review:batch63), those of
+// another ledger counted with its lines.
 func TestFilterScopeKeepsTheLeadingLedger(t *testing.T) {
 	line := func(ledger, company, year string) ACDOCA { return ACDOCA{RLDNR: ledger, RBUKRS: company, GJAHR: year} }
+	noted := func(l ACDOCA, belnr string) ACDOCA {
+		l.BSTAT, l.BELNR = StatusNoted, belnr
+		return l
+	}
 	all := &Extract{ACDOCA: []ACDOCA{line("0L", "1000", "2026"), line("2L", "1000", "2026"), line("2L", "1000", "2026"), line("", "1000", "2026"),
-		line("E1", "2000", "2026"), line("E1", "1000", "2025")}}
+		line("E1", "2000", "2026"), line("E1", "1000", "2025"), noted(line("0L", "1000", "2026"), "N1"), noted(line("0L", "2000", "2026"), "N2"),
+		noted(line("0L", "1000", "2025"), "N3"), noted(line("2L", "1000", "2026"), "N4")}}
 	for name, tc := range map[string]struct {
-		ledger, want string
-		others       map[string]int
+		ledger, want, noted string
+		others              map[string]int
 	}{
-		"the standard leading ledger": {"", "0L 1", map[string]int{"2L": 2, "": 1}},
-		"a ledger the scope names":    {"2L", "2L 2", map[string]int{"0L": 1, "": 1}},
+		"the standard leading ledger": {"", "0L 1", "N1", map[string]int{"2L": 3, "": 1}},
+		"a ledger the scope names":    {"2L", "2L 2", "N4", map[string]int{"0L": 2, "": 1}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			got := FilterScope(all, Scope{CompanyCodes: []string{"1000"}, FiscalYear: "2026", Ledger: tc.ledger})
@@ -332,6 +339,16 @@ func TestFilterScopeKeepsTheLeadingLedger(t *testing.T) {
 			}
 			if fmt.Sprint(got.OtherLedgers) != fmt.Sprint(tc.others) {
 				t.Errorf("other ledgers' lines: got %v, want %v", got.OtherLedgers, tc.others)
+			}
+			var set []string
+			for _, l := range got.Noted {
+				set = append(set, l.BELNR)
+			}
+			if strings.Join(set, " ") != tc.noted {
+				t.Errorf("noted items set aside: got %q, want %q", strings.Join(set, " "), tc.noted)
+			}
+			if n := got.Counts()["ACDOCA"]; n != len(got.ACDOCA) {
+				t.Errorf("journal lines counted: got %d, want %d, the noted items not among them", n, len(got.ACDOCA))
 			}
 		})
 	}
