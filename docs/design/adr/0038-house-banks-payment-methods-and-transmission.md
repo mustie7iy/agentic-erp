@@ -1206,12 +1206,19 @@ behaviour:
   holds for the items that fix none. This replaces the first build, which
   left such a group out with `method_not_allowed`. Decided by default
   with it: the reason `method_not_allowed` is removed from the contract
-  and the code, since no run can write it and it was never released (it
-  was added in the same batch, so `oasdiff` against `main` shows no
-  removal, and the enumeration is open in any case). The check
-  constraint of `payments.method_exclusion.reason_code` (000253) still
-  admits the value: a migration is not changed for a value nothing
-  writes, and no row carries it. A supplier without any method in the
+  and the code, since no run can write it. The value was on `main`: it
+  shipped with the first build in batch 64 (`ab5fdba7`) and is removed
+  within /v1 in batch 65, as the narrowing of a response-only open
+  enumeration (04 §4.4: a client accepts values not listed, and one no
+  longer written breaks none), before any external consumer of /v1.
+  `oasdiff` against `main` reports no breaking change, but it does not
+  read `x-extensible-enum`, so neither the check nor
+  `api/breaking-accepted.txt` records the removal: this paragraph does.
+  The check constraint of `payments.method_exclusion.reason_code`
+  (000253) still admits the value: a migration is not changed for a
+  value nothing writes, and no released run wrote it (only a database
+  that ran batch 64's build could hold a row with it, which the API
+  still returns as stored). A supplier without any method in the
   company is still paid for an item that fixes one; its items that fix
   none stay `no_house_bank`, as before.
 - **A run proposed for one house bank** pays by no method (the Decision:
@@ -1308,8 +1315,8 @@ methods", suppliers' methods) and the load as it is:
 - **Not asked: the vendor's own list.** A ZLSCH that the vendor's ZWELS
   does not list is taken over all the same: SAP pays the item by it
   (ZLSCH wins over ZWELS), and the product owner decided the platform
-  pays it too (po:2026-11-10, changing `method_not_allowed` in the section
-  above, in the payment run).
+  pays it too (po:2026-11-10, removing the exclusion `method_not_allowed`
+  of the section above, in the payment run).
 - **Kept through the ledger's posting API.** The load posts SAP's
   documents through `ledger.Postings.Post`, in documents mode one entry
   per document and in balances mode one opening entry per company holding
