@@ -136,7 +136,8 @@ Its ports, each run in the request's (or activity's) transaction under RLS
   reads; B10, po:2026-11-10): what a company's recorded price difference
   lines of a fiscal year expensed per order item, what its invoice entries
   expensed without a recorded order item, and orders' items with their
-  accounts, for the report on asset purchase orders (As built, B10 step 2).
+  accounts, for the report on asset purchase orders (As built, B10 steps
+  2 and 3).
 - **`assets.Companies`** (adapter over tenancy): the legal entity's code,
   local currency and time zone.
 - **`assets.Centers`** (adapter over the ledger's center reads): a cost or
@@ -405,10 +406,11 @@ assets.class_year_total   (tenant_id, legal_entity_id, ledger_id, fiscal_year, c
 settlement"). A supplier invoice item without an order is posted to the
 class's `clearing` account (its non-recoverable input tax added to the line,
 ADR-0049 §8); an order item on that account posts its receipt Dr clearing /
-Cr GR/IR at the order price (T33), while its invoice's price difference and
-non-recovered tax go to the company's `price_difference` account (ADR-0049
-§8 as built, `internal/ledger/grir.go`), so an asset bought on an order is
-capitalised at the order price only (a question below); a manual entry may
+Cr GR/IR at the order price (T33), and its invoice's price difference and
+non-recovered tax post to the same clearing account (As built, B10 step 3,
+product owner 2026-11-10; until then they went to the company's
+`price_difference` account, ADR-0049 §8, so that an asset bought on an
+order was capitalised at the order price only); a manual entry may
 debit the clearing account too. `POST
 /v1/asset-acquisitions` names the asset, the source line (`source.entry_id`,
 `source.line_no`), the amount in the line's currency (all that is left of
@@ -1434,9 +1436,14 @@ the `assets` schema), 04 §4.9 (T57d) and this ADR's "As built".
   **The product owner (2026-11-10):** the report first, exact, by
   recording the order item and the tax borne at posting (option B; As
   built, B10 steps 1 and 2); the capitalisation itself stays a later leaf.
-  **Open (product owner):** whether a GR/IR clearing (T72e) of an asset
-  order item counts as expensed; the report leaves clearings out until
-  then and says so.
+  **The product owner (2026-11-10, "follow best accounting practice"):**
+  the cost of an asset is its purchase price including non-refundable
+  taxes, so everything that adjusts what was paid for an asset's order
+  item belongs on the asset, not in profit or loss: invoices, credit
+  memos and GR/IR clearings alike (As built, B10 step 3). That answers
+  the question that was open here, whether a GR/IR clearing (T72e) of an
+  asset order item counts as expensed: it does, for the clearings posted
+  before, and the report shows them as their own figure.
 - **Tax depreciation (Canada's capital cost allowance)**: a tax schedule,
   not a ledger. Recommendation: not in T57; with the Canadian corporate
   income tax work if the pilot asks.
@@ -2857,3 +2864,95 @@ to overrule:
   year and its order items; nothing in 01 §1.3 sizes it. A tenant with
   very many asset order items a year would want the rows paged in SQL.
 
+**B10, step 3 (an asset's order item's differences capitalised,
+po:2026-11-10).** The product owner decided on 2026-11-10 to follow best
+accounting practice: the cost of an asset is its purchase price including
+non-refundable purchase taxes (IAS 16.16), so everything that adjusts
+what was paid for an asset's order item belongs on the asset, not in
+profit or loss. Built in three parts, each its own commit.
+
+*Part 1: invoices and credit memos.*
+- **What posts where.** For an order item that is an asset's (its account
+  is an asset clearing account of the company in the active
+  configuration, §6's rule and the report's), what an invoice, credit memo
+  or subsequent debit or credit differs from the GR/IR line, the input tax
+  the item bears included, posts to the item's asset clearing account
+  instead of the `price_difference` account: one line, as before, on
+  another account. The GR/IR line, the tax lines, the payable, the
+  entry's totals and its exchange differences are unchanged
+  (`TestAssetItemDifferences`, `TestAssetOrderItemCapitalised`). An item
+  on any other account posts as before.
+- **The ledger decides, from the item's account.** The posting context
+  gives each invoiced item its order item's account
+  (`ledger.GRIRItem.ItemAccountID`, payables `grirItem`), and the ledger
+  reads the company's asset clearing accounts from the active
+  configuration (`ledger.Postings.Settings`, `assetClearingAccounts`): one
+  rule in one place for every posting context, rather than each context
+  naming the account to post to. The configuration is read only for a
+  posting whose invoiced or clearing items name an account; a goods
+  receipt reads none. A company the configuration lacks, or one without
+  asset accounts, has no asset items.
+- **No cost center on the line.** An asset clearing account is a balance
+  sheet account, so the line carries none. This removes the refusal lane
+  b10b found: with cost center accounting on and a `price_difference`
+  account that is a primary cost account without a default cost center,
+  the invoice of an asset's order item was refused with 422
+  `ledger.cost_center_required`, since such an item has no cost center
+  to give (`TestAssetOrderItemCapitalised` posts it, and shows an item on
+  another balance sheet account still refused).
+- **Reversals mirror what was posted.** A reversal copies its original's
+  lines, so a document posted before this change is reversed on the
+  `price_difference` account it used, and one posted since on the clearing
+  account (`TestAssetItemDifferencesReversed`). The rounding residue a
+  reversal clears when it brings an item's quantity to zero (03 §3.7)
+  still goes to `price_difference`: the reversal knows the original's
+  lines, not the order item's account, and the residue is a rounding of
+  rates, not part of the price paid.
+- **`ledger.price_difference_item` still records the line** (decided by
+  default): the order item and the tax borne of the difference line,
+  whichever account it is on. The line on the clearing account cannot
+  name its order item itself (a line's order item marks a GR/IR line),
+  and the record is all that tells its tax from its price difference
+  for whoever capitalises it. No migration: the table refuses GR/IR
+  lines only, and the clearing account's line is none. The report reads
+  the recorded lines on profit and loss accounts alone
+  (`OrderItemExpenses`: `NOT is_balance_sheet`), which is exact since the
+  configuration admits only an asset account as a clearing account and
+  only an expense account as `price_difference`.
+- **After the clearing account: the existing mechanism, nothing new.**
+  The line appears on the worklist (`GET /v1/asset-clearing-items`) and
+  is capitalised by `POST /v1/asset-acquisitions` as any line there: onto
+  the asset with the receipt's line, or later as a further acquisition
+  onto an asset already capitalised and in use, a credit memo's line as a
+  negative acquisition (§6, partial acquisitions). Its value date
+  defaults to the line's posting date, and the next depreciation run
+  catches up from the value date (§7); a company that wants a late amount
+  depreciated prospectively over the remaining life dates the acquisition
+  in the current period and, where the life or residual value changes
+  with it, records a change in estimate (T57j). Nothing settles the
+  clearing account automatically, as nothing does for the receipt's line.
+- **No backfill, no reposting.** Earlier postings stay where they are.
+  The report (step 2) is now history: what was expensed before, for the
+  accountants to judge and correct by a journal entry of their own.
+- **The upgrade moment** (decided by default, 06 §6.4): no switch and no
+  effective date. While replicas of both versions run, an invoice handled
+  by an older replica posts the difference to `price_difference` as
+  before; it is a valid posting, recorded where that version records it,
+  shown by the report as expensed, and its reversal mirrors it. A
+  configuration key to switch the behaviour was rejected: it would let a
+  company keep expensing against the decision, and the window is one
+  rolling upgrade.
+- **Walkthrough step 46** (`step_asset_order_expenses`, rewritten): a
+  band saw ordered on 1690 is invoiced CAD 100.00 over the order price
+  with CAD 567.00 of British Columbia PST; the 667.00 posts on 1690, the
+  worklist offers the line, and the report shows no row for the saw and
+  nothing expensed.
+- **IFRS readings, the coordinator's, to be confirmed by the accounting
+  specialist** (not verified against the standard here): (a) IAS 16.16
+  makes non-refundable purchase taxes and the price actually paid part of
+  cost, so an invoice's price difference and tax not recovered on an
+  asset's order item are capitalised (confirmed in substance by B10); (b)
+  a supplier credit memo on such an item reduces the asset's cost; (c) an
+  amount that reaches an asset already in use is added to its carrying
+  amount and depreciated over the remaining life, by the existing
+  acquisition and change-in-estimate mechanisms.

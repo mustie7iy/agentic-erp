@@ -346,7 +346,12 @@ item, with `totals` of every row on every page and `unattributed`, what
 earlier postings whose order item and split were not recorded put on the
 account (the net, with debits and credits apart: it includes the same
 entries' other order items, so the debits bound the assets' share).
-GR/IR clearings are left out (not decided).
+The report is history (product owner 2026-11-10, ADR-0057 As built B10
+step 3): a document posted now puts an asset's order item's price
+difference and tax not recovered on the item's asset clearing account,
+as part of the asset's cost, and adds nothing here; nothing earlier is
+reposted, and correcting it is a journal entry the accountants decide
+from the report. GR/IR clearings are left out (not decided).
 
 The asset history sheet (ADR-0057 §9, T57i), `GET /v1/asset-history-sheet`
 (`assets.asset.read`, `x-slo-class: report`), reconciles a company's asset

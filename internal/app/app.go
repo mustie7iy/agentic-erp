@@ -447,7 +447,8 @@ func rates() ledger.Rates { return ledger.Rates{LegalEntities: tenancy.Directory
 
 // postings posts journal entries for the contexts that post.
 func postings() ledger.Postings {
-	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{}}
+	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, TaxReturns: taxfiling.Holds{},
+		Settings: configuration.Settings{}}
 }
 
 // calendar resolves fiscal periods.

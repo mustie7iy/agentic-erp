@@ -1275,10 +1275,10 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a)): the posting change itself, after the materiality report; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment (ADR-0057's question on price differences and non-recovered tax)",
-        "r": "ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 1) · ledger price difference · payables input tax",
-        "src": "po:2026-11-09",
+        "s": "D",
+        "t": "An order item's price difference and non-recoverable tax capitalised on the asset rather than expensed, before the pilot's first year end (accounting specialist B10, po:2026-11-09; IAS 16.16(a); product owner 2026-11-10, follow best accounting practice): for an order item on an asset clearing account, what an invoice, credit memo or subsequent debit or credit differs from the GR/IR line, the tax not recovered included, posts to that clearing account instead of the price difference account, without a cost center (so no longer refused with ledger.cost_center_required), recorded with its order item and tax as before; entry totals, tax lines and the payable unchanged; reversals mirror what was posted, documents posted before included; capitalised from the clearing account by the existing acquisition mechanism; no backfill or reposting, the report being history; the cases often material being UAE blocked input VAT (motor vehicles available for personal use, entertainment) and partly recoverable Canadian PST on equipment",
+        "r": "ledger.GRIRItem.ItemAccountID, ledger.Postings.Settings, internal/ledger/assetitem.go (assetClearingAccounts), grir.go (difference, differenceAccount) · ledger.AssetReads.OrderItemExpenses (profit and loss lines only) · config.Company.AssetClearingAccounts · internal/payables/post.go (grirItem) · TestAssetItemDifferences, TestAssetItemDifferencesReversed, TestAssetItemDatabaseFailures, TestAssetOrderItemCapitalised, TestAssetOrderExpenses · walkthrough step_asset_order_expenses (step 46) · ADR-0057 §6, Questions for the product owner (answered), As built (B10, step 3) · ADR-0049 §8 · 03-data-model §3.7 · 04-api-design",
+        "src": "po:2026-11-10 · po:2026-11-09",
         "c": []
        },
        {

@@ -3,7 +3,6 @@ package assets
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -97,13 +96,7 @@ func (e *Endpoints) clearingAccounts(ctx context.Context, doc *config.Config, co
 	if c == nil {
 		return nil, nil
 	}
-	var numbers []string
-	for _, a := range c.AssetAccounts {
-		if !slices.Contains(numbers, a.Clearing) {
-			numbers = append(numbers, a.Clearing)
-		}
-	}
-	ids, err := e.Ledger.Accounts(ctx, co.ID, numbers)
+	ids, err := e.Ledger.Accounts(ctx, co.ID, c.AssetClearingAccounts())
 	if err != nil {
 		return nil, fmt.Errorf("assets: clearing accounts of %s: %w", co.Code, err)
 	}

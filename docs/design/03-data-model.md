@@ -950,7 +950,10 @@ Rules enforced in the database:
     what is left and values the rest at the posting's rates;
   - a goods movement's other line, on the order item's account, mirrors the
     GR/IR line in all three currencies; an invoice item's net amount less
-    the GR/IR line is its price difference, on `price_difference`, and what
+    the GR/IR line is its price difference, on `price_difference` or, for
+    an order item on an asset clearing account of the company (an
+    asset's, ADR-0057 §6 and As built B10 step 3), on that account, as
+    part of the asset's cost, without a cost center; and what
     the GR/IR line's local and group amounts leave is an exchange
     difference on `fx_gain` / `fx_loss`;
   - the position is read from the lines on the GR/IR account only; a
@@ -1019,7 +1022,8 @@ Rules enforced in the database:
   position is zero in every currency once its quantities agree.
 - `price_difference_item` (insert-only, migration 000263; B10,
   po:2026-11-10; ADR-0057 As built) records, beside an invoiced order
-  item's line on `price_difference`, the order item it belongs to
+  item's difference line (on `price_difference` or, for an asset's item,
+  on its asset clearing account), the order item it belongs to
   (`purchase_order_id`, `po_item_no`; the line itself names none, since a
   line's order item marks a GR/IR line) and the input tax borne in it
   (`tax_borne_tc`, `tax_borne_lc` at the entry's rate, debit positive as

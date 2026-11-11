@@ -21988,14 +21988,20 @@ func (s *Server) handleGetAssetHistorySheetRequest(args [0]string, argsEscaped b
 // (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
 // the price differences that supplier invoices and credit memos expensed on the company's price
 // difference account for purchase order items that are assets, which IAS 16 counts in the asset's
-// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
-// so an auditor can judge whether it is material. An order item is an asset's when its account is an
-// asset clearing account of the company in the active configuration
-// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
-// the item's account as the order has it now decides, removed items included. Only orders valued
-// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
-// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
-// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+// cost. The report is history. An invoice, credit memo or subsequent debit or credit posted now on an
+// asset's order item puts these amounts on the item's asset clearing account, beside the order price
+// its receipt put there, to be capitalised onto the asset as any line of that account
+// (`GET /v1/asset-clearing-items`, `POST /v1/asset-acquisitions`; product owner 2026-11-10): they are
+// part of the asset's cost, not expenses, and do not appear here. The report shows what postings made
+// before that change expensed, and what a replica not yet upgraded posted while the change was rolled
+// out, so an auditor can judge whether it is material. Nothing is reposted or corrected automatically:
+// correcting an earlier posting is a journal entry the accountants decide from this report. An order
+// item is an asset's when its account is an asset clearing account of the company in the active
+// configuration (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is
+// received on; the item's account as the order has it now decides, removed items included. Only orders
+// valued through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's
+// own line and is capitalised with it. `items` has one row per such order item with a recorded posting
+// in the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
 // bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
 // share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
 // item), `price_difference` (what the invoiced amount differed from the order price of the invoiced

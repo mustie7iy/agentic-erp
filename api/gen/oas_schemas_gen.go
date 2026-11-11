@@ -7315,7 +7315,9 @@ func (s *AssetOrderExpenseItem) SetExpensed(val Money) {
 // What supplier invoices and credit memos expensed on a company's asset purchase order items in a
 // fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered
 // and the price difference, exact as posted, with their totals, and the amounts whose order item and
-// split were not recorded. In the company's local currency.
+// split were not recorded. History: a document posted now puts these amounts on the item's asset
+// clearing account, as part of the asset's cost, and adds nothing here. In the company's local
+// currency.
 // Ref: #/components/schemas/AssetOrderExpenses
 type AssetOrderExpenses struct {
 	// The company.
