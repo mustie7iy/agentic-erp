@@ -417,6 +417,10 @@ type GetAssetHistorySheetRes interface {
 	getAssetHistorySheetRes()
 }
 
+type GetAssetOrderExpensesRes interface {
+	getAssetOrderExpensesRes()
+}
+
 type GetAssetRes interface {
 	getAssetRes()
 }

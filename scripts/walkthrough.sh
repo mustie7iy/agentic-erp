@@ -5523,6 +5523,67 @@ step_asset_held_for_sale() {
   api 200 '.periods[] | select(.period == '"$next"') | "  the machine, \(.fiscal_year)/\(.period): planned \(.planned.amount), net book value \(.net_book_value.amount) \(.net_book_value.currency)"' \
     getAssetSchedule -p "id=$mill" -p "fiscal_year=$year"
   expect "no depreciation from the next period" "$(field ".periods[] | select(.period == $next) | .planned.amount")" 0.00
+  say "Both apply from the next period, so this year's asset history sheet is as it was: the lathe (step 44) and the"
+  say "machine, still active, stay on their rows with their cost, a classification as held for sale moving no value,"
+  say "and each row reconciles from opening to closing (po:2026-11-09, B14):"
+  api 200 '.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + \(.acquisitions.amount) + \(.retirements.amount) + \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + \(.retirements_accumulated.amount) + \(.transfers_accumulated.amount) = \(.closing_accumulated.amount); net book value \(.closing_net_book_value.amount) \(.closing_net_book_value.currency)"' \
+    getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
+  expect "the lathe and the machine on the sheet" "$(field '[.items[] | select(.description == "CNC lathe" or .description == "CNC milling machine") | .description] | unique | join(", ")')" "CNC lathe, CNC milling machine"
+  expect "the machine held for sale: active, its cost on the sheet" \
+    "$(field '.items[] | select(.description == "CNC milling machine") | "\(.status) \(.closing_cost.amount == .closing_net_book_value.amount) \(.retirements.amount)"')" "active true 0.00"
+  sheet_reconciles "by asset, the change in estimate and the classification recorded"
+  passed
+}
+
+# step_asset_order_expenses is the materiality report on asset purchase
+# orders (accounting specialist B10, po:2026-11-10; ADR-0057 §6; IAS
+# 16.16(a), IAS 8.8): a machine ordered on the asset clearing account is
+# invoiced above the order price with British Columbia PST, which is not
+# recovered; both are expensed on the price difference account, and the
+# report shows them apart, exact as recorded at posting.
+step_asset_order_expenses() {
+  heading "Step 46 — What was expensed on asset purchase orders: the tax not recovered and the price difference of a machine bought on an order"
+  as ben
+  local item po invoice
+  item="{\"description\": \"Band saw\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"8000.00\", \"currency\": \"CAD\"}, \"account_id\": \"$(account 1690)\", \"tax_code\": \"PBC\"}"
+  say "Ben orders a band saw from Tyrell at CAD 8,000.00 on the asset clearing account 1690, with British Columbia PST"
+  say "(PBC, 7%, not recoverable), and receives it: the receipt debits 1690 at the order price (ADR-0057 §6)."
+  api 201 '"purchase order \(.document_number // .id): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount), \(.tax_code)")' \
+    createPurchaseOrder -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\", \"order_date\": \"$TODAY\", \"payment_term_code\": \"NT30\", \"items\": [$item]}"
+  po=$(field .id)
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Budgeted band saw"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "order status" "$(field .status)" released
+  expect "valued through GR/IR" "$(field .valuation)" gr_ir
+  api 201 '"goods receipt \(.id), journal entry \(.journal_entry_id)"' postGoodsReceipt \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}}]}"
+  as alex
+  say "Tyrell invoices CAD 8,100.00, 100.00 above the order, plus 567.00 PST. The invoice clears GR/IR at the order price;"
+  say "the 100.00 and the 567.00 post as one line on the price difference account, an expense, not on the asset:"
+  api 201 '"\(.kind) \(.document_number) \(.supplier_reference): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' createSupplierInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-SAW-1\", \"invoice_date\": \"$TODAY\", \"gross_amount\": {\"amount\": \"8667.00\", \"currency\": \"CAD\"}, \"tax_amount\": {\"amount\": \"567.00\", \"currency\": \"CAD\"}, \"purchase_order_id\": \"$po\", \"items\": [{\"purchase_order_id\": \"$po\", \"po_item_no\": 1, \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"amount\": {\"amount\": \"8100.00\", \"currency\": \"CAD\"}, \"tax_code\": \"PBC\"}]}"
+  invoice=$(field .id)
+  api 200 "$MATCHED" matchSupplierInvoice -p "id=$invoice" -if-match '"1"'
+  api 200 '"\(.document_number): \(.status), journal entry \(.journal_entry_id)"' postSupplierInvoice -p "id=$invoice" -if-match '"1"' -body "{\"posting_date\": \"$TODAY\"}"
+  expect "invoice status" "$(field .status)" posted
+  api 200 '.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)"' getJournalEntry -p "id=$(field .journal_entry_id)"
+  expect "one line for both, beside the GR/IR line and the supplier's" "$(field '[.lines[] | .amount.amount] | sort | join(" ")')" "-8667.00 667.00 8000.00"
+  as carla
+  say "IAS 16 counts both in the asset's cost. Until they are capitalised, the auditor judges whether what was expensed"
+  say "is material; Carla reads the year's report, which tells the tax from the price difference, as recorded at posting:"
+  api 200 '(.items[] | "  order \(.purchase_order_number) item \(.po_item_no) \(.description) on \(.account_number) \(.account_name): tax not recovered \(.tax_not_recovered.amount), price difference \(.price_difference.amount), expensed \(.expensed.amount) \(.expensed.currency)"),
+    "  totals: tax not recovered \(.totals.tax_not_recovered.amount), price difference \(.totals.price_difference.amount), expensed \(.totals.expensed.amount) \(.totals.expensed.currency)",
+    "  unattributed (earlier postings, split unknown): \(.unattributed.expensed.amount) \(.unattributed.expensed.currency) (debits \(.unattributed.debits.amount), credits \(.unattributed.credits.amount)) in \(.unattributed.entries) entries"' \
+    getAssetOrderExpenses -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR"
+  expect "the band saw's row" "$(field "[.items[] | select(.purchase_order_id == \"$po\") | \"\(.po_item_no) \(.description) \(.account_number) \(.tax_not_recovered.amount) \(.price_difference.amount) \(.expensed.amount) \(.expensed.currency)\"] | join(\"; \")")" \
+    "1 Band saw 1690 567.00 100.00 667.00 CAD"
+  expect "the totals, the sums of the rows" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
+    [.totals.tax_not_recovered, .totals.price_difference, .totals.expensed | c] == [([.items[].tax_not_recovered | c] | add), ([.items[].price_difference | c] | add), ([.items[].expensed | c] | add)]')" true
+  expect "nothing unattributed: every posting is recorded" "$(field '"\(.unattributed.expensed.amount) \(.unattributed.debits.amount) \(.unattributed.credits.amount) \(.unattributed.entries)"')" "0.00 0.00 0.00 0"
   passed
 }
 
@@ -6829,9 +6890,24 @@ step_cash_orders() {
   passed
 }
 
+# sheet_reconciles WHAT checks the asset history sheet just read (ADR-0057
+# §9; po:2026-11-09, B14; IAS 16.73(d), (e)): every row and the totals
+# reconcile from opening to closing for cost and for accumulated
+# depreciation, and each net book value is its cost plus its accumulated
+# depreciation.
+sheet_reconciles() {
+  expect "$1: rows and totals that do not reconcile from opening to closing" "$(field 'def c: .amount | sub("\\."; "") | tonumber;
+    [(.items[], .totals) | select(
+      (.opening_cost | c) + (.acquisitions | c) + (.retirements | c) + (.transfers | c) != (.closing_cost | c)
+      or (.opening_accumulated | c) + (.depreciation | c) + (.retirements_accumulated | c) + (.transfers_accumulated | c) != (.closing_accumulated | c)
+      or (.opening_cost | c) + (.opening_accumulated | c) != (.opening_net_book_value | c)
+      or (.closing_cost | c) + (.closing_accumulated | c) != (.closing_net_book_value | c))] | length')" 0
+}
+
 # step_asset_history_sheet reads the year's asset history sheet by class and by
 # asset and checks its closing values against the trial balance (T57i,
-# ADR-0057 §9).
+# ADR-0057 §9), and that every row reconciles from opening to closing
+# (po:2026-11-09, B14).
 step_asset_history_sheet() {
   heading "Step 34 — The asset history sheet: the year's acquisitions, depreciation, retirements and transfers by class; its closing values the trial balance's asset accounts"
   as carla
@@ -6850,6 +6926,9 @@ step_asset_history_sheet() {
   expect "the tool set's cost, transferred from the milling machine" \
     "$(field '[.items[] | .transfers.amount] | join(" ")')" "$(field '"-\(.items[1].transfers.amount) \(.items[1].transfers.amount)"')"
   expect "the year's depreciation" "$(field '.totals.depreciation.amount | startswith("-")')" true
+  say "Each class reconciles from opening to closing, for cost and for accumulated depreciation, and so do the totals"
+  say "(IAS 16.73(d), (e); po:2026-11-09, B14): closing = opening + the year's columns, net book value = cost + accumulated."
+  sheet_reconciles "by class"
   cp "$WORK/last.json" "$WORK/sheet.json"
   say "Only assets post to the acquisition cost and accumulated depreciation accounts (step 19), so the sheet's closing"
   say "values are those accounts' balances in the trial balance: debits less credits of every period so far (the"
@@ -6875,6 +6954,13 @@ step_asset_history_sheet() {
   api 200 '.items[] | "  \(.asset_number) \(.description) (\(.class_code), \(.status)): cost \(.closing_cost.amount), accumulated \(.closing_accumulated.amount), net \(.closing_net_book_value.amount)"' \
     getAssetHistorySheet -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p group_by=asset -p page_size=500
   expect "one page of assets" "$(field '.next_page_token // "none"')" none
+  say "Every asset reconciles too: the press of step 31, disposed of this year, shows the cost and the accumulated"
+  say "depreciation its retirement removed, and closes with neither:"
+  field '.items[] | select(.status == "retired") | "  \(.asset_number) \(.description): cost \(.opening_cost.amount) + acquired \(.acquisitions.amount) + retired \(.retirements.amount) + transferred \(.transfers.amount) = \(.closing_cost.amount); accumulated depreciation \(.opening_accumulated.amount) + \(.depreciation.amount) + retired \(.retirements_accumulated.amount) + transferred \(.transfers_accumulated.amount) = \(.closing_accumulated.amount)"'
+  expect "the retired assets' closing values" "$(field '[.items[] | select(.status == "retired") | "\(.closing_cost.amount) \(.closing_accumulated.amount)"] | unique | join(", ")')" "0.00 0.00"
+  expect "an asset acquired this year: no opening cost, its acquisition its closing cost less what left it" \
+    "$(field '[.items[] | select(.opening_cost.amount == "0.00" and .acquisitions.amount != "0.00")] | length > 0')" true
+  sheet_reconciles "by asset"
   for cols in closing_cost closing_accumulated; do
     expect "the assets' $cols, the total" "$(field "[.items[].$cols.amount | sub(\"\\\\.\"; \"\") | tonumber] | add")" \
       "$(field ".totals.$cols.amount | sub(\"\\\\.\"; \"\") | tonumber")"
@@ -7465,7 +7551,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_close'
 
 main() {
   stop_unseen

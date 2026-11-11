@@ -18330,7 +18330,7 @@ paths:
       tags:
         - assets
       summary: Get the asset history sheet
-      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the reconciliation of the assets' carrying amounts from the year's opening to its closing, by class (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired, negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost), the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the catch-ups of retirements and transfers, with their reversals), the accumulated depreciation retirements took (positive) and transfers moved, the closing accumulated depreciation; and the opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening value plus the year's columns, and the closing cost and accumulated depreciation of a company's classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the read: the totals are kept with every movement. A class or asset with neither a movement posted in the year nor an opening value has no row; its sums are zero. By class every class comes in one response, by class code; by asset the assets are ordered and paged by asset number, each with its class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page token is issued only by asset. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only."
+      description: "The asset history sheet of a company, ledger and fiscal year (ADR-0057 §9, T57i): the reconciliation of the assets' carrying amounts from the year's opening to its closing, by class (`group_by=class`, the default) or by asset (`group_by=asset`). Each row has the opening cost (acquisition cost at the start of the year), the year's acquisitions, retirements (cost retired, negative) and transfers (cost of asset transfers in less out; a center transfer changes no cost), the closing cost; the opening accumulated depreciation, the year's depreciation (runs' and the catch-ups of retirements and transfers, with their reversals), the accumulated depreciation retirements took (positive) and transfers moved, the closing accumulated depreciation; and the opening and closing net book values (cost plus accumulated depreciation). Accumulated depreciation is negative, the credit it is, as an asset's `values` show it, so a closing value is its opening value plus the year's columns, and the closing cost and accumulated depreciation of a company's classes equal the ledger's balances of their acquisition cost and accumulated depreciation accounts where no migration loaded balances on them (ADR-0057 §3). A movement counts in the fiscal year it was posted in, whatever its value date: depreciation posted late (a catch-up) is the year's it was posted in. Amounts are in the company's local currency (`currency`), exact at the moment of the read: the totals are kept with every movement. A class or asset with neither a movement posted in the year nor an opening value has no row; its sums are zero. By class every class comes in one response, by class code; by asset the assets are ordered and paged by asset number, each with its class. `class` keeps one class's rows. `totals` sums every row the filters select, on every page. `ledger_id` defaults to the leading ledger; one the company does not keep is 422 `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page token is issued only by asset. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only. Every row and `totals` reconcile for cost, for accumulated depreciation and for the carrying amount: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`; a net book value is its cost plus its accumulated depreciation. These are the lines of IAS 16.73(d) and (e) the system holds data for (accounting specialist, 2026-11-09, B14): the gross carrying amount and accumulated depreciation at the beginning and end of the year, additions, disposals with the cost and the accumulated depreciation they removed, depreciation for the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed (none are posted), acquisitions through business combinations (none are recorded), and net exchange differences on translation, which belong to a consolidated sheet in the group's presentation currency; the sheet is one company's in its local currency. An asset classified as held for sale stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired."
       x-permission: assets.asset.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -18386,6 +18386,59 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AssetHistorySheet"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/asset-order-expenses:
+    get:
+      operationId: getAssetOrderExpenses
+      x-slo-class: report
+      x-snapshot: true
+      tags:
+        - assets
+      summary: Report what was expensed on asset purchase order items
+      description: "The materiality report of a company and fiscal year on asset purchases through purchase orders (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and the price differences that supplier invoices and credit memos expensed on the company's price difference account for purchase order items that are assets, which IAS 16 counts in the asset's cost. The assets themselves are capitalised at the order price; this report shows what was left out, so an auditor can judge whether it is material. An order item is an asset's when its account is an asset clearing account of the company in the active configuration (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on; the item's account as the order has it now decides, removed items included. Only orders valued through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own line and is capitalised with it. `items` has one row per such order item with a recorded posting in the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item bore: a non-deductible component's tax and the part of a component's tax not recovered, with the share of a difference to the supplier's stated tax that is a cost, which goes on its code's first item), `price_difference` (what the invoiced amount differed from the order price of the invoiced quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price difference account. Credit memos, subsequent credits and reversals count negative; a posting counts in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the ledger records beside each price difference line since that record exists. `totals` sums every row, on every page. `unattributed` states what the rows cannot show: the amounts on the company's current price difference account, in the year, of invoice and credit memo entries (and their reversals) that clear GR/IR for at least one asset order item, on lines that have no such record (postings made before the record existed, and the rounding residue a reversal clears). Such a line names no order item and its split between tax and price difference is unknown, so the amounts are not spread over the rows: where such an entry also invoices other order items, their price differences are in it too, of either sign. `expensed` is therefore the net of everything those lines posted and may overstate or understate what was expensed on assets; `debits` is the sum of the lines that are debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those that are credits (negative); `entries` counts the entries. All are zero when every such posting is recorded, and also when the company has no price difference account in its account determination now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price difference account (whether they count as expensed is not decided); an item whose price difference and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is 404. Reads only."
+      x-permission: assets.asset.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - ledger.no_fiscal_period
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company's legal entity.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: The fiscal year the postings were made in.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the asset order items with what was expensed on them, the totals of all of them, and what is unattributed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssetOrderExpenses"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -44540,7 +44593,7 @@ components:
             closing_net_book_value: {amount: "11900.00", currency: CAD}
     AssetHistorySheetRow:
       type: object
-      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values."
+      description: "One row of the asset history sheet: an asset class, or an asset with its class, and its values, the columns of `AssetHistorySheetValues` with the same signs. The row reconciles: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`; `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` + `transfers_accumulated`; `opening_net_book_value` = `opening_cost` + `opening_accumulated`; `closing_net_book_value` = `closing_cost` + `closing_accumulated`."
       required: [class_code, opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
       properties:
         class_code: {type: string, description: "The asset class (`GET /v1/asset-classes`).", readOnly: true}
@@ -44567,7 +44620,7 @@ components:
         closing_net_book_value: {$ref: "#/components/schemas/Money"}
     AssetHistorySheetValues:
       type: object
-      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; opening and closing net book value."
+      description: "The history sheet's columns summed over every row the filters select: opening cost, acquisitions (positive), retirements (cost retired, negative), transfers (asset transfers in less out), closing cost; opening accumulated depreciation (negative), the year's depreciation, the accumulated depreciation retirements took (positive) and transfers moved, closing accumulated depreciation; opening and closing net book value. They reconcile as each row does: a closing value is its opening value plus the year's columns, and a net book value is its cost plus its accumulated depreciation."
       required: [opening_cost, acquisitions, retirements, transfers, closing_cost, opening_accumulated, depreciation, retirements_accumulated, transfers_accumulated, closing_accumulated, opening_net_book_value, closing_net_book_value]
       properties:
         opening_cost: {$ref: "#/components/schemas/Money"}
@@ -44582,6 +44635,88 @@ components:
         closing_accumulated: {$ref: "#/components/schemas/Money"}
         opening_net_book_value: {$ref: "#/components/schemas/Money"}
         closing_net_book_value: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpenses:
+      type: object
+      description: "What supplier invoices and credit memos expensed on a company's asset purchase order items in a fiscal year (accounting specialist B10; ADR-0057 §6): per order item the input tax not recovered and the price difference, exact as posted, with their totals, and the amounts whose order item and split were not recorded. In the company's local currency."
+      required: [legal_entity_id, company_code, company_name, fiscal_year, start_date, end_date, currency, items, totals, unattributed]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: The company., readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: The fiscal year the postings were made in., readOnly: true}
+        start_date: {type: string, format: date, description: "The fiscal year's first day.", readOnly: true}
+        end_date: {type: string, format: date, description: "The fiscal year's last day.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency, every amount's.", readOnly: true}
+        items:
+          type: array
+          description: "This page's asset order items with a recorded posting in the year, by order number and item number."
+          items: {$ref: "#/components/schemas/AssetOrderExpenseItem"}
+        totals: {$ref: "#/components/schemas/AssetOrderExpenseAmounts"}
+        unattributed: {$ref: "#/components/schemas/AssetOrderExpensesUnattributed"}
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page of order items; absent on the last page."
+          maxLength: 2048
+      examples:
+        - legal_entity_id: 01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01
+          company_code: "1000"
+          company_name: Maple Manufacturing Ltd.
+          fiscal_year: 2026
+          start_date: "2026-01-01"
+          end_date: "2026-12-31"
+          currency: CAD
+          items:
+            - purchase_order_id: 0192a000-0000-7000-8000-000000000501
+              purchase_order_number: "4500000012"
+              po_item_no: 1
+              description: CNC lathe
+              account_id: 0192a000-0000-7000-8000-000000000611
+              account_number: "159000"
+              account_name: Asset clearing
+              tax_not_recovered: {amount: "840.00", currency: CAD}
+              price_difference: {amount: "150.00", currency: CAD}
+              expensed: {amount: "990.00", currency: CAD}
+          totals:
+            tax_not_recovered: {amount: "840.00", currency: CAD}
+            price_difference: {amount: "150.00", currency: CAD}
+            expensed: {amount: "990.00", currency: CAD}
+          unattributed:
+            expensed: {amount: "0.00", currency: CAD}
+            debits: {amount: "0.00", currency: CAD}
+            credits: {amount: "0.00", currency: CAD}
+            entries: 0
+    AssetOrderExpenseItem:
+      type: object
+      description: "What was expensed on one asset purchase order item in the year, as recorded at posting."
+      required: [purchase_order_id, purchase_order_number, po_item_no, description, account_id, account_number, account_name, tax_not_recovered, price_difference, expensed]
+      properties:
+        purchase_order_id: {type: string, format: uuid, description: The purchase order., readOnly: true}
+        purchase_order_number: {type: string, description: "The purchase order's document number.", readOnly: true}
+        po_item_no: {type: integer, format: int32, description: "The order item's number.", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The order item's account: an asset clearing account of the company.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name.", readOnly: true}
+        tax_not_recovered: {$ref: "#/components/schemas/Money"}
+        price_difference: {$ref: "#/components/schemas/Money"}
+        expensed: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpenseAmounts:
+      type: object
+      description: "Amounts expensed on the price difference account, debit positive: `expensed` = `tax_not_recovered` + `price_difference`."
+      required: [tax_not_recovered, price_difference, expensed]
+      properties:
+        tax_not_recovered: {$ref: "#/components/schemas/Money"}
+        price_difference: {$ref: "#/components/schemas/Money"}
+        expensed: {$ref: "#/components/schemas/Money"}
+    AssetOrderExpensesUnattributed:
+      type: object
+      description: "What the rows cannot show: the amounts on the company's current price difference account, in the year, of invoice and credit memo entries that clear GR/IR for at least one asset order item, on lines without a recorded order item (posted before the record existed, or a reversal's rounding residue). Their split between tax and price difference is unknown, and they include the price differences of other order items on the same entries, of either sign: `expensed` is the net of those lines (`debits` + `credits`) and may overstate or understate what was expensed on assets; `debits`, the lines that are debits, is the most those entries can have expensed on assets. All zero when everything is recorded, or when the company has no price difference account now."
+      required: [expensed, debits, credits, entries]
+      properties:
+        expensed: {$ref: "#/components/schemas/Money"}
+        debits: {$ref: "#/components/schemas/Money"}
+        credits: {$ref: "#/components/schemas/Money"}
+        entries: {type: integer, format: int32, description: "How many journal entries the amount comes from.", readOnly: true}
     CashPosition:
       type: object
       description: "A legal entity's daily cash position (ADR-0051 §8, T53c): per house bank and per currency first, then the converted total. Amounts are signed: money in the bank is positive, a payment out negative."

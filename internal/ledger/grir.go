@@ -400,7 +400,8 @@ func (g grirPosting) counterLine(it GRIRItem, tc, lc, gc money.Minor, code *stri
 			return nil, false, errTotalTooLarge("grir")
 		}
 		if diff != 0 {
-			return g.priceDifference(Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code}, it), false, nil
+			return g.priceDifference(Line{AccountID: g.diff, TC: diff, Text: it.Text, TaxCode: code,
+				differs: &priceDifference{order: it.PurchaseOrderID, item: it.POItemNo, taxBorne: it.TaxBorne}}, it), false, nil
 		}
 	}
 	return nil, false, nil
@@ -511,6 +512,9 @@ func (p Postings) postGRIR(ctx context.Context, in Posting) (Entry, error) {
 		return Entry{}, err
 	}
 	if err := recordGRIRClearing(ctx, tx, posted, in); err != nil {
+		return Entry{}, err
+	}
+	if err := g.keepPriceDifferences(ctx, tx, posted, lines); err != nil {
 		return Entry{}, err
 	}
 	if err := project(ctx, tx, posted); err != nil {

@@ -111,6 +111,7 @@ const (
 	GetAssetOperation                              OperationName = "GetAsset"
 	GetAssetAcquisitionOperation                   OperationName = "GetAssetAcquisition"
 	GetAssetHistorySheetOperation                  OperationName = "GetAssetHistorySheet"
+	GetAssetOrderExpensesOperation                 OperationName = "GetAssetOrderExpenses"
 	GetAssetRetirementOperation                    OperationName = "GetAssetRetirement"
 	GetAssetScheduleOperation                      OperationName = "GetAssetSchedule"
 	GetAssetTransferOperation                      OperationName = "GetAssetTransfer"

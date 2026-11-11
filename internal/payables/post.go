@@ -513,6 +513,7 @@ func (e *Endpoints) invoiceLines(ctx context.Context, v Invoice, sup partner.Sup
 			if err != nil {
 				return nil, nil, err
 			}
+			item.TaxBorne = signed(v, t.borne[i]) // recorded beside the price difference line (B10)
 			grir = append(grir, item)
 			continue
 		}

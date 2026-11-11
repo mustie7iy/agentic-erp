@@ -1654,10 +1654,67 @@ func (UnimplementedHandler) GetAssetAcquisition(ctx context.Context, params GetA
 // `ledger.ledger_not_kept`; a fiscal year that is not set up is 422 `ledger.no_fiscal_period`. A page
 // token is issued only by asset. Read from one database state (a repeatable-read snapshot), so
 // `totals` and the page agree whatever posts meanwhile. A legal entity the caller cannot act in is
-// 404. Reads only.
+// 404. Reads only. Every row and `totals` reconcile for cost, for accumulated depreciation and for the
+// carrying amount: `closing_cost` = `opening_cost` + `acquisitions` + `retirements` + `transfers`;
+// `closing_accumulated` = `opening_accumulated` + `depreciation` + `retirements_accumulated` +
+// `transfers_accumulated`; a net book value is its cost plus its accumulated depreciation. These are
+// the lines of IAS 16.73(d) and (e) the system holds data for (accounting specialist, 2026-11-09,
+// B14): the gross carrying amount and accumulated depreciation at the beginning and end of the year,
+// additions, disposals with the cost and the accumulated depreciation they removed, depreciation for
+// the year and other changes (transfers). Not on the sheet: impairment losses recognised and reversed
+// (none are posted), acquisitions through business combinations (none are recorded), and net exchange
+// differences on translation, which belong to a consolidated sheet in the group's presentation
+// currency; the sheet is one company's in its local currency. An asset classified as held for sale
+// stays on its row, its depreciation stopped (`AssetTerms.held_for_sale`), until it is retired.
 //
 // GET /v1/asset-history-sheet
 func (UnimplementedHandler) GetAssetHistorySheet(ctx context.Context, params GetAssetHistorySheetParams) (r GetAssetHistorySheetRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAssetOrderExpenses implements getAssetOrderExpenses operation.
+//
+// The materiality report of a company and fiscal year on asset purchases through purchase orders
+// (ADR-0057 §6; accounting specialist B10, IAS 16.16(a), IAS 8.8): the input tax not recovered and
+// the price differences that supplier invoices and credit memos expensed on the company's price
+// difference account for purchase order items that are assets, which IAS 16 counts in the asset's
+// cost. The assets themselves are capitalised at the order price; this report shows what was left out,
+// so an auditor can judge whether it is material. An order item is an asset's when its account is an
+// asset clearing account of the company in the active configuration
+// (`companies[].asset_accounts[].clearing`), the account an asset bought on an order is received on;
+// the item's account as the order has it now decides, removed items included. Only orders valued
+// through GR/IR appear: on an order valued directly, the tax not recovered posts on the item's own
+// line and is capitalised with it. `items` has one row per such order item with a recorded posting in
+// the year, ordered and paged by order number and item: `tax_not_recovered` (the input tax the item
+// bore: a non-deductible component's tax and the part of a component's tax not recovered, with the
+// share of a difference to the supplier's stated tax that is a cost, which goes on its code's first
+// item), `price_difference` (what the invoiced amount differed from the order price of the invoiced
+// quantity; a subsequent debit or credit whole) and `expensed`, their sum, the amount on the price
+// difference account. Credit memos, subsequent credits and reversals count negative; a posting counts
+// in the fiscal year it was posted in. These amounts are exact, as posted: they are read from what the
+// ledger records beside each price difference line since that record exists. `totals` sums every row,
+// on every page. `unattributed` states what the rows cannot show: the amounts on the company's current
+// price difference account, in the year, of invoice and credit memo entries (and their reversals) that
+// clear GR/IR for at least one asset order item, on lines that have no such record (postings made
+// before the record existed, and the rounding residue a reversal clears). Such a line names no order
+// item and its split between tax and price difference is unknown, so the amounts are not spread over
+// the rows: where such an entry also invoices other order items, their price differences are in it
+// too, of either sign. `expensed` is therefore the net of everything those lines posted and may
+// overstate or understate what was expensed on assets; `debits` is the sum of the lines that are
+// debits, which what those entries expensed on assets cannot exceed, and `credits` the sum of those
+// that are credits (negative); `entries` counts the entries. All are zero when every such posting is
+// recorded, and also when the company has no price difference account in its account determination
+// now; lines an earlier price difference account took are not read. Not in the report: GR/IR clearings
+// of asset order items (`POST /v1/purchase-orders/{id}/gr-ir-clearings`), which also post to the price
+// difference account (whether they count as expensed is not decided); an item whose price difference
+// and tax cancelled exactly, which posted nothing there; and manual entries. Amounts are in the
+// company's local currency (`currency`), each line at its entry's rate, debit positive (an expense). A
+// fiscal year that is not set up is 422 `ledger.no_fiscal_period`. Read from one database state (a
+// repeatable-read snapshot), so `totals` and the page agree whatever posts meanwhile. A legal entity
+// the caller cannot act in is 404. Reads only.
+//
+// GET /v1/asset-order-expenses
+func (UnimplementedHandler) GetAssetOrderExpenses(ctx context.Context, params GetAssetOrderExpensesParams) (r GetAssetOrderExpensesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

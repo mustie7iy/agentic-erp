@@ -141,6 +141,10 @@ type Line struct {
 	// (deriveTradingPartners): a clearing's, a settlement's, a bank
 	// posting's and a down payment transfer's.
 	offsets bool
+	// differs: the line is an invoiced order item's price difference line,
+	// recorded with that item and the tax it bears once the entry is
+	// posted (keepPriceDifferences); never read back from the database.
+	differs *priceDifference
 	// keptLC is a local amount the posting keeps rather than converts
 	// (PostingLine.LC).
 	keptLC *money.Minor
@@ -1305,6 +1309,9 @@ func (e *Endpoints) reverse(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		return Entry{}, err
 	}
 	if err := recordReversal(ctx, tx, p, orig, rev); err != nil {
+		return Entry{}, err
+	}
+	if err := reversePriceDifferences(ctx, tx, orig, rev); err != nil {
 		return Entry{}, err
 	}
 	return rev, audit.Add(ctx, audit.Entry{Action: "ledger.journal_entry.reverse", ObjectType: "ledger.journal_entry", ObjectID: orig.ID,

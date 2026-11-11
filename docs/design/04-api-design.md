@@ -335,6 +335,19 @@ profit center or a node of a profit center hierarchy), its actual as `GET
 /v1/profit-center-balances` reads it: profit and loss accounts only, the
 segments summed, paged by profit center and account.
 
+The report on asset purchase orders (ADR-0057 §6, As built B10; accounting
+specialist B10, po:2026-11-10), `GET /v1/asset-order-expenses`
+(`assets.asset.read`, `x-slo-class: report`), shows for a company and
+fiscal year what invoices and credit memos expensed on the price
+difference account for order items on an asset clearing account: per
+order item the tax not recovered, the price difference and their sum, in
+local currency, exact as recorded at posting, paged by order number and
+item, with `totals` of every row on every page and `unattributed`, what
+earlier postings whose order item and split were not recorded put on the
+account (the net, with debits and credits apart: it includes the same
+entries' other order items, so the debits bound the assets' share).
+GR/IR clearings are left out (not decided).
+
 The asset history sheet (ADR-0057 §9, T57i), `GET /v1/asset-history-sheet`
 (`assets.asset.read`, `x-slo-class: report`), reconciles a company's asset
 values over one fiscal year in one ledger (the leading one by default):
@@ -347,7 +360,12 @@ currency, a movement counted in the fiscal year it was posted in. By class
 in the year nor an opening value is left out. `totals` sums every row the
 filters (`class`) select, on every page, and the closing values of a
 company's classes equal the ledger's balances of their asset accounts. It
-reads year totals the postings keep, so it is exact at the read.
+reads year totals the postings keep, so it is exact at the read. Every row
+and the totals reconcile from opening to closing for cost and for
+accumulated depreciation, and a net book value is cost plus accumulated
+depreciation (IAS 16.73(d), (e); po:2026-11-09, B14); the impairment,
+business combination and translation lines are not on it (ADR-0057, As
+built, B14).
 
 Tax registrations (ADR-0049 §10, T61g) are the tax filing context's,
 read-only: the configuration sets them up. `GET /v1/tax-registrations`
