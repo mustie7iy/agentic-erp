@@ -22044,7 +22044,9 @@ type ConsolidatedStatement struct {
 	// accept and preserve values not listed here; values may be added within /v1.
 	RunStatus string `json:"run_status"`
 	// The run's `stale` (`ConsolidationRun.stale`): whether a company's period changed since the run read
-	// its figures, so they may no longer be the ledger's (ADR-0059 §10).
+	// its figures, so they may no longer be the ledger's, or the group's final run of the previous fiscal
+	// year's last period is no longer `opening_run_id`, so other comprehensive income is no longer the
+	// year's change (ADR-0059 §10).
 	Stale bool `json:"stale"`
 	// The statement. Open enumeration: clients must accept and preserve values not listed here; values may
 	// be added within /v1.
@@ -22054,6 +22056,17 @@ type ConsolidatedStatement struct {
 	// The statement's rows on this page, by group account number.
 	Items  []ConsolidatedStatementRow  `json:"items"`
 	Totals ConsolidatedStatementTotals `json:"totals"`
+	// The profit and loss's: the group's final run of the previous fiscal year's last period
+	// (`GET /v1/consolidation-runs/{id}`) as this run found it when it started, whose translation
+	// differences are the reserve's opening balances; absent when the group had none, so the reserve opens
+	// at zero (the first fiscal year the group is consolidated in; a run started before the statement
+	// showed other comprehensive income). When that period is finalized, or finalized again, after this
+	// run started, the run is `stale`. Absent on the balance sheet.
+	OpeningRunID OptUUID `json:"opening_run_id"`
+	// The profit and loss's: the translation reserve of every company of the run, by company code, on
+	// every page; their `difference`s sum to the `reported` column of `totals.other_comprehensive_income`.
+	// Absent on the balance sheet.
+	TranslationReserve []ConsolidatedTranslationReserve `json:"translation_reserve"`
 	// Opaque cursor for the next page; absent on the last page.
 	NextPageToken OptString `json:"next_page_token"`
 }
@@ -22116,6 +22129,16 @@ func (s *ConsolidatedStatement) GetItems() []ConsolidatedStatementRow {
 // GetTotals returns the value of Totals.
 func (s *ConsolidatedStatement) GetTotals() ConsolidatedStatementTotals {
 	return s.Totals
+}
+
+// GetOpeningRunID returns the value of OpeningRunID.
+func (s *ConsolidatedStatement) GetOpeningRunID() OptUUID {
+	return s.OpeningRunID
+}
+
+// GetTranslationReserve returns the value of TranslationReserve.
+func (s *ConsolidatedStatement) GetTranslationReserve() []ConsolidatedTranslationReserve {
+	return s.TranslationReserve
 }
 
 // GetNextPageToken returns the value of NextPageToken.
@@ -22181,6 +22204,16 @@ func (s *ConsolidatedStatement) SetItems(val []ConsolidatedStatementRow) {
 // SetTotals sets the value of Totals.
 func (s *ConsolidatedStatement) SetTotals(val ConsolidatedStatementTotals) {
 	s.Totals = val
+}
+
+// SetOpeningRunID sets the value of OpeningRunID.
+func (s *ConsolidatedStatement) SetOpeningRunID(val OptUUID) {
+	s.OpeningRunID = val
+}
+
+// SetTranslationReserve sets the value of TranslationReserve.
+func (s *ConsolidatedStatement) SetTranslationReserve(val []ConsolidatedTranslationReserve) {
+	s.TranslationReserve = val
 }
 
 // SetNextPageToken sets the value of NextPageToken.
@@ -22285,7 +22318,11 @@ func (s *ConsolidatedStatementRow) SetConsolidated(val Money) {
 
 // The totals over the whole statement, every page. The balance sheet has `assets`, `liabilities`,
 // `equity` and `profit`, which sum to zero in each column; the profit and loss `revenue`, `expenses`,
-// `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`.
+// `profit` and its attribution to `non_controlling_interests` and `owners_of_the_parent`, then
+// `other_comprehensive_income`, `total_comprehensive_income` (their sum with the profit) and its
+// attribution to `comprehensive_income_non_controlling_interests` and
+// `comprehensive_income_owners_of_the_parent`, and `revaluation_translation` and `net_investment`, the
+// parts of other comprehensive income moved out of the profit.
 // Ref: #/components/schemas/ConsolidatedStatementTotals
 type ConsolidatedStatementTotals struct {
 	// The balance sheet's asset accounts summed; absent on the profit and loss.
@@ -22311,6 +22348,41 @@ type ConsolidatedStatementTotals struct {
 	// The profit and loss's: the profit's share attributable to the owners of the parent, the profit less
 	// `non_controlling_interests` in each column. Absent on the balance sheet.
 	OwnersOfTheParent OptConsolidatedFigures `json:"owners_of_the_parent"`
+	// The profit and loss's: the fiscal year's translation differences through the period, recognised in
+	// other comprehensive income and not in the profit (IAS 21.39(c), 21.41), debit positive, so a gain is
+	// negative. Reported: each company's translation difference at the run's period (its `cta` row) less
+	// its opening (`translation_reserve[].difference` summed). Eliminations: the run's elimination
+	// entries' lines on the `cta` account less the opening run's, the non-controlling interests' entries
+	// left out, which attribute the reserve and do not change it. The consolidated figure is the year's
+	// change of the group's translation reserve. It holds `revaluation_translation` and `net_investment`,
+	// which the profit does not. Absent on the balance sheet.
+	OtherComprehensiveIncome OptConsolidatedFigures `json:"other_comprehensive_income"`
+	// The profit and loss's: of `other_comprehensive_income`, the translation part of the companies'
+	// group-currency revaluation differences, moved out of the fiscal year's profit through the period
+	// (IAS 21.39(c); ADR-0042): `translation_reserve[].revaluation_translation` summed, reported by the
+	// companies, so no elimination. Debit positive: the profit's revenue and expense rows are their booked
+	// group amounts less it. Absent on the balance sheet.
+	RevaluationTranslation OptConsolidatedFigures `json:"revaluation_translation"`
+	// The profit and loss's: of `other_comprehensive_income`, the companies' exchange differences on
+	// monetary items designated as part of a net investment in a foreign operation, moved out of the
+	// fiscal year's profit through the period (IAS 21.32): `translation_reserve[].net_investment` summed,
+	// reported by the companies, so no elimination. Debit positive: the profit's revenue and expense rows
+	// are their booked group amounts less it and less `revaluation_translation`. Absent on the balance
+	// sheet.
+	NetInvestment OptConsolidatedFigures `json:"net_investment"`
+	// The profit and loss's: `profit` and `other_comprehensive_income` summed in each column. Absent on
+	// the balance sheet.
+	TotalComprehensiveIncome OptConsolidatedFigures `json:"total_comprehensive_income"`
+	// The profit and loss's: total comprehensive income's share attributable to non-controlling interests
+	// (IAS 1.81B): `non_controlling_interests` and their share of each member's translation difference
+	// (`translation_reserve[].non_controlling_interests` summed), an attribution and so zero reported;
+	// zero while a run consolidates only members the parent holds whole (ADR-0059 As built T68h). Absent
+	// on the balance sheet.
+	ComprehensiveIncomeNonControllingInterests OptConsolidatedFigures `json:"comprehensive_income_non_controlling_interests"`
+	// The profit and loss's: total comprehensive income's share attributable to the owners of the parent,
+	// `total_comprehensive_income` less `comprehensive_income_non_controlling_interests` in each column.
+	// Absent on the balance sheet.
+	ComprehensiveIncomeOwnersOfTheParent OptConsolidatedFigures `json:"comprehensive_income_owners_of_the_parent"`
 }
 
 // GetAssets returns the value of Assets.
@@ -22353,6 +22425,36 @@ func (s *ConsolidatedStatementTotals) GetOwnersOfTheParent() OptConsolidatedFigu
 	return s.OwnersOfTheParent
 }
 
+// GetOtherComprehensiveIncome returns the value of OtherComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) GetOtherComprehensiveIncome() OptConsolidatedFigures {
+	return s.OtherComprehensiveIncome
+}
+
+// GetRevaluationTranslation returns the value of RevaluationTranslation.
+func (s *ConsolidatedStatementTotals) GetRevaluationTranslation() OptConsolidatedFigures {
+	return s.RevaluationTranslation
+}
+
+// GetNetInvestment returns the value of NetInvestment.
+func (s *ConsolidatedStatementTotals) GetNetInvestment() OptConsolidatedFigures {
+	return s.NetInvestment
+}
+
+// GetTotalComprehensiveIncome returns the value of TotalComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) GetTotalComprehensiveIncome() OptConsolidatedFigures {
+	return s.TotalComprehensiveIncome
+}
+
+// GetComprehensiveIncomeNonControllingInterests returns the value of ComprehensiveIncomeNonControllingInterests.
+func (s *ConsolidatedStatementTotals) GetComprehensiveIncomeNonControllingInterests() OptConsolidatedFigures {
+	return s.ComprehensiveIncomeNonControllingInterests
+}
+
+// GetComprehensiveIncomeOwnersOfTheParent returns the value of ComprehensiveIncomeOwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) GetComprehensiveIncomeOwnersOfTheParent() OptConsolidatedFigures {
+	return s.ComprehensiveIncomeOwnersOfTheParent
+}
+
 // SetAssets sets the value of Assets.
 func (s *ConsolidatedStatementTotals) SetAssets(val OptConsolidatedFigures) {
 	s.Assets = val
@@ -22390,6 +22492,217 @@ func (s *ConsolidatedStatementTotals) SetNonControllingInterests(val OptConsolid
 
 // SetOwnersOfTheParent sets the value of OwnersOfTheParent.
 func (s *ConsolidatedStatementTotals) SetOwnersOfTheParent(val OptConsolidatedFigures) {
+	s.OwnersOfTheParent = val
+}
+
+// SetOtherComprehensiveIncome sets the value of OtherComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) SetOtherComprehensiveIncome(val OptConsolidatedFigures) {
+	s.OtherComprehensiveIncome = val
+}
+
+// SetRevaluationTranslation sets the value of RevaluationTranslation.
+func (s *ConsolidatedStatementTotals) SetRevaluationTranslation(val OptConsolidatedFigures) {
+	s.RevaluationTranslation = val
+}
+
+// SetNetInvestment sets the value of NetInvestment.
+func (s *ConsolidatedStatementTotals) SetNetInvestment(val OptConsolidatedFigures) {
+	s.NetInvestment = val
+}
+
+// SetTotalComprehensiveIncome sets the value of TotalComprehensiveIncome.
+func (s *ConsolidatedStatementTotals) SetTotalComprehensiveIncome(val OptConsolidatedFigures) {
+	s.TotalComprehensiveIncome = val
+}
+
+// SetComprehensiveIncomeNonControllingInterests sets the value of ComprehensiveIncomeNonControllingInterests.
+func (s *ConsolidatedStatementTotals) SetComprehensiveIncomeNonControllingInterests(val OptConsolidatedFigures) {
+	s.ComprehensiveIncomeNonControllingInterests = val
+}
+
+// SetComprehensiveIncomeOwnersOfTheParent sets the value of ComprehensiveIncomeOwnersOfTheParent.
+func (s *ConsolidatedStatementTotals) SetComprehensiveIncomeOwnersOfTheParent(val OptConsolidatedFigures) {
+	s.ComprehensiveIncomeOwnersOfTheParent = val
+}
+
+// A company's translation reserve in a consolidation run (ADR-0059 §7, §11; IAS 21.41, 21.52(b)):
+// the accumulated translation difference of the company's figures, kept per company for its
+// reclassification on a disposal (IAS 21.48), with the fiscal year's change through the period, which
+// is other comprehensive income, and that change's attribution. Every amount is in the group currency,
+// debit positive, so a gain is negative; `opening` and `difference` sum to `closing`, and the two
+// shares to `difference`.
+// Ref: #/components/schemas/ConsolidatedTranslationReserve
+type ConsolidatedTranslationReserve struct {
+	// The company's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company code, as the run read it.
+	CompanyCode string `json:"company_code"`
+	// The company's name as it is now.
+	CompanyName string `json:"company_name"`
+	// Whether the company is the group's parent or a member (`ConsolidationRunMember.role`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Role string `json:"role"`
+	// A member's: the parent's ownership in percent as the run read it, a plain decimal; absent for the
+	// parent.
+	OwnershipPercent OptString `json:"ownership_percent"`
+	// The reserve at the end of the previous fiscal year: the company's translation difference in the run
+	// `opening_run_id` names; zero without one, or when that run did not include the company.
+	Opening Money `json:"opening"`
+	// The fiscal year's translation difference through the period, `closing` less `opening`: the company's
+	// part of other comprehensive income.
+	Difference Money `json:"difference"`
+	// The reserve at the run's period: the company's translation difference in this run (its `cta` row of
+	// `listConsolidationBalances`; zero without one).
+	Closing Money `json:"closing"`
+	// The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part
+	// of `closing`: the translation part of the company's group-currency revaluation differences (IAS
+	// 21.39(c)). A revaluation run values group currency on its own (ADR-0042), so a line of its entries
+	// on a profit and loss account books a group amount that is not its local amount translated; the
+	// profit keeps the line's local amount at its entry's local-to-group rate, the rate a posting of that
+	// date converts at, rounded once per line to the group currency's minor unit, half away from zero, and
+	// the rest of its booked group amount is here. Debit positive, so a gain moved out of the profit is
+	// negative, and the profit's revenue and expense rows are their booked group amounts less it. Zero for
+	// a company without revaluation entries in the year, and in a run started before the statement showed
+	// it, whose profit holds the booked group amounts.
+	RevaluationTranslation Money `json:"revaluation_translation"`
+	// The amount moved out of the fiscal year's profit or loss through the period onto the reserve, part
+	// of `closing` and beside `revaluation_translation`: the exchange differences on the company's
+	// monetary items designated as part of a net investment in a foreign operation
+	// (`ConsolidationGroup.net_investments`; IAS 21.32). Of each line of the company's revaluation runs'
+	// entries on a profit and loss account that offsets a difference on a designated account's balance
+	// with its trading partner, this is the local amount at the entry's local-to-group rate, rounded once
+	// per line to the group currency's minor unit, half away from zero: what the profit would keep after
+	// `revaluation_translation`, so the two together are the line's whole booked group amount. Debit
+	// positive, so a gain moved out of the profit is negative. Zero for a company without a designated
+	// item revalued in the year, and in a run started before the statement showed it.
+	NetInvestment Money `json:"net_investment"`
+	// The part of `difference` attributable to non-controlling interests (IAS 21.41): `difference` times
+	// (100 - `ownership_percent`) / 100, rounded once to the group currency's minor unit, half away from
+	// zero. Zero for the parent and for a member held whole.
+	NonControllingInterests Money `json:"non_controlling_interests"`
+	// The part of `difference` attributable to the owners of the parent: `difference` less
+	// `non_controlling_interests`, so the rounding remainder is the owners'.
+	OwnersOfTheParent Money `json:"owners_of_the_parent"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ConsolidatedTranslationReserve) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ConsolidatedTranslationReserve) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ConsolidatedTranslationReserve) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetRole returns the value of Role.
+func (s *ConsolidatedTranslationReserve) GetRole() string {
+	return s.Role
+}
+
+// GetOwnershipPercent returns the value of OwnershipPercent.
+func (s *ConsolidatedTranslationReserve) GetOwnershipPercent() OptString {
+	return s.OwnershipPercent
+}
+
+// GetOpening returns the value of Opening.
+func (s *ConsolidatedTranslationReserve) GetOpening() Money {
+	return s.Opening
+}
+
+// GetDifference returns the value of Difference.
+func (s *ConsolidatedTranslationReserve) GetDifference() Money {
+	return s.Difference
+}
+
+// GetClosing returns the value of Closing.
+func (s *ConsolidatedTranslationReserve) GetClosing() Money {
+	return s.Closing
+}
+
+// GetRevaluationTranslation returns the value of RevaluationTranslation.
+func (s *ConsolidatedTranslationReserve) GetRevaluationTranslation() Money {
+	return s.RevaluationTranslation
+}
+
+// GetNetInvestment returns the value of NetInvestment.
+func (s *ConsolidatedTranslationReserve) GetNetInvestment() Money {
+	return s.NetInvestment
+}
+
+// GetNonControllingInterests returns the value of NonControllingInterests.
+func (s *ConsolidatedTranslationReserve) GetNonControllingInterests() Money {
+	return s.NonControllingInterests
+}
+
+// GetOwnersOfTheParent returns the value of OwnersOfTheParent.
+func (s *ConsolidatedTranslationReserve) GetOwnersOfTheParent() Money {
+	return s.OwnersOfTheParent
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ConsolidatedTranslationReserve) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ConsolidatedTranslationReserve) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ConsolidatedTranslationReserve) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetRole sets the value of Role.
+func (s *ConsolidatedTranslationReserve) SetRole(val string) {
+	s.Role = val
+}
+
+// SetOwnershipPercent sets the value of OwnershipPercent.
+func (s *ConsolidatedTranslationReserve) SetOwnershipPercent(val OptString) {
+	s.OwnershipPercent = val
+}
+
+// SetOpening sets the value of Opening.
+func (s *ConsolidatedTranslationReserve) SetOpening(val Money) {
+	s.Opening = val
+}
+
+// SetDifference sets the value of Difference.
+func (s *ConsolidatedTranslationReserve) SetDifference(val Money) {
+	s.Difference = val
+}
+
+// SetClosing sets the value of Closing.
+func (s *ConsolidatedTranslationReserve) SetClosing(val Money) {
+	s.Closing = val
+}
+
+// SetRevaluationTranslation sets the value of RevaluationTranslation.
+func (s *ConsolidatedTranslationReserve) SetRevaluationTranslation(val Money) {
+	s.RevaluationTranslation = val
+}
+
+// SetNetInvestment sets the value of NetInvestment.
+func (s *ConsolidatedTranslationReserve) SetNetInvestment(val Money) {
+	s.NetInvestment = val
+}
+
+// SetNonControllingInterests sets the value of NonControllingInterests.
+func (s *ConsolidatedTranslationReserve) SetNonControllingInterests(val Money) {
+	s.NonControllingInterests = val
+}
+
+// SetOwnersOfTheParent sets the value of OwnersOfTheParent.
+func (s *ConsolidatedTranslationReserve) SetOwnersOfTheParent(val Money) {
 	s.OwnersOfTheParent = val
 }
 
@@ -22568,8 +22881,13 @@ type ConsolidationBalance struct {
 	// The group amount as booked, each line at its posting date's rate; absent on a `cta` row.
 	AmountGcBooked OptMoney `json:"amount_gc_booked"`
 	// The translated group amount: the local amount at the closing rate for asset and liability accounts,
-	// rounded once half away from zero; the booked group amount otherwise; the translation difference on a
-	// `cta` row.
+	// rounded once half away from zero; the booked group amount otherwise, less, on a profit and loss
+	// account's row and on `prior_results`, the translation part of the company's group-currency
+	// revaluation differences (ADR-0042; `ConsolidatedTranslationReserve.revaluation_translation`), which
+	// is in the translation difference instead (IAS 21.39(c)), and less the rest of the exchange
+	// differences on a monetary item designated as part of a net investment in a foreign operation
+	// (`ConsolidatedTranslationReserve.net_investment`; IAS 21.32), so `amount_gc_booked` less `amount_gc`
+	// is what the run moved off the row; the translation difference on a `cta` row.
 	AmountGc Money `json:"amount_gc"`
 	// The closing rate the row was translated at, where one applied (asset and liability accounts).
 	ClosingRate OptString `json:"closing_rate"`
@@ -23215,6 +23533,10 @@ type ConsolidationGroup struct {
 	Parent        ConsolidationCompany `json:"parent"`
 	// The subsidiaries, by company code.
 	Members []ConsolidationMember `json:"members"`
+	// The monetary items designated as part of a net investment in a foreign operation of the group (IAS
+	// 21.32), by company code, account number and trading partner code; empty when the group designates
+	// none.
+	NetInvestments []ConsolidationNetInvestment `json:"net_investments"`
 }
 
 // GetCode returns the value of Code.
@@ -23242,6 +23564,11 @@ func (s *ConsolidationGroup) GetMembers() []ConsolidationMember {
 	return s.Members
 }
 
+// GetNetInvestments returns the value of NetInvestments.
+func (s *ConsolidationGroup) GetNetInvestments() []ConsolidationNetInvestment {
+	return s.NetInvestments
+}
+
 // SetCode sets the value of Code.
 func (s *ConsolidationGroup) SetCode(val string) {
 	s.Code = val
@@ -23265,6 +23592,11 @@ func (s *ConsolidationGroup) SetParent(val ConsolidationCompany) {
 // SetMembers sets the value of Members.
 func (s *ConsolidationGroup) SetMembers(val []ConsolidationMember) {
 	s.Members = val
+}
+
+// SetNetInvestments sets the value of NetInvestments.
+func (s *ConsolidationGroup) SetNetInvestments(val []ConsolidationNetInvestment) {
+	s.NetInvestments = val
 }
 
 func (*ConsolidationGroup) getConsolidationGroupRes() {}
@@ -23420,6 +23752,59 @@ func (s *ConsolidationMember) SetInvestmentAccount(val AssetAccountRef) {
 	s.InvestmentAccount = val
 }
 
+// A monetary item designated as part of a net investment in a foreign operation (ADR-0059 As built: a
+// net investment's exchange differences; IAS 21.32): a company's account with a trading partner, a
+// long-term intercompany loan not expected to be settled, say. It is configuration
+// (`consolidation.groups[].net_investments[]`: `company`, `account`, `partner`), changed through a
+// change request as the group is; no flag on the company's account and nothing on a posting says it. A
+// consolidation run takes the exchange differences the company's revaluation runs book on the
+// account's balance with the partner (ADR-0042) out of the consolidated profit and into the company's
+// translation reserve, in other comprehensive income
+// (`ConsolidatedTranslationReserve.net_investment`), in every run that includes the partner (a run of
+// a period before a member's first does not); the company's own ledger and reports are unchanged. The
+// counterparty's exchange differences on the same item move only when its own account with this
+// company is designated too.
+// Ref: #/components/schemas/ConsolidationNetInvestment
+type ConsolidationNetInvestment struct {
+	// The company whose ledger carries the item and its exchange differences: the group's parent or a
+	// member.
+	Company ConsolidationCompany `json:"company"`
+	// The company's account holding the item: an asset or a liability of its chart of accounts.
+	Account AssetAccountRef `json:"account"`
+	// The trading partner the balance is with: another company of the group.
+	Partner ConsolidationCompany `json:"partner"`
+}
+
+// GetCompany returns the value of Company.
+func (s *ConsolidationNetInvestment) GetCompany() ConsolidationCompany {
+	return s.Company
+}
+
+// GetAccount returns the value of Account.
+func (s *ConsolidationNetInvestment) GetAccount() AssetAccountRef {
+	return s.Account
+}
+
+// GetPartner returns the value of Partner.
+func (s *ConsolidationNetInvestment) GetPartner() ConsolidationCompany {
+	return s.Partner
+}
+
+// SetCompany sets the value of Company.
+func (s *ConsolidationNetInvestment) SetCompany(val ConsolidationCompany) {
+	s.Company = val
+}
+
+// SetAccount sets the value of Account.
+func (s *ConsolidationNetInvestment) SetAccount(val AssetAccountRef) {
+	s.Account = val
+}
+
+// SetPartner sets the value of Partner.
+func (s *ConsolidationNetInvestment) SetPartner(val ConsolidationCompany) {
+	s.Partner = val
+}
+
 // A consolidation run of a group for a regular period (ADR-0059 §6): its companies, each with the
 // closing rate it was translated at and its period's status and version when the run read its figures.
 // The translated figures are `GET /v1/consolidation-runs/{id}/balances`, the intercompany differences
@@ -23467,9 +23852,12 @@ type ConsolidationRun struct {
 	DifferenceCounts []ConsolidationDifferenceCount `json:"difference_counts"`
 	// Whether a company's leading-ledger period changed since the run read its figures: its version now
 	// differs from the `period_version` the run recorded (ADR-0059 §10), say by an unlock, a posting and
-	// a relock, or an unlock request. A stale run cannot be finalized, and a stale final run stays final
-	// but no longer shows the ledger's figures; a new run of the period, finalized, supersedes it. Absent
-	// until every company of the run is translated.
+	// a relock, or an unlock request; or whether the group's final run of the previous fiscal year's last
+	// period is no longer the one the run's translation reserve opens from
+	// (`ConsolidatedStatement.opening_run_id`): that period was finalized, or finalized again, after the
+	// run started, so its other comprehensive income is no longer the year's change. A stale run cannot be
+	// finalized, and a stale final run stays final but no longer shows the ledger's figures; a new run of
+	// the period, finalized, supersedes it. Absent until every company of the run is translated.
 	Stale OptBool `json:"stale"`
 	// Who finalized it (`:finalize`); absent unless it is final or superseded.
 	FinalizedBy OptUUID `json:"finalized_by"`

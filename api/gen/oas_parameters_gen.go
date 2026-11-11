@@ -17633,7 +17633,8 @@ func decodeGetConnectorParams(args [1]string, argsEscaped bool, r *http.Request)
 type GetConsolidatedStatementParams struct {
 	// Resource identifier (UUIDv7).
 	ID uuid.UUID
-	// The statement: `balance_sheet` or `profit_and_loss`.
+	// The statement: `balance_sheet` or `profit_and_loss`, which shows other comprehensive income below
+	// the profit.
 	Statement string
 	// Maximum number of items to return. Defaults to 50, maximum 500.
 	PageSize OptInt32 `json:",omitempty,omitzero"`

@@ -167,8 +167,9 @@ var tierRules = []struct {
 	// Group reporting (ADR-0059 §3): names are cosmetic; the closing rate's
 	// type and the eliminations' tolerances operational; the eliminations'
 	// accounts and difference accounts posting-related; the group chart,
-	// its roles and the groups with their members structural, since they
-	// decide what the consolidated statements say.
+	// its roles and the groups with their members and net investment
+	// designations structural, since they decide what the consolidated
+	// statements say.
 	{rx(`^consolidation\.(accounts|eliminations|groups)\[\*\]\.name$`), TierCosmetic},
 	{rx(`^consolidation\.rate_type$`), TierOperational},
 	{rx(`^consolidation\.eliminations\[\*\]\.tolerance$`), TierOperational},
@@ -228,6 +229,8 @@ var listKeys = map[string]string{
 	// Group reporting (ADR-0059 §3): eliminations and groups by code, a
 	// group's members by company; an elimination's accounts are numbers.
 	"eliminations": "code", "groups": "code", "members": "company",
+	// A group's net investment designations by what they designate.
+	"net_investments": "company,account,partner",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is

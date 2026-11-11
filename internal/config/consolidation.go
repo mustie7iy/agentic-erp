@@ -53,6 +53,27 @@ type ConsolidationGroup struct {
 	Name    string        `yaml:"name" json:"name"`
 	Parent  string        `yaml:"parent" json:"parent"`
 	Members []GroupMember `yaml:"members" json:"members"`
+	// NetInvestments designate the monetary items that form part of a
+	// net investment in a foreign operation of the group (NetInvestment).
+	NetInvestments []NetInvestment `yaml:"net_investments,omitempty" json:"net_investments,omitempty"`
+}
+
+// NetInvestment designates a company's account with a trading partner as
+// part of the net investment in a foreign operation (ADR-0059 As built:
+// a net investment's exchange differences; the accounting specialist's
+// B4 correction 2, po:2026-11-09; identification per account and trading
+// partner in the group's configuration, po:2026-11-10; IAS 21.32): a
+// long-term intercompany loan not expected to be settled, say. A
+// consolidation run takes the exchange differences the company's
+// revaluation runs book on the account's balance with the partner out of
+// the consolidated profit and into the company's translation reserve.
+// The company's own ledger and posting are untouched, and its
+// counterparty's differences move only under a designation of the
+// counterparty's own account.
+type NetInvestment struct {
+	Company string `yaml:"company" json:"company"`
+	Account string `yaml:"account" json:"account"`
+	Partner string `yaml:"partner" json:"partner"`
 }
 
 // GroupMember is a subsidiary of a group: its company, the parent's
@@ -108,6 +129,8 @@ const (
 	maxGroupAccounts = 5000
 	maxEliminations  = 50
 	maxGroups        = 50
+	// designations of one group: its companies' few long-term loans.
+	maxNetInvestments = 200
 	// ownership in ten-thousandths of a percent: above 0, at most 100.
 	ownershipDecimals = 4
 	ownershipMax      = 1_000_000
@@ -166,6 +189,24 @@ func (c Consolidation) GroupOf(company string) string {
 		}
 	}
 	return ""
+}
+
+// ConsolidatedIn reports whether a run of the fiscal year's period
+// consolidates the member: from its first period on. A first period that
+// is not well formed (validation refuses one) is in every period.
+func (m GroupMember) ConsolidatedIn(year, period int) bool {
+	y, p, _ := m.First()
+	return y < year || (y == year && p <= period)
+}
+
+// Companies are the codes of the group's companies: its parent, then its
+// members.
+func (g ConsolidationGroup) Companies() []string {
+	out := []string{g.Parent}
+	for _, m := range g.Members {
+		out = append(out, m.Company)
+	}
+	return out
 }
 
 // First is the member's first fiscal year and period, ok false when
@@ -350,6 +391,47 @@ func (v *validator) groups(c *Config) {
 		investments := map[string]string{} // investment account -> member
 		for _, m := range g.Members {
 			v.groupMember(c, p, g, m, in, investments)
+		}
+		v.netInvestments(c, p+".net_investments", g)
+	}
+}
+
+// netInvestments checks a group's net investment designations (ADR-0059
+// As built: a net investment's exchange differences): at most 200, each
+// naming a company of the group, an asset or liability account of that
+// company's chart (a monetary item is a receivable or a payable; equity
+// is non-monetary, IAS 21.16) and another company of the group as the
+// trading partner, and none twice.
+func (v *validator) netInvestments(c *Config, p string, g ConsolidationGroup) {
+	if len(g.NetInvestments) > maxNetInvestments {
+		v.err(p, "at most %d net investment designations", maxNetInvestments)
+	}
+	seen := map[NetInvestment]bool{}
+	for _, n := range g.NetInvestments {
+		ip := fmt.Sprintf("%s[%s/%s/%s]", p, n.Company, n.Account, n.Partner)
+		if seen[n] {
+			v.err(ip, "duplicate net investment designation")
+		}
+		seen[n] = true
+		switch {
+		case !slices.Contains(g.Companies(), n.Partner):
+			v.err(ip+".partner", "company %q is not the parent or a member of group %s", n.Partner, g.Code)
+		case n.Partner == n.Company:
+			v.err(ip+".partner", "the trading partner is another company of the group than %s", n.Company)
+		}
+		if !slices.Contains(g.Companies(), n.Company) {
+			v.err(ip+".company", "company %q is not the parent or a member of group %s", n.Company, g.Code)
+			continue
+		}
+		co := c.Company(n.Company)
+		if co == nil { // the group's own finding reports it
+			continue
+		}
+		switch a := co.Account(n.Account); {
+		case a == nil:
+			v.err(ip+".account", "account %q is not in the chart of accounts of company %s", n.Account, n.Company)
+		case a.Type != Asset && a.Type != Liability:
+			v.err(ip+".account", "account %s is %s; a monetary item is an asset or a liability", a.Number, a.Type)
 		}
 	}
 }

@@ -203,6 +203,10 @@ consolidation:
           ownership_percent: "80"   # decimal string, 0 < p <= 100, at most 4 decimals
           first_period: "2026-11"   # fiscal year and regular period of first consolidation
           investment_account: "1700"  # the parent's account holding this investment: balance sheet, asset
+      net_investments:              # at most 200 (po:2026-11-10; As built: a net investment's exchange differences)
+        - company: "3000"           # the parent or a member: whose ledger carries the item
+          account: "1310"           # an asset or liability of that company's chart
+          partner: "1000"           # the trading partner: another company of the group
 companies:
   - code: "3000"
     chart_of_accounts:
@@ -224,9 +228,11 @@ companies:
   (1-12) of a fiscal year; the investment account is in the parent's
   chart, of type asset, maps to a group account in no elimination, and is
   named by one member of the group only (each member's investment is that
-  account's whole balance, §9).
-- **Tiers**: the group chart's accounts, roles and the mapping, the groups
-  and their members are structural (tier 4), since they decide what the
+  account's whole balance, §9); a net investment designation names a
+  company of the group, an asset or liability account of that company's
+  chart and another company of the group, once.
+- **Tiers**: the group chart's accounts, roles and the mapping, the groups,
+  their members and their net investment designations are structural (tier 4), since they decide what the
   statements say; the eliminations' accounts and difference accounts
   posting-related (tier 3); tolerances and `rate_type` operational (tier
   2); names cosmetic (tier 1).
@@ -325,6 +331,17 @@ Each is additive and built in the slice that first needs it, as ADR-0058
   `rateOfType` is unexported).
 - **T68g**: no new read: `stale` and finalization compare `PeriodOf`'s
   status and version with those the run recorded.
+- **B4 correction 1** (po:2026-11-09): `ledger.BalancesThrough` also
+  returns, from the same statement and so the same database state, the
+  lines on profit and loss accounts of the company's revaluation runs'
+  entries through the period, each with its entry's recorded
+  local-to-group rate (As built: the group-currency revaluation's
+  translation part).
+- **B4 correction 2** (po:2026-11-09, po:2026-11-10):
+  `ledger.BalancesThrough` takes the accounts whose revaluation
+  differences consolidation treats apart and names, on each such line,
+  the account whose difference it offsets (As built: a net investment's
+  exchange differences).
 
 ### 5. Data model
 Every table has `tenant_id` leading its keys and RLS (ADR-0003); keys are
@@ -495,7 +512,10 @@ leading-ledger local-currency figures into the group currency:
   every fiscal year (no carry-forward exists, §Context), translated per
   account and trading partner as `round(amount_lc × rate)`, half away from
   zero, once.
-- **Income and expenses** at their **booked group amounts**: the
+- **Income and expenses** at their **booked group amounts** (less the
+  translation part of a group-currency revaluation, which goes to the
+  translation difference; As built: the group-currency revaluation's
+  translation part): the
   fiscal year's group amounts through the period (for a member in the
   fiscal year of its first period, from that period on), each converted at its
   posting date's rate when it was posted (ADR-0005), as ADR-0050 sums
@@ -664,7 +684,10 @@ locked but at another version, so the period changed since the figures
 were read and they may no longer be the ledger's (the version also moves
 on an unlock request and its rejection, which post nothing: stale then
 errs on the safe side, and `consolidation.run_stale`'s detail names a
-pending unlock request when there is one). A stale run cannot be finalized, and a stale final run says so
+pending unlock request when there is one); and when the group's final
+run of the previous fiscal year's period 12 is no longer the one its
+translation reserve opens from (As built: other comprehensive income).
+A stale run cannot be finalized, and a stale final run says so
 on every read; a new run after the relock supersedes it.
 
 ### 11. Consolidated statements
@@ -685,7 +708,11 @@ together sum to zero; for
 the profit and loss, revenue, expenses, the profit, its share
 attributable to non-controlling interests (the sum of the `nci` entries'
 profit components) and to the owners of the parent; each with the
-reported, eliminations and consolidated columns. Drill-down is the
+reported, eliminations and consolidated columns; and, below the profit,
+other comprehensive income (the fiscal year's translation differences
+through the period), total comprehensive income and its attribution, with
+the translation reserve per company (the accounting specialist's B3; As
+built: other comprehensive income). Drill-down is the
 balances, entries and differences lists filtered by group account (§7,
 §8). The statement's presentation beyond the group chart (reporting lines,
 notes, comparatives) is out of scope (§1).
@@ -1909,3 +1936,395 @@ Built in `internal/consolidation/investment.go` and migration 000246:
   final run freezes the share capital alone. The fixture's investment is
   its member's share capital (400.00 EUR); the statements keep its
   results before November on retained earnings and its whole reserve.
+
+**Other comprehensive income (the accounting specialist's B3; the tracker
+leaf of po:2026-11-09).** The specialist confirmed §7's translation
+reserve per subsidiary with two additions (po:2026-11-09, B3): the
+difference is recognised in other comprehensive income (IAS 21.39(c),
+21.41) and accumulated in a separate component of equity (IAS 21.52(b)),
+"so the statement of comprehensive income must show it, not only the
+balance sheet"; and the part attributable to the non-controlling interest
+goes to it, not to the group's reserve (IAS 21.41), the reserve staying
+per subsidiary for its reclassification on a disposal (IAS 21.48); B9:
+profit and total comprehensive income are each attributed to the owners
+of the parent and to the interest (IAS 1.81B). Built in
+`internal/consolidation/comprehensive.go` and migration 000260. Profit or
+loss never carried the difference (§7 puts it on the `cta` account, an
+equity account, and the profit is the revenue and expense accounts
+alone), and the balance sheet is unchanged: it keeps the accumulated
+reserve and still sums to zero. Decided by default, for the product owner
+to overrule:
+- **Where it is shown.** On the profit and loss (`profit_and_loss`),
+  below the profit, rather than as a third statement: its totals gain
+  `other_comprehensive_income`, `total_comprehensive_income` (the profit
+  and it) and the latter's attribution,
+  `comprehensive_income_non_controlling_interests` and
+  `comprehensive_income_owners_of_the_parent`, each with the three
+  columns, and the response `translation_reserve`, one row per company
+  of the run by company code (its `opening`, `difference` and `closing`
+  and the difference's two shares), on every page. Additions only; the
+  balance sheet has none of them.
+- **The period.** The fiscal year through the run's period, the span of
+  the statement's profit (§11): a company's difference is its `cta` row
+  of the run (the reserve, cumulative, §7) less its opening.
+- **The opening.** The company's `cta` row in the group's final run of
+  the previous fiscal year's period 12, which the run names when it
+  starts running (`run.opening_run_id`, set by `PrepareConsolidationRun`
+  with the status, so preparing twice names it once; read FOR SHARE, so
+  it is final when named) and the statement shows (`opening_run_id`).
+  Recorded rather than looked up at each read, so a run's statement never
+  changes when that period is finalized again or its final run
+  superseded: the statement reads stored rows alone (§11, §14). It says
+  so instead: a run is stale (§10) when the group's final run of that
+  period now is not the one it opened from (finalized after the run
+  started, as when January is run before December is final; finalized
+  again, superseding it; or missed by a finalization racing the run's
+  start), on the run's reads and its statements, and its finalization is
+  refused (409 `consolidation.run_stale`, naming both runs) until the
+  group is run again. Without
+  such a run the reserve opens at zero and the year's difference is the
+  whole reserve: the first fiscal year a group is consolidated in, as the
+  product owner decided for go-live (po:2026-11-05, question 4: the
+  reserve starts at zero). A group whose previous year's period 12 was
+  never finalized (finalized only through an earlier period, say) opens
+  at zero too and shows its whole reserve as the year's; nothing settles
+  another opening for it, and the response says which run it opened from,
+  or none. A company the opening run did not include opens at zero; one
+  it included that the run does not has no row (disposals are out of
+  scope, §1).
+- **A run started before this change** has no opening run recorded: its
+  profit and loss shows its whole reserve as the year's other
+  comprehensive income, as a first year's does, and the same reserve on
+  the balance sheet as before. No group has a final run of an earlier
+  fiscal year yet (consolidation starts at go-live), so no statement of
+  such a run differs from what the rule gives.
+- **Eliminations.** The column holds the year's change of the run's
+  elimination lines on the `cta` account (the run's less the opening
+  run's, each by its own configuration version's account), the `nci`
+  entries' lines left out since they attribute the reserve and do not
+  change it: an elimination's difference account may be the `cta`
+  account (§3, §8), and an acquired member's reserve at acquisition is
+  reversed there (§9). The consolidated figure is then the year's change
+  of the group's reserve: the balance sheet's `cta` row, consolidated, is
+  the opening run's and it.
+- **The non-controlling interest's share (ADR-0005).** Per member, the
+  difference times (100 - ownership) / 100, in exact rational arithmetic,
+  rounded once to the group currency's minor unit, half away from zero
+  (`money.ConvertAt`); the owners of the parent have the difference less
+  it, so the two shares sum to the difference and the rounding remainder
+  is the owners'. The parent has none. Group-level eliminations on the
+  reserve are the owners'. `TestInterestShare` has the rounding cases,
+  `TestComprehensiveTotals` a member at 80%.
+- **What it waits for.** A run still refuses a member held below 100%
+  (`consolidation.structure_unsupported`, As built T68h), so every share
+  a run shows today is zero. The step that writes the `nci` entries (the
+  leaf split from T68h) admits such a member and moves the interest's
+  accumulated share from the `cta` account to the `nci` account on the
+  balance sheet (§9's translation share, rounded on the accumulated
+  difference since acquisition, which can differ from the year's shares
+  summed by a minor unit); it then reads the statement's share from its
+  entries, as the profit's share is read. B3 as the leaf states it is
+  built in the statements; the equity side of the split is that entry.
+  B4's two corrections (a group-currency revaluation's translation part,
+  a net investment's exchange differences) are their own leaves: the
+  first is built (below: the group-currency revaluation's translation
+  part) and so is the second (below: a net investment's exchange
+  differences); the profit holds a net investment's exchange differences
+  as §7 translates them only where no designation names the item.
+- **Database.** `run.opening_run_id`, nullable, no foreign key (as
+  `superseded_by`: a run is never deleted, and an import restores runs in
+  any order); the trigger `run_opening` lets it be named only as the run
+  goes from queued to running, once, and only the group's final run of
+  the previous fiscal year's period 12 (`run_opening_fixed`,
+  `run_opening_final`), an import excepted (000230's
+  `platform.importing`); `TestConsolidationRunOpeningRules`.
+- **Walkthrough.** In step 40, `consolidation_comprehensive_income`
+  reads the run's profit and loss through the public API: no opening run
+  (MAPLE's first year), Acme Corp US's difference its whole reserve and
+  not zero, each reserve's opening and difference its closing, the two
+  shares the difference, other comprehensive income the companies'
+  differences, the balance sheet's reserve the opening and it, total
+  comprehensive income the profit and it in each column, all of it the
+  owners'. A later year's opening is `TestOtherComprehensiveIncome`'s (a
+  final December 2025 run, November 2026 opening from it in another
+  configuration version, the opening run then superseded), since the
+  walkthrough's group has one fiscal year.
+- **For the specialist** (not built, stated here only as open): whether
+  the single statement suffices for the pilots' reporting or a separate
+  statement of comprehensive income is wanted (a presentation choice;
+  the standard's paragraph on it is not cited here, from memory only),
+  and the opening of a group consolidated here from a year after its
+  members' first, should one arise.
+
+**The group-currency revaluation's translation part (the accounting
+specialist's B4 correction 1; the tracker leaf of po:2026-11-09).** The
+specialist confirmed that a subsidiary's exchange differences on items in
+other currencies than its functional currency stay in profit or loss in
+consolidation (IAS 21.28) and corrected one case (po:2026-11-09, B4
+correction 1): "if ADR-0042 revalues amounts *in group currency* … that
+part is a **translation** effect and belongs in OCI / the translation
+reserve (IAS 21.39(c)), not profit or loss. Only the functional-currency
+difference, translated, stays in P&L." ADR-0042 does: "group currency is
+valued on its own", so the group amount a revaluation run's entries book
+on the unrealised gain or loss account is not their local amount
+translated, and §7 took income and expenses at their booked group
+amounts. Built in `internal/consolidation/translate.go`
+(`revaluationPart`) and migration 000261; the member's ledger is only
+read. Decided by default, for the product owner to overrule:
+- **What is moved.** Per line of a company's revaluation runs' entries on
+  a profit and loss account, in its leading ledger: its booked group
+  amount less its local amount translated. The run keeps the second in
+  the profit and takes the first's remainder, the translation part, to
+  the company's translation difference.
+- **"Translated" is at the entry's local-to-group rate.** §7 takes income
+  and expenses at each posting date's rate (B2: IAS 21.39(b)), and a
+  revaluation entry records its posting date's local-to-group rate
+  (ADR-0042: "for the record only", since its lines' group amounts are
+  valued on their own): the rate a posting of that date in local currency
+  converts at. So the profit holds what it would hold had the difference
+  been posted as any local-currency entry is. The rate is applied in the
+  12-decimal form the entry records, as the closing rate is (As built
+  T68d), so the figure can be reproduced from the entry.
+- **Rounding (ADR-0005).** Each line's local amount is converted once, in
+  exact rational arithmetic, rounded to the group currency's minor unit,
+  half away from zero (`money.ConvertAt`), as a posting rounds each line;
+  the part is the booked group amount less it, an exact subtraction, and
+  parts are summed, never rounded again.
+- **Which entries.** Every entry whose source is a revaluation run of the
+  company in the ledger: the valuation entry, its reset on the next day
+  and, of a cancelled run, both reversals, which keep the run as their
+  source and the rates of the entries they reverse (ADR-0042), so a
+  cancelled run moves nothing. The reset is a posting of its own date and
+  is translated at its own entry's rate: where the rate moved between the
+  key date and the next day, the profit keeps the local difference at the
+  two rates' difference, as translating two local-currency postings at
+  their dates' rates gives (§7).
+- **Where it goes.** A fiscal year's lines through the run's period come
+  off the row of their account and trading partner (a revaluation's
+  lines carry their items' trading partner, T68b2, so intercompany
+  matching reads the amounts the profit keeps); earlier fiscal years'
+  lines, and for a member in the fiscal year of its first period those of
+  the periods before it, come off `prior_results`, since those results
+  are in retained earnings. The `cta` row is minus the sum of the other
+  rows (§7), so it takes both: each company's rows still sum to zero and
+  the balance sheet to zero. Lines of an account and trading partner
+  without a balance (a valuation and its reset in one year) make a row of
+  their own, with zero local and booked amounts, unless their parts
+  cancel.
+- **What the statements show.** `run_member.revaluation_translation_gc`
+  (000261) records, with the company's translation, the year's part
+  through the period, debit positive. The profit and loss shows it per
+  company (`translation_reserve[].revaluation_translation`, part of
+  `closing`) and summed (`totals.revaluation_translation`, reported by
+  the companies, no elimination): the revenue and expense rows are their
+  booked group amounts less it, and other comprehensive income, the
+  year's change of the reserve, holds it. On a row of the balances list,
+  `amount_gc_booked` less `amount_gc` is the part moved off it; no column
+  was added to `run_balance`, whose rows already show both amounts. The
+  non-controlling interest's share of other comprehensive income is taken
+  on the reserve's whole difference (above), so it follows.
+- **A company in the group currency** is not special: its entries' rate is
+  1, so a line's part is its group amount less its local one, zero where
+  they are booked alike.
+- **The acquisition** (§9) is measured through the same translation, so
+  the periods before a member's first hold the parts of their own
+  revaluation entries; its net assets (the asset and liability rows) and
+  share capital rows are not profit and loss rows and do not change.
+- **A run started before this change** keeps its stored rows, which hold
+  the booked group amounts, and shows zero moved; a company it translated
+  before the change, should it finish after, likewise. Run again, the
+  period shows the amounts moved. A run whose opening run (other
+  comprehensive income, above) was translated before the change would
+  show the earlier years' parts in the year's difference; no group has a
+  final run of an earlier fiscal year yet.
+- **Ledger (§4a).** `ledger.ConsolidationReads.BalancesThrough` returns
+  them with the balances, in one statement, so both are of one database
+  state: read apart in the run's read-committed transaction, a
+  revaluation posted or cancelled between the two reads would give lines
+  whose amounts the balances do not hold, or the reverse (review round
+  1). They are the lines on profit and loss accounts
+  of the entries whose source is a revaluation run of the company and
+  ledger, through the period, each with its local and booked group
+  amounts, its trading partner, its fiscal year and period as
+  `BalancesThrough` gives a profit and loss balance's, and its entry's
+  recorded local-to-group rate; read through the index
+  `journal_entry_source`.
+  Additive; no ledger table or posting changes, so a company's own
+  ledger, reports and revaluation runs are as they were
+  (`TestRevaluationTranslationPart` compares its lines and balances
+  before and after a run).
+- **Walkthrough.** Step 40, `consolidation_revaluation_translation`: Acme
+  Corp US (USD) sells EUR 1,000.00 on the last day of the period before
+  the group's first and revalues its euros at that day's bank selling
+  rates (a gain of USD 20.00; in group currency CAD 1,500.00 against the
+  booked amount); a new run of the group keeps the reset's USD 20.00 at
+  1.35, CAD 27.00, in the year's profit, shows the rest of its booked
+  group amount as `revaluation_translation` on Acme Corp US's reserve and
+  in the totals, the profit CAD 27.00 above the first run's, the
+  valuation's part off the earlier results, and the balance sheet at
+  zero; then the run is discarded, the revaluation cancelled and the sale
+  reversed.
+- **Tests.** `TestRevaluationTranslationPart` computes October's run by
+  hand (a gain of USD 312.50 before the first period and one of USD
+  750.00 in it, with no group amount: the profit 175.00 EUR where none
+  was booked, 175.00 moved, the reserve 525.00, each step run twice, then
+  the revaluation run cancelled); `TestRevaluationParts` has the rounding,
+  the trading partner, the rows without a balance and the refusals;
+  `TestConsolidationRevaluationTranslationRules` the column's rule.
+- **For the specialist** (built as stated above, listed so it is
+  reviewed): that "the functional-currency difference, translated" is
+  each revaluation entry's local amount at that entry's posting date's
+  rate, the reset on the next day at its own, rather than at the closing
+  rate or an average; the answer names no rate, and §7's rule for income
+  and expenses (B2) was applied.
+
+**A net investment's exchange differences (the accounting specialist's B4
+correction 2; the tracker leaf of po:2026-11-09, identification decided
+po:2026-11-10).** The specialist's second correction (po:2026-11-09, B4):
+"exchange differences on a monetary item forming part of the net
+investment in a foreign operation (e.g. a long-term intercompany loan not
+expected to be settled) are reclassified to OCI in the consolidated
+statements (IAS 21.32). Intragroup monetary items otherwise keep their
+exchange differences in P&L (IAS 21.45)." Nothing in the ledger says
+which item is one. The product owner decided how it is identified
+(po:2026-11-10, option b of three): a designation per account and trading
+partner in the group's consolidation configuration ("company X's account
+1310 with partner Y is part of the net investment in Y"); no flag on the
+company's account, no designation per open item, and no change to posting
+or to any member's ledger, which a run only reads. Built in
+`internal/config/consolidation.go` (`NetInvestment`),
+`internal/consolidation/translate.go` (`netInvestment`),
+`internal/ledger/consolidationreads.go` and migration 000262.
+- **The designation (§3).** `consolidation.groups[].net_investments[]`:
+  `company`, `account`, `partner`, at most 200 per group. Validation: the
+  company and the partner are the group's parent or members and differ;
+  the account is in the company's chart and is an asset or a liability
+  (a monetary item is a receivable or a payable; equity is non-monetary,
+  as ADR-0042's validation says of revalued accounts); none twice. It is
+  configuration, as the group and its members are (§3 settles it): it
+  decides what the consolidated statements say, so it is structural (tier
+  4, `consolidation.groups[G].net_investments[company/account/partner]`)
+  and goes through the change approval loop with its evidence, approvals,
+  audit record and version, as every setting does (ADR-0053 d: decided,
+  not asked). There is no endpoint of its own to write it.
+  `getConsolidationGroup` and `listConsolidationGroups` return a group's
+  `net_investments` (required, empty without any): the company and the
+  partner by legal entity, code, name and currency, the account by number
+  and name, by company code, account number and partner code.
+- **A run reads the designations of the configuration version it
+  recorded** (§6), so a change applies to runs started after its
+  activation and a computed or final run never changes.
+- **Which differences.** Those the company's revaluation runs book
+  (ADR-0042): the lines on profit and loss accounts of a run's valuation
+  entry, its reset and, of a cancelled run, their reversals, that offset
+  a difference on the designated account's balance or open items with
+  the designated trading partner. For an account revalued as a balance
+  (a loan account, the usual case) these are all its exchange
+  differences: no posting books a realised one on it, and a run values
+  what a repayment leaves in local currency. **Not moved**: the realised
+  difference a settlement or a bank posting books when it clears open
+  items of a reconciliation account (the account determination's
+  `fx_gain` or `fx_loss`). Such an entry has one difference line over all
+  its items, with their trading partner when they share one and no
+  account of theirs, so it cannot be told apart per designated account
+  without a posting change, which the decision excludes. Whether a
+  designated item that is settled after all should have them moved is a
+  question for the specialist below.
+- **Where it arises, and nothing else (decided by default, for the
+  specialist).** The difference moves for the company whose ledger books
+  it on the designated account and trading partner, and only that. Its
+  counterparty's differences on the same loan move only when the
+  counterparty's own account with this company is designated too: a
+  group designates the lender's receivable, the borrower's payable, or
+  both, as the loan's currency puts the difference in one ledger, the
+  other or (a third currency) both.
+- **Into the designating company's translation reserve**, by the
+  treatment the first correction uses: the line's amount comes off the
+  row of its account and trading partner, or off `prior_results` for an
+  earlier fiscal year's line and for a member's periods before its
+  first, and the company's `cta` row, minus the sum of its other rows,
+  takes it. So the parent has a reserve row when it designates an item,
+  each company's rows and the balance sheet still sum to zero, other
+  comprehensive income (the year's change of the reserve) holds it, and
+  the non-controlling interest's share follows the reserve's whole
+  difference (above).
+- **The whole booked group amount leaves the profit.** The first
+  correction already takes a revaluation line's translation part (its
+  booked group amount less its local amount at the entry's local-to-group
+  rate) to the reserve; of a line on a designated item the rest goes too:
+  the local amount at the entry's rate, rounded once per line, half away
+  from zero (ADR-0005, `money.ConvertAt`; the same figure the first
+  correction computes, so the two parts are an exact split of the booked
+  group amount). A valuation and its reset therefore cancel exactly, and
+  a period run before its own valuation moves the previous one's reset
+  out of its profit.
+- **In a run that includes the trading partner.** A designation counts
+  in a run only when its trading partner is a company the run includes
+  (the parent, or a member whose first period has come, §6): a run of an
+  earlier period consolidates no foreign operation the item could be an
+  investment in, and the difference stays in its profit as any other.
+  Once a run includes the partner the designation applies to every line
+  it reads, those of the year's earlier periods and of earlier years
+  (off `prior_results`) among them (review round 1).
+- **What the statements show.** `run_member.net_investment_gc` (000262)
+  records, with the company's translation, the year's amount through the
+  period, debit positive, beside `revaluation_translation_gc` and
+  disjoint from it. The profit and loss shows it per company
+  (`translation_reserve[].net_investment`, part of `closing`) and summed
+  (`totals.net_investment`, reported by the companies, no elimination),
+  as the first correction's amount is shown. On a row of the balances
+  list `amount_gc_booked` less `amount_gc` is what the run moved off it,
+  both parts.
+- **How a line is known to be the designated account's (ledger, §4a).**
+  A revaluation entry's line on the gain or loss account carries its
+  total's trading partner (T68b2) but not the account valued. The ledger
+  derives it and publishes it on the line (`RevaluationLine.ValuedAccountID`,
+  for the accounts `BalancesThrough` is asked to name): a run's entries
+  have two lines per total in the totals' order, the difference on the
+  valued account (or its adjustment account) and then its offset; a
+  reversal keeps its entry's line numbers; and a run's totals are its
+  items with a difference per account, currency, trading partner and
+  direction in the order of each one's first item
+  (`Revaluation.Totals`), the items being insert-only. So total n's
+  offset is line 2n of each of the run's entries, computed in the same
+  statement as the balances and lines (one database state), only when a
+  company has designations. No ledger table, posting or entry changes;
+  `TestRevaluationLinesNameTheirValuedAccount` proves it over a flagged
+  account, a reconciliation account's adjustment account, the reset and
+  a cancelled run's reversals.
+- **A run started before this change**, or before a designation, shows
+  zero and keeps the differences in its profit; run again, the period
+  shows them moved. A run whose opening run was computed without the
+  designation shows the earlier years' differences in the year's other
+  comprehensive income (they come off `prior_results` in it and not in
+  the opening run), as the first correction notes of itself.
+- **Walkthrough.** Step 40: the group MAPLE designates Maple's account
+  1250 with company 1000; `getConsolidationGroup` shows it; in
+  `consolidation_revaluation` the receivable's gain of CAD 100.00 is
+  booked on its row and translated 0.00, Maple's reserve and the totals
+  show `net_investment` -100.00, the profit differs from the first run's
+  by the revaluation's other differences alone, other comprehensive
+  income by the gain, and the balance sheet sums to zero.
+- **Tests.** `TestNetInvestmentExchangeDifferences` computes October's
+  run by hand under no designation, the lender's, and both sides' (a
+  loan in the lender's currency and one in the borrower's, a third
+  party's loan on the same account, each step run twice, total
+  comprehensive income the same throughout, both companies' ledger lines
+  and balances the same before and after); `TestNetInvestmentParts` the
+  rows, `TestNetInvestmentsOfARun` which designations count,
+  `TestConsolidationNetInvestmentRules` the column's rule, the
+  configuration's cases in `internal/config`.
+- **Not built** (out of scope, po:2026-11-10): the reclassification of
+  the accumulated differences to profit or loss on a disposal of the
+  foreign operation (IAS 21.48); disposals are out of T68 (§1).
+- **For the specialist** (built as stated above, listed so it is
+  reviewed, none of it settled fact): (1) whether both the lender's and
+  the borrower's differences move, and into whose reserve: here each
+  moves only under its own designation and into the reserve of the
+  company that books it, the parent's included, where the reclassification
+  on a disposal (IAS 21.48) may want them kept by foreign operation;
+  (2) whether realised differences on a designated item that is settled
+  after all, in part or whole, move too, which needs the posting to say
+  which account a settlement's difference belongs to; (3) the rate, as
+  for the first correction: each entry's local amount at that entry's
+  posting date's rate.

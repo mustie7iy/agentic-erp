@@ -3648,7 +3648,9 @@ step_asset_depreciation() {
 # entries' in the previous fiscal year too, whose periods it then has
 # (ADR-0059 §Steps); and the group MAPLE, Maple holding the whole of Acme
 # Corp US, which it incorporated (the pilot's structure, D11; ADR-0059 As
-# built T68h), from period @FIRST@. Maple's intercompany receivables are kept in
+# built T68h), from period @FIRST@, Maple's intercompany receivables from
+# it designated as part of Maple's net investment in it (po:2026-11-10;
+# IAS 21.32). Maple's intercompany receivables are kept in
 # foreign currency and revalued (ADR-0042) into its unrealised gain and
 # loss, as its USD bank accounts are. @CC@, @YEAR@ and @FIRST@ are
 # replaced.
@@ -3673,7 +3675,8 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
     {"code": "IC_BALANCES", "name": "Intercompany receivables and payables", "accounts": ["G1250", "G2250"], "difference_account": "G6950", "tolerance": "10.00"},
     {"code": "IC_RESULTS", "name": "Intercompany revenue and expenses", "accounts": ["G4250", "G5250"], "difference_account": "G6950", "tolerance": "1.00"}],
   "groups": [{"code": "MAPLE", "name": "Maple group", "parent": "@CC@",
-    "members": [{"company": "1000", "ownership_percent": "100", "origin": "incorporated", "first_period": "@FIRST@", "investment_account": "1700"}]}]})
+    "members": [{"company": "1000", "ownership_percent": "100", "origin": "incorporated", "first_period": "@FIRST@", "investment_account": "1700"}],
+    "net_investments": [{"company": "@CC@", "account": "1250", "partner": "1000"}]}]})
 | (.companies[] | select(.code == "@CC@") | .chart_of_accounts) += [
     {"number": "1250", "name": "Intercompany receivables", "type": "asset", "revalue_foreign_currency": true},
     {"number": "1700", "name": "Investment in Acme Corp US", "type": "asset"},
@@ -3682,17 +3685,20 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 | .companies += [{"code": "1000", "name": "Acme Corp US", "currency": "USD", "country": "US", "fiscal_year_start_month": 1,
     "time_zone": "America/New_York",
     "chart_of_accounts": [
-      {"number": "100000", "name": "Bank - Operating", "type": "asset"},
+      {"number": "100000", "name": "Bank - Operating", "type": "asset", "revalue_foreign_currency": true},
       {"number": "140000", "name": "Input Tax", "type": "asset"},
       {"number": "211000", "name": "Accounts Payable - Domestic", "type": "liability", "vendor_reconciliation": true},
       {"number": "225000", "name": "Intercompany payables", "type": "liability", "vendor_reconciliation": true},
       {"number": "300000", "name": "Share Capital", "type": "equity"},
       {"number": "400000", "name": "Sales Revenue", "type": "revenue"},
       {"number": "480000", "name": "Purchase discounts received", "type": "revenue"},
+      {"number": "490000", "name": "Unrealised exchange gains", "type": "revenue"},
       {"number": "510000", "name": "Raw Materials Consumed", "type": "expense"},
       {"number": "520000", "name": "Office Supplies", "type": "expense"},
       {"number": "525000", "name": "Intercompany services", "type": "expense"},
-      {"number": "530000", "name": "IT Services", "type": "expense"}],
+      {"number": "530000", "name": "IT Services", "type": "expense"},
+      {"number": "690000", "name": "Unrealised exchange losses", "type": "expense"}],
+    "fx_valuation": {"rate_type": "bank_selling", "accounts": [{"account": "100000", "unrealised_gain": "490000", "unrealised_loss": "690000"}]},
     "account_determination": {"ap_reconciliation": "211000", "input_tax": "140000", "bank": "100000", "cash_discount": "480000"},
     "tax_codes": [{"code": "V0", "description": "Input tax exempt", "rate_percent": "0", "account": "140000"}],
     "invoice_tolerance": {"price_percent": 2, "price_absolute": "5.00"},
@@ -3713,7 +3719,7 @@ CONSOLIDATION_SETTINGS='(.consolidation = {
 # approved and activated; Carla reads the group with its companies named
 # and the group chart; Cory, who may act in Maple alone, sees no group.
 step_consolidation() {
-  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations, its consolidated statements, an intercompany balance revalued by trading partner and its open difference accepted"
+  heading "Step 40 — Group reporting: the group chart, the companies' mapping and the group MAPLE through a governed change, trading partners, a consolidation run, its intercompany eliminations, its consolidated statements, an intercompany balance revalued by trading partner and its exchange difference, on a net investment, moved out of the profit, a group-currency revaluation's translation part moved out of the profit and its open difference accepted"
   as ada
   local base settings first cr request
   first="$YEAR-${TODAY:5:2}"
@@ -3721,7 +3727,9 @@ step_consolidation() {
   say "(ADR-0059 §3): a group chart of accounts, each account of both companies mapped to it, the eliminations of"
   say "intercompany receivables and payables and of intercompany revenue and expenses, each with its tolerance in CAD,"
   say "and the group MAPLE, Maple holding Acme Corp US from period $first. Acme Corp US joins the configuration with its chart, in the leading"
-  say "ledger alone, and Maple's chart gains its investment in it. The chart, the mapping and the group decide what the"
+  say "ledger alone, and Maple's chart gains its investment in it. Maple funds Acme Corp US through its intercompany"
+  say "receivables and does not expect them settled: the group designates Maple's account 1250 with company 1000 as part"
+  say "of its net investment in Acme Corp US (IAS 21.32). The chart, the mapping and the group decide what the"
   say "consolidated statements say: a structural change, tier 4."
   api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
   base=$(field '.items[0].number')
@@ -3761,6 +3769,12 @@ step_consolidation() {
   expect "the member" "$(field '.members[] | "\(.company_code) \(.company_name) \(.local_currency) \(.ownership_percent) \(.origin) \(.first_fiscal_year)-\(.first_fiscal_period)"')" \
     "1000 Acme Corp US USD 100 incorporated $YEAR-$((10#${TODAY:5:2}))"
   expect "the investment account" "$(field '.members[0].investment_account | "\(.number) \(.name)"')" "1700 Investment in Acme Corp US"
+  say "and the monetary items designated as part of a net investment, by company, account and trading partner:"
+  api 200 '.net_investments[] | "  \(.company.company_code) \(.company.company_name): \(.account.number) \(.account.name) with \(.partner.company_code) \(.partner.company_name)"' \
+    getConsolidationGroup -p code=MAPLE
+  expect "the net investment designations" \
+    "$(field '[.net_investments[] | "\(.company.company_code) \(.company.legal_entity_id) \(.account.number) \(.account.name) \(.partner.company_code) \(.partner.company_name)"] | join(", ")')" \
+    "$CC $LE 1250 Intercompany receivables 1000 Acme Corp US"
   api 200 '"groups: \([.items[].code] | join(", "))"' listConsolidationGroups
   expect "the groups Carla sees" "$(field '[.items[].code] | join(" ")')" MAPLE
   say "The group chart: each account's type, the role a consolidation run gives it, the elimination it belongs to and"
@@ -3785,6 +3799,7 @@ step_consolidation() {
   consolidation_eliminations
   consolidation_statements
   consolidation_revaluation
+  consolidation_revaluation_translation
   consolidation_accept
   as tom
   passed
@@ -4094,6 +4109,7 @@ consolidation_statements() {
   expect "revenue and expenses make the profit" "$(field "[.totals.revenue, .totals.expenses | .reported | $cents] | add")" "$(field ".totals.profit.reported | $cents")"
   say "The profit is the owners' of the parent: Maple holds the whole of Acme Corp US, so no part of it is a non-controlling interest's:"
   expect "the profit's attribution" "$(field '"\(.totals.non_controlling_interests.consolidated.amount) \(.totals.owners_of_the_parent.consolidated.amount == .totals.profit.consolidated.amount)"')" "0.00 true"
+  consolidation_comprehensive_income
   expect "the intercompany results and their difference" \
     "$(field '[.items[] | select(.number | IN("G4250", "G5250", "G6950")) | "\(.number) \(.eliminations.amount) \(.consolidated.amount)"] | join(", ")')" \
     "G4250 2700.00 0.00, G5250 -2700.00 0.00, G6950 -100.00 -100.00"
@@ -4147,11 +4163,21 @@ consolidation_accept() {
 # 1000, so a new run of the group finds the receivable and payable pair
 # matched at 2,800.00, where the gain without a trading partner would have
 # shown as no_trading_partner. A second run of the key date is refused.
+# The receivable is designated as part of Maple's net investment in Acme
+# Corp US (the accounting specialist's B4 correction 2, po:2026-11-09;
+# identification per account and trading partner in the group's
+# configuration, po:2026-11-10; IAS 21.32; ADR-0059 As built), so the run
+# takes the gain on it out of the consolidated profit: its row on 4900
+# with trading partner 1000 is booked CAD 100.00 and translated 0.00,
+# Maple's translation reserve shows it (net_investment) and so do the
+# totals, in other comprehensive income, while the differences on Maple's
+# other items stay in the profit and Maple's own entries are as posted.
 # The month is still running, so Carla cancels the revaluation, which
 # reverses both its entries, and discards the new group run: the later
 # steps see the month as booked.
 consolidation_revaluation() {
-  local eom period=$((10#${TODAY:5:2})) body reval valuation run
+  local eom period=$((10#${TODAY:5:2})) body reval valuation run us differences
+  local cents='(.amount | tonumber * 100 | round)'
   eom=$(month_end)
   next_year_open
   as carla
@@ -4165,6 +4191,7 @@ consolidation_revaluation() {
     postRevaluationRun -body "$body"
   reval=$(field .id)
   valuation=$(field .valuation_entry_id)
+  differences=$(field "[.totals[].difference_lc | $cents] | add")
   expect "the intercompany receivable's total" \
     "$(jq -r --arg a "$(account 1250)" '[.totals[] | select(.account_id == $a) | "\(.direction) \(.amount.amount) \(.difference_lc.amount) \(.trading_partner.code)"] | join(", ")' "$WORK/last.json")" \
     "gain 2000.00 100.00 1000"
@@ -4185,6 +4212,31 @@ consolidation_revaluation() {
   expect "the differences after the revaluation" \
     "$(field '[.items[] | "\(.elimination.code) \(.company_code)/\(.partner.code) \(.amount.amount) \(.partner_amount.amount) \(.difference.amount) \(.status)"] | join(", ")')" \
     "IC_BALANCES 1000/$CC -2800.00 2800.00 0.00 matched, IC_RESULTS 1000/$CC 2700.00 -2700.00 0.00 matched"
+  say "The receivable is part of Maple's net investment in Acme Corp US (the group's net_investments): in the consolidated"
+  say "statements the exchange difference on it is other comprehensive income, not profit (IAS 21.32). Maple's ledger keeps"
+  say "the gain as posted; the run takes it off the gain's row with trading partner 1000:"
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  api 200 '.items[] | "  \(.company_code) \(.account.number) \(.account.name), trading partner \(.trading_partner.code): booked \(.amount_gc_booked.amount), translated \(.amount_gc.amount) \(.amount_gc.currency)"' \
+    listConsolidationBalances -p "id=$run" -p "legal_entity_id=$LE" -p "account_id=$(account 4900)" -p "trading_partner_id=$us"
+  expect "the gain's row" "$(field '[.items[] | "\(.trading_partner.code) \(.amount_gc_booked.amount) \(.amount_gc.amount)"] | join(", ")')" "1000 -100.00 0.00"
+  say "The profit and loss shows it on Maple's translation reserve, per company and in its totals. The differences on"
+  say "Maple's other foreign-currency items, CAD $(amount $((differences - 10000))) in all, stay in the profit:"
+  api 200 '(.translation_reserve[] | "  \(.company_code) \(.company_name): reserve \(.closing.amount), net investment differences moved out of the profit \(.net_investment.amount) \(.net_investment.currency)"),
+    (.totals | "  total net_investment: reported \(.net_investment.reported.amount), eliminations \(.net_investment.eliminations.amount), consolidated \(.net_investment.consolidated.amount)",
+      "  total profit: reported \(.profit.reported.amount), consolidated \(.profit.consolidated.amount); other comprehensive income \(.other_comprehensive_income.consolidated.amount)")' \
+    getConsolidatedStatement -p "id=$run" -p statement=profit_and_loss -p page_size=500
+  expect "what each company's net investments moved out of its profit" "$(field '[.translation_reserve[] | "\(.company_code) \(.net_investment.amount)"] | join(", ")')" \
+    "1000 0.00, $CC -100.00"
+  expect "the total moved out of the profit" \
+    "$(field '.totals.net_investment | "\(.reported.amount) \(.eliminations.amount) \(.consolidated.amount)"')" "-100.00 0.00 -100.00"
+  # Reported, not consolidated: the first run's eliminations held the pair's difference of CAD 100.00, now matched.
+  expect "the companies' profit against the first run's: the revaluation's other differences, without the receivable's gain" \
+    "$(($(field ".totals.profit.reported | $cents") - $(jq -r ".totals.profit.reported | $cents" "$WORK/profit-and-loss.json")))" "$((10000 - differences))"
+  expect "other comprehensive income against the first run's: the receivable's gain" \
+    "$(($(field ".totals.other_comprehensive_income.consolidated | $cents") - $(jq -r ".totals.other_comprehensive_income.consolidated | $cents" "$WORK/profit-and-loss.json")))" -10000
+  QUIET=1 api 200 '' getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
+  expect "assets, liabilities, equity and the profit, consolidated" "$(field "[.totals[].consolidated | $cents] | add")" 0
   say "The month is still running: Carla discards this run and cancels the revaluation, which reverses both its entries,"
   say "so the steps that follow see the month as booked."
   QUIET=1 api 200 '' getConsolidationRun -p "id=$run"
@@ -4194,6 +4246,107 @@ consolidation_revaluation() {
   api 200 '"revaluation run \(.id[0:8])…: \(.status)"' cancelRevaluationRun -p "id=$reval" -if-match "$ETAG" \
     -body '{"reason": "The month is still running; it is revalued at its end"}'
   expect "the revaluation run" "$(field .status)" cancelled
+}
+
+# consolidation_revaluation_translation is the translation part of a
+# group-currency revaluation, moved out of the profit (the accounting
+# specialist's B4 correction 1, po:2026-11-09; IAS 21.39(c); ADR-0042, the
+# group-currency difference in consolidation; ADR-0059 As built), part of
+# step_consolidation. Acme Corp US, whose books are in USD, sold EUR
+# 1,000.00 of engineering on the last day of the period before the
+# group's first, booked at the day's average rates: USD 1,100.00 at 1.10
+# and, in group currency, that at the day's USD/CAD rate. Carla revalues
+# Acme Corp US's euros at that day's bank selling rates: 1.12 in USD, a
+# gain of USD 20.00, and 1.50 in CAD on its own (ADR-0042), CAD 1,500.00
+# against the booked group amount. So the gain's entries book a group
+# amount that is not USD 20.00 translated. The reset, on the first day of
+# the group's period, is in the year's profit: a new run of the group
+# keeps its USD 20.00 at the entry's 1.35, CAD 27.00, there and shows the
+# rest of its booked group amount on Acme Corp US's translation reserve
+# (revaluation_translation), in other comprehensive income; the valuation
+# itself is before the group's first period, so its part comes off the
+# earlier results. Then Carla discards the run, cancels the revaluation
+# and reverses the sale, so the steps that follow see the month as
+# booked.
+consolidation_revaluation_translation() {
+  local first="${TODAY:0:7}-01" end period=$((10#${TODAY:5:2})) rate=135 us booked difference moved earlier sale reval run row
+  local cents='(.amount | tonumber * 100 | round)'
+  end=$(date_add "$first" -1)
+  [ "${TODAY:5:2}" = 01 ] && rate=138
+  booked=$((1100 * rate))             # USD 1,100.00 at the day's USD/CAD rate, in cents
+  difference=$((150000 - booked))     # the group difference: EUR 1,000.00 at 1.50 less the booked group amount
+  moved=$((difference - 2700))        # the reset's group amount less its USD 20.00 at the reset's 1.35
+  earlier=$((20 * rate - difference)) # the valuation's: its USD 20.00 at the day's rate less its group amount, a credit
+  as tom
+  say "Acme Corp US sells in euros too. Tom records the euro's rates from $end: the average rate in USD, which a posting"
+  say "converts at, and the bank selling rates in USD and in CAD, which Acme Corp US's revaluation values at (ADR-0042):"
+  for row in "average USD 1.10" "bank_selling USD 1.12" "bank_selling CAD 1.50"; do
+    # shellcheck disable=SC2086 # three words: the rate type, the currency and the rate
+    set -- $row
+    api 201 '"\(.rate_type) \(.from_currency)/\(.to_currency) \(.rate) from \(.valid_from) (\(.source))"' createExchangeRate \
+      -body "{\"rate_type\": \"$1\", \"from_currency\": \"EUR\", \"to_currency\": \"$2\", \"valid_from\": \"$end\", \"rate\": \"$3\", \"source\": \"ECB\"}"
+  done
+  as carla
+  QUIET=1 api 200 '' listLegalEntities -p page_size=100
+  us=$(field '.items[] | select(.code == "1000") | .id')
+  say "Acme Corp US sold EUR 1,000.00 of engineering on $end, paid into its bank: USD 1,100.00, and in group currency"
+  say "that at the day's USD/CAD rate:"
+  api 201 '"journal entry \(.document_number) of \(.posting_date): \([.lines[] | "\(.amount.amount) \(.amount.currency) = \(.amount_lc.amount) \(.amount_lc.currency) = \(.amount_gc.amount) \(.amount_gc.currency)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$us\", \"document_date\": \"$end\", \"posting_date\": \"$end\", \"currency\": \"EUR\", \"header_text\": \"Engineering sold in euros\", \"lines\": [{\"account_id\": \"$(jq -r '.items[] | select(.number == "100000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"1000.00\", \"currency\": \"EUR\"}}, {\"account_id\": \"$(jq -r '.items[] | select(.number == "400000") | .id' "$WORK/us-accounts.json")\", \"amount\": {\"amount\": \"-1000.00\", \"currency\": \"EUR\"}}]}"
+  sale=$(field .id)
+  expect "the sale's local and group amounts" "$(field '.lines[0] | "\(.amount_lc.amount) \(.amount_gc.amount)"')" "1100.00 $(amount "$booked")"
+  say "Carla revalues Acme Corp US's foreign-currency items at $end. The euros are worth USD 1,120.00 at the bank selling"
+  say "rate, a gain of USD 20.00; group currency is valued on its own, CAD 1,500.00 against the booked $(amount "$booked"):"
+  api 201 '"run \(.id[0:8])… at \(.key_date): \(.status), \(.item_count) item",
+    (.totals[] | "  \(.currency) \(.amount.amount): \(.direction) \(.difference_lc.amount) \(.difference_lc.currency), in group currency \(.difference_gc.amount) \(.difference_gc.currency)")' \
+    postRevaluationRun -body "{\"legal_entity_id\": \"$us\", \"key_date\": \"$end\"}"
+  reval=$(field .id)
+  cp "$WORK/last.json" "$WORK/euro-revaluation.json"
+  expect "the euros' differences" "$(field '[.totals[] | "\(.direction) \(.amount.amount) \(.difference_lc.amount) \(.difference_gc.amount)"] | join(", ")')" \
+    "gain 1000.00 20.00 $(amount "$difference")"
+  say "USD 20.00 translated is not CAD $(amount "$difference"): the rest of the group difference is a translation effect, which"
+  say "belongs in other comprehensive income (IAS 21.39(c)). Carla runs the group again:"
+  api 202 '"operation \(.kind) \(.status): \(.resource)"' createConsolidationRun -body "{\"group_code\": \"MAPLE\", \"fiscal_year\": $YEAR, \"period\": $period}"
+  run=$(field '.resource | split("/") | last')
+  wait_op
+  say "The reset of the gain, dated $first, is in the year's profit. Its row keeps USD 20.00 at the entry's 1.35, CAD 27.00,"
+  say "where CAD $(amount "$difference") is booked:"
+  api 200 '.items[] | "  \(.company_code) \(.account.number) \(.account.name): \(.amount_lc.amount) \(.amount_lc.currency), booked \(.amount_gc_booked.amount), translated \(.amount_gc.amount) \(.amount_gc.currency)"' \
+    listConsolidationBalances -p "id=$run" -p "legal_entity_id=$us" -p "account_id=$(jq -r '.items[] | select(.number == "490000") | .id' "$WORK/us-accounts.json")"
+  expect "the reset's row" "$(field '[.items[] | "\(.amount_lc.amount) \(.amount_gc_booked.amount) \(.amount_gc.amount)"] | join(", ")')" "20.00 $(amount "$difference") 27.00"
+  expect "the part moved off the row" "$(field "[.items[] | (.amount_gc_booked | $cents) - (.amount_gc | $cents)] | add")" "$moved"
+  say "The valuation itself, on $end, is a result before the group's first period: the earlier results keep its USD 20.00"
+  say "at that day's rate."
+  QUIET=1 api 200 '' listConsolidationBalances -p "id=$run" -p "legal_entity_id=$us" -p kind=prior_results
+  expect "the part moved off the earlier results" "$(field "[.items[] | (.amount_gc_booked | $cents) - (.amount_gc | $cents)] | add")" "$earlier"
+  say "The profit and loss shows what the run moved out of the profit, per company and in its totals. The profit is"
+  say "CAD 27.00 more debit than the first run's, the reset as the run keeps it; as booked it would be CAD $(amount "$difference"):"
+  api 200 '(.translation_reserve[] | "  \(.company_code) \(.company_name): reserve \(.closing.amount), moved out of the profit \(.revaluation_translation.amount) \(.revaluation_translation.currency)"),
+    (.totals | "  total revaluation_translation: reported \(.revaluation_translation.reported.amount), eliminations \(.revaluation_translation.eliminations.amount), consolidated \(.revaluation_translation.consolidated.amount)",
+      "  total profit: consolidated \(.profit.consolidated.amount); other comprehensive income \(.other_comprehensive_income.consolidated.amount)")' \
+    getConsolidatedStatement -p "id=$run" -p statement=profit_and_loss -p page_size=500
+  expect "what each company moved out of its profit" "$(field '[.translation_reserve[] | "\(.company_code) \(.revaluation_translation.amount)"] | join(", ")')" \
+    "1000 $(amount "$moved"), $CC 0.00"
+  expect "the total moved out of the profit" \
+    "$(field '.totals.revaluation_translation | "\(.reported.amount) \(.eliminations.amount) \(.consolidated.amount)"')" "$(amount "$moved") 0.00 $(amount "$moved")"
+  expect "the profit against the first run's" \
+    "$(($(field ".totals.profit.consolidated | $cents") - $(jq -r ".totals.profit.consolidated | $cents" "$WORK/profit-and-loss.json")))" 2700
+  expect "the reset's booked group amount is what the profit keeps and what the run moved" \
+    "$((2700 + $(field ".totals.revaluation_translation.reported | $cents")))" \
+    "$(jq -r ".totals[] | select(.direction == \"gain\") | .difference_gc | $cents" "$WORK/euro-revaluation.json")"
+  QUIET=1 api 200 '' getConsolidatedStatement -p "id=$run" -p statement=balance_sheet -p page_size=500
+  expect "assets, liabilities, equity and the profit, consolidated" "$(field "[.totals[].consolidated | $cents] | add")" 0
+  say "Carla discards this run, cancels the revaluation and reverses the sale: the steps that follow see the month as booked."
+  QUIET=1 api 200 '' getConsolidationRun -p "id=$run"
+  api 200 '"run \(.id[0:8])…: \(.status)"' discardConsolidationRun -p "id=$run" -if-match "$ETAG"
+  expect "the group run" "$(field .status)" discarded
+  QUIET=1 api 200 '' getRevaluationRun -p "id=$reval"
+  api 200 '"revaluation run \(.id[0:8])…: \(.status)"' cancelRevaluationRun -p "id=$reval" -if-match "$ETAG" \
+    -body '{"reason": "Shown for the group run; the euros are revalued at the month end"}'
+  expect "the revaluation run" "$(field .status)" cancelled
+  QUIET=1 api 200 '' getJournalEntry -p "id=$sale"
+  api 200 '"journal entry \(.document_number) of \(.posting_date): the sale reversed"' reverseJournalEntry -p "id=$sale" -if-match "$ETAG" \
+    -body '{"header_text": "The sale in euros, shown for the group run"}'
 }
 
 # next_year_open has, in December only, Ada set up next fiscal year (a
@@ -6138,6 +6291,48 @@ close_sign_off() {
   say "A manual entry dated in the period is refused: the period is locked."
   refused 409 ledger.period_not_open postJournalEntry \
     -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"A late courier charge\", \"lines\": [{\"account_id\": \"$(account 6000)\", \"amount\": {\"amount\": \"40.00\", \"currency\": \"CAD\"}}, {\"account_id\": \"$(account 211000)\", \"amount\": {\"amount\": \"-40.00\", \"currency\": \"CAD\"}, \"partner_id\": \"$SUPPLIER\"}]}"
+}
+
+# consolidation_comprehensive_income is other comprehensive income on the
+# profit and loss consolidation_statements just read (the accounting
+# specialist's B3, po:2026-11-09; ADR-0059 §11, As built: other
+# comprehensive income): below the profit, the fiscal year's translation
+# differences (IAS 21.39(c), 21.41) with the translation reserve of each
+# company (IAS 21.52(b)), and total comprehensive income attributed to
+# non-controlling interests and to the owners of the parent (IAS 1.81B).
+# MAPLE has no final run of an earlier fiscal year, so the reserve opens
+# at zero and the year's difference is Acme Corp US's whole reserve, the
+# one the balance sheet carries; Maple holds it whole, so all of it is the
+# owners'. It reads $WORK/profit-and-loss.json and $WORK/balance-sheet.json.
+consolidation_comprehensive_income() {
+  local column cents='(.amount | tonumber * 100 | round)' pl="$WORK/profit-and-loss.json"
+  say "Below the profit, the statement shows other comprehensive income (B3): the year's translation differences are not"
+  say "part of the profit; they accumulate in the translation reserve, kept per company. The reserve opens at what the"
+  say "group's final run of the previous fiscal year's last period showed; MAPLE has none, so it opens at zero:"
+  jq -r '"  opening run: \(.opening_run_id // "none")",
+    (.translation_reserve[] | "  \(.company_code) \(.company_name) (\(.role)\(if .ownership_percent then ", held at \(.ownership_percent)%" else "" end)): opening \(.opening.amount), difference \(.difference.amount), closing \(.closing.amount) \(.closing.currency); non-controlling interests \(.non_controlling_interests.amount), owners of the parent \(.owners_of_the_parent.amount)"),
+    (.totals | to_entries[] | select(.key | test("comprehensive")) | "  total \(.key): reported \(.value.reported.amount), eliminations \(.value.eliminations.amount), consolidated \(.value.consolidated.amount)")' "$pl"
+  expect "the opening run" "$(jq -r '.opening_run_id // "none"' "$pl")" none
+  expect "the companies with a reserve row" "$(jq -r '[.translation_reserve[] | "\(.company_code) \(.role)"] | join(", ")' "$pl")" "1000 member, 3000 parent"
+  expect "each reserve's opening and difference make its closing" \
+    "$(jq -r "[.translation_reserve[] | (.opening | $cents) + (.difference | $cents) == (.closing | $cents)] | all" "$pl")" true
+  expect "each difference's two shares make it" \
+    "$(jq -r "[.translation_reserve[] | (.non_controlling_interests | $cents) + (.owners_of_the_parent | $cents) == (.difference | $cents)] | all" "$pl")" true
+  expect "other comprehensive income is the companies' differences" "$(jq -r ".totals.other_comprehensive_income.reported | $cents" "$pl")" \
+    "$(jq -r "[.translation_reserve[].difference | $cents] | add" "$pl")"
+  expect "Acme Corp US has a translation difference" "$(jq -r '.translation_reserve[] | select(.company_code == "1000") | .difference.amount != "0.00"' "$pl")" true
+  expect "the reserve on the balance sheet is its opening and other comprehensive income, consolidated" \
+    "$(jq -r ".items[] | select(.role == \"cta\") | .consolidated | $cents" "$WORK/balance-sheet.json")" \
+    "$(jq -r "([.translation_reserve[].opening | $cents] | add) + (.totals.other_comprehensive_income.consolidated | $cents)" "$pl")"
+  for column in reported eliminations consolidated; do
+    expect "total comprehensive income is the profit and other comprehensive income, $column" \
+      "$(jq -r ".totals.total_comprehensive_income.$column | $cents" "$pl")" \
+      "$(jq -r "(.totals.profit.$column | $cents) + (.totals.other_comprehensive_income.$column | $cents)" "$pl")"
+  done
+  say "Maple holds the whole of Acme Corp US, so total comprehensive income is the owners' of the parent too:"
+  expect "total comprehensive income's attribution" \
+    "$(jq -r '"\(.totals.comprehensive_income_non_controlling_interests.consolidated.amount) \(.totals.comprehensive_income_owners_of_the_parent.consolidated.amount == .totals.total_comprehensive_income.consolidated.amount)"' "$pl")" \
+    "0.00 true"
 }
 
 # close_consolidation is finalizing the group's consolidation (T68g,
