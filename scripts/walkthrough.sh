@@ -1481,6 +1481,8 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
+# a number range for the customer invoices of step 47 (T75a; the packs
+# number none yet),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1530,7 +1532,8 @@ PILOT_SETTINGS='
     | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
-        "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
+        "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
+| .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -5672,6 +5675,55 @@ step_asset_order_expenses() {
   passed
 }
 
+# step_customer_invoice is T75a (ADR-0063 §2-§4): a customer invoice
+# entered without a sales order and read back; nothing is posted. The
+# customer is created here, by role, as the ledger knows customers today.
+step_customer_invoice() {
+  heading "Step 47 — Customer invoices: an invoice to a customer entered without a sales order, its GST calculated per item at the invoice date, read back; nothing posted"
+  local customer sales invoice number item1 item2 item3
+  as alex
+  say "Maple invoices Northwind Traders for October's consulting. The ERP issues no legal tax invoice and sends no"
+  say "e-invoice (ADR-0049 §7): the customer invoice entered here is the accounting record of the invoice Maple"
+  say "issued (ADR-0063 §2). Alex sets the customer up, a business partner with the customer role; Carla approves it."
+  api 201 '"business partner \(.number) \(.name): \(.status), roles \(.roles | join(", "))"' createBusinessPartner \
+    -body '{"kind": "organization", "name": "Northwind Traders", "country_code": "CA", "roles": ["customer"], "reason": "A customer of the consulting practice"}'
+  customer=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer"
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed with sales"
+  as alex
+  sales=$(account 4000)
+  say "Alex enters the invoice: two items on 4000 Sales with GO5, the GST output code of step 2 (5%), and a"
+  say "recharge without tax. The tax date is the invoice date (ADR-0049 §4). 5% of 1,000.10 + 499.95 is 75.0025:"
+  say "75.00 once for the code, and each item keeps its share, so the items' tax adds up to the invoice's."
+  item1="{\"description\": \"Consulting, October\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.10\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}"
+  item2="{\"description\": \"Workshop\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"499.95\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}"
+  item3="{\"description\": \"Courier recharged at cost\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"20.00\", \"currency\": \"CAD\"}}"
+  api 201 '"customer invoice \(.document_number) to \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)", (.items[] | "  item \(.item_no) \(.description): \(.net_amount.amount) on \(.account_number) \(.account_name), \(.tax_code // "no tax code"), tax \(.tax_amount.amount), gross \(.gross_amount.amount)")' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [$item1, $item2, $item3]}"
+  invoice=$(field .id)
+  number=$(field .document_number)
+  expect "the invoice's status" "$(field .status)" draft
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.gross_amount.currency)"')" "1520.05 75.00 1595.05 CAD"
+  expect "each item's tax" "$(field '[.items[] | .tax_amount.amount] | join(" ")')" "50.00 25.00 0.00"
+  expect "each item's gross" "$(field '[.items[] | .gross_amount.amount] | join(" ")')" "1050.10 524.95 20.00"
+  expect "the customer by name" "$(field .customer_name)" "Northwind Traders"
+  say "Read back, it is the same document:"
+  api 200 '"customer invoice \(.document_number): \(.status), \(.kind), dated \(.invoice_date), gross \(.gross_amount.amount) \(.gross_amount.currency), \(.items | length) items"' \
+    getCustomerInvoice -p "id=$invoice"
+  expect "read back" "$(field '"\(.document_number) \(.status) \(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "$number draft 1520.05 75.00 1595.05"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    listCustomerInvoices -p "customer_id=$customer" -p status=draft
+  expect "the customer's drafts" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  say "A purchase code is no output tax code; the refusal names the item's own field:"
+  refused 422 receivables.unknown_tax_code createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item1/GO5/GA}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].tax_code"
+  say "Nothing is posted: the customer has no open item. Posting the invoice is T75b."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '.items | length')" 0
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7696,7 +7748,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer_invoice step_close'
 
 main() {
   stop_unseen

@@ -3910,3 +3910,59 @@ columns below arrive with the slices that write them (T65c-T65f).
 | Table | Purpose |
 |---|---|
 | `einvoicing.einvoice` | A document received from the tenant's accredited provider (and, in phase 3, one sent): its company and connector, the provider's message id (unique per tenant and connector), the fetch operation that recorded it, direction, format (`pint_ae`), kind (invoice or credit note), the hash and size of the bytes kept write-once in object storage (null for a document refused as too large, which is not kept), `received_at` and `acknowledged_at`, `changed_hash` when the provider redelivered other bytes under the id, the fields read (number, issue date, currency, totals, lines, the seller's TRN fingerprint and last four characters, the supplier once found), its status (`received` → `entered`, `held` or `refused`; `held` → `entered`, `held` again on a retry with the new problem, or `dismissed`) with the problem code and detail exactly when held or refused and the reason exactly when dismissed, the supplier invoice once entered or linked (at most one document per invoice, a partial unique index), and its version |
+
+## 3.26 Accounts receivable (`receivables`)
+
+ADR-0063, T75a-T75e. Built as payables is: it reads the ledger, the
+partner context, tenancy and the configuration through its ports, posts
+only through the ledger (§3.16) and keeps no foreign key out of its schema
+(02 §2.1). T75a (migration 000265) builds the schema with its outbox and
+inbox and the customer invoice, the accounting record of an invoice the
+company issued, entered as a draft; nothing is posted yet.
+
+```mermaid
+erDiagram
+  customer_invoice ||--|{ customer_invoice_item : "has"
+  customer_invoice { uuid id PK
+    text document_number "customer_invoice range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, customer role"
+    text kind "invoice"
+    date invoice_date "the tax date"
+    date posting_date "optional"
+    char currency
+    bigint net_amount
+    bigint tax_amount
+    bigint gross_amount "net + tax"
+    text status "draft"
+    int version }
+  customer_invoice_item { int item_no PK
+    text description
+    uuid account_id "ledger"
+    bigint net_amount "above 0"
+    text tax_code "output code, optional"
+    bigint tax_amount "0 without a code"
+    uuid cost_center_id
+    uuid profit_center_id }
+```
+
+- `receivables.customer_invoice`: amounts are minor units of `currency`,
+  never negative (`customer_invoice_amounts_not_negative`); the kind gives
+  their direction. `gross_amount = net_amount + tax_amount`
+  (`customer_invoice_totals`). The number is unique per company
+  (`customer_invoice_number_once`). The kind is `invoice` and the status
+  `draft` alone (`customer_invoice_kind_check`,
+  `customer_invoice_status_check`), which T75d (`credit_memo`) and T75b
+  (`posted`) widen. The application may insert and read: nothing changes
+  or deletes a draft in the first version.
+- `receivables.customer_invoice_item`: a net amount above zero
+  (`customer_invoice_item_net_positive`) on an account, with the tax its
+  output tax code gave at the invoice date, never negative and 0 without a
+  code (`customer_invoice_item_tax_not_negative`,
+  `customer_invoice_item_tax_needs_code`); insert-only
+  (`platform.forbid_mutation`). The items' net and tax add up to the
+  header's, which the context writes in one transaction.
+- `receivables.outbox`, `receivables.inbox`: the context's events
+  (`CustomerInvoiceChanged`).
+- Permissions `receivables.invoice.read`, `.write` and `.post` (the last
+  used from T75b).

@@ -58,6 +58,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/telemetry"
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
+	"github.com/mustie7iy/agentic-erp/internal/receivables"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/packs"
@@ -79,6 +80,7 @@ type (
 	workflowAPI    = approvals.Endpoints
 	procurementAPI = procurement.Endpoints
 	payablesAPI    = payables.Endpoints
+	receivablesAPI = receivables.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -105,6 +107,7 @@ type handler struct {
 	*workflowAPI
 	*procurementAPI
 	*payablesAPI
+	*receivablesAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -228,6 +231,7 @@ func New(cfg Config) (http.Handler, error) {
 		workflowAPI:    &approvals.Endpoints{Pages: cfg.Pages, Decider: approvals.Decider{Roles: identity.Directory{}, AgentKind: identity.AgentKind, Metrics: cfg.Metrics, Handlers: approvalHandlers(cfg)}},
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
+		receivablesAPI: Receivables(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -395,6 +399,15 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 		Calendar: calendar(), Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Rates: rates(), Approvals: opener(),
 		Payments: payments.Reservations{}, Methods: payments.PaymentMethods{LegalEntities: tenancy.Directory{}}, OrderNumbers: procurement.Orders{},
 		Extractor: cfg.Extractor, Objects: cfg.Objects, Uploads: uploads, Now: cfg.Now}
+}
+
+// Receivables is the receivables context as the API wires it (ADR-0063
+// §1): the ledger, the partner context, tenancy and the configuration
+// through its ports, as payables reads them.
+func Receivables(cfg Config) *receivables.Endpoints {
+	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, Partners: partner.Payees{},
+		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
+		Settings: configuration.Settings{}}
 }
 
 // uploads is the API's direct-upload service (ADR-0020).

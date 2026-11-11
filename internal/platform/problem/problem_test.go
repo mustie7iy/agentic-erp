@@ -96,6 +96,18 @@ func TestNotFoundOf(t *testing.T) {
 
 // TestReferenceNotFound: the refusal for a lookup that reports "not found"
 // with a bool is the one Reference makes from a 404.
+// TestInvalid: a 422 with the code, naming the field with the detail as
+// its message.
+func TestInvalid(t *testing.T) {
+	p := Invalid("x.unknown_unit", "items[0].unit", "The unit is not known.")
+	if p.Status != 422 || p.Code != "x.unknown_unit" || p.Detail != "The unit is not known." {
+		t.Errorf("got %d %s %q, want 422 x.unknown_unit and the message as its detail", p.Status, p.Code, p.Detail)
+	}
+	if want := (FieldError{Field: "items[0].unit", Code: "invalid", Message: "The unit is not known."}); len(p.Errors) != 1 || p.Errors[0] != want {
+		t.Errorf("field errors: got %+v, want [%+v]", p.Errors, want)
+	}
+}
+
 func TestReferenceNotFound(t *testing.T) {
 	got := ReferenceNotFound("role_id", "role", "no role with this id")
 	var want *Problem

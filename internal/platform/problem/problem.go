@@ -201,6 +201,13 @@ func Unprocessable(code, detail string, errs ...FieldError) *Problem {
 	return p
 }
 
+// Invalid is a 422 with the context's code whose one field error names the
+// request's own field that caused it, the detail its message: how a
+// context refuses a value of a field (REVIEW.md, API-consumer classes).
+func Invalid(code, field, message string) *Problem {
+	return Unprocessable(code, message, FieldError{Field: field, Code: "invalid", Message: message})
+}
+
 // Reference turns "not found" (404) from reading a resource the request
 // refers to into 422 request.reference_not_found on the referring field:
 // the request's content is wrong, not its URL. what names the resource in
