@@ -5714,7 +5714,7 @@ step_customer_invoice() {
   api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
     listCustomerInvoices -p "customer_id=$customer" -p status=draft
   expect "the customer's drafts" "$(field '[.items[].document_number] | join(" ")')" "$number"
-  say "A purchase code is no output tax code; the refusal names the item's own field:"
+  say "GA, an input tax code (the return's adjustment of step 2), is no output tax code; the refusal names the item's own field:"
   refused 422 receivables.unknown_tax_code createCustomerInvoice \
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item1/GO5/GA}]}"
   expect "the field refused" "$(field '.errors[0].field')" "items[0].tax_code"

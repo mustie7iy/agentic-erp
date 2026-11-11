@@ -94,8 +94,6 @@ func TestNotFoundOf(t *testing.T) {
 	}
 }
 
-// TestReferenceNotFound: the refusal for a lookup that reports "not found"
-// with a bool is the one Reference makes from a 404.
 // TestInvalid: a 422 with the code, naming the field with the detail as
 // its message.
 func TestInvalid(t *testing.T) {
@@ -108,6 +106,8 @@ func TestInvalid(t *testing.T) {
 	}
 }
 
+// TestReferenceNotFound: the refusal for a lookup that reports "not found"
+// with a bool is the one Reference makes from a 404.
 func TestReferenceNotFound(t *testing.T) {
 	got := ReferenceNotFound("role_id", "role", "no role with this id")
 	var want *Problem

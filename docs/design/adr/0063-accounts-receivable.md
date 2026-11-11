@@ -245,7 +245,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `invoice_date_to`; sortable by `invoice_date` and `document_number`;
   cursor paging), `GET /v1/customer-invoices/{id}` (404 for another
   company's).
-- Refusals, each naming the request's own field: an unknown customer 422
+- Refusals, each naming the request's own field where one caused it: an unknown customer 422
   `request.reference_not_found` (`customer_id`); one that is not active or
   has no customer role `receivables.customer_not_usable`; an account that
   cannot be posted `receivables.account_not_postable`
@@ -270,7 +270,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `receivables.customer_invoice.create`, in the entry's transaction.
 - Walkthrough `step_customer_invoice` (step 47): Alex sets up a customer
   by the partner API, enters an invoice of three items with GO5 and reads
-  it back; a purchase code is refused naming its field; the customer has
+  it back; an input tax code (GA, an adjustment) is refused naming its
+  field; the customer has
   no open item. The pilot's settings (step 2) add the `customer_invoice`
   number range.
 - **Decided by default:** the six defaults above. Not built, by the plan:
