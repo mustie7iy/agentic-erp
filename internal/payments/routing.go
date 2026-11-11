@@ -29,8 +29,9 @@ type via struct {
 // and whose ranking for the run currency has an active house bank in that
 // currency, that bank, the first the ranking names; a ranked bank whose
 // account is in another currency is skipped (product owner 2026-10-19).
-// A supplier's items that fix a payment method go by that method alone
-// (fixed; product owner 2026-11-10). The zero router routes per run.
+// A supplier's items that fix a payment method go by that method alone,
+// whether or not the supplier's company data allows it (fixed; product
+// owner 2026-11-10). The zero router routes per run.
 type router struct {
 	byMethod bool
 	methods  []string             // the methods a bank can pay with in the run currency, in the company's run order
@@ -95,23 +96,24 @@ func (rt router) route(p partner.Payee) (via, bool) {
 	return via{}, false
 }
 
-// fixed is how the payee's items that fix a payment method are paid: by
+// fixed is how a supplier's items that fix a payment method are paid: by
 // that method alone, through the bank ranked for it, or the reason they
 // are left out, never another method (ADR-0038; product owner
 // 2026-11-10). The method must be an active one of the company
-// (MethodNotActive: it was when the document was entered), one the payee
-// may be paid by (MethodNotAllowed) and one a ranked house bank pays with
-// in the run currency (NoHouseBank). A run proposed for one house bank
-// pays by no method, so it cannot honour one (FixedMethodInBankRun).
-func (rt router) fixed(p partner.Payee, method string) (via, string) {
+// (MethodNotActive: it was when the document was entered) and one a
+// ranked house bank pays with in the run currency (NoHouseBank). The
+// methods the supplier may be paid by do not restrict it: they restrict
+// the run order alone (route), and the item's method wins over both, as
+// SAP's ZLSCH does over ZWELS (SAP specialist, A4(c); product owner
+// 2026-11-10). A run proposed for one house bank pays by no method, so
+// it cannot honour one (FixedMethodInBankRun).
+func (rt router) fixed(method string) (via, string) {
 	bank, ranked := rt.banks[method]
 	switch {
 	case !rt.byMethod:
 		return via{}, FixedMethodInBankRun
 	case !rt.active[method]:
 		return via{}, MethodNotActive
-	case !slices.Contains(p.PaymentMethods, method):
-		return via{}, MethodNotAllowed
 	case !ranked:
 		return via{}, NoHouseBank
 	}
@@ -119,11 +121,12 @@ func (rt router) fixed(p partner.Payee, method string) (via, string) {
 }
 
 // items is how the payee's items that fix method, or none (""), are
-// paid, or the reason they are left out: by the fixed method alone
-// (fixed), else by the company's run order (route).
+// paid, or the reason they are left out: by the fixed method alone,
+// whatever the payee's own methods (fixed), else by the company's run
+// order among them (route).
 func (rt router) items(p partner.Payee, method string) (via, string) {
 	if method != "" {
-		return rt.fixed(p, method)
+		return rt.fixed(method)
 	}
 	v, routed := rt.route(p)
 	if !routed {

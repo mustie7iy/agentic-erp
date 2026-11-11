@@ -54825,9 +54825,9 @@ type Payment struct {
 	// Why the payment is paid by its `payment_method`; present exactly when `payment_method` is.
 	// `run_order`: the first method of the company's run order that the supplier may be paid by and a
 	// ranked house bank pays with. `item`: its items fix the method (their invoices' `payment_method`),
-	// which wins over the run order; such a payment holds the supplier's items fixing that method alone.
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// which wins over the run order and over the supplier's `payment_methods`; such a payment holds the
+	// supplier's items fixing that method alone. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
 	PaymentMethodSource OptString `json:"payment_method_source"`
 	// Settled open items; none on a down payment's payment.
 	Items []PaymentItem `json:"items"`
@@ -55132,11 +55132,11 @@ type PaymentExclusion struct {
 	// payment methods has a house bank ranked for the run currency (T45c). A supplier's items that fix a
 	// payment method are judged apart from its others, per fixed method (`payment_method`), for every
 	// reason here, and are left out when the method cannot pay them, never paid by another:
-	// `method_not_active` (the method is not an active payment method of the company),
-	// `method_not_allowed` (it is not among the supplier's `payment_methods` in the company),
-	// `no_house_bank` (no active house bank in the run currency is ranked for it) and
-	// `fixed_method_in_bank_run` (the run was proposed for one house bank, which pays by no method:
-	// propose a run without a house bank to pay them).
+	// `method_not_active` (the method is not an active payment method of the company), `no_house_bank` (no
+	// active house bank in the run currency is ranked for it) and `fixed_method_in_bank_run` (the run was
+	// proposed for one house bank, which pays by no method: propose a run without a house bank to pay
+	// them). The supplier's `payment_methods` do not restrict a fixed method: they restrict the run order
+	// alone, and an item fixing a method they lack is paid by it.
 	ReasonCode string `json:"reason_code"`
 	// The payment method the items left out fix (their invoices' `payment_method`; ADR-0038): the
 	// exclusion is of the supplier's items fixing this method alone, and `amount` what they would have
@@ -67552,8 +67552,10 @@ type SupplierCompany struct {
 	// company's `withholding_tax_codes` in the configuration.
 	WithholdingTaxCodes []string `json:"withholding_tax_codes"`
 	// The methods the supplier may be paid by in this legal entity (SAP LFB1-ZWELS; ADR-0038): codes of
-	// the company's `payment_methods` in the configuration. The list restricts the methods a payment run
-	// pays the supplier by; the order they are tried in is the company's, not this list's.
+	// the company's `payment_methods` in the configuration. The list restricts the methods of the
+	// company's run order that a payment run pays the supplier's items by; the order they are tried in is
+	// the company's, not this list's. It does not restrict an item that fixes its payment method (an
+	// invoice's `payment_method`): such an item is paid by that method whether or not this list has it.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (SAP LFB1-FDGRV; ADR-0051 §4): a code of the
 	// configuration's `cash.planning_groups`, which gives the supplier's cash flows a liquidity item when
@@ -67658,8 +67660,10 @@ type SupplierCompanyInput struct {
 	// the company's configuration, each once. A payment proposal pays the supplier through the first
 	// method of the company's run order (the configuration's `payment_methods`, by their `order`, else as
 	// listed) that is in this list and that a ranked house bank can pay; the order of this list decides
-	// nothing. The list replaces the supplier's methods in the legal entity: leaving it out takes every
-	// method off the supplier there, as the other company data is replaced too.
+	// nothing. An item that fixes its payment method (an invoice's `payment_method`) is paid by that
+	// method whether or not this list has it. The list replaces the supplier's methods in the legal
+	// entity: leaving it out takes every method off the supplier there, as the other company data is
+	// replaced too.
 	PaymentMethods []string `json:"payment_methods"`
 	// The supplier's planning group in this legal entity (ADR-0051 §4): an active code of the
 	// configuration's `cash.planning_groups` (422 `partner.unknown_planning_group` otherwise). Like the
@@ -67792,7 +67796,8 @@ type SupplierInvoice struct {
 	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
 	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
 	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
-	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// company's run order and whether or not the method is among the supplier's `payment_methods` in the
+	// legal entity; when the method cannot pay it the item is left out of the run with the reason
 	// (`listPaymentExclusions`), never paid by another method. Absent: the item is paid by the company's
 	// run order. Changed while the document is parked (`updateSupplierInvoice`); its open item keeps the
 	// method it posted with.
@@ -68215,7 +68220,8 @@ type SupplierInvoiceCreate struct {
 	// The payment method the document fixes (SAP BSEG-ZLSCH; ADR-0038): an active payment method of the
 	// company's configuration (`payment_methods[].code`). A payment run pays the document's open item by
 	// this method alone, in a payment of its own beside the supplier's items that fix none, whatever the
-	// company's run order; when the method cannot pay it the item is left out of the run with the reason
+	// company's run order and whether or not the method is among the supplier's `payment_methods` in the
+	// legal entity; when the method cannot pay it the item is left out of the run with the reason
 	// (`listPaymentExclusions`), never paid by another method. A code that is not an active payment method
 	// of the legal entity is 422 `payables.unknown_payment_method`. Left out: the item is paid by the
 	// company's run order.

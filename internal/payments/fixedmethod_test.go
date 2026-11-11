@@ -114,9 +114,13 @@ func wantAll(t *testing.T, what string, got, want map[string]string) {
 // are paid by that method, in a payment of their own beside the payment
 // of its items that fix none, which goes by the company's run order
 // (ADR-0038; SAP specialist 2026-11-09, A4(c); product owner 2026-11-10:
-// one payment per supplier and method). A credit memo nets within its own
-// group alone. A supplier none of whose items fixes a method is paid as
-// before, in one payment by the run order. A group is what its items fix,
+// one payment per supplier and method), whether or not the supplier's own
+// methods allow it: the supplier here may be paid by T alone, and its
+// items fixing S are paid by S, posted and written to S's bank file (the
+// item's method wins over the supplier's list; product owner 2026-11-10).
+// A credit memo nets within its own group alone. A supplier none of whose
+// items fixes a method is paid as before, in one payment by the run
+// order. A group is what its items fix,
 // so a supplier whose run-order method is also the method one of its
 // items fixes gets two payments by it, each netted apart (ADR-0038 As
 // built, the same method twice). Each payment says why it is paid by its
@@ -125,7 +129,7 @@ func TestFixedMethodPaidApart(t *testing.T) {
 	e, db := methodSetup(t)
 	e.bankAccount(t, e.Supplier, "DE89370400440532013000", "Supplier", "2026-01-01", "", "create")
 	e.bankAccount(t, e.Vendor, "DE02120300000000202051", "Vendor", "2026-01-01", "", "create")
-	e.methods(t, e.Supplier, "{S,T}")
+	e.methods(t, e.Supplier, "{T}") // not S, which its items fix
 	e.methods(t, e.Vendor, "{S,T}")
 	e.invoice(t, e.Supplier, "INV-1", "100.00", "2026-03-01")
 	e.document(t, "credit_memo", e.Supplier, "CM-1", "10.00", "2026-03-02")
@@ -223,11 +227,12 @@ func TestFixedMethodGroupsNetApart(t *testing.T) {
 // TestFixedMethodThatCannotPay: a supplier's items that fix a payment
 // method are left out with the reason when the method cannot pay them,
 // never paid by another method (ADR-0038; product owner 2026-11-10),
-// while its items that fix none are paid as before: the supplier may not
-// be paid by the method (method_not_allowed), no house bank is ranked for
-// it in the run currency (no_house_bank), it is no longer an active
-// method of the company (method_not_active); a supplier blocked for
-// payment is excluded for that, once per group. A run proposed for one
+// while its items that fix none are paid as before: no house bank is
+// ranked for it in the run currency (no_house_bank), or it is no longer
+// an active method of the company (method_not_active), whether or not it
+// is among the supplier's own methods; a supplier blocked for payment is
+// excluded for that, once per group. A method the supplier's own methods
+// lack is no such reason: its items are paid by it. A run proposed for one
 // house bank pays by no method: it leaves every item fixing one out
 // (fixed_method_in_bank_run) and pays the others from its bank.
 func TestFixedMethodThatCannotPay(t *testing.T) {
@@ -254,9 +259,9 @@ func TestFixedMethodThatCannotPay(t *testing.T) {
 	run := e.runByMethod(t)
 	byOrder := db.String() + " T 100.00: 100.00"
 	wantAll(t, "payment of the run without a house bank", e.paidBySource(t, run), map[string]string{
-		e.Supplier.String() + " run_order": byOrder, e.Vendor.String() + " run_order": byOrder, third.String() + " run_order": byOrder})
+		e.Supplier.String() + " run_order": byOrder, e.Vendor.String() + " run_order": byOrder, third.String() + " run_order": byOrder,
+		e.Supplier.String() + " item": e.bank.String() + " S 60.00: 60.00"})
 	wantAll(t, "exclusion of the run without a house bank", e.excludedByMethod(t, run), map[string]string{
-		e.Supplier.String() + " S": "method_not_allowed 60.00",
 		e.Vendor.String() + " C":   "no_house_bank 60.00",
 		third.String() + " Q":      "method_not_active 60.00",
 		blocked.String() + " S":    "payment_blocked 60.00",

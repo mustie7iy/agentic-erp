@@ -125,7 +125,7 @@ func TestFixedPaymentMethod(t *testing.T) {
 			}
 		}
 		cases := []attempt{{"a debit balance", exclude(f.supplier, "S", "debit_balance"), ""},
-			{"the same method twice", exclude(f.supplier, "S", "method_not_allowed"), "method_exclusion_once"},
+			{"the same method twice", exclude(f.supplier, "S", "method_not_active"), "method_exclusion_once"},
 			{"another method of the supplier", exclude(f.supplier, "C", "no_house_bank"), ""},
 			{"a word for a method", exclude(f.supplier, "wire", "no_house_bank"), "method_exclusion_payment_method_check"},
 			{"a request's reason", exclude(f.otherSupplier, "S", "tax_code_invalid"), "method_exclusion_reason_code_check"},
@@ -133,6 +133,9 @@ func TestFixedPaymentMethod(t *testing.T) {
 				return exec(tx, `INSERT INTO payments.method_exclusion (tenant_id, id, payment_run_id, supplier_id, payment_method, reason_code, amount)
 					VALUES ($1, $2, $3, $4, 'S', 'debit_balance', -20)`, f.tenant, id(), id(), f.otherSupplier)
 			}, "method_exclusion_tenant_id_payment_run_id_fkey"}}
+		// method_not_allowed is admitted by the check (000253) though no
+		// run writes it: the supplier's methods no longer restrict a fixed
+		// one (ADR-0038 As built, an item's fixed payment method).
 		for _, reason := range []string{"method_not_active", "method_not_allowed", "fixed_method_in_bank_run", "item_reversed", "supplier_blocked"} {
 			cases = append(cases, attempt{"the reason " + reason, exclude(id(), "S", reason), ""})
 		}
@@ -141,7 +144,7 @@ func TestFixedPaymentMethod(t *testing.T) {
 		// supplier's items that fix none never carries them.
 		t.Run("a fixed method's reason on items that fix none", func(t *testing.T) {
 			failsOn(t, asApp(t, f.tenant, func(tx pgx.Tx) error {
-				return exec(tx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount) VALUES ($1,$2,$3,'method_not_allowed',100)`,
+				return exec(tx, `INSERT INTO payments.payment_exclusion (tenant_id, payment_run_id, supplier_id, reason_code, amount) VALUES ($1,$2,$3,'method_not_active',100)`,
 					f.tenant, run, id())
 			}), "payment_exclusion_reason_code_check")
 		})

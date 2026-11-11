@@ -90,8 +90,10 @@ func TestMessageIDsOfLongCodes(t *testing.T) {
 // TestRouteItemsFixingAMethod: a supplier's items that fix a payment
 // method go by that method alone, through the bank ranked for it, or are
 // left out with the reason, never routed by another method (ADR-0038;
-// product owner 2026-11-10); a run for one house bank pays by no method
-// and cannot honour one. Items that fix none are routed exactly as the
+// product owner 2026-11-10), whether or not the supplier's own methods
+// allow it: those restrict the run order alone (SAP specialist, A4(c)).
+// A run for one house bank pays by no method and cannot honour one.
+// Items that fix none are routed exactly as the
 // company's run order routes the supplier (route), unrouted with
 // NoHouseBank.
 func TestRouteItemsFixingAMethod(t *testing.T) {
@@ -108,8 +110,10 @@ func TestRouteItemsFixingAMethod(t *testing.T) {
 		reason  string
 	}{
 		{"the method fixed, though the run order has another first", byMethod, []string{"T", "C"}, "C", "C", second, ""},
-		{"a method the supplier may not be paid by", byMethod, []string{"T"}, "C", "", uuid.Nil, MethodNotAllowed},
+		{"a method the supplier's own methods lack", byMethod, []string{"T"}, "C", "C", second, ""},
+		{"a method fixed for a supplier without methods", byMethod, nil, "T", "T", main, ""},
 		{"a method no bank is ranked for", byMethod, []string{"T", "U"}, "U", "", uuid.Nil, NoHouseBank},
+		{"a method no bank is ranked for, nor the supplier's", byMethod, []string{"T"}, "U", "", uuid.Nil, NoHouseBank},
 		{"a method the company no longer has", byMethod, []string{"T", "X"}, "X", "", uuid.Nil, MethodNotActive},
 		{"a method neither the company nor the supplier has", byMethod, []string{"T"}, "X", "", uuid.Nil, MethodNotActive},
 		{"a run for one house bank", router{}, []string{"C"}, "C", "", uuid.Nil, FixedMethodInBankRun},
