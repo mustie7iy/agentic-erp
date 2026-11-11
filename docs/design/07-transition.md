@@ -1868,9 +1868,10 @@ keep passing.
    rebase, never merged by hand. Since 2026-10-28 three lanes run at once
    (ADR-0053), and `make ci-local` runs one batch at a time with the machine to
    itself, as the lanes share the test database server. A pull request is merged
-   with `scripts/merge-pr.sh` when the full local gates passed (`make
-   ci-local`), GitHub's short check is green and the reviewer has no blocking
-   finding (06 §6.5).
+   with `scripts/merge-pr.sh` when the local gates passed (`make ci-local`,
+   or `make ci-local-light` with the race, coverage and fuzz jobs of the pull
+   request's GitHub run), GitHub's check is green and the reviewer has no
+   blocking finding (06 §6.5).
 2. **Behaviour and refactoring apart.** A refactoring commit never changes
    behaviour. A bug found on the way is noted and fixed as its own commit with a
    test that fails before the fix; the failing output is copied, not described.
@@ -1913,8 +1914,11 @@ keep passing.
      `go test -race -shuffle=on -count=3 ./...`, `make generate`, staticcheck,
      gosec, govulncheck, gitleaks, the contract lint, the breaking-change check,
      the performance budgets, the images, the signing round trip and the
-     infrastructure checks; then GitHub's short check. The pilot walkthrough
-     (`cmd/erp`'s `TestWalkthrough`, in `make ci-local`) runs on every batch
+     infrastructure checks; then GitHub's check. Since 2026-11-10 the three
+     shuffled race runs, the coverage gate and fuzzing may run in the pull
+     request's GitHub jobs instead, with the rest in `make ci-local-light`
+     (06 §6.5); the gates are the same. The pilot walkthrough
+     (`cmd/erp`'s `TestWalkthrough`, in `make ci-local` and its light form) runs on every batch
      and is each slice's acceptance evidence: the slice's step is among those
      its summary lists as passed, not skipped (the coordinator reads the
      summary from a `make walkthrough` run on the batch for the digest).

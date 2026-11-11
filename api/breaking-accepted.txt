@@ -4,6 +4,9 @@
 # that accepted it and why (api/breaking_accepted_test.go, ADR-0041). Once the
 # pilot partner consumes /v1, only x-stability-level: beta operations may be listed.
 # Remove a line once the base contract carries the change.
+# A value removed from an open enumeration is accepted the same way, by the
+# line cmd/enumcompat prints (oasdiff does not read x-extensible-enum):
+#   x-extensible-enum at `<location>` removed the value `<value>`
 # T27 (ADR-0012 accepted): the payment release answers 202 with an Operation.
 POST /v1/payment-runs/{id}:release removed the success response with the status `200`
 # A run proposed without a house bank pays each supplier through the bank its

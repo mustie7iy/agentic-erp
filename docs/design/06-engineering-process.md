@@ -158,12 +158,12 @@ Every change passes, before it is merged:
 |---|---|
 | Format, vet, static analysis | `gofmt`, `go vet`, `staticcheck` (in every Go module, `temporal/` included: `scripts/each-module.sh`) |
 | Security | `govulncheck` (in every Go module, as `staticcheck` and `gosec`), secret scanning (`gitleaks`), static analysis (`gosec`, with G104, G115, G304 and G107 excluded by decision: errors ignored on purpose carry a comment, integer conversions are of bounded domain values, paths and URLs come from settings and flags; the generated server excluded; the rest annotated where a finding is a false positive, each with its reason) |
-| Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go) |
+| Contract lint and breaking-change check | `vacuum` (Go), `oasdiff` (Go), and `cmd/enumcompat`: no value leaves an open enumeration (`x-extensible-enum`, which oasdiff does not read) unless `api/breaking-accepted.txt` carries the removal under its reason |
 | Schema tests on PostgreSQL 17 | `go test ./db` against a CI service container |
-| Unit, functional and non-functional tests with the race detector | `go test -race ./...` (locally three times in random order) |
-| Performance budgets | `scripts/budgets.sh`: every package's `Test…Budget` and `Test…Perf`, found rather than listed, one package at a time; they measure only there (`ERP_MEASURE_BUDGETS`, `nfr.Measure`) and skip in any other `go test` |
-| Coverage gate | `scripts/coverage.sh`, 100% of production statements |
-| Fuzz targets | Every target's seed corpus with the tests on PRs; `make fuzz` 30 s per target on `main`, 5 minutes weekly |
+| Unit, functional and non-functional tests with the race detector | `go test -race -shuffle=on -count=3 ./...`: three times in random order, on GitHub in parallel shards (`scripts/ci-shards.sh`), or in one run of `make ci-local` |
+| Performance budgets | `scripts/budgets.sh`: every package's `Test…Budget` and `Test…Perf`, found rather than listed, one package at a time; they measure only there (`ERP_MEASURE_BUDGETS`, `nfr.Measure`) and skip in any other `go test`; and `scripts/budget-times.sh`: no budget test takes longer than 240 s in all, its seeding included |
+| Coverage gate | `scripts/coverage.sh`, 100% of production statements; on GitHub the tests run in shards and the gate counts their profiles together |
+| Fuzz targets | Every target's seed corpus with the tests; `make fuzz` 30 s per target on every pull request and on `main`, 5 minutes weekly |
 | Image signing round trip | `make signing-roundtrip` against a registry service: push, sign and attest (SBOM, provenance) with a key pair made for the job, verify, and the refusals (another key, another commit, a tag, no signature, attestations without a signature, uncommitted changes) (ADR-0032). When signing or image inputs change, and weekly |
 | Release scripts | `scripts/test-release-scripts.sh`: the version rules and the changelog's grouping on throwaway repositories, with the pinned git-cliff (ADR-0032). When those scripts or their inputs change, and weekly |
 | Build and container images | `make build`; `make image-scan`: grype on each SBOM and the pinned base, failing on a fixable high or critical vulnerability; `make images-reproducible` (the four ko images, erp-temporal (ko, from `temporal/`) and erp-analytics built twice, with private caches, and their digests compared; one build at a time, as the three ko binaries that import `api/gen` and erp-analytics each compile it: measured cold, ko peaks at 3843 MiB and erp-analytics's buildx builder at 3784 MiB) when image inputs change, and weekly (ADR-0032) |
@@ -175,9 +175,16 @@ The checks are split between the author's machine and GitHub (the hybrid
 check, since 2026-10-18; since 2026-10-21 every check runs once before a
 merge, locally, and GitHub's pull request check is light — PO decision of
 2026-10-21; since 2026-10-26 the full suite runs on `main` on demand rather
-than on every push — PO decisions of 2026-10-26 and 2026-10-27), so runner
-minutes go to the second line on `main` rather than to repeating the slow
-gates on each pull request:
+than on every push — PO decisions of 2026-10-26 and 2026-10-27; since
+2026-11-10 the race suite, the coverage gate and fuzzing run on GitHub for
+every pull request, as parallel jobs — PO decision of 2026-11-10). The
+repository has been public since 2026-11-04, so standard GitHub-hosted
+runners cost nothing, and the three gates that took most of a batch's local
+time (the race suite three times 58 minutes, coverage 11, fuzzing 10, of
+about 2 h 13 min during which the lanes waited) moved there. The static
+checks and the performance budgets stay local: a shared runner is too noisy
+to time a budget on a pull request. Only standard runners are used, never
+larger or self-hosted ones:
 
 - **Lanes and batches (ADR-0053, PO decision of 2026-10-28):** a lane runs a
   fast loop on each step (a slice), the one 07 §7.7 lists, and the full gates
@@ -185,7 +192,10 @@ gates on each pull request:
   order, the whole-repository coverage gate, fuzzing, the budgets, the images,
   the signing round trip and the infrastructure checks run in `make ci-local`
   below, unchanged, on the batch before every pull request; `make ci-local` has
-  the machine to itself, and three lanes run beside each other otherwise. The
+  the machine to itself, and three lanes run beside each other otherwise.
+  Since 2026-11-10 a batch may instead run `make ci-local-light` and leave
+  the race runs, the coverage gate and fuzzing to the pull request's GitHub
+  jobs (below); no gate is dropped either way. The
   pilot walkthrough (`cmd/erp`'s `TestWalkthrough`, in `make ci-local`) runs on
   every batch and is each slice's acceptance evidence: the slice's step is
   among the steps the summary lists as passed, not skipped, which the
@@ -229,26 +239,79 @@ gates on each pull request:
   measured); a change to the deploy
   workflow's paths adds about 5 minutes (infrastructure 72 s, Helm and
   admission 100 s, temporal 111 s, mirroring and NATS seconds).
-- **On GitHub, for a pull request (light, about 10 minutes):** the
-  `changes` job (secret scan, the skip rules' tests, the classes) and the
-  `short` job: format, vet, the whole-tree lint, the generated code, the
-  contract lint and the breaking-change check against `main`, the build
-  and the suite in short mode without the race detector, on a clean Linux
-  runner. The deploy workflow does not run on pull requests; the promotion
-  workflows do, as before.
+- **Locally, the light form (PO decision of 2026-11-10):**
+  `make ci-local-light` (`CI_LOCAL_FORM=light`) runs every step of
+  `make ci-local` but three: the race suite three times in random order,
+  the whole-repository coverage gate and fuzzing, which GitHub runs on the
+  pull request. In their place the suite runs once, whole, without the race
+  detector, in short mode as the coverage gate and GitHub's `short` job run
+  it (about 8 minutes with the machine to itself; the same tests instrumented, the coverage step, took 9.5 on batch 65), followed by the two things short mode skips that
+  the race step held: the walkthrough (`cmd/erp`'s `TestWalkthrough`) and
+  the browser suite (`internal/web/e2e`). So the walkthrough, the browser
+  suite and the author's platform are still held before a merge. The suite
+  is not cut down to the changed packages, because the whole of it fits and
+  a selection would be one more thing to get wrong; and it is not run
+  without `-short`, which would add `internal/nfr`'s load and soak tests:
+  they time the machine and fail beside the lanes (a trial on 2026-11-11
+  failed `TestLoad` alone, at load 50), and run weekly. The static checks, the budgets, the images
+  and the deploy checks run as in the full form. The report, in the same
+  place, names the form on its second line (`Form: light …` or
+  `Form: full`). `make ci-local` itself is unchanged and remains the form
+  for a batch when GitHub is unavailable.
+- **On GitHub, for a pull request:** the `changes` job (secret scan, the
+  scripts' own tests, the classes); the `short` job: format, vet, the
+  whole-tree lint, the generated code, the contract lint and the
+  breaking-change check against `main`, the build and the suite in short
+  mode without the race detector; and, since 2026-11-10, the race suite
+  three times in random order (`race`, one job per shard), the coverage
+  gate (`coverage-shard`, one job per shard, then `coverage`, which applies
+  the gate to the shards' profiles together, with the exclusions and the
+  failure report of the whole-suite gate) and fuzzing 30 s per target
+  (`fuzz`), all on clean Linux runners in parallel. The shards are
+  computed, never listed (`scripts/ci-shards.sh`, the `shards` job): the
+  packages come from `go list`, each weighted by the seconds one race run
+  of it took on a runner (`scripts/ci-shard-weights.txt`, main's run
+  43072109681; a package without a weight counts as 10 s and is tested all
+  the same); a package whose three runs exceed 1200 s is split by test
+  function, the functions sorted and dealt in turn, and the pieces are
+  dealt, heaviest first, to the lightest of as many shards as keep each
+  near 25 minutes: 14 race shards on 2026-11-11, with `internal/web`,
+  `internal/integration`, `cmd/erp`, `internal/web/e2e`,
+  `internal/payments`, `internal/web/ui`, `internal/assets` and
+  `internal/ledger` in two parts each, and 4 coverage shards.
+  `ci-shards.sh check`, in the `shards` job and in `make ci-local`, fails
+  when a package is in no shard or in two, or a test function of a split
+  package is in no part or in two, and the shard that runs a split
+  package's first part asks the compiled test binary for its tests
+  (`go test -list`) and fails on one no part runs. The coverage shards
+  hand their profiles (reduced to one line per block) to the gate through
+  the run's own cache entries, named by the run, since the workflows pin
+  the cache action and no artifact action. The deploy workflow does not
+  run on pull requests; the promotion workflows do, as before.
 - **Merging:** `scripts/merge-pr.sh <n>` merges with a merge commit only
   when `ci-ok` succeeded on the head commit, a passing local report exists
-  for the head's tree, and the head contains `origin/main` as it is now.
-  Since the slow gates run only locally, on the head's tree rather than on
-  GitHub's merge of it into `main`, that rule makes the merge's tree the
-  tested one, checked by `main`'s latest gates; a pull request is rebased
-  and `make ci-local` re-run whenever `main` moves before it merges. Run
-  `merge-pr.sh` from an up-to-date `main` checkout, as its own rules are
-  the copy run. It posts the report on the pull request as the record. It stands in for branch
-  protection, which a private repository on the current plan does not
-  enforce: the product owner approved branch protection on 2026-10-28 and
-  GitHub refused it, as it needs GitHub Pro or a public repository, so
-  `merge-pr.sh` enforces `ci-ok` by convention (ADR-0053).
+  for the head's tree, the head contains `origin/main` as it is now, and
+  `main` is neither red nor in the middle of its full run (below). A light
+  report counts only when every `ci-ok` run of the head was a run of that
+  very commit in which the `race` shards, the `coverage-shard`
+  jobs, `coverage` and `fuzz` each ran and succeeded: the script reads the
+  run's jobs, not `ci-ok` alone, since a skipped job reads as passed to a
+  required check; they may be skipped only for a change
+  `scripts/ci-changes.sh`, run by the script on the same commits, calls
+  documentation alone. With a full report GitHub's jobs are not
+  consulted. Since the local gates run on the head's tree rather than on
+  GitHub's merge of it into `main`, the ancestry rule makes the merge's
+  tree the tested one, checked by `main`'s latest gates; a pull request is
+  rebased and the local gates re-run whenever `main` moves before it
+  merges. Run `merge-pr.sh` from an up-to-date `main` checkout, as its own
+  rules are the copy run. It posts the report on the pull request as the
+  record. Branch protection has required `ci-ok` on `main` since
+  2026-11-04, when the repository became public (the product owner had
+  approved it on 2026-10-28 and GitHub refused it for a private repository
+  on the free plan); `merge-pr.sh` adds what a required check cannot
+  express: the local report, the jobs behind a light one and the red-`main`
+  rule (ADR-0053). `scripts/test-merge-pr.sh` holds its rules against a
+  stand-in for `gh`.
 - **On GitHub, for a push to `main`:** fuzzing, and the signing round
   trip and the release scripts when their inputs changed, and the deploy
   workflow when its paths changed. A newer push cancels a running `ci`
@@ -257,9 +320,12 @@ gates on each pull request:
 - **On GitHub, on demand on `main` after each batch of merges (the full
   suite, the second line; PO decisions of 2026-10-26 and 2026-10-27):** the
   `test` job — the static checks (staticcheck, govulncheck and gosec as
-  well), the schema tests, the race detector, the performance budgets, the
-  coverage gate, the images on both platforms built twice and their scan —
-  with fuzzing, the signing round trip and the release scripts, on the tree
+  well), the schema tests, the performance budgets, the images on both
+  platforms built twice and their scan — and, since 2026-11-10, the race
+  suite three times in random order and the coverage gate in the shards a
+  pull request runs them in (before, one race run and the gate were steps
+  of the `test` job: 75 and 26 of its 170 minutes in run 43072109681), with
+  fuzzing, the signing round trip and the release scripts, on the tree
   `main` really holds. It runs only when started by hand
   (`workflow_dispatch`): the coordinator starts it on `main` after each
   batch of merges, and on any other branch a change to the jobs is tried
@@ -271,14 +337,31 @@ gates on each pull request:
   limit is 240 minutes. Nor does it run nightly (PO decision of
   2026-10-27, after the Actions budget ran out): the run is about 190
   billable job-minutes, so a nightly run alone would cost about $35-45 a
-  month. A manual and a push run on `main` do not cancel each other. After
+  month. A manual and a push run on `main` do not cancel each other, and
+  since 2026-11-11 a manual run is never cancelled by a newer one
+  (`cancel-in-progress` is false for `workflow_dispatch` alone): a second
+  one waits until the first has finished, and a third replaces the one
+  waiting, not the one running. Pull requests and pushes cancel as before.
+  After
   every merge the coordinator reads `main`'s latest push run, and after
   each batch its latest manual full run (coordinator/status.py), not only
   the pull request's light check: from 2026-10-21 to 2026-10-25 the runner
   stopped every run on `main`, unseen.
 - **A red `main`** (PO decisions, 2026-10-21, 2026-10-26 and 2026-10-27):
   `main` is red while its latest push run, or its latest manual full run,
-  is red. The merge that turned it red is reverted at once, or fixed
+  is red. Since 2026-11-11 `scripts/merge-pr.sh` holds the rule itself, and
+  one more: it also refuses while the latest full run on `main` is queued
+  or in progress, since a batch merged on top of a batch whose run is still
+  going hides which of the two broke `main` (10–11 Nov). It reads the
+  latest push run that finished without being cancelled (a newer push
+  cancels an older run, which proves nothing) and the latest manual run. A
+  manual run counts as green when it succeeded, or when its `ci-ok` never
+  ran and every other job, `test` among them, succeeded or was skipped (on
+  2026-11-11 a GitHub Actions outage left `ci-ok` unqueued and the run read
+  as failed with every job green); a `ci-ok` that ran and failed, or any
+  other job failed, cancelled or unfinished, is red, a cancelled run
+  included: start it again. `merge-pr.sh <n> --fix-forward` merges
+  regardless, for the one pull request that repairs `main`. The merge that turned it red is reverted at once, or fixed
   forward within the hour when the fix is clear and small; nothing else
   merges meanwhile, and a release is cut only from a green `main`. A
   manual full run covers every merge of the batch before it, so the merge
@@ -476,6 +559,42 @@ gates on each pull request:
     causes, which bash 3.2 also gives the EXIT trap status 0; the lib traps
     no signal, which would wait for the foreground command
     (`TestWalkthroughExitStatus`, `scripts/test-on-exit.sh`).
+  - 2026-11-11 (ci:batch64, main's run 43007697247): `TestConsolidatedStatementBudget`
+    spent about 290 s on the runner (329 s on the lanes' machine) seeding
+    its data inside an 8-minute context, passed for several batches, and
+    failed only when the context ran out; pull request 113 fixed the
+    seeding. Layer: the machine checks: `scripts/budgets.sh` looked at what
+    a budget test measures, never at how long the test took. Changed:
+    `budgets.sh` reads the run as `go test -json` and
+    `scripts/budget-times.sh` lists every budget test's whole time, slowest
+    first, and fails above 240 s (`BUDGET_TEST_LIMIT`): half of that
+    8-minute context, the tightest any budget test gives its run, and half
+    as much again as the slowest test today (`TestLiquidityForecastBudget`,
+    157 s on a runner at scale 2). It fails rather than warns; a test above
+    three quarters of the limit is named without failing
+    (`scripts/test-budget-times.sh`).
+  - 2026-11-11 (ci:batch65): batch 65 removed the documented `/v1` value
+    `method_not_allowed` from `PaymentExclusion.reason_code`'s open
+    enumeration and the breaking-change check passed: oasdiff does not read
+    `x-extensible-enum`. Layer: the machine checks. Changed:
+    `cmd/enumcompat` (`api.EnumRemovals`), run beside oasdiff in the
+    `short` job and in `ci-local.sh` on every contract file, lists each
+    value the base lists and the head no longer does, by its location (a
+    parameter by its name, so that one added before it does not move it),
+    and fails unless `api/breaking-accepted.txt` carries the printed line
+    under a `# T<n> …: <reason>` comment (`TestBreakingAccepted`). A value
+    whose whole schema is gone is left to oasdiff, which reports the
+    removed parameter, property or operation. Run on batch 65's change it
+    reports the removal; on `main` as it is, whose base already lacks the
+    value, it passes, so nothing was added to the accepted list.
+  - 2026-11-11 (main's runs 43052832194 and 43072109681): starting a new
+    full run on `main` cancelled the one two hours in, and a GitHub Actions
+    outage later left a run's `ci-ok` unqueued, so the run read as failed
+    with every job green. Layer: the workflow's concurrency rule and the
+    reading of a run by its conclusion alone. Changed: a manual run is no
+    longer cancelled by a newer one, and `merge-pr.sh` reads a full run's
+    jobs when GitHub does not call it a success (the red-`main` rule
+    above).
 - Secret scanning and the tracker check run on every event. Everything
   else is skipped when `scripts/ci-changes.sh` finds that only
   documentation changed (`docs/`, Markdown) since the base: a pull
@@ -484,15 +603,19 @@ gates on each pull request:
   runs.
 - `scripts/merge-pr.sh` requires one check, `ci-ok`: it fails unless the
   `changes` job (the secret scan and the skip decision) and the `tracker`
-  job succeeded and no job failed or was cancelled; on a pull request that
-  is `changes`, `tracker` and `short`, the others skipped; on a push to
-  `main`, `test` is skipped too and the run passes without it; on a manual
-  run every job but `short` runs, so a failed `test` turns that run's
-  `ci-ok` red. Jobs skipped on purpose pass; requiring them directly would
-  let a failed `changes` skip them into a pass.
+  job succeeded, no job failed or was cancelled, and every job the event
+  must run succeeded rather than was skipped: on a pull request `shards`,
+  `race`, `coverage-shard`, `coverage`, `fuzz` and `short`; on a manual run
+  the same with `test` in place of `short`; on a push to `main`, `fuzz`
+  (`test` runs on demand, and the run passes without it); for
+  documentation alone, none. A matrix of shards reports one result, a
+  success only when every shard succeeded, so one failed or cancelled
+  shard, or a shard plan that came out empty, turns `ci-ok` red. Other
+  jobs skipped on purpose pass; requiring them directly would let a failed
+  `changes` skip them into a pass.
 - A newer push cancels the running check of the same pull request or of
-  `main`, and a newer manual run an older one on the same branch; the
-  older commit then shows `ci-ok` failed, which is expected.
+  `main`; the older commit then shows `ci-ok` failed, which is expected. A
+  manual run is not cancelled by a newer one (above).
 - In `ci-local.sh`, the image reproducibility gate and the signing round
   trip run when their inputs change: the paths of the `images` class in
   `scripts/ci-changes.sh`, which is the rule (`go.mod`, `go.sum`,

@@ -1,4 +1,4 @@
-.PHONY: temporal-checks generate run-server build images images-reproducible image-scan test-image-scripts signing-roundtrip test-release-scripts lint lint-all test test-short ci-local db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo walkthrough clean
+.PHONY: temporal-checks generate run-server build images images-reproducible image-scan test-image-scripts signing-roundtrip test-release-scripts lint lint-all test test-short ci-local ci-local-light db-up test-db coverage fuzz perf load soak resilience failover restore-drill demo walkthrough clean
 
 build:
 	go build -o bin/erp ./cmd/erp
@@ -79,6 +79,14 @@ test-short:
 # coverage and fuzzing. Its report is what scripts/merge-pr.sh requires.
 ci-local:
 	DATABASE_URL="$(DATABASE_URL)" ./scripts/ci-local.sh
+
+# The light form (PO 2026-11-10): every gate of ci-local but the race suite
+# three times shuffled, the coverage gate and fuzzing, which GitHub runs on
+# the pull request as parallel jobs; the suite runs once without the race
+# detector instead. scripts/merge-pr.sh merges on its report only when the
+# pull request's GitHub run held those three.
+ci-local-light:
+	DATABASE_URL="$(DATABASE_URL)" CI_LOCAL_FORM=light ./scripts/ci-local.sh
 
 # Whole-suite statement coverage of production code, with the CI minimum.
 # Schema tests need PostgreSQL. `make db-up` starts one in Docker on port 55432.

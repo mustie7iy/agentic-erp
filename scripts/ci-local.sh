@@ -25,6 +25,32 @@
 # should be rebased on the latest main: the report vouches for exactly this
 # tree, and the breaking-change check compares with main.
 #
+# Two forms (PO 2026-11-10; CI_LOCAL_FORM, default full):
+#   full   every gate, as above: `make ci-local`.
+#   light  every gate but the three GitHub now runs on each pull request as
+#          parallel jobs (ci.yml's race, coverage and fuzz jobs): the race
+#          suite three times shuffled, the whole-repository coverage gate
+#          and fuzzing, 79 of the full form's 133 minutes on this machine
+#          (batch 65): `make ci-local-light`. In their place the suite runs
+#          once, whole, without the race detector, in short mode as the
+#          coverage gate and GitHub's short job run it (the instrumented
+#          run takes under ten minutes here), and then the two things short
+#          mode skips that the race step used to hold: the walkthrough
+#          (cmd/erp's TestWalkthrough, every slice's acceptance evidence)
+#          and the browser suite (internal/web/e2e). So this platform, the
+#          walkthrough and the browser suite are still held on the author's
+#          machine before a merge. The suite is not cut down to the changed
+#          packages: the whole of it fits, and a selection would be one
+#          more thing to get wrong. It is not run without -short either:
+#          that would add internal/nfr's load and soak tests, which time
+#          the machine and fail beside the lanes (they run weekly). The
+#          static checks, the budgets (never on a pull request's runner:
+#          shared runners are too noisy to time), the images and the deploy
+#          checks run as in the full form.
+# The report's second line names the form; scripts/merge-pr.sh merges on a
+# light report only when the pull request's own GitHub run held the three
+# gates the light form leaves out.
+#
 # Needs PostgreSQL (make db-up, max_connections 300), the Temporal CLI and,
 # for the image steps, Docker with buildx.
 set -euo pipefail
@@ -39,6 +65,12 @@ export ERP_BUDGET_SCALE="${ERP_BUDGET_SCALE:-2}"
 export ERP_E2E_REQUIRE_BROWSER="${ERP_E2E_REQUIRE_BROWSER:-true}"
 # Kept equal to GITLEAKS_VERSION in .github/workflows/ci.yml.
 GITLEAKS_MODULE=github.com/zricethezav/gitleaks/v8@v8.30.1
+form="${CI_LOCAL_FORM:-full}"
+case "$form" in full | light) ;; *)
+  echo "ci-local: CI_LOCAL_FORM is $form, not full or light" >&2
+  exit 2
+  ;;
+esac
 
 if [ -n "$(git status --porcelain)" ]; then
   echo "ci-local: commit or stash your changes first; the report vouches for a committed tree" >&2
@@ -107,6 +139,13 @@ breaking() {
     git show "origin/main:api/asyncapi.yaml" >"$logs/base-asyncapi.yaml" || return 1
     go run ./cmd/eventcompat "$logs/base-asyncapi.yaml" api/asyncapi.yaml || rc=1
   fi
+  # No value leaves an open enumeration (x-extensible-enum), which oasdiff
+  # does not read (ci:batch65), in any contract compared above.
+  for spec in openapi control directory asyncapi; do
+    if [ -f "$logs/base-$spec.yaml" ]; then
+      go run ./cmd/enumcompat api/breaking-accepted.txt "$logs/base-$spec.yaml" "api/$spec.yaml" || rc=1
+    fi
+  done
   return "$rc"
 }
 
@@ -166,12 +205,23 @@ step tracker go test -count=1 ./docs
 # that on a busy machine without hanging. By batch 6 (2026-10-22) the
 # ledger and payments packages took over 30 minutes for their three runs on
 # a loaded machine, so the limit, which only guards against a hang, is 60.
-step race go test -race -shuffle=on -count=3 -timeout 60m ./...
+if [ "$form" = full ]; then
+  step race go test -race -shuffle=on -count=3 -timeout 60m ./...
+else
+  # The light form's one run of the suite (see the top): GitHub's race jobs
+  # hold the race detector and the order, so these hold this platform, the
+  # walkthrough and the browser suite.
+  step suite go test -short -count=1 -timeout 60m ./...
+  step walkthrough go test -count=1 -timeout 30m -run '^TestWalkthrough' ./cmd/erp
+  step browser go test -count=1 -timeout 30m ./internal/web/e2e
+fi
 step budgets ./scripts/budgets.sh
-step coverage ./scripts/coverage.sh
-step fuzz make fuzz FUZZTIME=30s
+if [ "$form" = full ]; then
+  step coverage ./scripts/coverage.sh
+  step fuzz make fuzz FUZZTIME=30s
+fi
 step build make build
-step skip-rules bash -c './scripts/test-ci-changes.sh && ./scripts/test-each-module.sh && ./scripts/test-on-exit.sh'
+step skip-rules bash -c './scripts/test-ci-changes.sh && ./scripts/test-each-module.sh && ./scripts/test-on-exit.sh && ./scripts/test-ci-shards.sh && ./scripts/test-coverage-gate.sh && ./scripts/test-budget-times.sh && ./scripts/test-merge-pr.sh && ./scripts/ci-shards.sh check'
 # The images (ADR-0032): built twice and compared when their inputs
 # changed, otherwise once, then scanned; linux/amd64, as pull requests
 # built them on GitHub.
@@ -200,6 +250,13 @@ verdict=PASS
 report="$logs.md"
 {
   echo "ci-local $verdict tree $tree"
+  # Read by scripts/merge-pr.sh: a light report needs GitHub's race,
+  # coverage and fuzz jobs on the pull request's head.
+  if [ "$form" = light ]; then
+    echo "Form: light (without the race suite three times shuffled, the coverage gate and fuzzing, which GitHub runs on the pull request)"
+  else
+    echo "Form: full"
+  fi
   echo
   echo "Commit $head on $(go env GOOS)/$(go env GOARCH), $(go env GOVERSION), compared with main at $(git rev-parse --short origin/main), budgets at scale $ERP_BUDGET_SCALE; path classes (scripts/ci-changes.sh): $(grep -E '^(run|images|release|deploy|promotion)=' <<<"$classes" | tr '\n' ' ' | sed 's/ $//')."
   echo
@@ -207,5 +264,5 @@ report="$logs.md"
   echo "|---|---|---|"
   printf '%s' "$results"
 } >"$report"
-echo "ci-local $verdict tree $tree (report $report, logs $logs)"
+echo "ci-local $verdict tree $tree ($form form, report $report, logs $logs)"
 exit "$failed"
