@@ -5672,6 +5672,35 @@ step_asset_order_expenses() {
   passed
 }
 
+# step_internal_order: internal orders (ADR-0064, T60a): Carla creates an
+# order of Maple under the finance office's cost center and releases it
+# for posting.
+step_internal_order() {
+  heading "Step 47 — Internal orders: an order of Maple created under a cost center and released for posting"
+  as carla
+  local cc order
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "Carla creates an internal order for the year's trade fair: a cost object of its own beside the cost centers,"
+  say "collecting what the fair costs. The finance office's cost center CC-1100 is responsible for it (ADR-0064 §1)."
+  api 201 '"internal order \(.code) \(.name): \(.status), responsible cost center \(.responsible_cost_center_code)"' createInternalOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAIR-$YEAR\", \"name\": \"Trade fair $YEAR\", \"responsible_cost_center_id\": \"$cc\"}"
+  order=$(field .id)
+  expect "the new order's status" "$(field .status)" created
+  expect "the order's responsible cost center" "$(field .responsible_cost_center_code)" CC-1100
+  say "A code is the company's once:"
+  refused 409 controlling.internal_order_exists createInternalOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAIR-$YEAR\", \"name\": \"Trade fair again\", \"responsible_cost_center_id\": \"$cc\"}"
+  say "Carla releases the order for posting, at the version she read; it is released once:"
+  QUIET=1 api 200 '' getInternalOrder -p "id=$order"
+  api 200 '"internal order \(.code): \(.status), version \(.version)"' releaseInternalOrder -p "id=$order" -if-match "$ETAG"
+  expect "the released order's status" "$(field .status)" released
+  refused 409 controlling.internal_order_released releaseInternalOrder -p "id=$order" -if-match "$ETAG"
+  api 200 '.items[] | "  \(.code) \(.name): \(.status), cost center \(.responsible_cost_center_code)"' listInternalOrders -p "legal_entity_id=$LE" -p status=released
+  expect "Maple's released orders" "$(field '[.items[].code] | join(" ")')" "FAIR-$YEAR"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7696,7 +7725,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_internal_order step_close'
 
 main() {
   stop_unseen

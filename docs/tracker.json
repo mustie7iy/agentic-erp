@@ -3237,14 +3237,14 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Order master",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller creates an internal order (code, name, company, responsible cost center) and releases it for posting; the controlling II ADR that ADR-0050 asks T60 for",
-        "r": "T60a · docs/design/plan-breadth-week1.md §T60a",
+        "r": "T60a · docs/design/plan-breadth-week1.md §T60a · migration 000265 · internal/controlling/orders.go · ADR-0064 §1 · scripts/walkthrough.sh step_internal_order",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },

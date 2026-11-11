@@ -8045,6 +8045,192 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/internal-orders:
+    get:
+      operationId: listInternalOrders
+      tags:
+        - controlling
+      summary: List internal orders
+      description: "Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its responsible cost center's code. Sortable by: `code`."
+      x-permission: controlling.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the orders with this code (one per legal entity).
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,12}$"
+        - name: status
+          in: query
+          required: false
+          description: Only orders in this status.
+          schema:
+            type: string
+            description: "Internal order status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - created
+              - released
+        - name: responsible_cost_center_id
+          in: query
+          required: false
+          description: Only the orders this cost center is responsible for.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of internal orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createInternalOrder
+      tags:
+        - controlling
+      summary: Create an internal order
+      description: "Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the controlling context, to which costs are posted once it is released (`:release`). The code is unique in the legal entity (409 `controlling.internal_order_exists`). The responsible cost center must be an active cost center of the legal entity (422 `controlling.internal_order_cost_center_invalid`, whose field error's code says why: `unknown`, `not_in_company`, `not_active`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). Created directly by permission, with no approval request. Audited, and published as InternalOrderChanged. Agents may not create one."
+      x-permission: controlling.order.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.internal_order_cost_center_invalid
+        - controlling.internal_order_exists
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The internal order create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderCreate"
+      responses:
+        "201":
+          description: "Created; the new internal order."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}":
+    get:
+      operationId: getInternalOrder
+      tags:
+        - controlling
+      summary: Get an internal order
+      description: "Returns one internal order with its responsible cost center's code. An order of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.order.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The internal order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/internal-orders/{id}:release":
+    post:
+      operationId: releaseInternalOrder
+      tags:
+        - controlling
+      summary: Release an internal order
+      description: "Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `released` once. An order already released is refused (409 `controlling.internal_order_released`). Releasing is a person's decision: `controlling.order.release` is an approval permission, which agents cannot hold. Audited, and published as InternalOrderChanged."
+      x-permission: controlling.order.release
+      x-agent: false
+      x-problem-codes:
+        - controlling.internal_order_exists
+        - controlling.internal_order_released
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The internal order, released."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/plan-categories:
     get:
       operationId: listPlanCategories
@@ -33528,6 +33714,116 @@ components:
           items:
             $ref: "#/components/schemas/ProfitCenterBalance"
           description: The profit center balances on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    InternalOrder:
+      description: "An internal order (ADR-0064 §1): a cost object of the controlling context in one legal entity, collecting the costs of a job or an event. Costs are posted to it once it is released."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - responsible_cost_center_id
+            - responsible_cost_center_code
+            - status
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the order belongs to. Immutable."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,12}$"
+              description: "Code, unique in the legal entity. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+              readOnly: true
+            responsible_cost_center_id:
+              type: string
+              format: uuid
+              description: "The cost center responsible for the order (`GET /v1/cost-centers/{id}`): lines posted to the order take its profit center and segment."
+              readOnly: true
+            responsible_cost_center_code:
+              type: string
+              description: The responsible cost center's code.
+              readOnly: true
+            status:
+              type: string
+              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - created
+                - released
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c01"
+          version: 2
+          created_at: "2026-11-11T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-11-11T10:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000102"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: TRADEFAIR-26
+          name: Trade fair 2026
+          responsible_cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          responsible_cost_center_code: CC-1100
+          status: released
+    InternalOrderCreate:
+      type: object
+      description: "A new internal order."
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - responsible_cost_center_id
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code) the order belongs to.
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,12}$"
+          description: Code, unique in the legal entity.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        responsible_cost_center_id:
+          type: string
+          format: uuid
+          description: An active cost center of the legal entity, responsible for the order.
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: TRADEFAIR-26
+          name: Trade fair 2026
+          responsible_cost_center_id: "0192a000-0000-7000-8000-000000000201"
+    InternalOrderPage:
+      type: object
+      description: One page of internal orders.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrder"
+          description: The internal orders on this page.
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."

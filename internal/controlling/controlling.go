@@ -1,6 +1,6 @@
 // Package controlling is the controlling context (ADR-0050 §2, §8,
-// decision P5; 03-data-model §3.19): plan values and plan against actual,
-// in its own schema. Cost centers, profit centers, hierarchies and the
+// decision P5; ADR-0064; 03-data-model §3.19): plan values and plan
+// against actual, and internal orders, in its own schema. Cost centers, profit centers, hierarchies and the
 // actuals by assignment are the ledger's (ADR-0050 §2, §7); controlling
 // reads them only through the ledger's published port,
 // ledger.AssignmentBalances, run in the request's transaction under
@@ -20,6 +20,13 @@
 // the write. Every change is audited (ADR-0011) and published through the
 // controlling outbox (ADR-0007). Amounts are integer minor units of the
 // company's local currency (ADR-0005).
+//
+// Internal orders (ADR-0064 §1, T60a) are controlling's master data: an
+// order of a company with a code unique in it and a responsible cost
+// center, which the ledger's port names and checks (an active one of the
+// company). An order is created and then released for posting by a person
+// (controlling.order.release, an approval permission), read FOR UPDATE
+// with the caller's version; both are audited and published.
 package controlling
 
 import (
@@ -43,6 +50,13 @@ func init() {
 		return problem.Conflict("controlling.plan_category_exists", "A plan category with this code already exists.")
 	})
 	problem.RegisterConstraint("plan_category_open", categoryLocked)
+	// Internal orders (ADR-0064 §1): a code is checked by its constraint
+	// alone; a released order is refused by the application, which holds
+	// the order FOR UPDATE, and the trigger backs that up for any other
+	// writer.
+	problem.RegisterConstraint("internal_order_code_once", func() *problem.Problem {
+		return problem.Conflict("controlling.internal_order_exists", "The legal entity already has an internal order with this code.")
+	})
 }
 
 // Ledger is what controlling reads from the ledger (ledger.AssignmentBalances).
@@ -52,6 +66,7 @@ type Ledger interface {
 	CostCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
 	ProfitCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error)
 	ProfitCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
+	CostCenterRefs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CostCenterRef, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).

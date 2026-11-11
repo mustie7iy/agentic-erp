@@ -15,7 +15,8 @@ import (
 
 // AssignmentBalances is what the ledger publishes to the controlling
 // context for plan values and plan against actual (ADR-0050 §7, §8, T56g,
-// T56g3): what a plan may name, the cost or profit centers of a hierarchy
+// T56g3) and for internal orders (ADR-0064 §1: the cost center an order
+// names): what a plan may name, the cost or profit centers of a hierarchy
 // node, and the actuals by cost or profit center and account, read as the
 // center reports read them (costCenterBalances, profitCenterBalances). It
 // runs in the request's transaction under row-level security (ADR-0003);
@@ -110,6 +111,32 @@ func planLocks(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, costCen
 		return nil
 	})
 	return out, errs.Wrapf(err, "ledger: plan locks of the cost centers of %s in %d", le, year)
+}
+
+// CostCenterRef is a cost center as the controlling context names it on an
+// internal order (ADR-0064 §1): its company, its code and whether it is
+// active (approved, not pending or rejected).
+type CostCenterRef struct {
+	LegalEntityID uuid.UUID
+	Code          string
+	Active        bool
+}
+
+// CostCenterRefs reads the tenant's cost centers with the ids, keyed by
+// id; an id that is no cost center has no entry. An active cost center
+// stays one (a center change never takes a status back), so the read
+// takes no lock.
+func (AssignmentBalances) CostCenterRefs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CostCenterRef, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, code, status = $2 FROM ledger.cost_center WHERE id = ANY($1)`, ids, CenterActive)
+	out := map[uuid.UUID]CostCenterRef{}
+	var id uuid.UUID
+	var c CostCenterRef
+	_, err = pgx.ForEachRow(rows, []any{&id, &c.LegalEntityID, &c.Code, &c.Active}, func() error { out[id] = c; return nil })
+	return out, errs.Wrapf(err, "ledger: cost centers named by the controlling context")
 }
 
 // CostCenters are the cost centers a plan against actual is limited to,

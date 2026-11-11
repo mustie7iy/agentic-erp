@@ -229,6 +229,10 @@ type CreateHierarchyRes interface {
 	createHierarchyRes()
 }
 
+type CreateInternalOrderRes interface {
+	createInternalOrderRes()
+}
+
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
@@ -591,6 +595,10 @@ type GetHierarchyNodeRes interface {
 
 type GetHierarchyRes interface {
 	getHierarchyRes()
+}
+
+type GetInternalOrderRes interface {
+	getInternalOrderRes()
 }
 
 type GetJournalEntryRes interface {
@@ -997,6 +1005,10 @@ type ListIntercompanyDifferencesRes interface {
 	listIntercompanyDifferencesRes()
 }
 
+type ListInternalOrdersRes interface {
+	listInternalOrdersRes()
+}
+
 type ListJournalEntriesRes interface {
 	listJournalEntriesRes()
 }
@@ -1371,6 +1383,10 @@ type RejectVarianceCommentRes interface {
 
 type ReleaseContractRes interface {
 	releaseContractRes()
+}
+
+type ReleaseInternalOrderRes interface {
+	releaseInternalOrderRes()
 }
 
 type ReleasePaymentRunRes interface {

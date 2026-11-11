@@ -831,6 +831,19 @@ type Handler interface {
 	//
 	// POST /v1/hierarchies
 	CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
+	// CreateInternalOrder implements createInternalOrder operation.
+	//
+	// Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
+	// controlling context, to which costs are posted once it is released (`:release`). The code is unique
+	// in the legal entity (409 `controlling.internal_order_exists`). The responsible cost center must be
+	// an active cost center of the legal entity (422 `controlling.internal_order_cost_center_invalid`,
+	// whose field error's code says why: `unknown`, `not_in_company`, `not_active`). A legal entity the
+	// caller cannot act in is answered as missing (422 `request.reference_not_found`). Created directly by
+	// permission, with no approval request. Audited, and published as InternalOrderChanged. Agents may not
+	// create one.
+	//
+	// POST /v1/internal-orders
+	CreateInternalOrder(ctx context.Context, req *InternalOrderCreate, params CreateInternalOrderParams) (CreateInternalOrderRes, error)
 	// CreateLegalEntity implements createLegalEntity operation.
 	//
 	// Creates a legal entity in status `inactive`.
@@ -1898,6 +1911,13 @@ type Handler interface {
 	//
 	// GET /v1/hierarchies/{id}/nodes/{node_id}
 	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
+	// GetInternalOrder implements getInternalOrder operation.
+	//
+	// Returns one internal order with its responsible cost center's code. An order of a legal entity the
+	// caller cannot act in is answered as missing (404).
+	//
+	// GET /v1/internal-orders/{id}
+	GetInternalOrder(ctx context.Context, params GetInternalOrderParams) (GetInternalOrderRes, error)
 	// GetJournalEntry implements getJournalEntry operation.
 	//
 	// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
@@ -3000,6 +3020,13 @@ type Handler interface {
 	//
 	// GET /v1/consolidation-runs/{id}/differences
 	ListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (ListIntercompanyDifferencesRes, error)
+	// ListInternalOrders implements listInternalOrders operation.
+	//
+	// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its
+	// responsible cost center's code. Sortable by: `code`.
+	//
+	// GET /v1/internal-orders
+	ListInternalOrders(ctx context.Context, params ListInternalOrdersParams) (ListInternalOrdersRes, error)
 	// ListJournalEntries implements listJournalEntries operation.
 	//
 	// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
@@ -4153,6 +4180,16 @@ type Handler interface {
 	//
 	// POST /v1/contracts/{id}:release
 	ReleaseContract(ctx context.Context, params ReleaseContractParams) (ReleaseContractRes, error)
+	// ReleaseInternalOrder implements releaseInternalOrder operation.
+	//
+	// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
+	// (`If-Match`): the order is read under a row lock and moves to `released` once. An order already
+	// released is refused (409 `controlling.internal_order_released`). Releasing is a person's decision:
+	// `controlling.order.release` is an approval permission, which agents cannot hold. Audited, and
+	// published as InternalOrderChanged.
+	//
+	// POST /v1/internal-orders/{id}:release
+	ReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (ReleaseInternalOrderRes, error)
 	// ReleasePaymentRun implements releasePaymentRun operation.
 	//
 	// The F110 release step, a direct human transition (not an approval request), as an operation

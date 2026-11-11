@@ -3242,7 +3242,8 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 
 ## 3.19 Controlling (`controlling`)
 
-Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).
+Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
+and internal orders (ADR-0064; T60a).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3250,7 +3251,10 @@ centers of a hierarchy node, the actuals by cost center and account), with
 no foreign key into the ledger's schema. Migration 000164 creates the schema,
 its outbox and the permissions `controlling.plan.read`,
 `controlling.plan.write` and `controlling.plan.lock` (an approval
-permission, which agents cannot hold).
+permission, which agents cannot hold). Migration 000265 adds the order
+master and the permissions `controlling.order.read`,
+`controlling.order.write` and `controlling.order.release` (an approval
+permission).
 
 ```mermaid
 erDiagram
@@ -3282,6 +3286,12 @@ erDiagram
     numeric quantity
     text uom_code
     uuid replaced_by_batch_id FK }
+  internal_order { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text code "unique per company"
+    text name
+    uuid responsible_cost_center_id "ledger context"
+    text status "created, released" }
 ```
 
 | Table | Purpose |
@@ -3289,7 +3299,8 @@ erDiagram
 | `controlling.plan_category` | A plan category (SAP's category for planning): code (`^[0-9A-Z_]{1,10}$`, unique), name, and `locked`; locked and unlocked by a person (`controlling.plan.lock`) with the caller's version, read FOR UPDATE; never deleted |
 | `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
-| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`), relayed as every context's (`outbox.Contexts`) |
+| `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
 /v1/profit-center-plan-actual`, T56g3) stores nothing: the category's
