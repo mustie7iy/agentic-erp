@@ -328,6 +328,18 @@ type ACDOCA struct {
 	// the quality gate reads RASSC only to report where SAP's lines say
 	// something else (internal/integration tradingpartner.go).
 	RASSC string `json:"RASSC,omitempty"`
+	// ZLSCH is the payment method the item fixes, one character (as
+	// T042Z's), blank for none: an item can override its vendor's methods
+	// (LFB1-ZWELS) with BSEG/ACDOCA-ZLSCH, which wins over the payment
+	// run's order too (the SAP specialist, po:2026-11-09, A4 and A4(c)
+	// [M]). The load keeps it with a vendor's open item, which a payment
+	// run then pays by that method alone (ADR-0038 As built, a migrated
+	// item's fixed payment method). The specialist names the field
+	// "BSEG/ACDOCA-ZLSCH"; whether the pilot's ACDOCA carries it on the
+	// vendor line, or the extract's converter must take it from BSEG, is
+	// to confirm with the SAP specialist (docs/migration.md, "What to
+	// check on a real SAP system").
+	ZLSCH string `json:"ZLSCH,omitempty"`
 }
 
 // --- Controlling master data (ADR-0050 §10, T56h) ---

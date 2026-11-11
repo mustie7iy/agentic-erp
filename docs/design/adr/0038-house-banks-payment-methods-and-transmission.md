@@ -1126,7 +1126,8 @@ configuration holds what the company pays by):
   payment method (BSEG/ACDOCA-ZLSCH) honoured over both, and T042I's
   account (HKTID) choosing the house bank's account. The first is built
   on the platform's side in "As built: an item's fixed payment method",
-  below; taking ZLSCH over from SAP stays open.
+  below, and taken over from SAP in "As built: a migrated item's fixed
+  payment method"; T042I's account stays open.
 
 
 ## As built: an item's fixed payment method (A4(c), second part, platform side; product owner 2026-11-10)
@@ -1264,9 +1265,84 @@ behaviour:
   reversed. Muskoka Office Supply may be paid by T alone and its
   express charge fixes W: the run without a house bank pays it by W through RBC
   (`item`), the run from RBC leaves it out likewise, and it is reversed.
-- **Still open** (a tracker leaf): the SAP extract and load taking ZLSCH
-  over onto migrated open items (ACDOCA/BSEG), with the quality gate's
-  check of it against the company's methods.
+- **Taken over from SAP**: the SAP extract and load take ZLSCH over onto
+  migrated open items, with the quality gate's check of it against the
+  company's methods ("As built: a migrated item's fixed payment method",
+  below).
+
+
+## As built: a migrated item's fixed payment method (A4(c), second part, SAP side; product owner 2026-11-10)
+
+The SAP side of the section above: the migration takes the payment method
+an SAP item fixes over onto the migrated open item, so a payment run pays
+it by that method alone, as it pays an invoice entered here that fixes
+one. The SAP specialist names the field "BSEG/ACDOCA-ZLSCH" (po:2026-11-09,
+A4 and A4(c) [M], to verify on the pilot system). Decided by default, from
+the section above, the supplier methods' handling ("As built: SAP payment
+methods", suppliers' methods) and the load as it is:
+
+- **The extract.** A journal line of the file extract carries `ZLSCH`
+  beside its other fields (`sap.ACDOCA`), blank for none. Whether the
+  pilot's ACDOCA carries the field on the vendor line, or the extract's
+  converter must take it from BSEG, is on the specialist list
+  (docs/migration.md). The OData mapping does not carry it: the API's
+  property is not recorded, so an OData extract's items load without one
+  until the pilot's `$metadata` names it.
+- **Which items.** A vendor's open ordinary item: a line on a supplier
+  reconciliation account that SAP has not cleared (AUGBL blank) and that
+  is no special G/L item. A cleared item is never paid again, so its
+  method is neither kept nor checked (a method the company no longer has
+  on an old, cleared item must not stop a load); no payment run pays a
+  down payment (ADR-0037), so a method on an open special G/L item is not
+  taken over, which the quality gate reports as a warning per company
+  with their number. Noted items are set aside before (ADR-0037 As built).
+- **The mapping** is the supplier methods' (LFB1-ZWELS): SAP's
+  one-character method is the company's payment method of the same code,
+  the configuration's methods being drafted from T042E's. The quality
+  gate refuses a run whose open item fixes a method the company's active
+  configuration lacks, as it refuses a vendor's, before anything loads,
+  rather than load the item without it and pay it another way; the run
+  holds the configuration it checked (`Settings.Hold`). This is the check
+  payables makes of an invoice entered here (`IsPaymentMethod`), made by
+  the gate since the load posts to the ledger directly.
+- **Not asked: the vendor's own list.** A ZLSCH that the vendor's ZWELS
+  does not list is taken over all the same: SAP pays the item by it
+  (ZLSCH wins over ZWELS), and the product owner decided the platform
+  pays it too (po:2026-11-10, changing `method_not_allowed` in the section
+  above, in the payment run).
+- **Kept through the ledger's posting API.** The load posts SAP's
+  documents through `ledger.Postings.Post`, in documents mode one entry
+  per document and in balances mode one opening entry per company holding
+  the open items of all its vendors, so one method per entry
+  (`Posting.PaymentMethod`) cannot hold them. `ledger.PostingLine` takes a
+  `PaymentMethod` of its own, kept in `ledger.open_item_payment_method` by
+  line number (`keepLineMethods`): only on an ordinary line of a supplier
+  reconciliation account, in an entry that fixes none for all its items
+  and has no GR/IR items, refused otherwise. The load sets it in both
+  modes, on the opening entry's open items and on a document's vendor
+  lines (documents that post on their own in balances mode included). No
+  table, migration or contract field is new.
+- **Loaded once.** A document or opening entry an earlier run loaded is
+  not posted again, so the same extract loaded twice keeps one method row
+  per item. A method SAP fixes, changes or removes on an item after its
+  document was loaded is not taken over, as the section above leaves a
+  posted item's method unchanged; the reconciliation shows it.
+- **Reconciliation.** Per company and payment method, where either side
+  has any: the number of open items fixing the method, their total in
+  company currency, and the vendors that differ
+  (`Open items fixing payment method <M>`, `… total`,
+  `…: vendors with differences`; differences listed as
+  `payment method <M> items of vendor <LIFNR>`, each side as
+  `2 items, -1250.00 EUR`). SAP's side is recomputed from the raw extract;
+  the platform's is the ledger's open supplier items by fixed method
+  (`ledger.Reports.OpenItemsByMethod`), items entered on the platform in
+  the fiscal year included, as with the other controls.
+- **Contract**: descriptions only (the reconciliation's difference keys
+  and values; an open item's `payment_method` may come from a migration).
+- **Mock and walkthrough.** Company 3000's open USD invoice from Tyrell
+  Office Products fixes bank transfer T. Walkthrough step 3 shows the
+  ZLSCH of the extract's line, the migrated open item's `payment_method`
+  through `listOpenItems` and the reconciliation's controls for T.
 
 
 ## As built: activation refused while a replica lacks a key (T72m rollout, pilot)

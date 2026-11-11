@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // "cost center <KOKRS>/<KOSTL>" or "profit center <KOKRS>/<PRCTR>" (their periods, ADR-0050 §10), "cost center total <KOKRS>/<KOSTL>", "profit center total <KOKRS>/<PRCTR>" or "segment total <SEGMENT>" (migrated totals, T56h4), account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency), "trading partner <company code>" or "trading partner <id>" (open payables by trading partner: by the SAP company code of the vendors' trading partner, or by the id of a legal entity no vendor of the extract names)
+	Key         string `json:"key"` // "cost center <KOKRS>/<KOSTL>" or "profit center <KOKRS>/<PRCTR>" (their periods, ADR-0050 §10), "cost center total <KOKRS>/<KOSTL>", "profit center total <KOKRS>/<PRCTR>" or "segment total <SEGMENT>" (migrated totals, T56h4), account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency), "trading partner <company code>" or "trading partner <id>" (open payables by trading partner: by the SAP company code of the vendors' trading partner, or by the id of a legal entity no vendor of the extract names), "payment method <method> items of vendor <LIFNR>" or "payment method <method> items of partner <id> (<name>)" (open items that fix that payment method: their number and total)
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -166,6 +166,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 	if err := rc.foreignItems(ctx, s); err != nil {
 		return err
 	}
+	if err := rc.fixedMethods(ctx, s, j.fixed); err != nil {
+		return err
+	}
 	if err := rc.vendors(ctx, s); err != nil {
 		return err
 	}
@@ -197,6 +200,7 @@ type sapJournal struct {
 	openItems map[string]int         // the number of open items (not of amount 0) per "vendor <LIFNR>"
 	downPay   map[string]money.Minor // open down payments (special G/L A) per "vendor <LIFNR>"
 	byPartner map[string]money.Minor // open items, down payments included, per "trading partner <company code>" (sapTradingPartner)
+	fixed     fixedByMethod          // open items that fix a payment method (ZLSCH), by method and "vendor <LIFNR>"
 	debits    money.Minor
 	documents map[string]bool
 }
@@ -210,6 +214,7 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 	tb, open, downPay, byPartner := map[string][]money.Minor{}, map[string][]money.Minor{}, map[string][]money.Minor{}, map[string][]money.Minor{}
 	var debits []money.Minor
 	documents, openItems := map[string]bool{}, map[string]int{}
+	fixed := fixedByMethod{}
 	for _, l := range rc.ext.ACDOCA {
 		if l.RBUKRS != s.cc {
 			continue
@@ -235,6 +240,7 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 				if amt != 0 {
 					openItems[vendor]++
 				}
+				fixed.addLine(l, vendor, amt)
 			}
 		}
 	}
@@ -246,6 +252,7 @@ func (rc *reconciler) journal(s companyScope) sapJournal {
 		debits:    rc.total("ACDOCA", s.cc, "the debits of company "+s.cc, debits),
 		documents: documents,
 		openItems: openItems,
+		fixed:     fixed,
 	}
 }
 

@@ -879,6 +879,7 @@ step_migrate() {
     'Open payable items' 'Open payable items: vendors with differences' 'Parked supplier invoices' 'Parked supplier credit memos' 'Parked subsequent debits' 'Parked subsequent credits' \
     'Vendor bank accounts: vendors with differences' 'Quantities invoiced in SAP: order items with differences' \
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
+    'Open items fixing payment method T' 'Open items fixing payment method T total' 'Open items fixing payment method T: vendors with differences' \
     'Open payables by trading partner total' 'Open payables by trading partner: trading partners with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
@@ -1129,8 +1130,10 @@ migrated_groups() {
 # (the mock's foreignInvoice) as it loaded, in its document currency
 # (ADR-0005 As built, product owner 2026-10-31): an open item of USD
 # 1,000.00 worth CAD 1,350.00 as SAP booked it, its entry in USD at the
-# rate SAP's amounts imply, and the reconciliation's USD controls. Step 9
-# revalues it. It keeps the item's entry in FX_ENTRY.
+# rate SAP's amounts imply, and the reconciliation's USD controls; and
+# the payment method SAP fixed on it (ZLSCH), kept with the open item
+# (ADR-0038 As built), with the reconciliation's controls per method. Step
+# 9 revalues it. It keeps the item's entry in FX_ENTRY.
 migrated_foreign_item() {
   local lifnr name supplier
   lifnr=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and .RWCUR == "USD" and .LIFNR != "" and .AUGBL == "")] | first | .LIFNR' "$WORK/data/extract.json")
@@ -1151,6 +1154,16 @@ migrated_foreign_item() {
   expect "the USD invoice's entry rate, SAP's" "$(field .rate_tc_lc)" 1.350000000000
   say "The reconciliation agreed in CAD and compared the USD items in USD:"
   grep -E 'Open items in USD' "$WORK/migrate.out" | sed 's/^/     /'
+  say "SAP fixed the invoice's payment method on the item (ZLSCH, ADR-0038): bank transfer T, whatever order the"
+  say "company's runs try their methods in. It came over with the open item, so a payment run pays the item by T"
+  say "alone, in a payment of its own, as it pays an invoice entered here that fixes its method (step 7):"
+  jq -r --arg cc "$CC" --arg v "$lifnr" '.ACDOCA[] | select(.RBUKRS == $cc and .LIFNR == $v and .RWCUR == "USD" and .AUGBL == "")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN): vendor \(.LIFNR), \(.WSL) \(.RWCUR), ZLSCH \(.ZLSCH)"' "$WORK/data/extract.json"
+  api 200 '.items[] | select(.amount.currency != "CAD") | "open item \(.document_number): \(.amount.amount) \(.amount.currency), fixed payment method \(.payment_method // "none")"' \
+    listOpenItems -p "partner_id=$supplier" -p page_size=100
+  expect "the payment method the migrated USD item fixes" "$(field '[.items[] | select(.amount.currency != "CAD") | .payment_method // "none"] | join(", ")')" T
+  say "The reconciliation counted and summed the open items fixing each method on both sides:"
+  grep -E 'Open items fixing payment method' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # parallel_run_extract splits SAP's receipt of the eight shelving units

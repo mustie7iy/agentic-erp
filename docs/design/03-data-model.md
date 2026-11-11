@@ -1170,7 +1170,10 @@ It keeps the payment method its document fixed, when it fixed one
 (`open_item_payment_method`, migration 000253; ADR-0038 As built, an
 item's fixed payment method; SAP BSEG-ZLSCH): one row per supplier open
 item of the entry, insert-only, the code as the payables context checked
-it against the company's active methods. A payment run pays such an item
+it against the company's active methods; a migration run keeps the method
+SAP fixed on an open vendor item the same way, per line, checked by its
+quality gate (ADR-0038 As built, a migrated item's fixed payment method).
+A payment run pays such an item
 by that method alone; `GET /v1/open-items` shows it (`payment_method`).
 
 It keeps its supplier's withholding taxes too (`open_item_withholding`,

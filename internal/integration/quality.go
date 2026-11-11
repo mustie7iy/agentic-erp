@@ -143,6 +143,7 @@ func checkQuality(e *sap.Extract, t target) []Issue {
 	q.reconciliationAccounts()
 	q.lineCenters()
 	q.downPayments()
+	q.fixedMethods()
 	q.grirChecks()
 	q.documentCurrencies()
 	q.leftOutLines()

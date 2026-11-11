@@ -627,6 +627,7 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 			pl.PartnerID = &partnerID
 		}
 		downPaymentPosting(&pl, line, dp)
+		l.fixMethod(&pl, line)
 		if why := l.assignCenters(line, &pl); why != "" && unloaded == "" {
 			unloaded = why
 		}
@@ -712,7 +713,9 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 		case amt != 0: // an open item of a document amount alone is refused by the quality gate (documentCurrencies)
 			partnerID := l.vendors[line.LIFNR]
 			text := "Open item " + cmp.Or(line.XBLNR, line.BELNR) + " (SAP " + line.BELNR + ")"
-			open = append(open, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: amt, PartnerID: &partnerID, Text: &text})
+			pl := ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: amt, PartnerID: &partnerID, Text: &text}
+			l.fixMethod(&pl, line)
+			open = append(open, pl)
 		}
 	}
 	var lines []ledger.PostingLine

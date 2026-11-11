@@ -45974,11 +45974,14 @@ type MigrationDiff struct {
 	// `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050
 	// §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
 	// `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center
-	// reports', documents mode).
+	// reports', documents mode), or `payment method <method> items of vendor <LIFNR>` or
+	// `payment method <method> items of partner <id> (<name>)` (the open items that fix that payment
+	// method, SAP ZLSCH: their number and total, as `2 items, -1250.00 EUR`).
 	Key string `json:"key"`
-	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items, a
-	// GR/IR position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load
-	// writes it, or a center's periods
+	// SAP's value: an amount with its currency code (`1250.00 EUR`), a quantity, a count of open items,
+	// the open items fixing a payment method as their number and total (`2 items, -1250.00 EUR`), a GR/IR
+	// position as its balance and quantity (`750.00 EUR, quantity 5`), a bank account as the load writes
+	// it, or a center's periods
 	// (`2020-01-01 to 2026-06-30: ADMIN, profit center P3100; from 2026-07-01: ADMIN, profit center P3200`,
 	// a profit center's with its segment; `none` for a center one side lacks, `unreadable` for SAP's
 	// slices that do not read).
@@ -47910,10 +47913,10 @@ type OpenItem struct {
 	// The payment terms the item was posted with, on a supplier item posted from T36 on; absent on others,
 	// which are due by their supplier's current terms.
 	PaymentTerms OptItemPaymentTerms `json:"payment_terms"`
-	// The payment method the item's document fixed when it posted (SAP BSEG-ZLSCH; ADR-0038), on a
-	// supplier item: a payment run pays the item by this method alone, in a payment of its own, and leaves
-	// it out with the reason when the method cannot pay it. Absent on an item that fixes none, which is
-	// paid by the company's run order.
+	// The payment method the item's document fixed when it posted, or that a migration run took over from
+	// the SAP item (SAP BSEG-ZLSCH; ADR-0038), on a supplier item: a payment run pays the item by this
+	// method alone, in a payment of its own, and leaves it out with the reason when the method cannot pay
+	// it. Absent on an item that fixes none, which is paid by the company's run order.
 	PaymentMethod OptString `json:"payment_method"`
 	// Special G/L indicator (ADR-0037): `A`, a down payment, kept on the down payment account and never
 	// netted in a payment run. Absent on ordinary items. Open enumeration: clients must accept and

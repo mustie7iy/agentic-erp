@@ -131,6 +131,11 @@ var DefaultEntities = []EntityMapping{
 	// extract cannot tell a noted item, which a file extract's scope sets
 	// aside (FilterScope), until the API's property for it is confirmed
 	// (docs/migration.md, "What to check on a real SAP system").
+	// Nor is ACDOCA-ZLSCH, an item's fixed payment method (ADR-0038 As
+	// built): the API's property for it is not recorded, so an OData
+	// extract's open items load without one and are paid by the company's
+	// run order, until the pilot's $metadata names it (docs/migration.md,
+	// "What to check on a real SAP system").
 	// OKB9's default account assignments (TKA3A, TKA3C, TKA3P; T56h3) have
 	// no released OData API (the SAP specialist, PO 2026-11-09): only a
 	// file extract carries them.
