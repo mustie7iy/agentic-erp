@@ -586,13 +586,15 @@ model_price() {
     grep -q "already recorded" "$WORK/prices.out" || fail "the model's price was not recorded ($(cat "$WORK/prices.out"))"
 }
 
-# latest_pack sets CA_PACK to the latest released Canada pack's version,
-# the one step 2 applies: since T61j (2026.6) it defines the GST/HST
-# return's lines, so the walkthrough serves no unreleased copy of its own
-# any more (ADR-0049 §11 As built, T61h, T61j).
+# latest_pack sets CA_PACK to the version of the latest released Canada
+# pack a tax specialist signed off, the one step 2 applies, as production
+# would (a later version without a sign_off, such as 2026.9, which adds
+# number ranges, is refused there): since T61j (2026.6) it defines the
+# GST/HST return's lines, so the walkthrough serves no unreleased copy of
+# its own any more (ADR-0049 §11 As built, T61h, T61j).
 latest_pack() {
-  CA_PACK=$(cd "$ROOT/packs/ca" && ls -d 20*.* | sort -t. -k1,1n -k2,2n | tail -1)
-  [ -f "$ROOT/packs/ca/$CA_PACK/returns.yaml" ] || fail "the latest Canada pack, $CA_PACK, defines no tax return"
+  CA_PACK=$(cd "$ROOT/packs/ca" && grep -l '^sign_off:' 20*.*/pack.yaml | cut -d/ -f1 | sort -t. -k1,1n -k2,2n | tail -1)
+  [ -f "$ROOT/packs/ca/$CA_PACK/returns.yaml" ] || fail "the latest signed-off Canada pack, $CA_PACK, defines no tax return"
 }
 
 # ---------------------------------------------------------------- the people
@@ -1614,14 +1616,19 @@ step_pack() {
   as ada
   api 200 '.items[] | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
   local version
-  version=$(field '[.items[] | select(.country == "CA") | .version] | sort_by(split(".") | map(tonumber)) | last')
-  expect "the latest Canada pack" "$version" "$CA_PACK"
+  version=$(field '[.items[] | select(.country == "CA" and .signed_off) | .version] | sort_by(split(".") | map(tonumber)) | last')
+  expect "the latest signed-off Canada pack" "$version" "$CA_PACK"
   say "CA $version defines the GST/HST return's lines (returns.yaml, T61j) for step 11, signed off by the tax specialist"
   say "(Musto Ibrahim, 2026-11-09), so production applies it. 2026.7 signed off 2026.6, which stays released unsigned;"
   say "2026.8 is 2026.7 with the lines' labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
-  expect "the latest Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
+  say "2026.9 is 2026.8 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs"
+  say "(product owner, 2026-11-12), its tax content unchanged; no sign-off is recorded for it, so production refuses it"
+  say "and the pilot applies $version, taking those ranges from its own settings below."
+  expect "Canada 2026.9" "$(field '.items[] | select(.country == "CA" and .version == "2026.9") | "\(.contents.number_ranges) number ranges, signed off: \(.signed_off)"')" \
+    "22 number ranges, signed off: false"
+  expect "the latest signed-off Canada pack's sign-off" "$(field '.items[] | select(.country == "CA" and .version == "'"$version"'") | "\(.signed_off) \(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "true Musto Ibrahim 2026-11-09"
-  say "Ada applies the latest Canada pack, $version, to company $CC. The merge keeps what the company"
+  say "Ada applies the latest signed-off Canada pack, $version, to company $CC. The merge keeps what the company"
   say "already has (SAP's chart and number ranges) and adds the rest; it becomes a draft change request."
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
     -body "{\"country\": \"CA\", \"version\": \"$version\", \"company\": \"$CC\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
@@ -4649,8 +4656,10 @@ step_uae() {
   say "by the tax specialist, Musto Ibrahim, on 2026-11-09: the VAT codes, tax settings and the VAT 201 (the items of"
   say "packs/ae/TAX-PENDING-T62f.md and TAX-PENDING-T61k.md), so production applies it; the earlier versions stay unsigned."
   say "2026.5 is 2026.4 with the VAT 201's box labels no longer marked pending the tax specialist (product owner, 2026-11-09)."
+  say "2026.6 is 2026.5 plus the number ranges of customer invoices, incoming payments, sales documents and RFQs (product"
+  say "owner, 2026-11-12), its tax content unchanged; no sign-off is recorded for it, so production refuses it."
   api 200 '.items[] | select(.country == "AE") | "pack \(.country) \(.version): \(.contents.accounts) accounts, \(.contents.tax_codes) tax codes, \(.contents.holidays) holidays, \(.contents.number_ranges) number ranges; signed off: \(.signed_off)"' listCountryPacks
-  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true"
+  expect "the UAE packs" "$(field '[.items[] | select(.country == "AE") | "\(.version) \(.contents.tax_codes) \(.signed_off)"] | join(", ")')" "2026.1 9 false, 2026.2 9 false, 2026.3 9 false, 2026.4 9 true, 2026.5 9 true, 2026.6 9 false"
   expect "UAE 2026.5's sign-off" "$(field '.items[] | select(.country == "AE" and .version == "2026.5") | "\(.sign_off.tax_specialist) \(.sign_off.date)"')" \
     "Musto Ibrahim 2026-11-09"
   say "Ada creates the UAE company's legal entity, Maple Gulf Trading ($AE, in AED), and activates it."
@@ -4671,7 +4680,7 @@ step_uae() {
     proposed: (.items[0].document | .companies += [${company//@FIRST@/$(uae_first)}])}" "$WORK/last.json" >"$WORK/uae-company.json"
   api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @uae-company.json
   governed "$(field .id)" "the UAE company"
-  say "Ada applies the latest UAE pack, 2026.5, to $AE for $YEAR. The merge keeps the company's accounts, which are"
+  say "Ada applies the latest signed-off UAE pack, 2026.5, to $AE for $YEAR. The merge keeps the company's accounts, which are"
   say "the pack's, and adds the rest; signed off, the pack brings no note saying otherwise:"
   api 201 '"change request \(.number), \(.status): \(.title)"' applyCountryPack \
     -body "{\"country\": \"AE\", \"version\": \"2026.5\", \"company\": \"$AE\", \"applied_on\": \"$TODAY\", \"fiscal_year\": $YEAR}"
