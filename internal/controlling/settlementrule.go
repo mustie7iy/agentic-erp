@@ -163,10 +163,10 @@ func (e *Endpoints) UpdateInternalOrderSettlementRule(ctx context.Context, req *
 		RETURNING `+orderColumns, o.ID, p.ID, o.Version)); err != nil {
 		return nil, fmt.Errorf("controlling: move the version of internal order %s with its settlement rule: %w", params.ID, err)
 	}
-	if err := recordRule(ctx, o, before, after); err != nil {
-		return nil, err
-	}
-	return &gen.UpdateInternalOrderSettlementRuleOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: ruleToAPI(o, after)}, nil
+	// The audit record is the request's last step and publishes nothing,
+	// so its error is the handler's: the unit of work rolls back on it.
+	return &gen.UpdateInternalOrderSettlementRuleOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: ruleToAPI(o, after)},
+		recordRule(ctx, o, before, after)
 }
 
 // recordRule audits a rule's change with the receivers before and after.
