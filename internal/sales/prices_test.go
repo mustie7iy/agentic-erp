@@ -430,6 +430,28 @@ func TestPriceList(t *testing.T) {
 		}
 		e.In(t).Problem(400, "request.invalid_page_token", "GET", "/v1/sales-prices?item_key=A&page_token="+token, "", "")
 	})
+	for _, tc := range []struct {
+		name, order   string
+		first, second string
+	}{
+		{"page by page by valid_from", "valid_from", b + " " + c, a + " " + us},
+		{"page by page, the latest first", "valid_from%20desc", us + " " + a, c + " " + b},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			query := "order_by=" + tc.order + "&page_size=2"
+			first, _ := e.In(t).Must(200, "GET", "/v1/sales-prices?"+query, "", "")
+			if got := ids(t, e.Client, query); got != tc.first {
+				t.Errorf("the first page: got %s, want %s", got, tc.first)
+			}
+			token, _ := first["next_page_token"].(string)
+			if token == "" {
+				t.Fatal("next page token: got none, want one after two of four records")
+			}
+			if got := ids(t, e.Client, query+"&page_token="+token); got != tc.second {
+				t.Errorf("the second page: got %s, want %s", got, tc.second)
+			}
+		})
+	}
 	t.Run("another company's", func(t *testing.T) {
 		reader := e.As(e.Reader(t, "US pricing", e.US))
 		if got := ids(t, reader, ""); got != us {

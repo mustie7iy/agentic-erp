@@ -245,13 +245,9 @@ func (e *Endpoints) source(ctx context.Context, tx pgx.Tx, in OrderInput) (order
 	if in.QuotationID != nil {
 		return e.fromQuotation(ctx, tx, *in.QuotationID)
 	}
-	access, err := authz.Companies(ctx)
+	le, err := e.company(ctx, *in.LegalEntityID)
 	if err != nil {
-		return ordered{}, fmt.Errorf("sales: company access: %w", err)
-	}
-	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, *in.LegalEntityID, "legal_entity_id")
-	if err != nil {
-		return ordered{}, fmt.Errorf("sales: legal entity of a sales order: %w", err)
+		return ordered{}, err
 	}
 	doc, err := e.document(ctx, tx, le, *in.CustomerID, *in.Currency)
 	if err != nil {
