@@ -407,9 +407,12 @@ is a report read and gets a budget test.
   7), customers with the same amount by id, so the order is total. The
   cursor is the last row's overdue amount and customer id, signed and
   bound to the company and key date; the worklist is computed again for
-  each page and the page continues after that place, so nobody is listed
-  twice; a customer whose amount changed between two pages is read at
-  its new place or not again. Names and dunning are read for the page's
+  each page and the page continues after that place. While nothing
+  changes, nobody is listed twice or left out; a customer whose overdue
+  amount rose between two pages, to before that place, is not read
+  again, and one whose amount fell, to after it, is listed again with
+  its new amount, so a consumer that pages while items are posted or
+  cleared keys its rows by `customer_id` (review round 1). Names and dunning are read for the page's
   customers only.
 - **Key date.** Required and at most 2100-12-31, as a run's (T76b).
   The items are those open at the read, not on the key date (§4).

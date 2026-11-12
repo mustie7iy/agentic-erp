@@ -157,9 +157,11 @@ type worklistCursor struct {
 // customer a page token names, and returns the token of the next page, or
 // none on the last. The token is bound to the company and the key date
 // (scope). The worklist is computed again for every page, so a page
-// continues after the last customer's overdue amount and id as they were:
-// customers are never repeated, and one whose amount changed in between
-// is read at its new place or not again.
+// continues after the last customer's overdue amount and id as they were.
+// While nothing changes, nobody is listed twice or left out. A customer
+// whose overdue amount rose in between, to before that place, is not read
+// again; one whose amount fell, to after it, is listed again with its new
+// amount.
 func (e *Endpoints) page(w Worklist, scope string, size int, token string, hasToken bool) ([]WorklistCustomer, string, error) {
 	rest := w.Customers
 	if hasToken {

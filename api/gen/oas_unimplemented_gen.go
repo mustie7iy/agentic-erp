@@ -2143,9 +2143,12 @@ func (UnimplementedHandler) GetCloseCalendar(ctx context.Context, params GetClos
 // counts what is overdue. Amounts are in the company's currency, as the items were booked.
 // `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
 // listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
-// company and key date. The worklist needs no dunning levels: a company without any has one too. A key
-// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal
-// entity the caller cannot act in is 404.
+// company and key date. Each page is computed anew and continues after the last customer's overdue
+// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
+// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
+// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
+// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
+// naming `key_date`). A legal entity the caller cannot act in is 404.
 //
 // GET /v1/collection-worklist
 func (UnimplementedHandler) GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (r GetCollectionWorklistRes, _ error) {

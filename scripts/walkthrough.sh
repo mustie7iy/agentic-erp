@@ -5917,15 +5917,6 @@ step_dunning() {
   passed
 }
 
-# step_close is the financial close (ADR-0058), the story's last step: it
-# stays last, and each slice of T64 adds its part before the sign-off
-# (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
-# the process owner approves; Carla reads the year's close calendar, each
-# period's planned first and last due dates on the company's business days.
-# Then the close's checklist (T64b), its depreciation check (T64k) with a
-# late asset in the previous period's close (T64l), its other checks
-# (T64c), its accrual proposals (T64e), its variances (T64h) and their
-# comments (T64i) and, last, its sign-off (T64d), which locks the period.
 # step_collections is T76c (ADR-0065 §9): Ruth reads Maple's collection
 # worklist at the key date of the dunning run she confirmed in
 # step_dunning: Northwind, the customer dunned, leads it with the overdue
@@ -5956,6 +5947,15 @@ step_collections() {
   passed
 }
 
+# step_close is the financial close (ADR-0058), the story's last step: it
+# stays last, and each slice of T64 adds its part before the sign-off
+# (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
+# the process owner approves; Carla reads the year's close calendar, each
+# period's planned first and last due dates on the company's business days.
+# Then the close's checklist (T64b), its depreciation check (T64k) with a
+# late asset in the previous period's close (T64l), its other checks
+# (T64c), its accrual proposals (T64e), its variances (T64h) and their
+# comments (T64i) and, last, its sign-off (T64d), which locks the period.
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada

@@ -142,12 +142,13 @@ func TestWorklist(t *testing.T) {
 // TestWorklistPages: the worklist is paged by cursor in its order, the
 // largest overdue amount first and customers with the same amount by id:
 // the pages together are the worklist, nobody twice, with the worklist's
-// totals on every page; a page continues after its token's customer when
-// the amounts changed in between; a token is bound to its company and key
-// date (T76c acceptance: the order is stable across pages).
+// totals on every page; a page continues after its token's place when the
+// amounts changed in between, so a customer whose amount rose is not read
+// again and one whose amount fell is; a token is bound to its company and
+// key date (T76c acceptance: the order is stable across pages).
 func TestWorklistPages(t *testing.T) {
 	e := setup(t)
-	e.story(t)
+	entries := e.story(t)
 	// Two more customers owing what Eastwind owes: three with the same overdue amount.
 	tied := []uuid.UUID{e.east, e.customer(t, "BP70000004", "Westwind SA"), e.customer(t, "BP70000005", "Tradewind BV")}
 	e.post(t, item{customer: tied[1], amount: 9000, currency: "EUR", day: "2026-06-15", ref: "CI-W"},
@@ -209,6 +210,24 @@ func TestWorklistPages(t *testing.T) {
 		}
 		if got := ids(t, e.In(t).worklist(t, key, "&page_size=1")); !slices.Equal(got, want[4:]) {
 			t.Errorf("read again from the start: got %v, want %v leading", got, want[4:])
+		}
+	})
+	t.Run("an amount fell between pages", func(t *testing.T) {
+		// The first page ends at Northwind, 250.00 overdue; Northwind then pays CI-A and owes 150.00, less than Southwind.
+		first := e.In(t).worklist(t, key, "&page_size=2")
+		if got := ids(t, first); !slices.Equal(got, []string{want[4], want[0]}) {
+			t.Fatalf("the first page: got %v, want %v", got, []string{want[4], want[0]})
+		}
+		payment := e.In(t).post(t, item{customer: e.north, amount: -10000, currency: "EUR", day: "2026-06-28", noTerms: true, ref: "PAYMENT"})[0]
+		e.In(t).Must(201, "POST", "/v1/clearings", fmt.Sprintf(`{"legal_entity_id": %q, "clearing_date": "2026-06-30", "items": [
+			{"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}, {"fiscal_year": 2026, "journal_entry_id": %q, "line_no": 1}]}`,
+			e.DE, entries[0].ID, payment.ID), "")
+		second := e.In(t).worklist(t, key, "&page_size=2&page_token="+apitest.String(t, first, "next_page_token"))
+		if got := ids(t, second); !slices.Equal(got, []string{want[1], want[0]}) {
+			t.Errorf("the second page: got %v, want %v: Southwind, then Northwind again at its new place", got, []string{want[1], want[0]})
+		}
+		if again := objects(t, second, "items")[1]; amount(t, again, "overdue_amount") != "150.00 EUR" {
+			t.Errorf("Northwind listed again: got %s overdue, want its new 150.00 EUR", amount(t, again, "overdue_amount"))
 		}
 	})
 }
