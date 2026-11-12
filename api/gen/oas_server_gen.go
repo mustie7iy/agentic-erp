@@ -1157,6 +1157,27 @@ type Handler interface {
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, req *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
+	// CreateRevenueContract implements createRevenueContract operation.
+	//
+	// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
+	// Every sales order gets its revenue contract by itself shortly after it is confirmed: the revenue
+	// context reads the order's SalesOrderChanged event and creates the contract, once. This operation
+	// creates the same contract on request, for an order confirmed before that was so or whose event has
+	// not been read yet; either way an order has one contract, and a request for an order that has one is
+	// refused (409 `revenue.contract_exists`; `GET /v1/revenue-contracts?sales_order_id=` finds it). The
+	// order is one of a company the caller may act in (422 `request.reference_not_found` naming
+	// `sales_order_id`), `confirmed` (422 `revenue.order_not_confirmed`) and in its company's local
+	// currency (422 `revenue.foreign_currency`: contracts in a foreign currency are not supported yet).
+	// The contract is created `draft`. Its transaction price is the order's net value, without tax. It has
+	// one performance obligation per order item, numbered as the items are, each starting as satisfied at
+	// a point in time (`point_in_time`) with the order item's net value as its stand-alone selling price:
+	// what is a distinct obligation, when it is satisfied and its stand-alone selling price are a person's
+	// judgement, which the system does not make. Nothing is posted. Audited, and published as
+	// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract created.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/revenue-contracts
+	CreateRevenueContract(ctx context.Context, req *RevenueContractCreate, params CreateRevenueContractParams) (CreateRevenueContractRes, error)
 	// CreateRole implements createRole operation.
 	//
 	// Creates a role without permissions.
@@ -2503,6 +2524,17 @@ type Handler interface {
 	//
 	// GET /v1/revaluation-runs/{id}
 	GetRevaluationRun(ctx context.Context, params GetRevaluationRunParams) (GetRevaluationRunRes, error)
+	// GetRevenueContract implements getRevenueContract operation.
+	//
+	// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
+	// and name, the sales order it stands for by id and number, its transaction price (the order's net
+	// value, without tax) and its performance obligations, each with the order item it is for, its timing
+	// and its stand-alone selling price. `created_by` is the person who asked for it, or the system's
+	// principal when the order's confirmation created it. One of a company the caller may not act in is
+	// not found (404), as one that does not exist.
+	//
+	// GET /v1/revenue-contracts/{id}
+	GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error)
 	// GetRole implements getRole operation.
 	//
 	// Returns one role.
@@ -3710,6 +3742,16 @@ type Handler interface {
 	//
 	// GET /v1/revaluation-runs
 	ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (ListRevaluationRunsRes, error)
+	// ListRevenueContracts implements listRevenueContracts operation.
+	//
+	// The revenue contracts of the companies the caller may act in (ADR-0068 §3, T81a), each as
+	// `getRevenueContract` gives it: with its company's code and name, its customer's number and name, the
+	// sales order it stands for by id and number, its transaction price and its performance obligations.
+	// Filtered by company, customer, sales order and status; `sales_order_id` finds the one contract of an
+	// order. Sortable by: `sales_order_number`.
+	//
+	// GET /v1/revenue-contracts
+	ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (ListRevenueContractsRes, error)
 	// ListRoleAssignments implements listRoleAssignments operation.
 	//
 	// Effective-dated role grants, including ended ones. Sortable by: `valid_from`.

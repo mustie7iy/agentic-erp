@@ -65,6 +65,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/provisioning"
+	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/internal/workflows"
 	"go.opentelemetry.io/otel"
@@ -956,15 +957,27 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 		relay.Relayed = extract.MarkChanged
 	}
 	s.spawn("relay", func() { relay.Run(runCtx) })
-	// Events offered to webhooks become deliveries (ADR-0041), each in its
-	// tenant's transaction, so the fan-out needs no role beyond the app's.
+	// Events offered to webhooks become deliveries (ADR-0041), and a
+	// confirmed sales order's event its revenue contract (ADR-0068 §4),
+	// each in its tenant's transaction, so neither consumer needs a role
+	// beyond the app's.
 	fanout := &integration.Fanout{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
-	consumer, err := bus.Consume(ctx, s.cfg.Cell, integration.FanoutConsumer, integration.WebhookContexts(), fanout.Handle)
-	if err != nil {
-		return err
+	contracts := &revenue.Consumer{Endpoints: app.Revenue(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
+	for _, c := range []struct {
+		name, durable string
+		contexts      []string
+		handle        natsbus.Handler
+	}{
+		{"webhook fan-out", integration.FanoutConsumer, integration.WebhookContexts(), fanout.Handle},
+		{"revenue contracts", revenue.ContractConsumer, revenue.ConsumedContexts(), contracts.Handle},
+	} {
+		consumer, err := bus.Consume(ctx, s.cfg.Cell, c.durable, c.contexts, c.handle)
+		if err != nil {
+			return err
+		}
+		consumer.Log = s.log
+		s.spawn(c.name, func() { consumer.Run(runCtx) })
 	}
-	consumer.Log = s.log
-	s.spawn("webhook fan-out", func() { consumer.Run(runCtx) })
 	return nil
 }
 

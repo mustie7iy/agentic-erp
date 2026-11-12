@@ -46,6 +46,7 @@ pointing its schema at a separate database. Callers do not change.
 | **receivables** (ADR-0063) | Customer invoices entered without a sales order, with their items and the output tax calculated for them (T75a), and posted as the customer's open items with their payment terms (T75b); incoming payments on a house bank's incoming payments clearing account applied to a customer's open items in full (T75c); credit memos and the aging read planned (T75d, T75e) | `CustomerInvoiceChanged`, `CustomerInvoicePosted`, `IncomingPaymentApplied` |
 | **collections** (ADR-0065, a leaf) | Dunning runs: per company and key date, one notice per customer proposing the open customer items overdue and the dunning level each would reach, from the ledger's customer open items (`ledger.OpenItems.Receivable`) and the company's dunning levels in the configuration, through the ports `OpenItems`, `Partners`, `LegalEntities` and `Settings`; nothing changes on the items (T76a); confirming a run and the collection worklist planned (T76b, T76c) | `DunningRunChanged` |
 | **sales** (ADR-0067) | Quotations to customers with their items, net of tax, open then accepted or rejected once (T78a); sales orders created from an accepted quotation or directly and confirmed once, each item with its ordered, delivered and billed quantities, read by other contexts through `sales.Orders` (T78b); delivery confirmations of a confirmed order's items, by a person, on a date, up to what is open, moving no stock and posting nothing, each item's deliveries read through `sales.Orders` (T78c); billing documents for an order's delivered quantities not yet billed, at the order's prices, the last document of an item taking the remainder of its net value, created without posting (T79a); posting them planned (T79b). Posts nothing itself: billing posts through receivables | `QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`, `BillingDocumentChanged` |
+| **revenue** (ADR-0068, a leaf) | Revenue contracts: the contract with a customer that one confirmed sales order in local currency stands for, its transaction price the order's net value without tax, with one performance obligation per order item; created once per order by the context's consumer of the sales context's `SalesOrderChanged` (the durable consumer `revenue-contracts`, the context's inbox) and on a person's request, through the ports `SalesOrders`, `Partners` and `LegalEntities` (T81a); price allocation, the recognition schedule and the recognition run planned (T81b-T81d). The person makes every judgement; the system does the arithmetic | `RevenueContractChanged` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |
 | **workflow** | Approval requests, steps, decisions | `ApprovalCompleted` |
 | **audit** | Audit events (hash-chained) | — (consumes everything) |
@@ -59,8 +60,8 @@ pointing its schema at a separate database. Callers do not change.
 
 Later phases add `inventory`, `manufacturing`, `maintenance`,
 `projects` and `hr` with the same rules; `receivables` is built from T75a
-(ADR-0063), `collections` from T76a (ADR-0065) and `sales` from T78a
-(ADR-0067).
+(ADR-0063), `collections` from T76a (ADR-0065), `sales` from T78a
+(ADR-0067) and `revenue` from T81a (ADR-0068).
 
 Dependencies between contexts point one way (no cycles):
 
@@ -79,6 +80,9 @@ flowchart LR
   partner --> receivables
   ledger --> collections
   partner --> collections
+  sales --> revenue
+  partner --> revenue
+  sales -.events.-> revenue
   payables --> payments
   partner --> payments
   ledger --> payments

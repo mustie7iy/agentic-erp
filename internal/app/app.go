@@ -60,6 +60,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/receivables"
+	"github.com/mustie7iy/agentic-erp/internal/revenue"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -84,6 +85,7 @@ type (
 	payablesAPI    = payables.Endpoints
 	receivablesAPI = receivables.Endpoints
 	salesAPI       = sales.Endpoints
+	revenueAPI     = revenue.Endpoints
 	collectionsAPI = collections.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
@@ -113,6 +115,7 @@ type handler struct {
 	*payablesAPI
 	*receivablesAPI
 	*salesAPI
+	*revenueAPI
 	*collectionsAPI
 	*paymentsAPI
 	*auditAPI
@@ -239,6 +242,7 @@ func New(cfg Config) (http.Handler, error) {
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		receivablesAPI: Receivables(cfg),
 		salesAPI:       Sales(cfg),
+		revenueAPI:     Revenue(cfg),
 		collectionsAPI: Collections(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
@@ -431,6 +435,13 @@ func Sales(cfg Config) *sales.Endpoints {
 		Terms: partner.Suppliers{}, Partners: partner.Payees{},
 		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Now: cfg.Now}
+}
+
+// Revenue is the revenue recognition context as the API and the event
+// consumer wire it (ADR-0068 §1): a leaf reading the sales context's
+// orders, partners' names and tenancy through its ports.
+func Revenue(cfg Config) *revenue.Endpoints {
+	return &revenue.Endpoints{Pages: cfg.Pages, SalesOrders: sales.Orders{}, LegalEntities: tenancy.Directory{}, Partners: partner.Payees{}}
 }
 
 // receivablesStatements gives receivables the statement lines behind its

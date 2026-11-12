@@ -321,6 +321,10 @@ type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
 
+type CreateRevenueContractRes interface {
+	createRevenueContractRes()
+}
+
 type CreateRoleAssignmentRes interface {
 	createRoleAssignmentRes()
 }
@@ -767,6 +771,10 @@ type GetRequisitionRes interface {
 
 type GetRevaluationRunRes interface {
 	getRevaluationRunRes()
+}
+
+type GetRevenueContractRes interface {
+	getRevenueContractRes()
 }
 
 type GetRoleAssignmentRes interface {
@@ -1247,6 +1255,10 @@ type ListRequisitionsRes interface {
 
 type ListRevaluationRunsRes interface {
 	listRevaluationRunsRes()
+}
+
+type ListRevenueContractsRes interface {
+	listRevenueContractsRes()
 }
 
 type ListRoleAssignmentsRes interface {

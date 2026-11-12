@@ -1178,6 +1178,27 @@ type Invoker interface {
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, request *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
+	// CreateRevenueContract invokes createRevenueContract operation.
+	//
+	// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
+	// Every sales order gets its revenue contract by itself shortly after it is confirmed: the revenue
+	// context reads the order's SalesOrderChanged event and creates the contract, once. This operation
+	// creates the same contract on request, for an order confirmed before that was so or whose event has
+	// not been read yet; either way an order has one contract, and a request for an order that has one is
+	// refused (409 `revenue.contract_exists`; `GET /v1/revenue-contracts?sales_order_id=` finds it). The
+	// order is one of a company the caller may act in (422 `request.reference_not_found` naming
+	// `sales_order_id`), `confirmed` (422 `revenue.order_not_confirmed`) and in its company's local
+	// currency (422 `revenue.foreign_currency`: contracts in a foreign currency are not supported yet).
+	// The contract is created `draft`. Its transaction price is the order's net value, without tax. It has
+	// one performance obligation per order item, numbered as the items are, each starting as satisfied at
+	// a point in time (`point_in_time`) with the order item's net value as its stand-alone selling price:
+	// what is a distinct obligation, when it is satisfied and its stand-alone selling price are a person's
+	// judgement, which the system does not make. Nothing is posted. Audited, and published as
+	// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract created.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/revenue-contracts
+	CreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (CreateRevenueContractRes, error)
 	// CreateRole invokes createRole operation.
 	//
 	// Creates a role without permissions.
@@ -2524,6 +2545,17 @@ type Invoker interface {
 	//
 	// GET /v1/revaluation-runs/{id}
 	GetRevaluationRun(ctx context.Context, params GetRevaluationRunParams) (GetRevaluationRunRes, error)
+	// GetRevenueContract invokes getRevenueContract operation.
+	//
+	// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
+	// and name, the sales order it stands for by id and number, its transaction price (the order's net
+	// value, without tax) and its performance obligations, each with the order item it is for, its timing
+	// and its stand-alone selling price. `created_by` is the person who asked for it, or the system's
+	// principal when the order's confirmation created it. One of a company the caller may not act in is
+	// not found (404), as one that does not exist.
+	//
+	// GET /v1/revenue-contracts/{id}
+	GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error)
 	// GetRole invokes getRole operation.
 	//
 	// Returns one role.
@@ -3731,6 +3763,16 @@ type Invoker interface {
 	//
 	// GET /v1/revaluation-runs
 	ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (ListRevaluationRunsRes, error)
+	// ListRevenueContracts invokes listRevenueContracts operation.
+	//
+	// The revenue contracts of the companies the caller may act in (ADR-0068 §3, T81a), each as
+	// `getRevenueContract` gives it: with its company's code and name, its customer's number and name, the
+	// sales order it stands for by id and number, its transaction price and its performance obligations.
+	// Filtered by company, customer, sales order and status; `sales_order_id` finds the one contract of an
+	// order. Sortable by: `sales_order_number`.
+	//
+	// GET /v1/revenue-contracts
+	ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (ListRevenueContractsRes, error)
 	// ListRoleAssignments invokes listRoleAssignments operation.
 	//
 	// Effective-dated role grants, including ended ones. Sortable by: `valid_from`.
@@ -17945,6 +17987,151 @@ func (c *Client) sendCreateRequisition(ctx context.Context, request *Requisition
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateRequisitionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateRevenueContract invokes createRevenueContract operation.
+//
+// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
+// Every sales order gets its revenue contract by itself shortly after it is confirmed: the revenue
+// context reads the order's SalesOrderChanged event and creates the contract, once. This operation
+// creates the same contract on request, for an order confirmed before that was so or whose event has
+// not been read yet; either way an order has one contract, and a request for an order that has one is
+// refused (409 `revenue.contract_exists`; `GET /v1/revenue-contracts?sales_order_id=` finds it). The
+// order is one of a company the caller may act in (422 `request.reference_not_found` naming
+// `sales_order_id`), `confirmed` (422 `revenue.order_not_confirmed`) and in its company's local
+// currency (422 `revenue.foreign_currency`: contracts in a foreign currency are not supported yet).
+// The contract is created `draft`. Its transaction price is the order's net value, without tax. It has
+// one performance obligation per order item, numbered as the items are, each starting as satisfied at
+// a point in time (`point_in_time`) with the order item's net value as its stand-alone selling price:
+// what is a distinct obligation, when it is satisfied and its stand-alone selling price are a person's
+// judgement, which the system does not make. Nothing is posted. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-contracts
+func (c *Client) CreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (CreateRevenueContractRes, error) {
+	res, err := c.sendCreateRevenueContract(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateRevenueContract(ctx context.Context, request *RevenueContractCreate, params CreateRevenueContractParams) (res CreateRevenueContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createRevenueContract"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateRevenueContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-contracts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateRevenueContractRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateRevenueContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateRevenueContractResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -34518,6 +34705,142 @@ func (c *Client) sendGetRevaluationRun(ctx context.Context, params GetRevaluatio
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRevaluationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRevenueContract invokes getRevenueContract operation.
+//
+// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
+// and name, the sales order it stands for by id and number, its transaction price (the order's net
+// value, without tax) and its performance obligations, each with the order item it is for, its timing
+// and its stand-alone selling price. `created_by` is the person who asked for it, or the system's
+// principal when the order's confirmation created it. One of a company the caller may not act in is
+// not found (404), as one that does not exist.
+//
+// GET /v1/revenue-contracts/{id}
+func (c *Client) GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (GetRevenueContractRes, error) {
+	res, err := c.sendGetRevenueContract(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRevenueContract(ctx context.Context, params GetRevenueContractParams) (res GetRevenueContractRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRevenueContract"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRevenueContractOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/revenue-contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRevenueContractOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRevenueContractResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -61484,6 +61807,246 @@ func (c *Client) sendListRevaluationRuns(ctx context.Context, params ListRevalua
 
 	stage = "DecodeResponse"
 	result, err := decodeListRevaluationRunsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListRevenueContracts invokes listRevenueContracts operation.
+//
+// The revenue contracts of the companies the caller may act in (ADR-0068 §3, T81a), each as
+// `getRevenueContract` gives it: with its company's code and name, its customer's number and name, the
+// sales order it stands for by id and number, its transaction price and its performance obligations.
+// Filtered by company, customer, sales order and status; `sales_order_id` finds the one contract of an
+// order. Sortable by: `sales_order_number`.
+//
+// GET /v1/revenue-contracts
+func (c *Client) ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (ListRevenueContractsRes, error) {
+	res, err := c.sendListRevenueContracts(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (res ListRevenueContractsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listRevenueContracts"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/revenue-contracts"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListRevenueContractsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/revenue-contracts"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListRevenueContractsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListRevenueContractsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

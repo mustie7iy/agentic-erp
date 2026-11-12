@@ -3025,7 +3025,7 @@ line or reservation. An agent's budget is identity's
 
 ## 3.16 Later contexts
 
-`sales`, `receivables`, `inventory`, `manufacturing`, `maintenance`,
+`sales`, `receivables`, `revenue` (§3.29), `inventory`, `manufacturing`, `maintenance`,
 `projects`, `hr`, `controlling` (plan values from T56g, §3.19), `assets` (the asset master from T57b, §3.21) follow the same patterns:
 
 - documents as header + items with `document_number` from number ranges;
@@ -4421,3 +4421,65 @@ erDiagram
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
   `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b).
+
+## 3.29 Revenue recognition (`revenue`)
+
+ADR-0068, T81a-T81d. A leaf: it reads the sales context's orders (§3.28,
+`sales.Orders`), the partner context's names and tenancy through its
+ports and keeps no foreign key out of its schema (02 §2.1). T81a
+(migration 000280) builds the schema with its outbox and inbox and the
+revenue contract: the contract with a customer that one confirmed sales
+order stands for, with one performance obligation per order item. The
+inbox is in use: the context consumes the sales context's
+`SalesOrderChanged` and creates a confirmed order's contract, once
+(ADR-0068 §4). Nothing is posted before T81d.
+
+```mermaid
+erDiagram
+  contract ||--|{ performance_obligation : "has"
+  contract { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    uuid sales_order_id "sales, one contract per order"
+    text sales_order_number "when created"
+    char currency "the company's local currency"
+    bigint transaction_price "the order's net value, without tax"
+    text status "draft"
+    int version }
+  performance_obligation { int obligation_no PK
+    uuid contract_id FK
+    int order_item_no "sales: one obligation per order item"
+    text item_key
+    text description
+    bigint net_amount "the order item's net value"
+    text timing "point_in_time, over_time"
+    bigint standalone_selling_price "above 0" }
+```
+
+- `revenue.contract`: one per sales order
+  (`contract_one_per_sales_order`: the consumer's insert and a person's
+  request leave an existing one as it is); the status is `draft` alone
+  (`contract_status_check`, which T81b widens); `transaction_price` is
+  above zero (`contract_transaction_price_positive`), minor units of
+  `currency`; it keeps its order's number
+  (`contract_sales_order_number_check`), which the list reads the
+  tenant's contracts by (`contract_by_order_number`,
+  `contract_by_customer`). Creating is the only write: the application
+  may not update or delete a contract (T81b grants what it sets).
+- `revenue.performance_obligation`: numbered from 1 within its contract,
+  one per order item (`performance_obligation_one_per_order_item`), with
+  the item's key and description
+  (`performance_obligation_item_key_check`,
+  `performance_obligation_description_check`) and net value
+  (`performance_obligation_net_positive`); `timing` is `point_in_time`
+  or `over_time` (`performance_obligation_timing_check`) and
+  `standalone_selling_price` is above zero
+  (`performance_obligation_price_positive`): both are a person's
+  judgement, and start as point in time and the item's net value
+  (ADR-0068 §2). The application may not update or delete one.
+- `revenue.outbox`, `revenue.inbox`: the context's events
+  (`RevenueContractChanged`), and the events its consumer
+  `revenue-contracts` has read (the sales context's
+  `SalesOrderChanged`), each recorded in the transaction of what the
+  reading did.
+- Permissions `revenue.contract.read` and `.write`.

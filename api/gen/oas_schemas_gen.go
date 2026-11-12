@@ -22434,6 +22434,7 @@ func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createQuotationRes()                       {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
+func (*ConflictHeaders) createRevenueContractRes()                 {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSalesOrderRes()                      {}
@@ -28360,6 +28361,22 @@ func (*CreateRequisitionPreconditionRequired) createRequisitionRes() {}
 type CreateRequisitionUnprocessableEntity Problem
 
 func (*CreateRequisitionUnprocessableEntity) createRequisitionRes() {}
+
+type CreateRevenueContractBadRequest Problem
+
+func (*CreateRevenueContractBadRequest) createRevenueContractRes() {}
+
+type CreateRevenueContractForbidden Problem
+
+func (*CreateRevenueContractForbidden) createRevenueContractRes() {}
+
+type CreateRevenueContractPreconditionRequired Problem
+
+func (*CreateRevenueContractPreconditionRequired) createRevenueContractRes() {}
+
+type CreateRevenueContractUnprocessableEntity Problem
+
+func (*CreateRevenueContractUnprocessableEntity) createRevenueContractRes() {}
 
 type CreateRoleAssignmentBadRequest Problem
 
@@ -38030,6 +38047,46 @@ func (s *GetRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
 }
 
 func (*GetRevaluationRunOKHeaders) getRevaluationRunRes() {}
+
+type GetRevenueContractBadRequest Problem
+
+func (*GetRevenueContractBadRequest) getRevenueContractRes() {}
+
+type GetRevenueContractForbidden Problem
+
+func (*GetRevenueContractForbidden) getRevenueContractRes() {}
+
+type GetRevenueContractNotFound Problem
+
+func (*GetRevenueContractNotFound) getRevenueContractRes() {}
+
+// GetRevenueContractOKHeaders wraps RevenueContract with response headers.
+type GetRevenueContractOKHeaders struct {
+	ETag     OptString
+	Response RevenueContract
+}
+
+// GetETag returns the value of ETag.
+func (s *GetRevenueContractOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetRevenueContractOKHeaders) GetResponse() RevenueContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetRevenueContractOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetRevenueContractOKHeaders) SetResponse(val RevenueContract) {
+	s.Response = val
+}
+
+func (*GetRevenueContractOKHeaders) getRevenueContractRes() {}
 
 type GetRoleAssignmentBadRequest Problem
 
@@ -48284,6 +48341,14 @@ func (*ListRevaluationRunsBadRequest) listRevaluationRunsRes() {}
 type ListRevaluationRunsForbidden Problem
 
 func (*ListRevaluationRunsForbidden) listRevaluationRunsRes() {}
+
+type ListRevenueContractsBadRequest Problem
+
+func (*ListRevenueContractsBadRequest) listRevenueContractsRes() {}
+
+type ListRevenueContractsForbidden Problem
+
+func (*ListRevenueContractsForbidden) listRevenueContractsRes() {}
 
 type ListRoleAssignmentsBadRequest Problem
 
@@ -60338,6 +60403,99 @@ func (s *PaymentRunReleaseApproval) SetApprovedAt(val OptDateTime) {
 	s.ApprovedAt = val
 }
 
+// A performance obligation of a revenue contract (ADR-0068 §3): what one item of the sales order
+// promises the customer. Amounts are in the contract's currency.
+// Ref: #/components/schemas/PerformanceObligation
+type PerformanceObligation struct {
+	// The obligation's number within the contract, from 1.
+	ObligationNo int32 `json:"obligation_no"`
+	// The sales order's item the obligation is for (`items[].item_no` of `getSalesOrder`).
+	OrderItemNo int32 `json:"order_item_no"`
+	// The order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The order item's description: what was promised.
+	Description string `json:"description"`
+	// The order item's net value, without tax.
+	NetAmount Money `json:"net_amount"`
+	// When the obligation is satisfied, a person's judgement: `point_in_time`, which every obligation
+	// starts as, or `over_time`. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Timing string `json:"timing"`
+	// The obligation's stand-alone selling price, a person's judgement: it starts as the order item's net
+	// value.
+	StandaloneSellingPrice Money `json:"standalone_selling_price"`
+}
+
+// GetObligationNo returns the value of ObligationNo.
+func (s *PerformanceObligation) GetObligationNo() int32 {
+	return s.ObligationNo
+}
+
+// GetOrderItemNo returns the value of OrderItemNo.
+func (s *PerformanceObligation) GetOrderItemNo() int32 {
+	return s.OrderItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *PerformanceObligation) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *PerformanceObligation) GetDescription() string {
+	return s.Description
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *PerformanceObligation) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTiming returns the value of Timing.
+func (s *PerformanceObligation) GetTiming() string {
+	return s.Timing
+}
+
+// GetStandaloneSellingPrice returns the value of StandaloneSellingPrice.
+func (s *PerformanceObligation) GetStandaloneSellingPrice() Money {
+	return s.StandaloneSellingPrice
+}
+
+// SetObligationNo sets the value of ObligationNo.
+func (s *PerformanceObligation) SetObligationNo(val int32) {
+	s.ObligationNo = val
+}
+
+// SetOrderItemNo sets the value of OrderItemNo.
+func (s *PerformanceObligation) SetOrderItemNo(val int32) {
+	s.OrderItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *PerformanceObligation) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *PerformanceObligation) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *PerformanceObligation) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTiming sets the value of Timing.
+func (s *PerformanceObligation) SetTiming(val string) {
+	s.Timing = val
+}
+
+// SetStandaloneSellingPrice sets the value of StandaloneSellingPrice.
+func (s *PerformanceObligation) SetStandaloneSellingPrice(val Money) {
+	s.StandaloneSellingPrice = val
+}
+
 // A company's close of one regular period (ADR-0058 §6): the ledgers it covers and its checklist,
 // copied from the close template when it was opened.
 // Ref: #/components/schemas/PeriodClose
@@ -69560,6 +69718,327 @@ func (s *RevaluationTotal) SetDifferenceGc(val Money) {
 	s.DifferenceGc = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/RevenueContract
+type RevenueContract struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose contract it is.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The sales order the contract stands for (`GET /v1/sales-orders/{id}`).
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The contract's currency (ISO 4217): the company's local currency, which is the order's.
+	Currency string `json:"currency"`
+	// The contract's transaction price: the sales order's net value, without tax.
+	TransactionPrice Money `json:"transaction_price"`
+	// `draft`: created. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// The performance obligations, by number.
+	Obligations []PerformanceObligation `json:"obligations"`
+}
+
+// GetID returns the value of ID.
+func (s *RevenueContract) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *RevenueContract) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *RevenueContract) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *RevenueContract) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *RevenueContract) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *RevenueContract) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RevenueContract) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RevenueContract) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RevenueContract) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *RevenueContract) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *RevenueContract) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *RevenueContract) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *RevenueContract) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *RevenueContract) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RevenueContract) GetCurrency() string {
+	return s.Currency
+}
+
+// GetTransactionPrice returns the value of TransactionPrice.
+func (s *RevenueContract) GetTransactionPrice() Money {
+	return s.TransactionPrice
+}
+
+// GetStatus returns the value of Status.
+func (s *RevenueContract) GetStatus() string {
+	return s.Status
+}
+
+// GetObligations returns the value of Obligations.
+func (s *RevenueContract) GetObligations() []PerformanceObligation {
+	return s.Obligations
+}
+
+// SetID sets the value of ID.
+func (s *RevenueContract) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *RevenueContract) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *RevenueContract) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *RevenueContract) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *RevenueContract) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *RevenueContract) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RevenueContract) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RevenueContract) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RevenueContract) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *RevenueContract) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *RevenueContract) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *RevenueContract) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *RevenueContract) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *RevenueContract) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RevenueContract) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetTransactionPrice sets the value of TransactionPrice.
+func (s *RevenueContract) SetTransactionPrice(val Money) {
+	s.TransactionPrice = val
+}
+
+// SetStatus sets the value of Status.
+func (s *RevenueContract) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetObligations sets the value of Obligations.
+func (s *RevenueContract) SetObligations(val []PerformanceObligation) {
+	s.Obligations = val
+}
+
+// Create the revenue contract of a confirmed sales order that has none yet.
+// Ref: #/components/schemas/RevenueContractCreate
+type RevenueContractCreate struct {
+	// The confirmed sales order (`GET /v1/sales-orders/{id}`), in its company's local currency, of a
+	// company the caller may act in.
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *RevenueContractCreate) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *RevenueContractCreate) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// RevenueContractHeaders wraps RevenueContract with response headers.
+type RevenueContractHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           RevenueContract
+}
+
+// GetETag returns the value of ETag.
+func (s *RevenueContractHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RevenueContractHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RevenueContractHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *RevenueContractHeaders) GetResponse() RevenueContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RevenueContractHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RevenueContractHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RevenueContractHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RevenueContractHeaders) SetResponse(val RevenueContract) {
+	s.Response = val
+}
+
+func (*RevenueContractHeaders) createRevenueContractRes() {}
+
+// One page of revenue contracts.
+// Ref: #/components/schemas/RevenueContractPage
+type RevenueContractPage struct {
+	// The revenue contracts on this page.
+	Items []RevenueContract `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *RevenueContractPage) GetItems() []RevenueContract {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RevenueContractPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *RevenueContractPage) SetItems(val []RevenueContract) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RevenueContractPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*RevenueContractPage) listRevenueContractsRes() {}
+
 type ReverseAssetAcquisitionBadRequest Problem
 
 func (*ReverseAssetAcquisitionBadRequest) reverseAssetAcquisitionRes() {}
@@ -76755,6 +77234,7 @@ func (*TooManyRequestsHeaders) createQuotationRes()                       {}
 func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
+func (*TooManyRequestsHeaders) createRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSalesOrderRes()                      {}
@@ -76867,6 +77347,7 @@ func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
+func (*TooManyRequestsHeaders) getRevenueContractRes()                    {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
@@ -76987,6 +77468,7 @@ func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
 func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
+func (*TooManyRequestsHeaders) listRevenueContractsRes()                  {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
@@ -77504,6 +77986,7 @@ func (*UnauthorizedHeaders) createQuotationRes()                       {}
 func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
+func (*UnauthorizedHeaders) createRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSalesOrderRes()                      {}
@@ -77616,6 +78099,7 @@ func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
+func (*UnauthorizedHeaders) getRevenueContractRes()                    {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
@@ -77736,6 +78220,7 @@ func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
 func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
+func (*UnauthorizedHeaders) listRevenueContractsRes()                  {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
