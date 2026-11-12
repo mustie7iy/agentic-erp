@@ -56,8 +56,9 @@ type priced struct {
 // its item key on the document's date (determined). The item's value is
 // quantity × unit price ÷ price unit, rounded half away from zero to the
 // currency's minor unit (money.Scale) and more than zero. A tenant with a
-// pricing procedure then has its discounts taken off (conditioned); the
-// net value stays more than zero. The price is fixed here, when the item
+// pricing procedure then has its discounts taken off a determined price
+// (conditioned), never off an entered one; the net value stays more than
+// zero. The price is fixed here, when the item
 // is created: a later record does not change it.
 func price(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput) (priced, error) {
 	p, field, err := unitPrice(ctx, tx, doc, i, it)
@@ -155,12 +156,14 @@ func determined(ctx context.Context, tx pgx.Tx, doc document, field string, it I
 // (validRecord), if there is one, takes its percentage off the value
 // before it, rounded half away from zero to the currency's minor unit
 // (money.Scale). The conditions are listed in the procedure's order and
-// their amounts add up to the net value. An item without a key has no
-// discount: discounts are recorded by item key.
+// their amounts add up to the net value. A price entered with the item
+// is its final net price (PO 2026-11-12, T80c): no discount is taken off
+// it, and its price is its only condition. An item without a key has no
+// discount either: discounts are recorded by item key.
 func conditioned(ctx context.Context, tx pgx.Tx, doc document, it ItemInput, p priced) (priced, error) {
 	first, unit, per := doc.procedure[0], p.UnitPrice, p.PriceUnit
 	p.Conditions = []Condition{{Type: first.Code, Name: first.Name, Kind: first.Kind, UnitPrice: &unit, PriceUnit: &per, Amount: p.Net}}
-	if it.ItemKey == nil {
+	if it.ItemKey == nil || p.Source == Manual {
 		return p, nil
 	}
 	for _, step := range doc.procedure[1:] {

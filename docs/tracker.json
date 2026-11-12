@@ -4570,6 +4570,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "fix: a price a person enters on a quotation or order item is the final net price: the pricing procedure takes no discount off it and the item lists its price alone; a price from the price list keeps its discounts",
+        "r": "T80c · internal/sales/pricing.go (conditioned) · walkthrough step_price_list · ADR-0067 §11 and As built",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: pricing configuration variants: several procedures chosen by customer and document type, access sequences, fixed-amount and quantity-based conditions, header conditions, condition exclusion, statistical conditions, tax as a condition, pricing configuration generated from SAP's condition tables (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80b, Later",

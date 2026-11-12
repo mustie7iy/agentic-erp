@@ -17243,12 +17243,13 @@ func (s *Server) handleCreatePurchaseOrderChangeRequest(args [1]string, argsEsca
 // naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not
 // give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a
 // pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key
-// and valid on the quotation's date, the customer's before the general one, is taken off in the
-// procedure's order, as a percentage of the value before it rounded half away from zero; `conditions`
-// lists the price and the discounts applied, and `net_amount` is the value less the discounts, still
-// more than zero (ADR-0067 §11). Amounts are net: the tax is calculated when the order is billed, at
-// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-// (`x-agent: false`).
+// and valid on the quotation's date, the customer's before the general one, is taken off an item
+// priced from the price records, in the procedure's order, as a percentage of the value before it
+// rounded half away from zero; `conditions` lists the price and the discounts applied, and
+// `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). A `unit_price`
+// entered with the item is its final net price: no discount is taken off it, and its price is its only
+// condition. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A
+// retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
 //
 // POST /v1/quotations
 func (s *Server) handleCreateQuotationRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -18922,8 +18923,9 @@ func (s *Server) handleCreateSalesOrderRequest(args [0]string, argsEscaped bool,
 // one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422
 // `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422
 // `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
-// item key when the pricing procedure names its type, the customer's before the general one as a price
-// is found (ADR-0067 §11). A record is never changed or deleted: a new price is recorded with a later
+// item key that is priced from the price records when the pricing procedure names its type, the
+// customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
+// was entered has none. A record is never changed or deleted: a new price is recorded with a later
 // `valid_from`, and the items priced before keep their price. Audited, and published as
 // SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
 // (`x-agent: false`).

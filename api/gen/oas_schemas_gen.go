@@ -14630,8 +14630,10 @@ type BillingDocumentItem struct {
 	// and preserve values not listed here; values may be added within /v1.
 	PriceSource string `json:"price_source"`
 	// The conditions the tenant's pricing procedure applied to the item when it was created, in the
-	// procedure's order: the price, then each discount found for the item key (ADR-0067 §11). Their
-	// amounts add up to `net_amount`. Empty for an item priced without a pricing procedure.
+	// procedure's order: the price, then, for an item priced from the price records (`price_source`
+	// `price_list`), each discount found for the item key (ADR-0067 §11); an item whose price was entered
+	// (`manual`) has its price alone. Their amounts add up to `net_amount`. Empty for an item priced
+	// without a pricing procedure.
 	Conditions []SalesCondition `json:"conditions"`
 	// The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the
 	// currency's minor unit, less its discounts (`conditions`).
@@ -75439,8 +75441,10 @@ type SalesItem struct {
 	// and preserve values not listed here; values may be added within /v1.
 	PriceSource string `json:"price_source"`
 	// The conditions the tenant's pricing procedure applied to the item when it was created, in the
-	// procedure's order: the price, then each discount found for the item key (ADR-0067 §11). Their
-	// amounts add up to `net_amount`. Empty for an item priced without a pricing procedure.
+	// procedure's order: the price, then, for an item priced from the price records (`price_source`
+	// `price_list`), each discount found for the item key (ADR-0067 §11); an item whose price was entered
+	// (`manual`) has its price alone. Their amounts add up to `net_amount`. Empty for an item priced
+	// without a pricing procedure.
 	Conditions []SalesCondition `json:"conditions"`
 	// The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the
 	// currency's minor unit, less its discounts (`conditions`).
@@ -75598,10 +75602,11 @@ type SalesItemCreate struct {
 	// The quantity, more than zero, in a unit of measure of the reference data.
 	Quantity Quantity `json:"quantity"`
 	// The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price
-	// records say (`price_source` `manual`). Absent: the item takes the price recorded for its `item_key`,
-	// valid on the document's date, in the item's unit and the document's currency: the customer's before
-	// the general one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is
-	// refused (422 `sales.no_price`).
+	// records say (`price_source` `manual`), and is the item's final net price: the pricing procedure
+	// takes no discount off it. Absent: the item takes the price recorded for its `item_key`, valid on the
+	// document's date, in the item's unit and the document's currency: the customer's before the general
+	// one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is refused
+	// (422 `sales.no_price`).
 	UnitPrice OptMoney `json:"unit_price"`
 	// The quantity the unit price refers to. It is read with `unit_price` alone: a price from the price
 	// records comes with its own.
@@ -76097,8 +76102,10 @@ type SalesOrderItem struct {
 	// and preserve values not listed here; values may be added within /v1.
 	PriceSource string `json:"price_source"`
 	// The conditions the tenant's pricing procedure applied to the item when it was created, in the
-	// procedure's order: the price, then each discount found for the item key (ADR-0067 §11). Their
-	// amounts add up to `net_amount`. Empty for an item priced without a pricing procedure.
+	// procedure's order: the price, then, for an item priced from the price records (`price_source`
+	// `price_list`), each discount found for the item key (ADR-0067 §11); an item whose price was entered
+	// (`manual`) has its price alone. Their amounts add up to `net_amount`. Empty for an item priced
+	// without a pricing procedure.
 	Conditions []SalesCondition `json:"conditions"`
 	// The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the
 	// currency's minor unit, less its discounts (`conditions`).

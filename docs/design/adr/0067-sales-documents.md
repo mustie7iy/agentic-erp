@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's to T79a's, T80a's and T80b's are there now. The defaults
+records what it built under "As built"; T78a's to T79a's, T80a's and T80b's are there now, with T80c's change of §11 (an entered price is the final net price, product owner 2026-11-12). The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -281,10 +281,13 @@ item keeps the conditions applied, each with its type, the type's name
 then, its rate (a price's unit price per price unit, a discount's
 percent) and its amount, a discount's negative: the amounts add up to
 the net value. They are fixed with the price when the item is created
-and copied to the order a quotation gives. A discount applies to an
-entered price as to a recorded one: the entered price takes the place of
-the price list's price, not of the customer's discount. An item without
-an item key has no discount, since discounts are recorded by key.
+and copied to the order a quotation gives. A price entered with the
+item is its final net price (product owner 2026-11-12, T80c): no
+discount is taken off it, its price is its only condition and its net
+value is its value. As T80b built it, a discount applied to an entered
+price as to a recorded one; that was default 15, which the product
+owner overruled. An item without an item key has no discount either,
+since discounts are recorded by key.
 
 ## Alternatives
 - **Discounts in a table of their own, with their own endpoint**: the
@@ -297,7 +300,8 @@ an item key has no discount, since discounts are recorded by key.
 - **An entered price as the final net value, with no discount**: it
   would make the entered price a way round the customer's discount in
   one direction and deny the customer its discount in the other. Not
-  taken (default 15, for the product owner).
+  taken in T80b (default 15); the product owner chose it on 2026-11-12
+  (T80c, §11).
 - **A price record changed in place, with versions**: the items priced
   from it would point at a row that no longer says what they took. An
   insert-only record with a validity is what the plan names, and the
@@ -373,6 +377,8 @@ Taken in T80b beside plan default 9:
     (an access sequence, which the plan leaves for later).
 15. With a procedure, the discounts found for an item's key are taken
     off an entered price too; an item without a key has none.
+    Overruled by the product owner on 2026-11-12: an entered price is
+    the final net price and has no discount (T80c).
 16. A discount is more than 0 and less than 100 percent: one of 100
     would leave an item no value, which no item may have (default 4).
 17. A price recorded without a condition type counts as the procedure's
@@ -391,7 +397,7 @@ Taken in T80b beside plan default 9:
 - **Discounts on an entered price** (product owner; a money rule):
   default 15 takes the customer's discount off a price the sales
   representative enters. Should an entered price be the final net value
-  instead?
+  instead? Answered 2026-11-12: yes (T80c).
 - **Billing at the order's prices** (product owner, T79a): once an item
   has discounts its net value is less than quantity × unit price ÷ price
   unit, so a billing document must take its share of the item's net
@@ -803,3 +809,29 @@ Taken in T80b beside plan default 9:
   conditions, condition exclusion, statistical conditions, tax as a
   condition, rebates, pricing configuration generated from SAP's
   condition tables.
+
+### T80c An entered price is the final net price (no migration)
+- **Decision (product owner, 2026-11-12, row 2):** a price entered with
+  a quotation or order item is the item's final net price. The pricing
+  procedure takes no discount off it; a price determined from the price
+  records has its discounts as before. This overrules default 15.
+- `internal/sales/pricing.go`: `conditioned` stops after the price for
+  an item whose source is `manual`, as it does for an item without a
+  key. With a procedure the item's `conditions` are its price alone,
+  whose amount is the net value; without one they are empty, as before.
+- `price_source` keeps its two values: `manual` is the entered price,
+  `price_list` the determined one. No new value, no schema change.
+- Items priced before the change keep the conditions and net value they
+  were stored with: an item is priced once, when it is created (§10),
+  and an order from a quotation copies the quotation's items.
+- Billing is unchanged: a billing document shares out the order item's
+  net value (§9), which for an entered price is now quantity × unit
+  price ÷ price unit, and shows the order item's conditions
+  (`TestBillingAnEnteredPrice`, beside
+  `TestBillingSharesOutTheDiscountedNet` for a determined price).
+- Contract: descriptions only (`createQuotation`, `createSalesPrice`,
+  `SalesItemCreate.unit_price`, `SalesItem.conditions`).
+- Walkthrough `step_price_list` (step 65) extended: after Northwind's
+  discount is recorded, Sally quotes the bracket at a price she enters,
+  11.00; the item reads `manual`, lists the price alone and keeps
+  2750.00, beside the item priced from the price list with its discount.
