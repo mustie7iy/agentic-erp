@@ -39811,6 +39811,14 @@ type IncomingPayment struct {
 	ReceiptAccountNumber string `json:"receipt_account_number"`
 	// That account's name, as it is now.
 	ReceiptAccountName string `json:"receipt_account_name"`
+	// The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the
+	// line with the payer's references and remittance text); absent when no statement line posted the
+	// entry.
+	ReceiptBankStatementID OptUUID `json:"receipt_bank_statement_id"`
+	// That statement's reference, as the bank gave it; absent with `receipt_bank_statement_id`.
+	ReceiptBankStatementRef OptString `json:"receipt_bank_statement_ref"`
+	// The line's number in that statement; absent with `receipt_bank_statement_id`.
+	ReceiptBankStatementLineNo OptInt32 `json:"receipt_bank_statement_line_no"`
 	// The clearing entry that cleared the receipt and the items (`GET /v1/journal-entries/{id}`).
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
 	// The clearing entry's fiscal year.
@@ -39929,6 +39937,21 @@ func (s *IncomingPayment) GetReceiptAccountNumber() string {
 // GetReceiptAccountName returns the value of ReceiptAccountName.
 func (s *IncomingPayment) GetReceiptAccountName() string {
 	return s.ReceiptAccountName
+}
+
+// GetReceiptBankStatementID returns the value of ReceiptBankStatementID.
+func (s *IncomingPayment) GetReceiptBankStatementID() OptUUID {
+	return s.ReceiptBankStatementID
+}
+
+// GetReceiptBankStatementRef returns the value of ReceiptBankStatementRef.
+func (s *IncomingPayment) GetReceiptBankStatementRef() OptString {
+	return s.ReceiptBankStatementRef
+}
+
+// GetReceiptBankStatementLineNo returns the value of ReceiptBankStatementLineNo.
+func (s *IncomingPayment) GetReceiptBankStatementLineNo() OptInt32 {
+	return s.ReceiptBankStatementLineNo
 }
 
 // GetJournalEntryID returns the value of JournalEntryID.
@@ -40059,6 +40082,21 @@ func (s *IncomingPayment) SetReceiptAccountNumber(val string) {
 // SetReceiptAccountName sets the value of ReceiptAccountName.
 func (s *IncomingPayment) SetReceiptAccountName(val string) {
 	s.ReceiptAccountName = val
+}
+
+// SetReceiptBankStatementID sets the value of ReceiptBankStatementID.
+func (s *IncomingPayment) SetReceiptBankStatementID(val OptUUID) {
+	s.ReceiptBankStatementID = val
+}
+
+// SetReceiptBankStatementRef sets the value of ReceiptBankStatementRef.
+func (s *IncomingPayment) SetReceiptBankStatementRef(val OptString) {
+	s.ReceiptBankStatementRef = val
+}
+
+// SetReceiptBankStatementLineNo sets the value of ReceiptBankStatementLineNo.
+func (s *IncomingPayment) SetReceiptBankStatementLineNo(val OptInt32) {
+	s.ReceiptBankStatementLineNo = val
 }
 
 // SetJournalEntryID sets the value of JournalEntryID.
@@ -72974,12 +73012,16 @@ type UnappliedReceipt struct {
 	AccountNumber string `json:"account_number"`
 	// That account's name, as it is now.
 	AccountName string `json:"account_name"`
-	// The code of the house bank whose incoming payments clearing account it is (`GET /v1/house-banks`);
-	// absent when the configuration no longer names the account for a house bank.
-	HouseBankCode OptString `json:"house_bank_code"`
-	// The bank statement match that posted the receipt (`GET /v1/bank-statements/{id}/matches`); absent
-	// when the entry names no source document.
-	StatementMatchID OptUUID `json:"statement_match_id"`
+	// The code of the house bank whose incoming payments clearing account it is (`GET /v1/house-banks`).
+	HouseBankCode string `json:"house_bank_code"`
+	// The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the
+	// line with the payer's references and remittance text); absent when no statement line posted the
+	// entry.
+	BankStatementID OptUUID `json:"bank_statement_id"`
+	// That statement's reference, as the bank gave it; absent with `bank_statement_id`.
+	BankStatementRef OptString `json:"bank_statement_ref"`
+	// The line's number in that statement; absent with `bank_statement_id`.
+	BankStatementLineNo OptInt32 `json:"bank_statement_line_no"`
 }
 
 // GetJournalEntryID returns the value of JournalEntryID.
@@ -73033,13 +73075,23 @@ func (s *UnappliedReceipt) GetAccountName() string {
 }
 
 // GetHouseBankCode returns the value of HouseBankCode.
-func (s *UnappliedReceipt) GetHouseBankCode() OptString {
+func (s *UnappliedReceipt) GetHouseBankCode() string {
 	return s.HouseBankCode
 }
 
-// GetStatementMatchID returns the value of StatementMatchID.
-func (s *UnappliedReceipt) GetStatementMatchID() OptUUID {
-	return s.StatementMatchID
+// GetBankStatementID returns the value of BankStatementID.
+func (s *UnappliedReceipt) GetBankStatementID() OptUUID {
+	return s.BankStatementID
+}
+
+// GetBankStatementRef returns the value of BankStatementRef.
+func (s *UnappliedReceipt) GetBankStatementRef() OptString {
+	return s.BankStatementRef
+}
+
+// GetBankStatementLineNo returns the value of BankStatementLineNo.
+func (s *UnappliedReceipt) GetBankStatementLineNo() OptInt32 {
+	return s.BankStatementLineNo
 }
 
 // SetJournalEntryID sets the value of JournalEntryID.
@@ -73093,13 +73145,23 @@ func (s *UnappliedReceipt) SetAccountName(val string) {
 }
 
 // SetHouseBankCode sets the value of HouseBankCode.
-func (s *UnappliedReceipt) SetHouseBankCode(val OptString) {
+func (s *UnappliedReceipt) SetHouseBankCode(val string) {
 	s.HouseBankCode = val
 }
 
-// SetStatementMatchID sets the value of StatementMatchID.
-func (s *UnappliedReceipt) SetStatementMatchID(val OptUUID) {
-	s.StatementMatchID = val
+// SetBankStatementID sets the value of BankStatementID.
+func (s *UnappliedReceipt) SetBankStatementID(val OptUUID) {
+	s.BankStatementID = val
+}
+
+// SetBankStatementRef sets the value of BankStatementRef.
+func (s *UnappliedReceipt) SetBankStatementRef(val OptString) {
+	s.BankStatementRef = val
+}
+
+// SetBankStatementLineNo sets the value of BankStatementLineNo.
+func (s *UnappliedReceipt) SetBankStatementLineNo(val OptInt32) {
+	s.BankStatementLineNo = val
 }
 
 // One page of receipts not yet applied.

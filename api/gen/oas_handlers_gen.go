@@ -12398,9 +12398,10 @@ func (s *Server) handleCreateHierarchyRequest(args [0]string, argsEscaped bool, 
 // cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409
 // `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds
 // (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
-// place in `items`. Nothing is posted when the application is refused. A retry with the same
-// `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An
-// application is not undone in the first version. Human-only (`x-agent: false`).
+// place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
+// retry with the same `Idempotency-Key` answers the payment applied; another request for the same
+// receipt is refused. An application is not undone in the first version. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/incoming-payments
 func (s *Server) handleCreateIncomingPaymentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -31042,10 +31043,10 @@ func (s *Server) handleGetHierarchyNodeRequest(args [2]string, argsEscaped bool,
 //
 // One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's
 // number and name, its amount, the receipt it applied (the journal entry the statement line posted,
-// with its number and the incoming payments clearing account's number and name), the clearing entry
-// that cleared receipt and items, and the items it was applied to, each with its journal entry's
-// number and reference and the amount it stood at, a credit of the customer's negative. One of a
-// company the caller may not act in is not found.
+// with its number, the incoming payments clearing account's number and name and the bank statement and
+// line that posted it), the clearing entry that cleared receipt and items, and the items it was
+// applied to, each with its journal entry's number and reference and the amount it stood at, a credit
+// of the customer's negative. One of a company the caller may not act in is not found.
 //
 // GET /v1/incoming-payments/{id}
 func (s *Server) handleGetIncomingPaymentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -62161,11 +62162,15 @@ func (s *Server) handleListTaxReturnsRequest(args [1]string, argsEscaped bool, w
 // The incoming payments of a company that wait to be applied (ADR-0063 §6, T75c; ADR-0047): the open
 // credit lines on the incoming payments clearing accounts of the company's house banks that bank
 // statement lines matched as incoming posted, each with its journal entry's number and text, its
-// posting date, its amount, the account's number and name and the house bank's code. A receipt leaves
-// the list when `createIncomingPayment` applies it, or when its entry is reversed. The statement lines
-// themselves are read with `GET /v1/bank-statements/{id}/matches`, which names each posting but not
-// whether accounts receivable cleared it. The company is one the caller may act in. Sortable by:
-// `posting_date`.
+// posting date, its amount, the account's number and name, the house bank's code, and the bank
+// statement and line that posted it (`bank_statement_id`, `bank_statement_ref`,
+// `bank_statement_line_no`): `GET /v1/bank-statements/{id}` shows that line with the payer's
+// references and remittance text, which say whose payment it is. Filtered by house bank, currency and
+// posting date. A receipt leaves the list when `createIncomingPayment` applies it, or when its entry
+// is reversed; one on an account the configuration no longer names as a house bank's
+// `incoming_gl_account` is neither listed nor applied. The statement's matches
+// (`GET /v1/bank-statements/{id}/matches`) name each posting but not whether accounts receivable
+// cleared it. The company is one the caller may act in. Sortable by: `posting_date`.
 //
 // GET /v1/unapplied-receipts
 func (s *Server) handleListUnappliedReceiptsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -62310,6 +62315,22 @@ func (s *Server) handleListUnappliedReceiptsRequest(args [0]string, argsEscaped 
 					Name: "legal_entity_id",
 					In:   "query",
 				}: params.LegalEntityID,
+				{
+					Name: "house_bank_code",
+					In:   "query",
+				}: params.HouseBankCode,
+				{
+					Name: "currency",
+					In:   "query",
+				}: params.Currency,
+				{
+					Name: "posting_date_from",
+					In:   "query",
+				}: params.PostingDateFrom,
+				{
+					Name: "posting_date_to",
+					In:   "query",
+				}: params.PostingDateTo,
 				{
 					Name: "page_size",
 					In:   "query",

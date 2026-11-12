@@ -101881,6 +101881,24 @@ func (s *IncomingPayment) encodeFields(e *jx.Encoder) {
 		e.Str(s.ReceiptAccountName)
 	}
 	{
+		if s.ReceiptBankStatementID.Set {
+			e.FieldStart("receipt_bank_statement_id")
+			s.ReceiptBankStatementID.Encode(e)
+		}
+	}
+	{
+		if s.ReceiptBankStatementRef.Set {
+			e.FieldStart("receipt_bank_statement_ref")
+			s.ReceiptBankStatementRef.Encode(e)
+		}
+	}
+	{
+		if s.ReceiptBankStatementLineNo.Set {
+			e.FieldStart("receipt_bank_statement_line_no")
+			s.ReceiptBankStatementLineNo.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("journal_entry_id")
 		json.EncodeUUID(e, s.JournalEntryID)
 	}
@@ -101902,7 +101920,7 @@ func (s *IncomingPayment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfIncomingPayment = [26]string{
+var jsonFieldsNameOfIncomingPayment = [29]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -101925,10 +101943,13 @@ var jsonFieldsNameOfIncomingPayment = [26]string{
 	19: "receipt_account_id",
 	20: "receipt_account_number",
 	21: "receipt_account_name",
-	22: "journal_entry_id",
-	23: "journal_entry_year",
-	24: "journal_entry_number",
-	25: "items",
+	22: "receipt_bank_statement_id",
+	23: "receipt_bank_statement_ref",
+	24: "receipt_bank_statement_line_no",
+	25: "journal_entry_id",
+	26: "journal_entry_year",
+	27: "journal_entry_number",
+	28: "items",
 }
 
 // Decode decodes IncomingPayment from json.
@@ -102200,8 +102221,38 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"receipt_account_name\"")
 			}
+		case "receipt_bank_statement_id":
+			if err := func() error {
+				s.ReceiptBankStatementID.Reset()
+				if err := s.ReceiptBankStatementID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"receipt_bank_statement_id\"")
+			}
+		case "receipt_bank_statement_ref":
+			if err := func() error {
+				s.ReceiptBankStatementRef.Reset()
+				if err := s.ReceiptBankStatementRef.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"receipt_bank_statement_ref\"")
+			}
+		case "receipt_bank_statement_line_no":
+			if err := func() error {
+				s.ReceiptBankStatementLineNo.Reset()
+				if err := s.ReceiptBankStatementLineNo.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"receipt_bank_statement_line_no\"")
+			}
 		case "journal_entry_id":
-			requiredBitSet[2] |= 1 << 6
+			requiredBitSet[3] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.JournalEntryID = v
@@ -102213,7 +102264,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_id\"")
 			}
 		case "journal_entry_year":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 2
 			if err := func() error {
 				v, err := d.Int32()
 				s.JournalEntryYear = int32(v)
@@ -102225,7 +102276,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_year\"")
 			}
 		case "journal_entry_number":
-			requiredBitSet[3] |= 1 << 0
+			requiredBitSet[3] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.JournalEntryNumber = string(v)
@@ -102237,7 +102288,7 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"journal_entry_number\"")
 			}
 		case "items":
-			requiredBitSet[3] |= 1 << 1
+			requiredBitSet[3] |= 1 << 4
 			if err := func() error {
 				s.Items = make([]IncomingPaymentItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -102266,8 +102317,8 @@ func (s *IncomingPayment) Decode(d *jx.Decoder) error {
 	for i, mask := range [4]uint8{
 		0b11011111,
 		0b11111111,
-		0b11111111,
-		0b00000011,
+		0b00111111,
+		0b00011110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -180920,20 +180971,30 @@ func (s *UnappliedReceipt) encodeFields(e *jx.Encoder) {
 		e.Str(s.AccountName)
 	}
 	{
-		if s.HouseBankCode.Set {
-			e.FieldStart("house_bank_code")
-			s.HouseBankCode.Encode(e)
+		e.FieldStart("house_bank_code")
+		e.Str(s.HouseBankCode)
+	}
+	{
+		if s.BankStatementID.Set {
+			e.FieldStart("bank_statement_id")
+			s.BankStatementID.Encode(e)
 		}
 	}
 	{
-		if s.StatementMatchID.Set {
-			e.FieldStart("statement_match_id")
-			s.StatementMatchID.Encode(e)
+		if s.BankStatementRef.Set {
+			e.FieldStart("bank_statement_ref")
+			s.BankStatementRef.Encode(e)
+		}
+	}
+	{
+		if s.BankStatementLineNo.Set {
+			e.FieldStart("bank_statement_line_no")
+			s.BankStatementLineNo.Encode(e)
 		}
 	}
 }
 
-var jsonFieldsNameOfUnappliedReceipt = [12]string{
+var jsonFieldsNameOfUnappliedReceipt = [14]string{
 	0:  "journal_entry_id",
 	1:  "journal_entry_year",
 	2:  "journal_entry_number",
@@ -180945,7 +181006,9 @@ var jsonFieldsNameOfUnappliedReceipt = [12]string{
 	8:  "account_number",
 	9:  "account_name",
 	10: "house_bank_code",
-	11: "statement_match_id",
+	11: "bank_statement_id",
+	12: "bank_statement_ref",
+	13: "bank_statement_line_no",
 }
 
 // Decode decodes UnappliedReceipt from json.
@@ -181074,24 +181137,46 @@ func (s *UnappliedReceipt) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_name\"")
 			}
 		case "house_bank_code":
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
-				s.HouseBankCode.Reset()
-				if err := s.HouseBankCode.Decode(d); err != nil {
+				v, err := d.Str()
+				s.HouseBankCode = string(v)
+				if err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"house_bank_code\"")
 			}
-		case "statement_match_id":
+		case "bank_statement_id":
 			if err := func() error {
-				s.StatementMatchID.Reset()
-				if err := s.StatementMatchID.Decode(d); err != nil {
+				s.BankStatementID.Reset()
+				if err := s.BankStatementID.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"statement_match_id\"")
+				return errors.Wrap(err, "decode field \"bank_statement_id\"")
+			}
+		case "bank_statement_ref":
+			if err := func() error {
+				s.BankStatementRef.Reset()
+				if err := s.BankStatementRef.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_statement_ref\"")
+			}
+		case "bank_statement_line_no":
+			if err := func() error {
+				s.BankStatementLineNo.Reset()
+				if err := s.BankStatementLineNo.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"bank_statement_line_no\"")
 			}
 		default:
 			return d.Skip()
@@ -181104,7 +181189,7 @@ func (s *UnappliedReceipt) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11110111,
-		0b00000011,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

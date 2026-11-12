@@ -5843,10 +5843,13 @@ step_incoming_payment() {
   as ruth
   say "Ruth, the AR accountant, reads the receipts not yet applied (T75c): the statement's matches name each"
   say "posting, not whether receivables cleared it, so the open lines on the incoming accounts are listed here."
-  api 200 '.items[] | "  receipt \(.journal_entry_number), \(.text): \(.amount.amount) \(.amount.currency) on \(.account_number) \(.account_name), house bank \(.house_bank_code), posted \(.posting_date)"' \
-    listUnappliedReceipts -p "legal_entity_id=$LE"
-  expect "the receipts not yet applied" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.account_number) \(.house_bank_code)"] | join(", ")')" \
-    "$receipt 1595.05 CAD 1015 RBC"
+  say "Each names the statement line that posted it, where the payer and the remittance are read:"
+  api 200 '.items[] | "  receipt \(.journal_entry_number): \(.amount.amount) \(.amount.currency) on \(.account_number) \(.account_name), house bank \(.house_bank_code), posted \(.posting_date), statement \(.bank_statement_ref) line \(.bank_statement_line_no)"' \
+    listUnappliedReceipts -p "legal_entity_id=$LE" -p house_bank_code=RBC -p currency=CAD -p "posting_date_from=$TODAY"
+  expect "the receipts not yet applied" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.account_number) \(.house_bank_code) \(.bank_statement_id) \(.bank_statement_line_no)"] | join(", ")')" \
+    "$receipt 1595.05 CAD 1015 RBC $st 1"
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  say "  line 1 of that statement: $(field '.lines[0] | "\(.amount.amount) \(.amount.currency), \(.text // "")"')"
   item="{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$CUSTOMER_INVOICE_ENTRY\", \"line_no\": 1}"
   body="{\"legal_entity_id\": \"$LE\", \"customer_id\": \"@CUSTOMER@\", \"receipt_journal_entry_id\": \"$receipt\", \"posting_date\": \"$TODAY\", \"items\": [$item]}"
   say "A payment is applied to one customer's items. Naming a supplier as the customer is refused, the item named,"
@@ -5860,8 +5863,8 @@ step_incoming_payment() {
   payment=$(field .id)
   clearing=$(field .journal_entry_id)
   expect "the payment's amount" "$(field '"\(.amount.amount) \(.amount.currency) \(.posting_date)"')" "1595.05 CAD $TODAY"
-  expect "the payment's customer and receipt" "$(field '"\(.customer_id) \(.customer_name) \(.receipt_journal_entry_id) \(.receipt_account_number)"')" \
-    "$customer Northwind Traders $receipt 1015"
+  expect "the payment's customer and receipt" "$(field '"\(.customer_id) \(.customer_name) \(.receipt_journal_entry_id) \(.receipt_account_number) \(.receipt_bank_statement_id) \(.receipt_bank_statement_line_no)"')" \
+    "$customer Northwind Traders $receipt 1015 $st 1"
   expect "the item applied" "$(field '[.items[] | "\(.journal_entry_id) \(.line_no) \(.amount.amount)"] | join(", ")')" "$CUSTOMER_INVOICE_ENTRY 1 1595.05"
   number=$(field .document_number)
   QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"

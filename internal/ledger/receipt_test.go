@@ -88,6 +88,14 @@ func (r receipts) application(receipt ledger.ItemRef, customer uuid.UUID, curren
 // refusal's code and detail.
 func (r receipts) refused(t *testing.T, in ledger.ReceiptApplication) (code, detail string) {
 	t.Helper()
+	p := r.refusal(t, in)
+	return p.Code, p.Detail
+}
+
+// refusal applies in a request that is rolled back and returns the
+// refusal.
+func (r receipts) refusal(t *testing.T, in ledger.ReceiptApplication) *problem.Problem {
+	t.Helper()
 	err := apitest.InRequest(t, r.ten, r.ten.Human, func(ctx context.Context) error {
 		_, err := postings().ApplyReceipt(ctx, in)
 		return err
@@ -95,8 +103,7 @@ func (r receipts) refused(t *testing.T, in ledger.ReceiptApplication) (code, det
 	if err == nil {
 		t.Fatal("got the receipt applied, want a refusal")
 	}
-	p := problem.From(err)
-	return p.Code, p.Detail
+	return problem.From(err)
 }
 
 // posted is the entry's lines of the leading ledger as the tests compare
@@ -258,7 +265,8 @@ func TestApplyReceiptRefusals(t *testing.T) {
 		{"a cleared item", app(receipt, north, invoice, paid), "ledger.item_already_cleared", "Item 2"},
 		{"a reversed item", app(receipt, north, reversed), "ledger.entry_reversed", "Item 1"},
 		{"a reserved item", app(receipt, north, held), "ledger.item_reserved", "PR1"},
-		{"an item in another currency", app(receipt, north, sterling), "ledger.mixed_items", ""},
+		{"an item in another currency", app(receipt, north, invoice, sterling), "ledger.mixed_items", "Item 2 is in GBP, the receipt in EUR"},
+		{"a receipt in another currency than the request says", r.application(receipt, north, "GBP", "2026-03-21", sterling), "ledger.mixed_items", "settlement"},
 		{"a payment out", app(out, north, invoice), "ledger.not_a_receipt", "debits the account"},
 		{"two lines on the account", app(ledger.ItemRef{FiscalYear: 2026, EntryID: twice.ID}, north, invoice), "ledger.not_a_receipt", "has 2 lines"},
 		{"no line on the account", app(invoice, north, invoice), "ledger.not_an_open_item", "has no line on the clearing account"},
@@ -275,6 +283,22 @@ func TestApplyReceiptRefusals(t *testing.T) {
 			}
 			if !strings.Contains(detail, c.detail) {
 				t.Errorf("detail: got %q, want it to contain %q", detail, c.detail)
+			}
+		})
+	}
+	// Every refusal of an item names the request's own field.
+	for name, c := range map[string]struct {
+		in    ledger.ReceiptApplication
+		field string
+	}{
+		"another customer's": {app(receipt, north, souths), "items[0]"}, "another company's": {app(receipt, north, elsewhere), "items[0]"},
+		"cleared": {app(receipt, north, invoice, paid), "items[1]"}, "reversed": {app(receipt, north, reversed), "items[0]"},
+		"reserved": {app(receipt, north, small, held), "items[1]"}, "in another currency": {app(receipt, north, invoice, sterling), "items[1]"},
+	} {
+		t.Run("the field of an item "+name, func(t *testing.T) {
+			p := r.refusal(t, c.in)
+			if len(p.Errors) != 1 || p.Errors[0].Field != c.field || p.Errors[0].Message == "" {
+				t.Errorf("%s: got field errors %+v, want one naming %s with a message", p.Code, p.Errors, c.field)
 			}
 		})
 	}
@@ -438,30 +462,48 @@ func TestReceipts(t *testing.T) {
 	r.committed(t, func(ctx context.Context) (ledger.Entry, error) {
 		return postings().Reverse(ctx, undone.EntryID, nil, nil)
 	})
-	read := func(t *testing.T, page *pagination.Keyset, entry *uuid.UUID) []ledger.Receipt {
+	read := func(t *testing.T, page *pagination.Keyset, f ledger.ReceiptFilter) []ledger.Receipt {
 		t.Helper()
 		var got []ledger.Receipt
 		if err := apitest.InRequest(t, r.ten, r.ten.Human, func(ctx context.Context) (err error) {
-			got, err = ledger.OpenItems{}.Receipts(ctx, page, r.de, []uuid.UUID{r.incoming}, entry)
+			got, err = ledger.OpenItems{}.Receipts(ctx, page, r.de, []uuid.UUID{r.incoming}, f)
 			return err
 		}); err != nil {
 			t.Fatal(err)
 		}
 		return got
 	}
-	all := read(t, nil, nil)
+	all := read(t, nil, ledger.ReceiptFilter{})
 	if len(all) != 2 || all[0].Item.EntryID != first.EntryID || all[1].Item.EntryID != later.EntryID {
 		t.Fatalf("receipts: got %+v, want those of 20 and 21 March in that order", all)
 	}
 	if got := all[0]; got.Item.FiscalYear != 2026 || got.Item.LineNo != 2 || got.AccountID != r.incoming || got.Amount != 10000 || got.Currency != "EUR" ||
-		got.Exponent != 2 || got.PostingDate != date("2026-03-20") || got.Number == "" || got.SourceDocumentID == nil || got.HeaderText != nil {
-		t.Errorf("the first receipt: got %+v, want line 2 of 2026 on the incoming account, 10000 EUR (2 digits), posted 2026-03-20, numbered, with its source", got)
+		got.Exponent != 2 || got.PostingDate != date("2026-03-20") || got.Number == "" || got.HeaderText != nil {
+		t.Errorf("the first receipt: got %+v, want line 2 of 2026 on the incoming account, 10000 EUR (2 digits), posted 2026-03-20, numbered, without a text", got)
 	}
-	if one := read(t, nil, &later.EntryID); len(one) != 1 || one[0].Item.EntryID != later.EntryID {
+	if one := read(t, nil, ledger.ReceiptFilter{Entry: &later.EntryID}); len(one) != 1 || one[0].Item.EntryID != later.EntryID {
 		t.Errorf("one receipt looked for: got %+v, want the later one", one)
 	}
-	if none := read(t, nil, &applied.EntryID); len(none) != 0 {
+	if none := read(t, nil, ledger.ReceiptFilter{Entry: &applied.EntryID}); len(none) != 0 {
 		t.Errorf("an applied receipt looked for: got %+v, want none", none)
+	}
+	day := date("2026-03-21")
+	for name, c := range map[string]struct {
+		f    ledger.ReceiptFilter
+		want []uuid.UUID
+	}{
+		"from a date": {ledger.ReceiptFilter{From: &day}, []uuid.UUID{later.EntryID}}, "to a date": {ledger.ReceiptFilter{To: &day}, []uuid.UUID{first.EntryID, later.EntryID}},
+		"in the currency": {ledger.ReceiptFilter{Currency: "EUR"}, []uuid.UUID{first.EntryID, later.EntryID}}, "in another currency": {ledger.ReceiptFilter{Currency: "USD"}, nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var got []uuid.UUID
+			for _, v := range read(t, nil, c.f) {
+				got = append(got, v.Item.EntryID)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(c.want) {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
 	}
 	codec, err := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	if err != nil {
@@ -471,14 +513,14 @@ func TestReceipts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if page := read(t, ks, nil); len(page) != 2 || page[0].Item.EntryID != first.EntryID {
+	if page := read(t, ks, ledger.ReceiptFilter{}); len(page) != 2 || page[0].Item.EntryID != first.EntryID {
 		t.Errorf("a page of one: got %+v, want the first receipt and the row past the page", page)
 	}
-	if _, err := (ledger.OpenItems{}).Receipts(context.Background(), nil, r.de, nil, nil); err == nil {
+	if _, err := (ledger.OpenItems{}).Receipts(context.Background(), nil, r.de, nil, ledger.ReceiptFilter{}); err == nil {
 		t.Error("outside a unit of work: got nil error, want an error")
 	}
 	apitest.EveryFailure(t, r.ten, r.ten.Human, "receipts", func(ctx context.Context) error {
-		_, err := ledger.OpenItems{}.Receipts(ctx, nil, r.de, []uuid.UUID{r.incoming}, nil)
+		_, err := ledger.OpenItems{}.Receipts(ctx, nil, r.de, []uuid.UUID{r.incoming}, ledger.ReceiptFilter{})
 		return err
 	})
 }

@@ -327,9 +327,9 @@ func TestApplyRefusals(t *testing.T) {
 		{"another customer's item", e.payment(e.customer, receipt, "2026-03-21", others), 422, "ledger.not_the_customers_item", "items[0]"},
 		{"a revenue line", e.payment(e.customer, receipt, "2026-03-21", strings.Replace(invoice, `"line_no": 1`, `"line_no": 2`, 1)), 422,
 			"ledger.not_an_open_item", "items[0]"},
-		{"a cleared item", e.payment(e.customer, receipt, "2026-03-21", invoice, paid), 409, "ledger.item_already_cleared", ""},
-		{"a reversed item", e.payment(e.customer, receipt, "2026-03-21", reversed), 409, "ledger.entry_reversed", ""},
-		{"a reserved item", e.payment(e.customer, receipt, "2026-03-21", held), 409, "ledger.item_reserved", ""},
+		{"a cleared item", e.payment(e.customer, receipt, "2026-03-21", invoice, paid), 409, "ledger.item_already_cleared", "items[1]"},
+		{"a reversed item", e.payment(e.customer, receipt, "2026-03-21", reversed), 409, "ledger.entry_reversed", "items[0]"},
+		{"a reserved item", e.payment(e.customer, receipt, "2026-03-21", small, held), 409, "ledger.item_reserved", "items[1]"},
 		{"an entry that is no receipt", e.payment(e.customer, heldEntry, "2026-03-21", invoice), 422, "receivables.receipt_not_open", "receipt_journal_entry_id"},
 		{"a payment out", e.payment(e.customer, out, "2026-03-21", invoice), 422, "receivables.receipt_not_open", "receipt_journal_entry_id"},
 		{"an unknown customer", e.payment(uuid.New(), receipt, "2026-03-21", invoice), 422, "request.reference_not_found", "customer_id"},
@@ -386,6 +386,13 @@ func TestUnappliedReceipts(t *testing.T) {
 	})
 	e.Must(201, "POST", "/v1/incoming-payments", e.payment(e.customer, applied.ID, "2026-03-21", e.invoiced(t, e.customer, "50.00", "2026-03-10")), "")
 	e.committed(t, func(ctx context.Context) (ledger.Entry, error) { return postings().Reverse(ctx, undone.ID, nil, nil) })
+	// The first receipt is line 2 of a statement, as its match records it;
+	// the later one was posted by no statement line the payments context knows.
+	statement := e.Statement(t, e.DE, fixture.StatementLine{ValueDate: "2026-03-19", Amount: 500}, fixture.StatementLine{ValueDate: "2026-03-20", Amount: 10000, Rule: "NTRF"})
+	pgtest.Exec(t, `UPDATE payments.statement_match SET journal_entry_year = 2026, journal_entry_id = $3, posting_date = '2026-03-20', version = version + 1
+		WHERE tenant_id = $1 AND statement_id = $2 AND line_no = 2`, e.Tenant.ID, statement, first.ID)
+	var ref string // the statement's reference, as the fixture wrote it
+	pgtest.Scan(t, `SELECT statement_ref FROM payments.bank_statement WHERE tenant_id = $1 AND id = $2`, []any{e.Tenant.ID, statement}, &ref)
 	got, _ := e.receipts(t, "")
 	if len(got) != 2 || got[0]["journal_entry_id"] != first.ID.String() || got[1]["journal_entry_id"] != later.ID.String() {
 		t.Fatalf("receipts not applied: got %v, want the receipts of 20 and 21 March in that order", got)
@@ -393,7 +400,8 @@ func TestUnappliedReceipts(t *testing.T) {
 	r := got[0]
 	for f, want := range map[string]any{"journal_entry_year": float64(2026), "journal_entry_number": first.DocumentNumber, "text": "Bank statement DB-2026-03-20 line 1",
 		"legal_entity_id": e.DE.String(), "posting_date": "2026-03-20", "account_id": e.incoming.String(), "account_number": "103000",
-		"account_name": "Bank incoming - Deutsche Bank", "house_bank_code": "MAIN", "statement_match_id": first.SourceDocumentID.String()} {
+		"account_name": "Bank incoming - Deutsche Bank", "house_bank_code": "MAIN", "bank_statement_id": statement.String(),
+		"bank_statement_ref": ref, "bank_statement_line_no": float64(2)} {
 		if r[f] != want {
 			t.Errorf("%s: got %v, want %v", f, r[f], want)
 		}
@@ -401,6 +409,44 @@ func TestUnappliedReceipts(t *testing.T) {
 	if a := amount(t, r, "amount"); a != "100.00 EUR" {
 		t.Errorf("amount: got %s, want 100.00 EUR", a)
 	}
+	if got[1]["bank_statement_id"] != nil || got[1]["bank_statement_ref"] != nil || got[1]["bank_statement_line_no"] != nil {
+		t.Errorf("a receipt no statement line posted: got %v, want no statement named", got[1])
+	}
+	for _, c := range []struct {
+		name, query string
+		want        []uuid.UUID
+	}{
+		{"the house bank's", "&house_bank_code=MAIN", []uuid.UUID{first.ID, later.ID}},
+		{"another house bank's", "&house_bank_code=OTHER", nil},
+		{"in the currency", "&currency=EUR", []uuid.UUID{first.ID, later.ID}},
+		{"in another currency", "&currency=USD", nil},
+		{"from a date", "&posting_date_from=2026-03-21", []uuid.UUID{later.ID}},
+		{"to a date", "&posting_date_to=2026-03-20", []uuid.UUID{first.ID}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var ids []string
+			page, _ := e.receipts(t, c.query)
+			for _, r := range page {
+				ids = append(ids, r["journal_entry_id"].(string))
+			}
+			var want []string
+			for _, id := range c.want {
+				want = append(want, id.String())
+			}
+			if !slices.Equal(ids, want) {
+				t.Errorf("got %v, want %v", ids, want)
+			}
+		})
+	}
+	t.Run("applied, the payment names the statement line", func(t *testing.T) {
+		paid, _ := e.In(t).Must(201, "POST", "/v1/incoming-payments", e.payment(e.customer, first.ID, "2026-03-21", e.invoiced(t, e.customer, "100.00", "2026-03-10")), "")
+		if paid["receipt_bank_statement_id"] != statement.String() || paid["receipt_bank_statement_ref"] != ref ||
+			paid["receipt_bank_statement_line_no"] != float64(2) {
+			t.Errorf("got statement %v (%v) line %v, want %s line 2", paid["receipt_bank_statement_id"], paid["receipt_bank_statement_ref"],
+				paid["receipt_bank_statement_line_no"], statement)
+		}
+	})
+	first = e.receipt(t, 10000, "2026-03-20") // another receipt of the day, for the pages
 	t.Run("in pages", func(t *testing.T) {
 		page, raw := e.receipts(t, "&page_size=1")
 		token, _ := raw["next_page_token"].(string)

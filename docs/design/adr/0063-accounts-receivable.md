@@ -383,9 +383,20 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `GET /v1/bank-statements/{id}/matches` names each match's posting, not
   whether accounts receivable cleared it. So `GET /v1/unapplied-receipts`
   was built: a company's receipts not yet applied, by posting date, each
-  with its entry's number and header text (the statement and line), its
-  amount, the account's number and name, the house bank's code and the
-  statement match that posted it; cursor paging. Receivables may not
+  with its entry's number and header text, its amount, the account's
+  number and name, the house bank's code and the bank statement and line
+  that posted it (`bank_statement_id`, `bank_statement_ref`,
+  `bank_statement_line_no`: `GET /v1/bank-statements/{id}` shows that
+  line with the payer's references and remittance text); filters
+  `house_bank_code`, `currency`, `posting_date_from`, `posting_date_to`;
+  cursor paging. The statement line is read through a port receivables
+  declares (`Statements`) and the composition root wires to
+  `payments.StatementPostings` (`internal/payments/statementpostings.go`:
+  the line whose match posted an entry, by `statement_match`'s journal
+  entry); the incoming payment shows the same three fields of its
+  receipt. A receipt on an account the configuration no longer names as
+  a house bank's `incoming_gl_account` is neither listed nor applied
+  (422 `receivables.receipt_not_open`). Receivables may not
   import payments (`internal/layout`), so it reads the incoming accounts
   from the configuration (`house_bank`, `house_banks[].incoming_gl_account`)
   and the open lines from the ledger (`ledger.OpenItems.Receipts`,
@@ -408,9 +419,10 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   a reconciliation account of the company, not reversed, not cleared, no
   special G/L item, not reserved) and is on a customer reconciliation
   account with the customer as its partner (422
-  `ledger.not_the_customers_item`). `offsetItems` offsets them all at
-  their original amounts and refuses another currency or ledger (422
-  `ledger.mixed_items`); the transaction-currency total must be zero
+  `ledger.not_the_customers_item`) and in the receipt's currency (422
+  `ledger.mixed_items`). Every refusal of an item names the request's
+  own field, `items[i]`. `offsetItems` offsets them all at their
+  original amounts; the transaction-currency total must be zero
   (422 `ledger.clearing_not_balanced`, naming the receipt and the
   difference); `fxLines` books the local and group totals as the
   exchange difference (422 `ledger.no_fx_account` without the account),
@@ -485,7 +497,11 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   by the ledger's check; (7) the ledger call precedes the document's
   number, so the clearing entry has no reference (above); (8) the
   document has no version of its own: it shows `version` 1 and
-  `updated_at` its creation, since it never changes.
+  `updated_at` its creation, since it never changes; (9) a receipt and
+  a payment name the statement and line that posted the receipt, not the
+  line's text or the payer's references: those are the payments
+  context's to show, under its own permission
+  (`GET /v1/bank-statements/{id}`).
 - Not built, by the plan: partial payments, residual items, payments on
   account, differences and tolerances, cash discount granted, one receipt
   for several customers, a receipt in another currency than the items,

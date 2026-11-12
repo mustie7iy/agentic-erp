@@ -158,7 +158,7 @@ func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid
 		if i == 0 {
 			return checkReceipt(it)
 		}
-		return checkCustomerItem(i-1, it, le, in.CustomerID, customer)
+		return checkCustomerItem(i-1, it, le, in, customer)
 	})
 	if err != nil {
 		return nil, err
@@ -202,19 +202,35 @@ func checkReceipt(it item) error {
 
 // checkCustomerItem checks item i of the application: an open item on a
 // reconciliation account of the legal entity that nothing holds
-// (checkItem), on a customer reconciliation account and of the customer.
-func checkCustomerItem(i int, it item, le, customer uuid.UUID, customerAccount map[uuid.UUID]bool) error {
+// (checkItem), on a customer reconciliation account, of the customer and
+// in the receipt's currency. Every refusal names the request's own field,
+// items[i], so a client can tell which item to leave out.
+func checkCustomerItem(i int, it item, le uuid.UUID, in ReceiptApplication, customerAccount map[uuid.UUID]bool) error {
 	field := fmt.Sprintf("items[%d]", i)
 	if err := checkItem(i, it, &le, uuid.Nil,
 		problem.FieldError{Field: field, Code: "not_an_open_item", Message: "an open item of the customer in this legal entity"}); err != nil {
-		return err
+		return namingItem(err, field)
 	}
 	// A line on a reconciliation account names its partner (checkAccounts).
-	if !customerAccount[it.account] || it.partner == nil || *it.partner != customer {
+	if !customerAccount[it.account] || it.partner == nil || *it.partner != in.CustomerID {
 		return problem.Unprocessable("ledger.not_the_customers_item", "Item "+fmt.Sprint(i+1)+" is not an item of the customer on a customer reconciliation account.",
 			problem.FieldError{Field: field, Code: "not_the_customers", Message: "an open item of the customer"})
 	}
+	if it.currency != in.Currency {
+		return problem.Unprocessable("ledger.mixed_items", "Item "+fmt.Sprint(i+1)+" is in "+it.currency+", the receipt in "+in.Currency+
+			"; a receipt is applied to items in its currency.", problem.FieldError{Field: field, Code: "mixed", Message: "an item in " + in.Currency})
+	}
 	return nil
+}
+
+// namingItem gives a refusal of an item that names no field the item's
+// field in the request, with the refusal's detail.
+func namingItem(err error, field string) error {
+	var p *problem.Problem
+	if errors.As(err, &p) && len(p.Errors) == 0 {
+		p.Errors = []problem.FieldError{{Field: field, Code: "not_applicable", Message: p.Detail}}
+	}
+	return err
 }
 
 // customerAccounts are those of the items' accounts that are customer
@@ -248,9 +264,14 @@ type Receipt struct {
 	Currency string
 	Exponent int
 	Amount   money.Minor
-	// SourceDocumentID is the payments context's document: the statement
-	// match that posted the entry.
-	SourceDocumentID *uuid.UUID
+}
+
+// ReceiptFilter narrows Receipts: to one entry, to a currency ("": any)
+// and to posting dates from and to a day, each nil for no limit.
+type ReceiptFilter struct {
+	Entry    *uuid.UUID
+	Currency string
+	From, To *time.Time
 }
 
 // ReceiptSort is the order Receipts pages in: by posting date, then entry.
@@ -262,29 +283,29 @@ var ReceiptSort = pagination.Sort{Default: "posting_date", Fields: []pagination.
 // context posted, neither cleared nor of a reversed entry or a reversal,
 // as ApplyReceipt would take them. An entry with more than one line on the
 // accounts is no receipt (ApplyReceipt refuses it) and is left out, so a
-// receipt is one row per entry. entry names one receipt to look for, or
-// nil; page gives one page of them in ReceiptSort's order with one row
-// more (pagination.Page), or nil for all of them by posting date and
-// entry. The legal entity is not checked against the caller's companies:
-// the caller's context does that.
-func (OpenItems) Receipts(ctx context.Context, page *pagination.Keyset, legalEntity uuid.UUID, accounts []uuid.UUID, entry *uuid.UUID) ([]Receipt, error) {
+// receipt is one row per entry. page gives one page of those the filter
+// passes in ReceiptSort's order with one row more (pagination.Page), or
+// nil for all of them by posting date and entry. The legal entity is not
+// checked against the caller's companies: the caller's context does that.
+func (OpenItems) Receipts(ctx context.Context, page *pagination.Keyset, legalEntity uuid.UUID, accounts []uuid.UUID, f ReceiptFilter) ([]Receipt, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
 	query, args := `SELECT * FROM (SELECT l.journal_entry_id AS id, l.fiscal_year, l.line_no, l.account_id, e.document_number, e.header_text, l.posting_date,
-			e.currency_tc, c.exponent, -l.amount_tc, e.source_document_id
+			e.currency_tc, c.exponent, -l.amount_tc
 		FROM ledger.journal_line l
 		JOIN ledger.journal_entry e ON e.tenant_id = l.tenant_id AND e.fiscal_year = l.fiscal_year AND e.id = l.journal_entry_id
 		JOIN ref.currency c ON c.code = e.currency_tc
 		WHERE l.legal_entity_id = $1 AND l.account_id = ANY($2) AND l.ledger_id = (SELECT id FROM ledger.ledger WHERE is_leading)
 			AND e.source_context = 'payments' AND l.amount_tc < 0 AND ($3::uuid IS NULL OR l.journal_entry_id = $3)
+			AND ($4 = '' OR e.currency_tc = $4) AND ($5::date IS NULL OR l.posting_date >= $5) AND ($6::date IS NULL OR l.posting_date <= $6)
 			AND NOT EXISTS (SELECT FROM ledger.clearing_item ci WHERE ci.tenant_id = l.tenant_id AND ci.fiscal_year = l.fiscal_year
 				AND ci.journal_entry_id = l.journal_entry_id AND ci.line_no = l.line_no)
 			AND NOT `+reversedLine+`
 			AND NOT EXISTS (SELECT FROM ledger.journal_line o WHERE o.tenant_id = l.tenant_id AND o.fiscal_year = l.fiscal_year
 				AND o.journal_entry_id = l.journal_entry_id AND o.account_id = ANY($2) AND o.line_no <> l.line_no)) r
-		WHERE true`, []any{legalEntity, accounts, entry}
+		WHERE true`, []any{legalEntity, accounts, f.Entry, f.Currency, f.From, f.To}
 	if page != nil {
 		query, args = page.SQL(query, args)
 	} else {
@@ -294,7 +315,7 @@ func (OpenItems) Receipts(ctx context.Context, page *pagination.Keyset, legalEnt
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Receipt, error) {
 		var v Receipt
 		err := r.Scan(&v.Item.EntryID, &v.Item.FiscalYear, &v.Item.LineNo, &v.AccountID, &v.Number, &v.HeaderText, &v.PostingDate, &v.Currency, &v.Exponent,
-			&v.Amount, &v.SourceDocumentID)
+			&v.Amount)
 		return v, errs.Wrapf(err, "scan receipt")
 	})
 	if err != nil {

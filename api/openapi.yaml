@@ -14961,7 +14961,7 @@ paths:
       tags:
         - receivables
       summary: Apply an incoming payment to a customer's open items
-      description: "Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c; plan default 4). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency; together they equal the receipt exactly (422 `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in `items`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
+      description: "Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c; plan default 4). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency; together they equal the receipt exactly (422 `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in the request as the field `items[i]`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
       x-permission: receivables.payment.apply
       x-agent: false
       x-problem-codes:
@@ -15057,7 +15057,7 @@ paths:
       tags:
         - receivables
       summary: Get an incoming payment applied
-      description: "One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's number and name, its amount, the receipt it applied (the journal entry the statement line posted, with its number and the incoming payments clearing account's number and name), the clearing entry that cleared receipt and items, and the items it was applied to, each with its journal entry's number and reference and the amount it stood at, a credit of the customer's negative. One of a company the caller may not act in is not found."
+      description: "One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's number and name, its amount, the receipt it applied (the journal entry the statement line posted, with its number, the incoming payments clearing account's number and name and the bank statement and line that posted it), the clearing entry that cleared receipt and items, and the items it was applied to, each with its journal entry's number and reference and the amount it stood at, a credit of the customer's negative. One of a company the caller may not act in is not found."
       x-permission: receivables.invoice.read
       x-problem-codes: []
       parameters:
@@ -15088,7 +15088,7 @@ paths:
       tags:
         - receivables
       summary: List the receipts not yet applied
-      description: "The incoming payments of a company that wait to be applied (ADR-0063 §6, T75c; ADR-0047): the open credit lines on the incoming payments clearing accounts of the company's house banks that bank statement lines matched as incoming posted, each with its journal entry's number and text, its posting date, its amount, the account's number and name and the house bank's code. A receipt leaves the list when `createIncomingPayment` applies it, or when its entry is reversed. The statement lines themselves are read with `GET /v1/bank-statements/{id}/matches`, which names each posting but not whether accounts receivable cleared it. The company is one the caller may act in. Sortable by: `posting_date`."
+      description: "The incoming payments of a company that wait to be applied (ADR-0063 §6, T75c; ADR-0047): the open credit lines on the incoming payments clearing accounts of the company's house banks that bank statement lines matched as incoming posted, each with its journal entry's number and text, its posting date, its amount, the account's number and name, the house bank's code, and the bank statement and line that posted it (`bank_statement_id`, `bank_statement_ref`, `bank_statement_line_no`): `GET /v1/bank-statements/{id}` shows that line with the payer's references and remittance text, which say whose payment it is. Filtered by house bank, currency and posting date. A receipt leaves the list when `createIncomingPayment` applies it, or when its entry is reversed; one on an account the configuration no longer names as a house bank's `incoming_gl_account` is neither listed nor applied. The statement's matches (`GET /v1/bank-statements/{id}/matches`) name each posting but not whether accounts receivable cleared it. The company is one the caller may act in. Sortable by: `posting_date`."
       x-permission: receivables.invoice.read
       x-problem-codes:
         - config.not_bootstrapped
@@ -15103,6 +15103,35 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: house_bank_code
+          in: query
+          required: false
+          description: "Only the receipts waiting on this house bank's incoming payments clearing account (`GET /v1/house-banks`)."
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - name: currency
+          in: query
+          required: false
+          description: Only receipts in this currency (ISO 4217).
+          schema:
+            type: string
+            pattern: "^[A-Z]{3}$"
+        - name: posting_date_from
+          in: query
+          required: false
+          description: Only receipts posted on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: posting_date_to
+          in: query
+          required: false
+          description: Only receipts posted on or before this date.
+          schema:
+            type: string
+            format: date
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -42766,6 +42795,9 @@ components:
             receipt_account_id: {type: string, format: uuid, description: "The incoming payments clearing account the receipt waited on.", readOnly: true}
             receipt_account_number: {type: string, description: "That account's number.", readOnly: true}
             receipt_account_name: {type: string, description: "That account's name, as it is now.", readOnly: true}
+            receipt_bank_statement_id: {type: string, format: uuid, description: "The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the line with the payer's references and remittance text); absent when no statement line posted the entry.", readOnly: true}
+            receipt_bank_statement_ref: {type: string, description: "That statement's reference, as the bank gave it; absent with `receipt_bank_statement_id`.", readOnly: true}
+            receipt_bank_statement_line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in that statement; absent with `receipt_bank_statement_id`.", readOnly: true}
             journal_entry_id: {type: string, format: uuid, description: "The clearing entry that cleared the receipt and the items (`GET /v1/journal-entries/{id}`).", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The clearing entry's fiscal year.", readOnly: true}
             journal_entry_number: {type: string, description: "The clearing entry's document number.", readOnly: true}
@@ -42821,7 +42853,7 @@ components:
     UnappliedReceipt:
       type: object
       description: "An incoming payment waiting on a house bank's incoming payments clearing account (ADR-0047): the open credit line of the journal entry a bank statement line matched as incoming posted."
-      required: [journal_entry_id, journal_entry_year, journal_entry_number, legal_entity_id, posting_date, amount, account_id, account_number, account_name]
+      required: [journal_entry_id, journal_entry_year, journal_entry_number, legal_entity_id, posting_date, amount, account_id, account_number, account_name, house_bank_code]
       properties:
         journal_entry_id: {type: string, format: uuid, description: "The receipt's journal entry: what `createIncomingPayment` takes as `receipt_journal_entry_id`.", readOnly: true}
         journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
@@ -42833,8 +42865,10 @@ components:
         account_id: {type: string, format: uuid, description: "The incoming payments clearing account the receipt waits on.", readOnly: true}
         account_number: {type: string, description: "That account's number.", readOnly: true}
         account_name: {type: string, description: "That account's name, as it is now.", readOnly: true}
-        house_bank_code: {type: string, description: "The code of the house bank whose incoming payments clearing account it is (`GET /v1/house-banks`); absent when the configuration no longer names the account for a house bank.", readOnly: true}
-        statement_match_id: {type: string, format: uuid, description: "The bank statement match that posted the receipt (`GET /v1/bank-statements/{id}/matches`); absent when the entry names no source document.", readOnly: true}
+        house_bank_code: {type: string, description: "The code of the house bank whose incoming payments clearing account it is (`GET /v1/house-banks`).", readOnly: true}
+        bank_statement_id: {type: string, format: uuid, description: "The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the line with the payer's references and remittance text); absent when no statement line posted the entry.", readOnly: true}
+        bank_statement_ref: {type: string, description: "That statement's reference, as the bank gave it; absent with `bank_statement_id`.", readOnly: true}
+        bank_statement_line_no: {type: integer, format: int32, minimum: 1, description: "The line's number in that statement; absent with `bank_statement_id`.", readOnly: true}
     UnappliedReceiptPage:
       type: object
       description: One page of receipts not yet applied.

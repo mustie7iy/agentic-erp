@@ -231,11 +231,14 @@ func (e *Endpoints) bankAccounts(ctx context.Context, le tenancy.Entity, houseBa
 	return out, nil
 }
 
-// accountIDs are the accounts' ids.
-func accountIDs(accounts map[uuid.UUID]string) []uuid.UUID {
+// accountIDs are the ids of the accounts of the house bank with the code,
+// or of every house bank for "".
+func accountIDs(accounts map[uuid.UUID]string, houseBank string) []uuid.UUID {
 	ids := make([]uuid.UUID, 0, len(accounts))
-	for id := range accounts {
-		ids = append(ids, id)
+	for id, code := range accounts {
+		if houseBank == "" || code == houseBank {
+			ids = append(ids, id)
+		}
 	}
 	return ids
 }
@@ -244,12 +247,15 @@ func accountIDs(accounts map[uuid.UUID]string) []uuid.UUID {
 // payments clearing account of the company. One that is not: 409
 // receivables.receipt_already_applied when an incoming payment applied
 // it, else 422 receivables.receipt_not_open naming the request's field.
+// The read takes no lock: a receipt another request applies meanwhile is
+// still found here, and the ledger refuses the second application, 409
+// ledger.item_already_cleared.
 func (e *Endpoints) openReceipt(ctx context.Context, tx pgx.Tx, le tenancy.Entity, entry uuid.UUID) (ledger.Receipt, error) {
 	accounts, err := e.incomingAccounts(ctx, le)
 	if err != nil {
 		return ledger.Receipt{}, err
 	}
-	receipts, err := e.Receipts.Receipts(ctx, nil, le.ID, accountIDs(accounts), &entry)
+	receipts, err := e.Receipts.Receipts(ctx, nil, le.ID, accountIDs(accounts, ""), ledger.ReceiptFilter{Entry: &entry})
 	if err != nil {
 		return ledger.Receipt{}, fmt.Errorf("receivables: receipt %s: %w", entry, err)
 	}

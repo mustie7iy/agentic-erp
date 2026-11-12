@@ -101,7 +101,23 @@ type Entries interface {
 // Receipts reads the receipts not yet applied on a company's incoming
 // payments clearing accounts (ledger context).
 type Receipts interface {
-	Receipts(ctx context.Context, page *pagination.Keyset, legalEntity uuid.UUID, accounts []uuid.UUID, entry *uuid.UUID) ([]ledger.Receipt, error)
+	Receipts(ctx context.Context, page *pagination.Keyset, legalEntity uuid.UUID, accounts []uuid.UUID, f ledger.ReceiptFilter) ([]ledger.Receipt, error)
+}
+
+// StatementLine is the bank statement line that posted a receipt: the
+// statement's id and reference and the line's number, where a person
+// reads who paid and what the remittance says (payments context).
+type StatementLine struct {
+	StatementID  uuid.UUID
+	StatementRef string
+	LineNo       int32
+}
+
+// Statements names the statement lines behind the journal entries their
+// postings posted, keyed by entry (payments context, which receivables
+// does not import: the composition root wires it).
+type Statements interface {
+	Lines(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]StatementLine, error)
 }
 
 // Partners names business partners by number and name (partner context).
@@ -154,6 +170,7 @@ type Endpoints struct {
 	Postings      Postings
 	Entries       Entries
 	Receipts      Receipts
+	Statements    Statements
 	Accounts      Accounts
 	References    References
 	Numbers       Numbers

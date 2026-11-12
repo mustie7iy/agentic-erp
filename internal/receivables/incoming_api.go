@@ -25,25 +25,27 @@ const paymentVersion = 1
 
 // paymentReferences are what incoming payments name by id, as their
 // consumer reads them (REVIEW.md, API-consumer classes): the companies,
-// the customers, the receipts' accounts, and the journal entries (the
+// the customers, the receipts' accounts, the journal entries (the
 // receipt, the clearing entry, the items') by document number and, for
-// the items, by reference.
+// the items, by reference, and the bank statement line that posted each
+// receipt.
 type paymentReferences struct {
 	companies  map[uuid.UUID]tenancy.Entity
 	partners   map[uuid.UUID]partner.Named
 	accounts   map[uuid.UUID]ledger.AccountRef
 	numbers    map[uuid.UUID]string
 	references map[uuid.UUID]string
+	statements map[uuid.UUID]StatementLine
 }
 
 // paymentReferences reads what the payments name by id, once for all of
 // them.
 func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPayment) (paymentReferences, error) {
 	refs := paymentReferences{companies: map[uuid.UUID]tenancy.Entity{}}
-	var partners, accounts, entries, items []uuid.UUID
+	var partners, accounts, entries, items, receipts []uuid.UUID
 	for _, v := range payments {
 		partners, accounts = append(partners, v.CustomerID), append(accounts, v.ReceiptAccountID)
-		entries = append(entries, v.ReceiptEntryID, v.EntryID)
+		entries, receipts = append(entries, v.ReceiptEntryID, v.EntryID), append(receipts, v.ReceiptEntryID)
 		for _, it := range v.Items {
 			items = append(items, it.EntryID)
 		}
@@ -69,6 +71,9 @@ func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPa
 	if refs.references, err = e.Entries.References(ctx, items); err != nil {
 		return paymentReferences{}, fmt.Errorf("receivables: references of the items of %d incoming payments: %w", len(payments), err)
 	}
+	if refs.statements, err = e.Statements.Lines(ctx, receipts); err != nil {
+		return paymentReferences{}, fmt.Errorf("receivables: statement lines of the receipts of %d incoming payments: %w", len(payments), err)
+	}
 	return refs, nil
 }
 
@@ -84,6 +89,11 @@ func paymentToAPI(v IncomingPayment, refs paymentReferences) gen.IncomingPayment
 		ReceiptJournalEntryYear: int32(v.ReceiptYear), ReceiptJournalEntryNumber: refs.numbers[v.ReceiptEntryID], ReceiptAccountID: v.ReceiptAccountID,
 		ReceiptAccountNumber: account.Number, ReceiptAccountName: account.Name, JournalEntryID: v.EntryID, JournalEntryYear: int32(v.EntryYear),
 		JournalEntryNumber: refs.numbers[v.EntryID], Items: make([]gen.IncomingPaymentItem, len(v.Items))}
+	if line, ok := refs.statements[v.ReceiptEntryID]; ok {
+		out.ReceiptBankStatementID.SetTo(line.StatementID)
+		out.ReceiptBankStatementRef.SetTo(line.StatementRef)
+		out.ReceiptBankStatementLineNo.SetTo(line.LineNo)
+	}
 	for i, it := range v.Items {
 		out.Items[i] = gen.IncomingPaymentItem{ItemNo: it.ItemNo, FiscalYear: int32(it.FiscalYear), JournalEntryID: it.EntryID, LineNo: it.LineNo,
 			JournalEntryNumber: refs.numbers[it.EntryID], Reference: refs.references[it.EntryID], Amount: apitypes.Money(it.Amount, v.Currency, v.Exponent)}
@@ -166,9 +176,35 @@ func (e *Endpoints) ListIncomingPayments(ctx context.Context, params gen.ListInc
 	return &gen.IncomingPaymentPage{Items: items, NextPageToken: next}, nil
 }
 
+// receiptReferences are what receipts name by id: their accounts, and
+// the bank statement line that posted each.
+type receiptReferences struct {
+	accounts   map[uuid.UUID]ledger.AccountRef
+	statements map[uuid.UUID]StatementLine
+}
+
+// receiptReferences reads what the receipts name by id, once for all of
+// them.
+func (e *Endpoints) receiptReferences(ctx context.Context, receipts []ledger.Receipt) (receiptReferences, error) {
+	accounts, entries := make([]uuid.UUID, len(receipts)), make([]uuid.UUID, len(receipts))
+	for i, r := range receipts {
+		accounts[i], entries[i] = r.AccountID, r.Item.EntryID
+	}
+	var refs receiptReferences
+	var err error
+	if refs.accounts, err = e.References.AccountNames(ctx, accounts); err != nil {
+		return receiptReferences{}, fmt.Errorf("receivables: accounts of %d receipts: %w", len(receipts), err)
+	}
+	if refs.statements, err = e.Statements.Lines(ctx, entries); err != nil {
+		return receiptReferences{}, fmt.Errorf("receivables: statement lines of %d receipts: %w", len(receipts), err)
+	}
+	return refs, nil
+}
+
 // ListUnappliedReceipts implements GET /v1/unapplied-receipts: the
 // receipts waiting on the incoming payments clearing accounts of the
-// company's house banks, which the caller must be allowed to act in.
+// company's house banks, which the caller must be allowed to act in,
+// filtered by house bank, currency and posting date.
 func (e *Endpoints) ListUnappliedReceipts(ctx context.Context, params gen.ListUnappliedReceiptsParams) (gen.ListUnappliedReceiptsRes, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
@@ -178,7 +214,9 @@ func (e *Endpoints) ListUnappliedReceipts(ctx context.Context, params gen.ListUn
 	if err != nil {
 		return nil, fmt.Errorf("receivables: legal entity of the receipts: %w", err)
 	}
-	ks, err := e.Pages.Keyset(ledger.ReceiptSort, "listUnappliedReceipts|"+le.ID.String(), apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	f := ledger.ReceiptFilter{Currency: params.Currency.Value, From: apitypes.Ptr[time.Time](params.PostingDateFrom), To: apitypes.Ptr[time.Time](params.PostingDateTo)}
+	scope := fmt.Sprintf("listUnappliedReceipts|%s|%s|%s|%v|%v", le.ID, params.HouseBankCode.Value, f.Currency, f.From, f.To)
+	ks, err := e.Pages.Keyset(ledger.ReceiptSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("receivables: page of receipts: %w", err)
 	}
@@ -186,28 +224,25 @@ func (e *Endpoints) ListUnappliedReceipts(ctx context.Context, params gen.ListUn
 	if err != nil {
 		return nil, err
 	}
-	receipts, err := e.Receipts.Receipts(ctx, ks, le.ID, accountIDs(banks), nil)
+	receipts, err := e.Receipts.Receipts(ctx, ks, le.ID, accountIDs(banks, params.HouseBankCode.Value), f)
 	if err != nil {
 		return nil, fmt.Errorf("receivables: receipts of company %s: %w", le.Code, err)
 	}
 	items, next, err := apitypes.PageWith(ks, receipts, func(r ledger.Receipt) (string, uuid.UUID) {
 		return r.PostingDate.Format(time.DateOnly), r.Item.EntryID
-	}, func(page []ledger.Receipt) (map[uuid.UUID]ledger.AccountRef, error) {
-		ids := make([]uuid.UUID, len(page))
-		for i, r := range page {
-			ids[i] = r.AccountID
-		}
-		names, err := e.References.AccountNames(ctx, ids)
-		if err != nil {
-			return nil, fmt.Errorf("receivables: accounts of %d receipts: %w", len(page), err)
-		}
-		return names, nil
-	}, func(r ledger.Receipt, accounts map[uuid.UUID]ledger.AccountRef) gen.UnappliedReceipt {
-		return gen.UnappliedReceipt{JournalEntryID: r.Item.EntryID, JournalEntryYear: int32(r.Item.FiscalYear), JournalEntryNumber: r.Number,
-			Text: apitypes.OptString(r.HeaderText), LegalEntityID: le.ID, PostingDate: r.PostingDate, Amount: apitypes.Money(r.Amount, r.Currency, r.Exponent),
-			AccountID: r.AccountID, AccountNumber: accounts[r.AccountID].Number, AccountName: accounts[r.AccountID].Name,
-			HouseBankCode: apitypes.OptText(banks[r.AccountID]), StatementMatchID: apitypes.OptUUID(r.SourceDocumentID)}
-	})
+	}, func(page []ledger.Receipt) (receiptReferences, error) { return e.receiptReferences(ctx, page) },
+		func(r ledger.Receipt, refs receiptReferences) gen.UnappliedReceipt {
+			out := gen.UnappliedReceipt{JournalEntryID: r.Item.EntryID, JournalEntryYear: int32(r.Item.FiscalYear), JournalEntryNumber: r.Number,
+				Text: apitypes.OptString(r.HeaderText), LegalEntityID: le.ID, PostingDate: r.PostingDate, Amount: apitypes.Money(r.Amount, r.Currency, r.Exponent),
+				AccountID: r.AccountID, AccountNumber: refs.accounts[r.AccountID].Number, AccountName: refs.accounts[r.AccountID].Name,
+				HouseBankCode: banks[r.AccountID]}
+			if line, ok := refs.statements[r.Item.EntryID]; ok {
+				out.BankStatementID.SetTo(line.StatementID)
+				out.BankStatementRef.SetTo(line.StatementRef)
+				out.BankStatementLineNo.SetTo(line.LineNo)
+			}
+			return out
+		})
 	if err != nil {
 		return nil, err
 	}
