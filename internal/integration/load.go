@@ -596,9 +596,9 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 // the quality gate checks: foreignLine, documentCurrencies, leftOutLines),
 // so it also maps each SAP line to its platform line number, the same in
 // every run. A line without a supplier carries the trading partner it
-// names itself (target.ownPartner), in either mode, and each line its centers
-// (assignCenters); unloaded
-// names one the load did not load, which refuses the document.
+// names itself (target.ownPartner), in either mode, and each line its
+// centers (assignCenters); unloaded names one the load did not load,
+// which refuses the document.
 func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (in ledger.Posting, posted loadedEntry, unloaded string) {
 	slices.SortFunc(lines, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
 	first := lines[0]

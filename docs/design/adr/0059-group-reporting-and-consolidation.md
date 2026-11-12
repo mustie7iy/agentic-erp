@@ -2502,7 +2502,7 @@ no migration, and the ledger's posting port is unchanged (the load fills
   and its bank line with none, and the new checks.
 - **Tests.** `TestTradingPartnerFromTheLine` (with RASSC, and the same
   extract without it loading as before), `TestOwnPartner`,
-  `TestPartnerBalancesReconciliation`, `TestPartnerBalancesOfABalancesRun`,
+  `TestPartnerBalancesReconciliation`, `TestDerivedPartners`,
   the gate's cases in `TestTradingPartnersReported`, and
   `TestBalancesByTradingPartner` in the ledger.
 

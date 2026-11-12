@@ -100,6 +100,59 @@ func TestPartnerBalancesReconciliation(t *testing.T) {
 	}
 }
 
+// TestDerivedPartners: the trading partner a document's vendor lines give
+// its other lines, as the ledger derives it, predicted from SAP's vendor
+// masters for the reconciliation: the company every posted vendor line's
+// vendor names, none where they name different ones (in either line
+// order), none, a company that is no legal entity or the document's own
+// company. A vendor line of no company code amount is not posted, so it
+// does not count. In a balances run only a document that posts on its own
+// (a down payment's, one in a foreign currency) gives one.
+func TestDerivedPartners(t *testing.T) {
+	de := uuid.New()
+	const doc = "2000/2026/0100000050"
+	vendor := func(docln, lifnr, hsl string) sap.ACDOCA {
+		return tpLine("0100000050", docln, "0000211000", hsl, lifnr, "")
+	}
+	other := tpLine("0100000050", "000009", "0000100000", "10.00", "", "")
+	downPayment := tpLine("0100000050", "000001", "0000159000", "10.00", "1", "")
+	downPayment.UMSKZ = specialDownPayment
+	for _, c := range []struct {
+		name     string
+		lines    []sap.ACDOCA
+		balances bool
+		foreign  map[string]string
+		want     string
+	}{
+		{name: "one vendor of the group", lines: []sap.ACDOCA{vendor("000001", "1", "-10.00"), other}, want: "1000"},
+		{name: "two vendors naming different companies", lines: []sap.ACDOCA{vendor("000001", "1", "-6.00"), vendor("000002", "3", "-4.00"), other}},
+		{name: "the same two in the other order", lines: []sap.ACDOCA{vendor("000001", "3", "-4.00"), vendor("000002", "1", "-6.00"), other}},
+		{name: "a vendor of the group and one outside it", lines: []sap.ACDOCA{vendor("000001", "1", "-6.00"), vendor("000002", "4", "-4.00"), other}},
+		{name: "a second vendor line of no amount, which is not posted", lines: []sap.ACDOCA{vendor("000001", "1", "-10.00"), vendor("000002", "4", "0.00"), other},
+			want: "1000"},
+		{name: "a vendor that is the document's own company", lines: []sap.ACDOCA{vendor("000001", "2", "-10.00"), other}},
+		{name: "a vendor whose company is no legal entity", lines: []sap.ACDOCA{vendor("000001", "6", "-10.00"), other}},
+		{name: "a vendor named on another account", lines: []sap.ACDOCA{tpLine("0100000050", "000001", "0000170000", "-10.00", "1", ""), other}},
+		{name: "a balances run's opening entry", lines: []sap.ACDOCA{vendor("000001", "1", "-10.00"), other}, balances: true},
+		{name: "a balances run's down payment document", lines: []sap.ACDOCA{downPayment, other}, balances: true, want: "1000"},
+		{name: "a balances run's document in a foreign currency", lines: []sap.ACDOCA{vendor("000001", "1", "-10.00"), other}, balances: true,
+			foreign: map[string]string{doc: "USD"}, want: "1000"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tg := dpTarget()
+			tg.entities = map[string]tenancy.Entity{"2000": {ID: de, Code: "2000", LocalCurrency: "EUR"}}
+			tg.balances = c.balances
+			tg.partners = map[string]groupCompany{"1000": {code: "1000", id: uuid.New()}, "2000": {code: "2000", id: de}, "3000": {code: "3000", id: uuid.New()},
+				"6000": {code: "6000", why: "is company code 6000, which is no legal entity of the tenant"}}
+			x := &sap.Extract{ACDOCA: c.lines, LFA1: []sap.LFA1{{LIFNR: "1", VBUND: "001000"}, {LIFNR: "2", VBUND: "002000"}, {LIFNR: "3", VBUND: "003000"},
+				{LIFNR: "4"}, {LIFNR: "6", VBUND: "006000"}}}
+			if got := derivedPartners(x, tg, c.foreign)[doc]; got != c.want {
+				t.Errorf("the trading partner the document's vendor lines give its other lines: got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
 // balanceTerms renders balances in key order.
 func balanceTerms(m map[string]money.Minor) string {
 	var out []string

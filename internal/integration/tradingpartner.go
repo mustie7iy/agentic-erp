@@ -34,9 +34,9 @@ import (
 // balance by the trading partner its lines name the same way
 // (loader.openingBalances), so an intercompany G/L balance arrives with
 // its partner; its lines that name none take none, the entry gathering
-// lines of no one document (ledger.Posting.Collective). A vendor line keeps its supplier's: the platform derives
-// a partner line's trading partner from its business partner and refuses
-// another. A VBUND or RASSC is a company ID, not a company code: the
+// lines of no one document (ledger.Posting.Collective). A vendor line
+// keeps its supplier's: the platform derives a partner line's trading
+// partner from its business partner and refuses another. A VBUND or RASSC is a company ID, not a company code: the
 // company code assigned to it (T001-RCOMP, read from every company code of
 // the source, sap.Extract.CompanyCodes) names the legal entity, by its
 // code. One that names none (no company code, several, or a company code
@@ -93,7 +93,7 @@ func (e *Endpoints) groupCompanies(ctx context.Context, ext *sap.Extract) (map[s
 func (e *Endpoints) groupCompany(ctx context.Context, codes []string) (groupCompany, error) {
 	switch len(codes) {
 	case 0:
-		return groupCompany{why: "is the company ID of no company code in the extract (T001-RCOMP)"}, nil
+		return groupCompany{why: noCompanyCode}, nil
 	case 1:
 	default:
 		return groupCompany{why: "is the company ID of several company codes (" + strings.Join(codes, ", ") + "), which no one legal entity is"}, nil
@@ -266,7 +266,8 @@ func (q *qualityCheck) otherLines() {
 // deriveTradingPartners). In balances mode only a document that posts as
 // an entry of its own (downPaymentDocs, foreign) gives its other lines
 // one: the opening entry's balances take none (ledger.Posting.Collective).
-// It is a prediction from SAP's vendor masters, for the SAP side of the
+// Only the vendor lines the load posts count, those with a company code
+// amount. It is a prediction from SAP's vendor masters, for the SAP side of the
 // reconciliation, not the ledger's rule to the letter: the ledger reads
 // the group company the platform's supplier has, which for a supplier an
 // earlier run loaded may be another than its VBUND now names, and the
@@ -278,10 +279,13 @@ func derivedPartners(e *sap.Extract, t target, foreign map[string]string) map[st
 		vbund[v.LIFNR] = sap.CompanyID(v.VBUND)
 	}
 	for _, l := range e.ACDOCA {
-		if l.LIFNR == "" || !t.supplierLine(l) {
+		key := documentKey(l)
+		// A line of no company code amount is not posted (journalPosting),
+		// so the ledger sees no partner line in it.
+		if l.LIFNR == "" || !t.supplierLine(l) || t.zero(l.HSL, t.localCurrency(key)) {
 			continue
 		}
-		key, id := documentKey(l), vbund[l.LIFNR]
+		id := vbund[l.LIFNR]
 		if gc, ok := t.partners[id]; !ok || gc.why != "" || gc.id == t.entities[l.RBUKRS].ID || t.balances && own[key] == nil && foreign[key] == "" {
 			id = ""
 		}
