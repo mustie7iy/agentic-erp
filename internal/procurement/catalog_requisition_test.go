@@ -1,6 +1,7 @@
 package procurement_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -79,6 +80,75 @@ func TestRequisitionFromCatalog(t *testing.T) {
 	e.act(t, "/v1/catalog-items/"+id(chair), "retire", "")
 	got, _ = e.Must(200, "GET", path, "", "")
 	check(t, "after the catalog item is retired", got)
+}
+
+// TestRequisitionCatalogSentBack (T84d, product owner 2026-11-12): an
+// item from the catalog may send the catalog item's price, price unit
+// and description, so a requisition is created with them and a draft
+// read back is sent again as it was read; another price is refused on
+// both paths, naming the item.
+func TestRequisitionCatalogSentBack(t *testing.T) {
+	e := setup(t)
+	chair := e.catalogItem(t, e.Supplier, "CHAIR-01", "Office chair, ergonomic", "450.00", `, "price_unit": 2`)
+	same := `, "unit_price": {"amount": "450.00", "currency": "EUR"}, "price_unit": 2, "description": "Office chair, ergonomic"`
+	check := func(t *testing.T, what string, r map[string]any, qty string) {
+		t.Helper()
+		it := firstItem(t, r)
+		want := fmt.Sprintf("%s CHAIR-01 Office chair, ergonomic map[amount:450.00 currency:EUR] 2 map[unit:EA value:%s]", id(chair), qty)
+		if got := fmt.Sprintf("%v %v %v %v %v %v", it["catalog_item_id"], it["item_key"], it["description"], it["unit_price"], it["price_unit"], it["quantity"]); got != want {
+			t.Errorf("%s item: got %s, want %s", what, got, want)
+		}
+	}
+	r := e.requisition(t, items(e.fromCatalog(id(chair), "4", same)), "")
+	check(t, "created with the catalog's price", r, "4")
+	check(t, "created with the price alone", e.requisition(t, items(e.fromCatalog(id(chair), "4", `, "unit_price": {"amount": "450.00", "currency": "EUR"}`)), ""), "4")
+	path := "/v1/requisitions/" + id(r)
+	// Sent back as read, with another quantity; the read-only item key
+	// it carries is not part of the request and is ignored.
+	got, tag := e.Must(200, "GET", path, "", "")
+	read := firstItem(t, got)
+	read["quantity"] = map[string]any{"value": "6", "unit": "EA"}
+	sent := func(change func(map[string]any)) string {
+		it := map[string]any{}
+		for k, v := range read {
+			it[k] = v
+		}
+		change(it)
+		b, err := json.Marshal(map[string]any{"items": []any{it}})
+		if err != nil {
+			t.Fatalf("marshal the items: %v", err)
+		}
+		return string(b)
+	}
+	upd, tag := e.Must(200, "PATCH", path, sent(func(map[string]any) {}), tag)
+	check(t, "sent back as read", upd, "6")
+	for _, c := range []struct {
+		name, field string
+		change      func(map[string]any)
+	}{
+		{"another amount", "items[0].unit_price", func(it map[string]any) { it["unit_price"] = map[string]any{"amount": "449.99", "currency": "EUR"} }},
+		{"another currency", "items[0].unit_price", func(it map[string]any) { it["unit_price"] = map[string]any{"amount": "450.00", "currency": "USD"} }},
+		{"the amount written otherwise", "items[0].unit_price", func(it map[string]any) { it["unit_price"] = map[string]any{"amount": "450.0", "currency": "EUR"} }},
+		{"another price unit", "items[0].price_unit", func(it map[string]any) { it["price_unit"] = 1 }},
+		{"another description", "items[0].description", func(it map[string]any) { it["description"] = "My chair" }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := e.in(t)
+			refusal := e.Problem(422, "procurement.catalog_item_override", "PATCH", path, sent(c.change), tag)
+			if got := apitest.String(t, apitest.List(t, refusal, "errors")[0].(map[string]any), "field"); got != c.field {
+				t.Errorf("refused field: got %s, want %s", got, c.field)
+			}
+		})
+	}
+	// The refusal names the catalog item and its price.
+	refusal := e.Problem(422, "procurement.catalog_item_override", "POST", "/v1/requisitions", fmt.Sprintf(`{"legal_entity_id": %q, "currency": "EUR", "items": %s}`,
+		e.DE, items(e.fromCatalog(id(chair), "1", `, "unit_price": {"amount": "400.00", "currency": "EUR"}`))), "")
+	if detail, want := apitest.String(t, refusal, "detail"), "the price is catalog item CHAIR-01's, 450.00 EUR; send that or none"; detail != want {
+		t.Errorf("the refusal of another price: got %q, want %q", detail, want)
+	}
+	// Nothing changed after the refusals.
+	got, _ = e.Must(200, "GET", path, "", "")
+	check(t, "after the refusals", got, "6")
 }
 
 // TestRequisitionCatalogContract (T84b): a catalog item that names a
@@ -164,9 +234,9 @@ func TestRequisitionCatalogContract(t *testing.T) {
 	}
 }
 
-// TestRequisitionCatalogRefusals (T84b): an item from the catalog sends
-// no price, price unit or description of its own and is in the catalog
-// item's unit; the catalog item is an active one of the requisition's
+// TestRequisitionCatalogRefusals (T84b, T84d): an item from the catalog
+// sends no price, price unit or description other than the catalog
+// item's and is in the catalog item's unit; the catalog item is an active one of the requisition's
 // company in its currency; each refusal names the item.
 func TestRequisitionCatalogRefusals(t *testing.T) {
 	e := setup(t)
@@ -180,10 +250,10 @@ func TestRequisitionCatalogRefusals(t *testing.T) {
 	}
 	ok := item(e.office, "1", "EA", "1.00", "EUR", "")
 	for _, c := range []struct{ name, items, code, field string }{
-		{"a price sent with the catalog item", items(e.fromCatalog(id(chair), "1", `, "unit_price": {"amount": "1.00", "currency": "EUR"}`)),
+		{"another price than the catalog item's", items(e.fromCatalog(id(chair), "1", `, "unit_price": {"amount": "1.00", "currency": "EUR"}`)),
 			"procurement.catalog_item_override", "items[0].unit_price"},
-		{"a price unit sent with it", items(e.fromCatalog(id(chair), "1", `, "price_unit": 1`)), "procurement.catalog_item_override", "items[0].price_unit"},
-		{"a description sent with it", items(ok, e.fromCatalog(id(chair), "1", `, "description": "My chair"`)), "procurement.catalog_item_override", "items[1].description"},
+		{"another price unit than its", items(e.fromCatalog(id(chair), "1", `, "price_unit": 2`)), "procurement.catalog_item_override", "items[0].price_unit"},
+		{"another description than its", items(ok, e.fromCatalog(id(chair), "1", `, "description": "My chair"`)), "procurement.catalog_item_override", "items[1].description"},
 		{"another unit than the catalog item's", items(strings.Replace(e.fromCatalog(id(chair), "1", ""), `"EA"`, `"KG"`, 1)), "procurement.catalog_item_override", "items[0].quantity.unit"},
 		{"a retired catalog item", items(ok, e.fromCatalog(id(retired), "1", "")), "procurement.invalid_catalog_item", "items[1].catalog_item_id"},
 		{"a catalog item in another currency", items(e.fromCatalog(id(usd), "1", "")), "procurement.invalid_catalog_item", "items[0].catalog_item_id"},

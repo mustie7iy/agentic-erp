@@ -5958,10 +5958,11 @@ type Invoker interface {
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
 	// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
 	// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
-	// description or price) and checked again against the catalog; while the requisition has such items
-	// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
-	// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
-	// `procurement.catalog_item_contract`).
+	// description or price or with the catalog item's own, so the items read back can be sent again as
+	// they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again
+	// against the catalog; while the requisition has such items its supplier, and its contract if a
+	// catalog item names one, stay the catalog items': clearing one takes it from them again, and another
+	// is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`).
 	//
 	// PATCH /v1/requisitions/{id}
 	UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error)
@@ -88896,10 +88897,11 @@ func (c *Client) sendUpdatePurchaseOrderChange(ctx context.Context, request *Pur
 // Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
 // `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
 // sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
-// description or price) and checked again against the catalog; while the requisition has such items
-// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
-// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
-// `procurement.catalog_item_contract`).
+// description or price or with the catalog item's own, so the items read back can be sent again as
+// they were read; another price is refused, 422 `procurement.catalog_item_override`) and checked again
+// against the catalog; while the requisition has such items its supplier, and its contract if a
+// catalog item names one, stay the catalog items': clearing one takes it from them again, and another
+// is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`).
 //
 // PATCH /v1/requisitions/{id}
 func (c *Client) UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error) {

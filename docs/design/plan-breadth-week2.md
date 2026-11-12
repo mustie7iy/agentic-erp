@@ -1018,6 +1018,8 @@ that makes the main path work, and the slice records it in its ADR.
 18. The catalog is the tenant's own table, per company, loaded through
     the API, one price per item; a requisition item from it takes the
     catalog's price and supplier and cannot override them.
+    (Product owner 2026-11-12: it may send the catalog's own price, so a
+    requisition read back is sent again; another is refused, T84d.)
 
 ## Questions (money, tax or accounting rules; none blocks a slice)
 

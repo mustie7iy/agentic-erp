@@ -142,11 +142,13 @@ A requisition item may name a catalog item (`catalog_item_id`), sent
 with a quantity and the account to charge:
 
 - It takes the catalog item's description, price and price unit and
-  shows its item key. It may send none of the three itself (422
-  `procurement.catalog_item_override`, the plan's "a price sent with it
-  is refused"), and its quantity is in the catalog item's unit: the
-  shared `Quantity` keeps its unit, and another unit is refused by the
-  same code rather than converted or silently replaced.
+  shows its item key. It sends none of the three, or the catalog item's
+  own: another is refused (422 `procurement.catalog_item_override`;
+  first built as the plan's "a price sent with it is refused", changed
+  by the product owner on 2026-11-12 so that a requisition read back
+  can be sent again, T84d), and its quantity is in the catalog item's
+  unit: the shared `Quantity` keeps its unit, and another unit is
+  refused by the same code rather than converted or silently replaced.
 - The catalog item is an `active` one of the requisition's legal entity
   that the caller may act in, priced in the requisition's currency (422
   `procurement.invalid_catalog_item` on `items[i].catalog_item_id`, the
@@ -210,7 +212,8 @@ other; the order's items are the buyer's, as today.
    no description.
 8. An item from the catalog sends no description, price or price unit
    and is in the catalog item's unit; another unit is refused, not
-   converted.
+   converted. Changed by the product owner on 2026-11-12: one equal to
+   the catalog item's is accepted, another refused (T84d).
 9. A requisition has catalog items of one supplier and at most one
    contract; what it does not name it takes from them.
 10. Taking an item from the catalog needs `procurement.catalog.read`.
@@ -333,3 +336,42 @@ overruled.
 - **Walkthrough.** Step 61 loads no contract-priced item (the story has
   no contract), so it is unchanged and keeps passing; the rule's evidence
   is `TestCatalogItemContract`.
+
+### T84d A requisition sent back with the catalog's price (no migration)
+
+Product owner, 2026-11-12 (row 9): a requisition created from a catalog
+item and sent back with a price equal to the catalog's is accepted; one
+with a different price is refused. Before, any price sent with a catalog
+item was refused, so the items of a requisition read back could not be
+sent again as they were read.
+
+- **Rule.** `noOverride` (`catalog_requisition.go`), which `fromCatalog`
+  calls for every item that names a catalog item, on both paths that
+  send items (`POST /v1/requisitions`, and `PATCH /v1/requisitions/{id}`
+  with `items`): a `unit_price` sent is the catalog item's, the amount
+  as the API shows it (the plain amount with the currency's decimals) in
+  the same currency; anything else is 422
+  `procurement.catalog_item_override` on `items[i].unit_price`, the
+  detail naming the catalog item by its key with its price. The stored
+  item is still filled from the catalog item, never from what was sent.
+- **Price unit and description too (decided by default).** A requisition
+  read back carries the item's `price_unit` and `description` beside its
+  price, and the price is an amount per price unit. So the same rule
+  holds for both: the catalog item's own is accepted, another refused
+  on its field with the same code. Without it a requisition sent back
+  as read would still be refused. The read-only `item_key` is not part
+  of the request and is ignored, as before.
+- **Compared with the catalog item, not the stored copy (decided by
+  default).** The two are equal, since a catalog item's price does not
+  change and the stored item is a copy of it. A change that sends items
+  still resolves them from the catalog, so the items of a draft whose
+  catalog item was retired since are refused when sent back
+  (`procurement.invalid_catalog_item`, §6, unchanged); a change that
+  leaves the items is not.
+- **Contract.** No schema change: `RequisitionItemInput` already had the
+  three fields; their descriptions and the two operations' say the rule.
+  No new problem code.
+- **Walkthrough.** `step_catalog` (step 61) extended: before submitting,
+  Ben sends the requisition's item back as he read it, accepted at the
+  catalog's price; the same item at a price of his own is refused, as
+  it is on creation.

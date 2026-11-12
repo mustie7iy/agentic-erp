@@ -4376,6 +4376,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Fix: a requisition item from the catalog may send the catalog item's own price (and price unit and description), so a requisition read back is sent again as read; another price is refused naming the catalog item (422 procurement.catalog_item_override), on creation and on a change",
+        "r": "T84d · internal/procurement/catalog_requisition.go noOverride · POST /v1/requisitions · PATCH /v1/requisitions/{id} · TestRequisitionCatalogSentBack · walkthrough step_catalog · ADR-0071 §6 and As built T84d",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: catalog requisition variants: a shopping cart across suppliers split into one requisition per supplier, the account proposed from the catalog category, preferred suppliers and guided buying rules, a requisition approved straight to a purchase order for catalog items under a contract, favourites and order templates (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T84b, Later",
