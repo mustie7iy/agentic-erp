@@ -233,6 +233,30 @@ type Invoker interface {
 	//
 	// POST /v1/profit-centers/{id}:assign
 	AssignProfitCenter(ctx context.Context, request *ProfitCenterAssign, params AssignProfitCenterParams) (AssignProfitCenterRes, error)
+	// AwardRfq invokes awardRfq operation.
+	//
+	// Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read
+	// (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds
+	// and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the
+	// same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must
+	// be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices
+	// every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date
+	// today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone);
+	// it need not be the lowest. Its supplier must still be one an order could be placed with (422
+	// `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a
+	// draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number
+	// and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422
+	// `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value
+	// the quotation's total; an item's account the legal entity can no longer post to is refused as there
+	// (422 `procurement.account_not_postable`, naming `items[i].account_id`, the RFQ's item). The RFQ
+	// becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation
+	// becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract
+	// is a draft: it is released with `contracts/{id}:release` as any other. No approval is asked for.
+	// Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded, which
+	// names the supplier by id and number, and RfqChanged.
+	//
+	// POST /v1/rfqs/{id}:award
+	AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error)
 	// BlockBusinessPartner invokes blockBusinessPartner operation.
 	//
 	// Blocks the partner for postings and payments immediately (blocking reduces risk, so it needs no
@@ -1132,18 +1156,18 @@ type Invoker interface {
 	// CreateSupplierQuotation invokes createSupplierQuotation operation.
 	//
 	// Records the quotation an invited supplier gave for a `published` RFQ (409
-	// `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the
-	// supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's
-	// currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of
-	// measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has
-	// one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same
-	// request with its `Idempotency-Key` again answers what it answered. Each item names an item of the
-	// RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422
-	// `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not
-	// `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ
-	// item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's
-	// minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and
-	// number.
+	// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
+	// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
+	// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
+	// item's unit of measure. The supplier must be one the RFQ invites (422
+	// `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
+	// `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
+	// what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
+	// `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may
+	// leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is
+	// the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half
+	// away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded,
+	// which names the supplier by id and number.
 	//
 	// POST /v1/rfqs/{id}/quotations
 	CreateSupplierQuotation(ctx context.Context, request *SupplierQuotationCreate, params CreateSupplierQuotationParams) (CreateSupplierQuotationRes, error)
@@ -4346,12 +4370,12 @@ type Invoker interface {
 	//
 	// Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 	// lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
-	// after which quotations are recorded against it and nothing changes it. The RFQ is checked again as
-	// it was when created: every supplier invited must still be one an order could be placed with (422
-	// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
-	// date not before the legal entity's date today in its company's time zone (422
-	// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
-	// invited by id and number.
+	// after which quotations are recorded against it and nothing changes it until it is awarded
+	// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
+	// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
+	// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
+	// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
+	// which names the suppliers invited by id and number.
 	//
 	// POST /v1/rfqs/{id}:publish
 	PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error)
@@ -7822,6 +7846,184 @@ func (c *Client) sendAssignProfitCenter(ctx context.Context, request *ProfitCent
 
 	stage = "DecodeResponse"
 	result, err := decodeAssignProfitCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AwardRfq invokes awardRfq operation.
+//
+// Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read
+// (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds
+// and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the
+// same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must
+// be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices
+// every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date
+// today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone);
+// it need not be the lowest. Its supplier must still be one an order could be placed with (422
+// `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a
+// draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number
+// and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422
+// `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value
+// the quotation's total; an item's account the legal entity can no longer post to is refused as there
+// (422 `procurement.account_not_postable`, naming `items[i].account_id`, the RFQ's item). The RFQ
+// becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation
+// becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract
+// is a draft: it is released with `contracts/{id}:release` as any other. No approval is asked for.
+// Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded, which
+// names the supplier by id and number, and RfqChanged.
+//
+// POST /v1/rfqs/{id}:award
+func (c *Client) AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error) {
+	res, err := c.sendAwardRfq(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendAwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (res AwardRfqRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("awardRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/rfqs/{id}:award"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AwardRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/rfqs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":award"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeAwardRfqRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AwardRfqOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAwardRfqResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -17848,18 +18050,18 @@ func (c *Client) sendCreateSupplierInvoice(ctx context.Context, request *Supplie
 // CreateSupplierQuotation invokes createSupplierQuotation operation.
 //
 // Records the quotation an invited supplier gave for a `published` RFQ (409
-// `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the
-// supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's
-// currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of
-// measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has
-// one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same
-// request with its `Idempotency-Key` again answers what it answered. Each item names an item of the
-// RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422
-// `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not
-// `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ
-// item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's
-// minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and
-// number.
+// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
+// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
+// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
+// item's unit of measure. The supplier must be one the RFQ invites (422
+// `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
+// `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
+// what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
+// `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may
+// leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is
+// the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half
+// away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded,
+// which names the supplier by id and number.
 //
 // POST /v1/rfqs/{id}/quotations
 func (c *Client) CreateSupplierQuotation(ctx context.Context, request *SupplierQuotationCreate, params CreateSupplierQuotationParams) (CreateSupplierQuotationRes, error) {
@@ -69090,12 +69292,12 @@ func (c *Client) sendProposeVarianceComment(ctx context.Context, request *Varian
 //
 // Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 // lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
-// after which quotations are recorded against it and nothing changes it. The RFQ is checked again as
-// it was when created: every supplier invited must still be one an order could be placed with (422
-// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
-// date not before the legal entity's date today in its company's time zone (422
-// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
-// invited by id and number.
+// after which quotations are recorded against it and nothing changes it until it is awarded
+// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
+// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
+// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
+// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
+// which names the suppliers invited by id and number.
 //
 // POST /v1/rfqs/{id}:publish
 func (c *Client) PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error) {

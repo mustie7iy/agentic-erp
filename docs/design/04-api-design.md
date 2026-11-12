@@ -337,6 +337,20 @@ total (equal totals share a rank, in the order invited), then the
 incomplete and the expired ones, then the suppliers that have not
 answered; each price carries its amount and whether it is the lowest
 quoted for its RFQ item, and the RFQ's items carry that lowest amount.
+`POST /v1/rfqs/{id}:award` (`procurement.rfq.award`, `x-agent: false`,
+`If-Match`; T82d) awards a published RFQ once to one of its quotations as
+a whole (409 `procurement.invalid_status` for a second award): the
+quotation must be the RFQ's (422 `procurement.quotation_not_of_rfq`),
+complete (422 `procurement.quotation_incomplete`) and valid on the
+company's date today (422 `procurement.quotation_expired`), each refusal
+naming `quotation_id`; it need not be the lowest. The award creates a
+draft contract with the quotation's supplier, as `POST /v1/contracts`
+would: the RFQ's items at the quoted prices, the quotation's total as
+target value, valid from `valid_from` to `valid_to`. The answer is the
+RFQ, `awarded`, with `contract_id` and `contract_document_number`; the
+contract shows `rfq_id` and `rfq_document_number`, the winning quotation
+reads `awarded` and the RFQ's others `not_awarded`. The contract is
+released with `contracts/{id}:release` as any other.
 
 Internal orders (ADR-0064 §1, T60a) are the controlling context's.
 `POST /v1/internal-orders` (`controlling.order.write`, `x-agent: false`)
@@ -862,7 +876,7 @@ with the month's total against the tenant's cap.
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
-| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts`, `rfqs` (requests for quotation, ADR-0069, with `{id}/quotations`, the suppliers' quotations recorded by the buyer, and `{id}/comparison`, those quotations compared by price) | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse`, `:publish` |
+| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts`, `rfqs` (requests for quotation, ADR-0069, with `{id}/quotations`, the suppliers' quotations recorded by the buyer, and `{id}/comparison`, those quotations compared by price) | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse`, `:publish`, `:award` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, status, document number and invoice date, ADR-0063 §2-§4, T75a); `incoming-payments` (a receipt from a house bank's incoming payments clearing account applied to a customer's open items in full and exactly, written once; filtered by company, customer, document number and posting date) and `unapplied-receipts` (a company's receipts not yet applied, read-only), ADR-0063 §6, T75c | `customer-invoices/{id}:post` (T75b) |
 | collections | `dunning-runs` (started for a company at a key date, `proposed` with their totals; the companies the caller may act in, filtered by company, status and key date, the latest first) and their `notices` (one per customer with its overdue items and the level each would reach, by customer number, filtered by customer and level; ADR-0065 §3-§4, T76a) | none yet (`:confirm` with T76b) |

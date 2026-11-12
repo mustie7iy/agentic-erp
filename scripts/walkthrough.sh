@@ -6256,6 +6256,52 @@ step_rfq() {
   passed
 }
 
+# step_rfq_award is T82d (ADR-0069 §7): Ben awards the RFQ of step_rfq
+# (RFQ) to the quotation its comparison ranks first, the cheaper one of
+# step 3's DP_SUPPLIER. The award creates a draft contract with that
+# supplier at the quoted prices, valid for a year from the company's date
+# today, which Ben releases as any contract.
+step_rfq_award() {
+  heading "Step 55 — Award: the RFQ is awarded to the cheaper quotation; the draft contract carries its prices and supplier and is released"
+  as ben
+  local today until winner body contract tag
+  today=$(company_day)
+  until=$(date_add "$today" 364)
+  say "Ben decides for the quotation the comparison ranks first, $DP_NAME's. An award goes to one quotation as a"
+  say "whole (ADR-0069 §7): it must price every item and be valid on Maple's date today. A person awards, never an"
+  say "agent; the RFQ is awarded once, at the version Ben read:"
+  QUIET=1 api 200 '' getRfqComparison -p "id=$RFQ"
+  winner=$(field '.suppliers[] | select(.rank == 1) | .supplier_quotation_id')
+  expect "the quotation ranked first is $DP_NAME's" "$(field '.suppliers[] | select(.rank == 1) | .supplier_id')" "$DP_SUPPLIER"
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  tag=$ETAG
+  body="{\"quotation_id\": \"$winner\", \"valid_from\": \"$today\", \"valid_to\": \"$until\"}"
+  say "The contract's validity must be a period:"
+  refused 422 procurement.invalid_validity awardRfq -p "id=$RFQ" -if-match "$tag" -body "${body/$until/$(date_add "$today" -1)}"
+  api 200 '"RFQ \(.document_number): \(.status), version \(.version), awarded to draft contract \(.contract_document_number)"' \
+    awardRfq -p "id=$RFQ" -if-match "$tag" -body "$body"
+  contract=$(field .contract_id) tag=$ETAG
+  expect "the awarded RFQ" "$(field '"\(.status) \(.version) \(.contract_document_number | startswith("CT"))"')" "awarded 3 true"
+  say "A second award finds the RFQ awarded, and no further quotation is recorded for it:"
+  refused 409 procurement.invalid_status awardRfq -p "id=$RFQ" -if-match "$tag" -body "$body"
+  say "The quotations show the outcome: $DP_NAME's is awarded, Tyrell's is not:"
+  api 200 '.items[] | "  \(.supplier_reference) of \(.supplier_number) \(.supplier_name): \(.status), total \(.total.amount) \(.total.currency)"' \
+    listSupplierQuotations -p "id=$RFQ"
+  expect "the quotations' outcomes" "$(field '[.items[] | "\(.supplier_id) \(.status)"] | join(", ")')" "$SUPPLIER not_awarded, $DP_SUPPLIER awarded"
+  say "The award created a draft contract with $DP_NAME: the RFQ's items at the quoted prices, its target value the"
+  say "quotation's total. It names the RFQ it came from:"
+  api 200 '"contract \(.document_number) from RFQ \(.rfq_document_number): \(.status), \(.valid_from) to \(.valid_to), target value \(.target_value.amount) \(.target_value.currency)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.uom_code)")' \
+    getContract -p "id=$contract"
+  expect "the draft contract" "$(field '"\(.status) \(.supplier_id) \(.rfq_id) \(.valid_from) \(.valid_to) \(.target_value.amount) \(.target_value.currency)"')" \
+    "draft $DP_SUPPLIER $RFQ $today $until 28400.00 CAD"
+  expect "the contract's items at the quoted prices" "$(field '[.items[] | "\(.material_key) \(.unit_price.amount)/\(.price_unit) \(.uom_code)"] | join(", ")')" \
+    "CHAIR-ERGO 425.00/1 EA, DESK-ADJ 2850.00/3 EA"
+  say "Ben releases the contract as any other; orders can now be placed against it:"
+  api 200 '"contract \(.document_number): \(.status)"' releaseContract -p "id=$contract" -if-match "$ETAG"
+  expect "the released contract" "$(field '"\(.status) \(.rfq_id)"')" "active $RFQ"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8280,7 +8326,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_rfq step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_rfq step_rfq_award step_close'
 
 main() {
   stop_unseen

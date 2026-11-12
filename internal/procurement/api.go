@@ -147,7 +147,8 @@ func contractToAPI(c Contract) gen.Contract {
 		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), DocumentNumber: c.DocumentNumber, LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID,
 		Currency: c.Currency, ValidFrom: c.ValidFrom, ValidTo: c.ValidTo, TargetValue: apitypes.Money(c.TargetValue, c.Currency, c.Exponent),
 		ConsumedValue: apitypes.Money(c.ConsumedValue, c.Currency, c.Exponent), Status: c.Status, RenewalOfID: apitypes.OptUUID(c.RenewalOfID),
-		RenewedByID: apitypes.OptUUID(c.RenewedByID), Items: make([]gen.ContractItem, len(c.Items))}
+		RenewedByID: apitypes.OptUUID(c.RenewedByID), RfqID: apitypes.OptUUID(c.RFQID), RfqDocumentNumber: apitypes.OptString(c.RFQNumber),
+		Items: make([]gen.ContractItem, len(c.Items))}
 	if c.ExpiryAlertedOn != nil {
 		out.ExpiryAlertedOn.SetTo(*c.ExpiryAlertedOn)
 	}

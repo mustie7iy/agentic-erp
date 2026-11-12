@@ -68,7 +68,7 @@ func TestRFQPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "procurement.rfq.manage procurement.rfq.read"; got != want {
+	if got, want := strings.Join(codes, " "), "procurement.rfq.award procurement.rfq.manage procurement.rfq.read"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -83,7 +83,7 @@ func TestRFQRules(t *testing.T) {
 		want string
 	}{
 		"an RFQ born published":       {rfqSQL, []any{f.tenant, id(), "RQ9", f.entity, "EUR", "published", f.actor}, "starts as a draft"},
-		"an unknown status":           {setRFQ + `status = 'awarded' WHERE id = $1`, []any{f.draft}, "rfq_status_check"},
+		"an unknown status":           {setRFQ + `status = 'closed' WHERE id = $1`, []any{f.draft}, "rfq_status_check"},
 		"an unknown currency":         {rfqSQL, []any{f.tenant, id(), "RQ9", f.entity, "XXA", "draft", f.actor}, "rfq_currency_fkey"},
 		"a number twice in a company": {rfqSQL, []any{f.tenant, id(), "RQ1", f.entity, "EUR", "draft", f.actor}, "rfq_number_once"},
 		"a publication taken back":    {setRFQ + `status = 'draft' WHERE id = $1`, []any{f.published}, "stays published"},

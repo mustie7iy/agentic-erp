@@ -1602,6 +1602,7 @@ erDiagram
   rfq ||--|{ rfq_item : "asks for"
   rfq ||--|{ rfq_supplier : invites
   rfq_supplier ||--o| supplier_quotation : quotes
+  rfq |o--o| contract : "awarded to"
   supplier_quotation ||--|{ supplier_quotation_item : prices
   rfq_item ||--o{ supplier_quotation_item : "priced by"
   requisition { uuid id PK
@@ -1668,7 +1669,8 @@ erDiagram
     uuid legal_entity_id
     char currency
     date due_date
-    text status "draft | published"
+    text status "draft | published | awarded"
+    uuid contract_id FK "the contract an award created"
     int version }
   rfq_item { uuid rfq_id PK
     int item_no PK
@@ -1685,7 +1687,7 @@ erDiagram
     uuid supplier_id
     text supplier_reference
     date valid_until
-    text status "recorded"
+    text status "recorded | awarded | not_awarded"
     int version }
   supplier_quotation_item { uuid supplier_quotation_id PK
     int rfq_item_no PK
@@ -1935,6 +1937,22 @@ may leave RFQ items out. Neither table is changed or deleted. The
 quotation's total, the sum of quantity × unit price ÷ price unit over its
 items, is computed on read from its prices and the RFQ's quantities, which
 never change.
+
+An award (migration 000278, T82d, ADR-0069 §7) moves a published RFQ to
+`awarded`, once, and gives it `contract_id`, the draft contract the award
+created: an awarded RFQ names a contract and no other does
+(`rfq_awarded_to_contract`), a contract comes from one RFQ at most
+(`rfq_contract_once`, whose index also finds a contract's RFQ: the
+contract carries no column for it), and an awarded RFQ stays awarded to
+its contract (`rfq_lifecycle`). The trigger lets an RFQ be awarded only
+from `published`, with one of its quotations marked `awarded` and a
+contract of its company, in its currency, with that quotation's supplier.
+A quotation is written as `recorded` and its outcome, `awarded` or
+`not_awarded`, is set once, while its RFQ is still published (triggers
+`supplier_quotation_outcome` and `supplier_quotation_outcome_of_published`);
+one quotation of an RFQ is awarded (`supplier_quotation_one_awarded`). The
+application may update a quotation's status, version and `updated_by`
+and nothing else of it. Permission `procurement.rfq.award`.
 
 An order item carries its expected delivery date (`delivery_date`, optional,
 SAP's EKET-EINDT; migration 000205, T53g, ADR-0051 §5): the one it is

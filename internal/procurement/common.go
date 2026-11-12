@@ -280,6 +280,38 @@ func (e *Endpoints) number(ctx context.Context, le uuid.UUID, documentType strin
 	return e.Numbers.Next(ctx, le, documentType, year)
 }
 
+// keyedItems validates what a contract's and an RFQ's items share, since
+// an award makes the one the other's (ADR-0069 §2): each numbered by its
+// place, its material key once per document (what names the document in
+// the refusal), on an account the legal entity can post to. rest checks
+// what is the document's own (a contract's price, an RFQ's description
+// and quantity), after the key and before the account, and returns the
+// item with it.
+func (e *Endpoints) keyedItems(ctx context.Context, le uuid.UUID, in []ItemInput, what string, rest func(field string, it ItemInput) (Item, error)) ([]Item, error) {
+	items := make([]Item, len(in))
+	keys := map[string]bool{}
+	for i, it := range in {
+		field := fmt.Sprintf("items[%d]", i)
+		if err := checkItemNo(it.No, i, field); err != nil {
+			return nil, err
+		}
+		if keys[it.MaterialKey] {
+			return nil, invalid("procurement.duplicate_material_key", field+".material_key", "each material key appears once per "+what)
+		}
+		keys[it.MaterialKey] = true
+		item, err := rest(field, it)
+		if err != nil {
+			return nil, err
+		}
+		if err := e.account(ctx, le, it.AccountID, field+".account_id"); err != nil {
+			return nil, err
+		}
+		item.No, item.MaterialKey, item.Description, item.Unit, item.AccountID = int32(i+1), it.MaterialKey, it.Description, it.Unit, it.AccountID
+		items[i] = item
+	}
+	return items, nil
+}
+
 // checkItemNo requires a given item number to be the item's position.
 func checkItemNo(given *int32, i int, field string) error {
 	if given != nil && *given != int32(i+1) {

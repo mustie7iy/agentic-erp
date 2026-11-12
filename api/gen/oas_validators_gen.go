@@ -7644,6 +7644,77 @@ func (s *AuditVerify) Validate() error {
 	return nil
 }
 
+func (s *AwardRfqBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AwardRfqForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AwardRfqNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AwardRfqOKHeaders) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Response.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "Response",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *AwardRfqPreconditionFailed) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AwardRfqPreconditionRequired) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *AwardRfqUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Balance) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer
@@ -51693,29 +51764,6 @@ func (s *PublishRfqNotFound) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
-	}
-	return nil
-}
-
-func (s *PublishRfqOKHeaders) Validate() error {
-	if s == nil {
-		return validate.ErrNilPointer
-	}
-
-	var failures []validate.FieldError
-	if err := func() error {
-		if err := s.Response.Validate(); err != nil {
-			return err
-		}
-		return nil
-	}(); err != nil {
-		failures = append(failures, validate.FieldError{
-			Name:  "Response",
-			Error: err,
-		})
-	}
-	if len(failures) > 0 {
-		return &validate.Error{Fields: failures}
 	}
 	return nil
 }

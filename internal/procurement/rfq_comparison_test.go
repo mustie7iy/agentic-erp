@@ -15,7 +15,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/nfr"
-	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -187,9 +186,8 @@ func TestRFQComparisonTimeZone(t *testing.T) {
 		{"Asia/Dubai", "2026-07-01", time.Date(2026, 6, 30, 21, 0, 0, 0, time.UTC), true, 0},
 	} {
 		t.Run(c.zone, func(t *testing.T) {
-			f := fixture.NewWith(t, nil, func(doc *config.Config) { doc.Company("2000").TimeZone = c.zone }, perms...)
-			f.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return c.at } })
-			e := env{Env: f, office: f.Account(t, "2000", "520000").String()}
+			e := setupWith(t, func(doc *config.Config) { doc.Company("2000").TimeZone = c.zone })
+			e.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return c.at } })
 			path := "/v1/rfqs/" + e.publishedRFQ(t, "2026-07-31")
 			e.Must(201, "POST", path+"/quotations", quotationUntil(e.Supplier, "Q", "2026-06-30", price(1, "1.00", "EUR", ""), price(2, "1.00", "EUR", "")), "")
 			got, _ := e.Must(200, "GET", path+"/comparison", "", "")

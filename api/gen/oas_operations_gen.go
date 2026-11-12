@@ -20,6 +20,7 @@ const (
 	ApplyPlanBatchOperation                        OperationName = "ApplyPlanBatch"
 	ApproveApprovalRequestOperation                OperationName = "ApproveApprovalRequest"
 	AssignProfitCenterOperation                    OperationName = "AssignProfitCenter"
+	AwardRfqOperation                              OperationName = "AwardRfq"
 	BlockBusinessPartnerOperation                  OperationName = "BlockBusinessPartner"
 	BlockLegalEntityOperation                      OperationName = "BlockLegalEntity"
 	BlockOrgUnitOperation                          OperationName = "BlockOrgUnit"

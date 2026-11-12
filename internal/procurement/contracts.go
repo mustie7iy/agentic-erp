@@ -34,18 +34,24 @@ type Contract struct {
 	RenewalOfID     *uuid.UUID
 	RenewedByID     *uuid.UUID
 	ExpiryAlertedOn *time.Time
-	Items           []Item
-	Version         int32
-	CreatedAt       time.Time
-	CreatedBy       uuid.UUID
-	UpdatedAt       time.Time
-	UpdatedBy       uuid.UUID
+	// The RFQ whose award created the contract and its number (T82d,
+	// ADR-0069 §7); nil for a contract created directly or by a renewal.
+	RFQID     *uuid.UUID
+	RFQNumber *string
+	Items     []Item
+	Version   int32
+	CreatedAt time.Time
+	CreatedBy uuid.UUID
+	UpdatedAt time.Time
+	UpdatedBy uuid.UUID
 }
 
 const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.supplier_id, c.currency, cu.exponent, c.valid_from, c.valid_to,
 		c.target_value, coalesce((SELECT sum(value) FROM procurement.contract_release r WHERE r.tenant_id = c.tenant_id AND r.contract_id = c.id), 0)::bigint,
 		c.status, c.renewal_of_id, (SELECT r.id FROM procurement.contract r WHERE r.tenant_id = c.tenant_id AND r.renewal_of_id = c.id AND r.status <> 'cancelled') AS renewed_by_id,
 		c.expiry_alerted_on, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by,
+		(SELECT aw.id FROM procurement.rfq aw WHERE aw.tenant_id = c.tenant_id AND aw.contract_id = c.id) AS rfq_id,
+		(SELECT aw.document_number FROM procurement.rfq aw WHERE aw.tenant_id = c.tenant_id AND aw.contract_id = c.id) AS rfq_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'material_key', i.material_key,
 			'description', i.description, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit, 'account_id', i.account_id)
 			ORDER BY i.item_no)
@@ -55,7 +61,7 @@ const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.sup
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
 	if err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
-		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.RenewalOfID, &c.RenewedByID, &c.ExpiryAlertedOn, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.Items); err != nil {
+		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.RenewalOfID, &c.RenewedByID, &c.ExpiryAlertedOn, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.RFQID, &c.RFQNumber, &c.Items); err != nil {
 		return Contract{}, fmt.Errorf("scan contract: %w", err)
 	}
 	return c, nil
@@ -89,28 +95,10 @@ func GetContract(ctx context.Context, id uuid.UUID) (Contract, error) {
 // contractItems validates contract items: positive prices, accounts the
 // legal entity can post to, each material key once.
 func (e *Endpoints) contractItems(ctx context.Context, le uuid.UUID, currency string, exp int, in []ItemInput) ([]Item, error) {
-	items := make([]Item, len(in))
-	keys := map[string]bool{}
-	for i, it := range in {
-		field := fmt.Sprintf("items[%d]", i)
-		if err := checkItemNo(it.No, i, field); err != nil {
-			return nil, err
-		}
-		if keys[it.MaterialKey] {
-			return nil, invalid("procurement.duplicate_material_key", field+".material_key", "each material key appears once per contract")
-		}
-		keys[it.MaterialKey] = true
+	return e.keyedItems(ctx, le, in, "contract", func(field string, it ItemInput) (Item, error) {
 		price, err := amount(it.Price, it.Currency, currency, exp, field+".unit_price", true)
-		if err != nil {
-			return nil, err
-		}
-		if err := e.account(ctx, le, it.AccountID, field+".account_id"); err != nil {
-			return nil, err
-		}
-		items[i] = Item{No: int32(i + 1), MaterialID: it.MaterialID, MaterialKey: it.MaterialKey, Description: it.Description, Unit: it.Unit,
-			UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID}
-	}
-	return items, nil
+		return Item{MaterialID: it.MaterialID, UnitPrice: price, PriceUnit: max(it.PriceUnit, 1)}, err
+	})
 }
 
 func writeContractItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID, items []Item) error {

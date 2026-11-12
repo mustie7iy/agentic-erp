@@ -34,7 +34,8 @@ func rfqToAPI(r RFQ) gen.Rfq {
 	out := gen.Rfq{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, CompanyCode: r.CompanyCode,
 		CompanyName: r.CompanyName, Currency: r.Currency,
-		DueDate: r.DueDate, Status: r.Status, Items: make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
+		DueDate: r.DueDate, Status: r.Status, ContractID: apitypes.OptUUID(r.ContractID), ContractDocumentNumber: apitypes.OptString(r.ContractNumber),
+		Items: make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
 	for i, it := range r.Items {
 		out.Items[i] = gen.RfqItem{ItemNo: gen.NewOptInt32(it.No), MaterialKey: it.MaterialKey, Description: it.Description,
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, AccountID: it.AccountID,
@@ -121,7 +122,8 @@ func (e *Endpoints) PublishRfq(ctx context.Context, params gen.PublishRfqParams)
 	if err != nil {
 		return nil, err
 	}
-	return &gen.PublishRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
+	// The generator names the identical answer of :publish and :award after the first of them.
+	return &gen.AwardRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
 }
 
 // quotationToAPI shows quotation q beside its RFQ r, whose suppliers are
@@ -247,4 +249,13 @@ func (e *Endpoints) GetRfqComparison(ctx context.Context, params gen.GetRfqCompa
 		return nil, err
 	}
 	return comparisonToAPI(c), nil
+}
+
+// AwardRfq implements POST /v1/rfqs/{id}:award.
+func (e *Endpoints) AwardRfq(ctx context.Context, req *gen.RfqAward, params gen.AwardRfqParams) (gen.AwardRfqRes, error) {
+	r, err := e.awardRFQ(ctx, params.ID, etag.IfMatch(params.IfMatch), Award{QuotationID: req.QuotationID, ValidFrom: req.ValidFrom, ValidTo: req.ValidTo})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.AwardRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
 }

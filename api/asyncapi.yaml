@@ -263,6 +263,7 @@ channels:
       RfqChanged: {$ref: '#/components/messages/RfqChanged'}
       RfqPublished: {$ref: '#/components/messages/RfqPublished'}
       SupplierQuotationRecorded: {$ref: '#/components/messages/SupplierQuotationRecorded'}
+      RfqAwarded: {$ref: '#/components/messages/RfqAwarded'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -560,6 +561,7 @@ operations:
       - $ref: '#/channels/procurement/messages/RfqChanged'
       - $ref: '#/channels/procurement/messages/RfqPublished'
       - $ref: '#/channels/procurement/messages/SupplierQuotationRecorded'
+      - $ref: '#/channels/procurement/messages/RfqAwarded'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -2832,11 +2834,11 @@ components:
     RfqChanged:
       name: RfqChanged
       title: Request for quotation changed
-      summary: "A request for quotation was created or published."
+      summary: "A request for quotation was created, published or awarded."
       description: |
-        Emitted by `rfqs` (POST, `created`) and its `:publish` (`published`),
-        ADR-0069 §5: the RFQ as it stands after the change. Subject is the
-        RFQ id.
+        Emitted by `rfqs` (POST, `created`), its `:publish` (`published`)
+        and its `:award` (`awarded`), ADR-0069 §5: the RFQ as it stands
+        after the change. Subject is the RFQ id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -2889,6 +2891,29 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000703", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.supplier_quotation_recorded.v1", "subject": "0192a000-0000-7000-8000-000000000711", "time": "2026-11-20T10:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"supplier_quotation_id": "0192a000-0000-7000-8000-000000000711", "rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0457", "valid_until": "2027-01-31", "total": {"amount": "20666.67", "currency": "EUR"}, "complete": true, "item_count": 2}
+    RfqAwarded:
+      name: RfqAwarded
+      title: Request for quotation awarded
+      summary: "A request for quotation was awarded to one supplier's quotation, and a draft contract created from it."
+      description: |
+        Emitted by `rfqs/{id}:award`, ADR-0069 §7, once per RFQ: the
+        quotation that won, the draft contract created with its supplier
+        (the RFQ's items at the quoted prices, valid from `valid_from` to
+        `valid_to`) and the quotation's total, the contract's target value.
+        The supplier is named by id and number, never by name (a partner
+        may be a person; product owner, 2026-11-05). The RFQ's other
+        quotations are not awarded. Subject is the RFQ id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.rfq_awarded.v1}
+      payload: {$ref: '#/components/schemas/RfqAwardedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000704", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_awarded.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-12-07T11:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_quotation_id": "0192a000-0000-7000-8000-000000000711", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0457", "contract_id": "0192a000-0000-7000-8000-000000000721", "contract_document_number": "4600100000", "valid_from": "2027-01-01", "valid_to": "2027-12-31", "total": {"amount": "20666.67", "currency": "EUR"}}
     ContractExpired:
       name: ContractExpired
       title: Contract expired
@@ -5961,8 +5986,8 @@ components:
         legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
-        status: {"type": "string", "description": "The status after the change. Open enum: draft, published."}
-        change: {"type": "string", "description": "Open enum: created, published."}
+        status: {"type": "string", "description": "The status after the change. Open enum: draft, published, awarded."}
+        change: {"type": "string", "description": "Open enum: created, published, awarded."}
         item_count: {"type": "integer", "description": "The items asked for."}
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
     RfqPublishedV1:
@@ -6001,6 +6026,23 @@ components:
         total: {"$ref": "#/components/schemas/Money", "description": "The sum of the quoted items' values, in the RFQ's currency."}
         complete: {"type": "boolean", "description": "Whether the quotation prices every item of the RFQ."}
         item_count: {"type": "integer", "description": "The RFQ items the quotation prices."}
+    RfqAwardedV1:
+      type: object
+      required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_quotation_id", "supplier_id", "supplier_number", "supplier_reference", "contract_id", "contract_document_number", "valid_from", "valid_to", "total"]
+      properties:
+        rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
+        document_number: {"type": "string", "description": "The RFQ's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_quotation_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.supplier_quotation.id`: the quotation that won."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the supplier awarded."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        supplier_reference: {"type": "string", "description": "The supplier's own reference of its quotation."}
+        contract_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.contract.id`: the draft contract the award created."}
+        contract_document_number: {"type": "string", "description": "The contract's document number."}
+        valid_from: {"$ref": "#/components/schemas/Date", "description": "The first day the contract is valid."}
+        valid_to: {"$ref": "#/components/schemas/Date", "description": "The last day the contract is valid."}
+        total: {"$ref": "#/components/schemas/Money", "description": "The quotation's total, the contract's target value, in the RFQ's currency."}
     ContractExpiredV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "consumed_value", "previous_status", "status"]

@@ -57,6 +57,10 @@ type AssignProfitCenterRes interface {
 	assignProfitCenterRes()
 }
 
+type AwardRfqRes interface {
+	awardRfqRes()
+}
+
 type BlockBusinessPartnerRes interface {
 	blockBusinessPartnerRes()
 }

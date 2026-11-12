@@ -3044,6 +3044,234 @@ func (s *Server) handleAssignProfitCenterRequest(args [1]string, argsEscaped boo
 	}
 }
 
+// handleAwardRfqRequest handles awardRfq operation.
+//
+// Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read
+// (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds
+// and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the
+// same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must
+// be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices
+// every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date
+// today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone);
+// it need not be the lowest. Its supplier must still be one an order could be placed with (422
+// `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a
+// draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number
+// and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422
+// `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value
+// the quotation's total; an item's account the legal entity can no longer post to is refused as there
+// (422 `procurement.account_not_postable`, naming `items[i].account_id`, the RFQ's item). The RFQ
+// becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation
+// becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract
+// is a draft: it is released with `contracts/{id}:release` as any other. No approval is asked for.
+// Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded, which
+// names the supplier by id and number, and RfqChanged.
+//
+// POST /v1/rfqs/{id}:award
+func (s *Server) handleAwardRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("awardRfq"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/rfqs/{id}:award"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), AwardRfqOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: AwardRfqOperation,
+			ID:   "awardRfq",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, AwardRfqOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeAwardRfqParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeAwardRfqRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response AwardRfqRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    AwardRfqOperation,
+			OperationSummary: "Award a request for quotation",
+			OperationID:      "awardRfq",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *RfqAward
+			Params   = AwardRfqParams
+			Response = AwardRfqRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackAwardRfqParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.AwardRfq(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.AwardRfq(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeAwardRfqResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleBlockBusinessPartnerRequest handles blockBusinessPartner operation.
 //
 // Blocks the partner for postings and payments immediately (blocking reduces risk, so it needs no
@@ -17141,18 +17369,18 @@ func (s *Server) handleCreateSupplierInvoiceRequest(args [0]string, argsEscaped 
 // handleCreateSupplierQuotationRequest handles createSupplierQuotation operation.
 //
 // Records the quotation an invited supplier gave for a `published` RFQ (409
-// `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the
-// supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's
-// currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of
-// measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has
-// one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same
-// request with its `Idempotency-Key` again answers what it answered. Each item names an item of the
-// RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422
-// `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not
-// `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ
-// item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's
-// minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and
-// number.
+// `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069
+// §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in
+// the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ
+// item's unit of measure. The supplier must be one the RFQ invites (422
+// `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409
+// `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers
+// what it answered. Each item names an item of the RFQ by `rfq_item_no` (422
+// `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may
+// leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is
+// the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half
+// away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded,
+// which names the supplier by id and number.
 //
 // POST /v1/rfqs/{id}/quotations
 func (s *Server) handleCreateSupplierQuotationRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -73447,12 +73675,12 @@ func (s *Server) handleProposeVarianceCommentRequest(args [0]string, argsEscaped
 //
 // Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
 // lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
-// after which quotations are recorded against it and nothing changes it. The RFQ is checked again as
-// it was when created: every supplier invited must still be one an order could be placed with (422
-// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
-// date not before the legal entity's date today in its company's time zone (422
-// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
-// invited by id and number.
+// after which quotations are recorded against it and nothing changes it until it is awarded
+// (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be
+// one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming
+// `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its
+// company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished,
+// which names the suppliers invited by id and number.
 //
 // POST /v1/rfqs/{id}:publish
 func (s *Server) handlePublishRfqRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

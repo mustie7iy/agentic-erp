@@ -10188,6 +10188,70 @@ func (s *AuditVerify) SetToSeq(val OptInt64) {
 	s.ToSeq = val
 }
 
+type AwardRfqBadRequest Problem
+
+func (*AwardRfqBadRequest) awardRfqRes() {}
+
+type AwardRfqForbidden Problem
+
+func (*AwardRfqForbidden) awardRfqRes() {}
+
+type AwardRfqNotFound Problem
+
+func (*AwardRfqNotFound) awardRfqRes() {}
+
+// AwardRfqOKHeaders wraps Rfq with response headers.
+type AwardRfqOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *AwardRfqOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AwardRfqOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AwardRfqOKHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AwardRfqOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AwardRfqOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AwardRfqOKHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*AwardRfqOKHeaders) awardRfqRes()   {}
+func (*AwardRfqOKHeaders) publishRfqRes() {}
+
+type AwardRfqPreconditionFailed Problem
+
+func (*AwardRfqPreconditionFailed) awardRfqRes() {}
+
+type AwardRfqPreconditionRequired Problem
+
+func (*AwardRfqPreconditionRequired) awardRfqRes() {}
+
+type AwardRfqUnprocessableEntity Problem
+
+func (*AwardRfqUnprocessableEntity) awardRfqRes() {}
+
 // Period totals per account and transaction currency, maintained by a projector from posted entries.
 // Ref: #/components/schemas/Balance
 type Balance struct {
@@ -21705,6 +21769,7 @@ func (*ConflictHeaders) applyCountryPackRes()                      {}
 func (*ConflictHeaders) applyPlanBatchRes()                        {}
 func (*ConflictHeaders) approveApprovalRequestRes()                {}
 func (*ConflictHeaders) assignProfitCenterRes()                    {}
+func (*ConflictHeaders) awardRfqRes()                              {}
 func (*ConflictHeaders) blockBusinessPartnerRes()                  {}
 func (*ConflictHeaders) blockLegalEntityRes()                      {}
 func (*ConflictHeaders) blockOrgUnitRes()                          {}
@@ -24923,6 +24988,11 @@ type Contract struct {
 	RenewalOfID OptUUID `json:"renewal_of_id"`
 	// The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert.
 	RenewedByID OptUUID `json:"renewed_by_id"`
+	// The request for quotation whose award created this contract (`rfqs/{id}:award`, ADR-0069 §7);
+	// absent for a contract created directly or by a renewal.
+	RfqID OptUUID `json:"rfq_id"`
+	// That RFQ's document number; absent when `rfq_id` is.
+	RfqDocumentNumber OptString `json:"rfq_document_number"`
 	// The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days`
 	// before it ends: its company's date in the company's `time_zone` (UTC when it has none), which the
 	// event gives (T72n6).
@@ -25014,6 +25084,16 @@ func (s *Contract) GetRenewalOfID() OptUUID {
 // GetRenewedByID returns the value of RenewedByID.
 func (s *Contract) GetRenewedByID() OptUUID {
 	return s.RenewedByID
+}
+
+// GetRfqID returns the value of RfqID.
+func (s *Contract) GetRfqID() OptUUID {
+	return s.RfqID
+}
+
+// GetRfqDocumentNumber returns the value of RfqDocumentNumber.
+func (s *Contract) GetRfqDocumentNumber() OptString {
+	return s.RfqDocumentNumber
 }
 
 // GetExpiryAlertedOn returns the value of ExpiryAlertedOn.
@@ -25109,6 +25189,16 @@ func (s *Contract) SetRenewalOfID(val OptUUID) {
 // SetRenewedByID sets the value of RenewedByID.
 func (s *Contract) SetRenewedByID(val OptUUID) {
 	s.RenewedByID = val
+}
+
+// SetRfqID sets the value of RfqID.
+func (s *Contract) SetRfqID(val OptUUID) {
+	s.RfqID = val
+}
+
+// SetRfqDocumentNumber sets the value of RfqDocumentNumber.
+func (s *Contract) SetRfqDocumentNumber(val OptString) {
+	s.RfqDocumentNumber = val
 }
 
 // SetExpiryAlertedOn sets the value of ExpiryAlertedOn.
@@ -63976,45 +64066,6 @@ type PublishRfqNotFound Problem
 
 func (*PublishRfqNotFound) publishRfqRes() {}
 
-// PublishRfqOKHeaders wraps Rfq with response headers.
-type PublishRfqOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           Rfq
-}
-
-// GetETag returns the value of ETag.
-func (s *PublishRfqOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *PublishRfqOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *PublishRfqOKHeaders) GetResponse() Rfq {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *PublishRfqOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *PublishRfqOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PublishRfqOKHeaders) SetResponse(val Rfq) {
-	s.Response = val
-}
-
-func (*PublishRfqOKHeaders) publishRfqRes() {}
-
 type PublishRfqPreconditionFailed Problem
 
 func (*PublishRfqPreconditionFailed) publishRfqRes() {}
@@ -68826,6 +68877,11 @@ type Rfq struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// The draft contract the award created (`rfqs/{id}:award`), at `/v1/contracts/{contract_id}`; absent
+	// until the RFQ is awarded.
+	ContractID OptUUID `json:"contract_id"`
+	// That contract's document number; absent until the RFQ is awarded.
+	ContractDocumentNumber OptString `json:"contract_document_number"`
 	// The items asked for, by item number.
 	Items []RfqItem `json:"items"`
 	// The suppliers invited, in the order they were named.
@@ -68895,6 +68951,16 @@ func (s *Rfq) GetDueDate() time.Time {
 // GetStatus returns the value of Status.
 func (s *Rfq) GetStatus() string {
 	return s.Status
+}
+
+// GetContractID returns the value of ContractID.
+func (s *Rfq) GetContractID() OptUUID {
+	return s.ContractID
+}
+
+// GetContractDocumentNumber returns the value of ContractDocumentNumber.
+func (s *Rfq) GetContractDocumentNumber() OptString {
+	return s.ContractDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -68972,6 +69038,16 @@ func (s *Rfq) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetContractID sets the value of ContractID.
+func (s *Rfq) SetContractID(val OptUUID) {
+	s.ContractID = val
+}
+
+// SetContractDocumentNumber sets the value of ContractDocumentNumber.
+func (s *Rfq) SetContractDocumentNumber(val OptString) {
+	s.ContractDocumentNumber = val
+}
+
 // SetItems sets the value of Items.
 func (s *Rfq) SetItems(val []RfqItem) {
 	s.Items = val
@@ -68980,6 +69056,49 @@ func (s *Rfq) SetItems(val []RfqItem) {
 // SetSuppliers sets the value of Suppliers.
 func (s *Rfq) SetSuppliers(val []RfqSupplier) {
 	s.Suppliers = val
+}
+
+// Award an RFQ to one of its quotations: the quotation that wins and the validity of the draft
+// contract created from it.
+// Ref: #/components/schemas/RfqAward
+type RfqAward struct {
+	// The supplier quotation awarded (its `id` in `rfqs/{id}/quotations`, `supplier_quotation_id` in the
+	// comparison): one of this RFQ, complete and not expired.
+	QuotationID uuid.UUID `json:"quotation_id"`
+	// The first day the contract is valid.
+	ValidFrom time.Time `json:"valid_from"`
+	// The last day the contract is valid; on or after `valid_from`.
+	ValidTo time.Time `json:"valid_to"`
+}
+
+// GetQuotationID returns the value of QuotationID.
+func (s *RfqAward) GetQuotationID() uuid.UUID {
+	return s.QuotationID
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *RfqAward) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *RfqAward) GetValidTo() time.Time {
+	return s.ValidTo
+}
+
+// SetQuotationID sets the value of QuotationID.
+func (s *RfqAward) SetQuotationID(val uuid.UUID) {
+	s.QuotationID = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *RfqAward) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *RfqAward) SetValidTo(val time.Time) {
+	s.ValidTo = val
 }
 
 // The comparison of an RFQ's quotations by price (ADR-0069 §7): the suppliers invited, the ranked
@@ -71014,6 +71133,7 @@ func (*ServiceUnavailableHeaders) applyCountryPackRes()                      {}
 func (*ServiceUnavailableHeaders) applyPlanBatchRes()                        {}
 func (*ServiceUnavailableHeaders) approveApprovalRequestRes()                {}
 func (*ServiceUnavailableHeaders) assignProfitCenterRes()                    {}
+func (*ServiceUnavailableHeaders) awardRfqRes()                              {}
 func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()                  {}
 func (*ServiceUnavailableHeaders) blockLegalEntityRes()                      {}
 func (*ServiceUnavailableHeaders) blockOrgUnitRes()                          {}
@@ -73683,8 +73803,9 @@ type SupplierQuotation struct {
 	SupplierReference string `json:"supplier_reference"`
 	// The last day the quotation is valid.
 	ValidUntil time.Time `json:"valid_until"`
-	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
-	// may be added within /v1.
+	// Lifecycle status: `recorded` until the RFQ is awarded, then `awarded` for the quotation that won and
+	// `not_awarded` for the RFQ's others. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// Whether the quotation prices every item of the RFQ.
 	Complete bool `json:"complete"`
@@ -76028,6 +76149,7 @@ func (*TooManyRequestsHeaders) applyCountryPackRes()                      {}
 func (*TooManyRequestsHeaders) applyPlanBatchRes()                        {}
 func (*TooManyRequestsHeaders) approveApprovalRequestRes()                {}
 func (*TooManyRequestsHeaders) assignProfitCenterRes()                    {}
+func (*TooManyRequestsHeaders) awardRfqRes()                              {}
 func (*TooManyRequestsHeaders) blockBusinessPartnerRes()                  {}
 func (*TooManyRequestsHeaders) blockLegalEntityRes()                      {}
 func (*TooManyRequestsHeaders) blockOrgUnitRes()                          {}
@@ -76770,6 +76892,7 @@ func (*UnauthorizedHeaders) applyCountryPackRes()                      {}
 func (*UnauthorizedHeaders) applyPlanBatchRes()                        {}
 func (*UnauthorizedHeaders) approveApprovalRequestRes()                {}
 func (*UnauthorizedHeaders) assignProfitCenterRes()                    {}
+func (*UnauthorizedHeaders) awardRfqRes()                              {}
 func (*UnauthorizedHeaders) blockBusinessPartnerRes()                  {}
 func (*UnauthorizedHeaders) blockLegalEntityRes()                      {}
 func (*UnauthorizedHeaders) blockOrgUnitRes()                          {}
