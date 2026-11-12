@@ -379,7 +379,7 @@ The check that blocked nothing now blocks a sales order
   in full no longer counts. In the walkthrough step 63's order has left
   the exposure by step 68, its billing document posted and paid in step
   64, and step 67's order, confirmed and not billed, counts at its gross
-  value, 2756.25 CAD.
+  value, 2835.00 CAD.
   `TestOpenOrdersAndBilling` (`internal/sales/credit_test.go`) asserts
   today's half, a created document changing nothing, and says where the
   posted half is added: after the post, `open_orders` falls by the

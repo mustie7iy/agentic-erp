@@ -373,8 +373,8 @@ is answered by the product owner: yes.
 - **Walkthrough.** Step 67, `step_revenue_contract`: a second order of
   two items, goods and a support service, is confirmed; its contract
   appears by itself and reads back with two obligations and the order's
-  net value, 2625.00 CAD after the customer's discount of step 65 on the
-  goods (ADR-0067 §11), as its transaction price; a request for the
+  net value, 2700.00 CAD, the entered prices being final (ADR-0067 §11,
+  T80c), as its transaction price; a request for the
   same order is refused (409), as is one for a draft order (422).
 - **Decided by default while building.** The explicit request cannot be
   shown succeeding in the walkthrough: there every confirmed order has
@@ -437,8 +437,8 @@ is answered by the product owner: yes.
   time for the fiscal year of Maple's date today with a stand-alone
   selling price of 1300.00, above its order value of 1200.00; an
   over-time obligation without a period is refused; the contract is
-  activated and its obligations are allocated 1372.71 and 1252.29, which
-  add up to 2625.00 and differ from the order's item values; a later
+  activated and its obligations are allocated 1446.43 and 1253.57, which
+  add up to 2700.00 and differ from the order's item values; a later
   change and a second activation are refused; the contract of step 63's
   order, activated with its starting prices, is allocated the order's
   item values.
