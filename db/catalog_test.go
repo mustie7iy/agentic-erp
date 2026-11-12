@@ -169,7 +169,9 @@ func TestCatalogSearchText(t *testing.T) {
 
 // TestRequisitionItemCatalogItem (T84b, migrations 000277-000278;
 // ADR-0071 §6): a requisition item names no catalog item or one that
-// exists in its tenant, and the foreign key is validated.
+// exists in its tenant, and the foreign key is validated; an update that
+// changes what the item took from the catalog without naming the column,
+// as the previous release's does during a rollout, ends the link.
 func TestRequisitionItemCatalogItem(t *testing.T) {
 	need(t)
 	const requisition = `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, requisition_date,
@@ -205,6 +207,37 @@ func TestRequisitionItemCatalogItem(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	// The previous release's upsert rewrites an item without naming the
+	// column: what it changes of what the item took ends the link; a
+	// rewrite with the same values, or of the quantity alone, keeps it.
+	const old = `UPDATE procurement.requisition_item SET description = $3, uom_code = $4, unit_price = $5, price_unit = $6, quantity = 5
+		WHERE tenant_id = $1 AND requisition_id = $2 AND item_no = 1`
+	for _, c := range []struct {
+		name, description, unit string
+		price, priceUnit        int
+		kept                    bool
+	}{
+		{"the same values and another quantity", "Office chair", "EA", 45000, 1, true},
+		{"another description", "Paper", "EA", 45000, 1, false},
+		{"another unit", "Office chair", "KG", 45000, 1, false},
+		{"another price", "Office chair", "EA", 100, 1, false},
+		{"another price unit", "Office chair", "EA", 45000, 2, false},
+	} {
+		t.Run("rewritten by the previous release with "+c.name, func(t *testing.T) {
+			s := scene{tenant: id(), requisition: id(), entity: id(), catalogItem: id()}
+			var link *uuid.UUID
+			mustApp(t, s.tenant, func(tx pgx.Tx) error {
+				if err := all(tx, step(requisition, s.tenant, s.requisition, s.entity), step(catalogItem, s.tenant, s.catalogItem, s.entity),
+					step(item, s.tenant, s.requisition, s.catalogItem), step(old, s.tenant, s.requisition, c.description, c.unit, c.price, c.priceUnit)); err != nil {
+					return err
+				}
+				return tx.QueryRow(context.Background(), `SELECT catalog_item_id FROM procurement.requisition_item WHERE requisition_id = $1`, s.requisition).Scan(&link)
+			})
+			if kept := link != nil; kept != c.kept {
+				t.Errorf("the item's catalog item kept: got %v, want %v", kept, c.kept)
 			}
 		})
 	}

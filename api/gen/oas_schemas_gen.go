@@ -67786,8 +67786,10 @@ func (s *RequisitionItem) SetItemKey(val OptString) {
 // A requisition item as it is sent: described and priced by the requester, or taken from the company's
 // catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in
 // the catalog item's unit, and its account; its description, price and price unit are the catalog
-// item's and may not be sent (422 `procurement.catalog_item_override`). An item that names no catalog
-// item sends its `description` and `unit_price` (422 `request.validation_failed` without).
+// item's and may not be sent (422 `procurement.catalog_item_override`), so an item read back from a
+// requisition is sent again without them (and without the read-only `item_key`) when the items are
+// replaced. An item that names no catalog item sends its `description` and `unit_price` (422
+// `request.validation_failed` without).
 // Ref: #/components/schemas/RequisitionItemInput
 type RequisitionItemInput struct {
 	// Item number; assigned by the server when omitted.

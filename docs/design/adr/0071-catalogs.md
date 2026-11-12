@@ -259,7 +259,14 @@ other; the order's items are the buyer's, as today.
 
 - **Schema.** `procurement.requisition_item.catalog_item_id` (nullable)
   with `requisition_item_catalog_item_fkey`, added `NOT VALID` by 000277
-  and validated by 000278; `db/catalog_test.go`.
+  and validated by 000278; `db/catalog_test.go`. During a rollout the
+  previous release replaces a draft's items by an upsert that does not
+  set the column, so the trigger `requisition_item_unlink_catalog`
+  (000277) ends the link of an item whose description, unit, price or
+  price unit an update changes while leaving `catalog_item_id` as it
+  was (review round 1); this release never meets it, since a catalog
+  item does not change. It can be dropped by a contract migration once
+  no release without the column runs.
 - **Contract.** The requisition's create and update requests take
   `RequisitionItemInput` (quantity and account required; description and
   price required unless `catalog_item_id` is given), a schema of its own

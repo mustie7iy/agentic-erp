@@ -1919,6 +1919,11 @@ A requisition item taken from the catalog names its catalog item
 T84b, ADR-0071 §6; `requisition_item_catalog_item_fkey`, added `NOT VALID`
 and validated by 000278) and holds a copy of the description, unit and
 price it took, so a catalog item retired later changes nothing on it.
+An update that changes the description, unit, price or price unit and
+leaves `catalog_item_id` as it was sets it to null (trigger
+`requisition_item_unlink_catalog`, 000277): the previous release's upsert
+of a draft's items does not name the column, and would otherwise leave a
+described item naming the catalog item of the row it replaced.
 
 ## 3.9 Accounts payable (`payables`)
 

@@ -70,7 +70,8 @@ func TestRequisitionFromCatalog(t *testing.T) {
 	if o["requisition_id"] != id(r) {
 		t.Errorf("the order's requisition: got %v, want %v", o["requisition_id"], id(r))
 	}
-	if got, _ := e.Must(200, "GET", path, "", ""); got["status"] != "ordered" {
+	got, _ = e.Must(200, "GET", path, "", "")
+	if got["status"] != "ordered" {
 		t.Errorf("after the order: got %v, want ordered", got["status"])
 	}
 	check(t, "ordered", got)
@@ -93,8 +94,11 @@ func TestRequisitionCatalogContract(t *testing.T) {
 	pens := e.catalogItem(t, e.Supplier, "PENS", "Pens", "2.00", "")
 	theirs := e.catalogItem(t, e.Vendor, "TONER", "Toner", "30.00", "")
 	r := e.requisition(t, items(e.fromCatalog(id(pens), "1", ""), e.fromCatalog(id(paper), "10", "")), "")
-	if r["contract_id"] != id(active) || r["supplier_id"] != e.Supplier.String() {
-		t.Errorf("taken from the catalog: got contract %v supplier %v, want %v %v", r["contract_id"], r["supplier_id"], id(active), e.Supplier)
+	if r["contract_id"] != id(active) {
+		t.Errorf("contract taken from the catalog: got %v, want %v", r["contract_id"], id(active))
+	}
+	if r["supplier_id"] != e.Supplier.String() {
+		t.Errorf("supplier taken from the catalog: got %v, want %v", r["supplier_id"], e.Supplier)
 	}
 	path := "/v1/requisitions/" + id(r)
 	// Named as the catalog item's, they are accepted.
@@ -135,17 +139,28 @@ func TestRequisitionCatalogContract(t *testing.T) {
 		t.Errorf("refused field of the contract change: got %s, want items[1].catalog_item_id", got)
 	}
 	cleared, tag := e.Must(200, "PATCH", path, `{"supplier_id": null, "contract_id": null, "needed_by": "2026-12-01"}`, tag)
-	if cleared["contract_id"] != id(active) || cleared["supplier_id"] != e.Supplier.String() || len(apitest.List(t, cleared, "items")) != 2 {
-		t.Errorf("after clearing: got contract %v supplier %v, want the catalog items' %v %v and both items", cleared["contract_id"], cleared["supplier_id"], id(active), e.Supplier)
+	if cleared["contract_id"] != id(active) {
+		t.Errorf("contract after clearing: got %v, want the catalog item's %v", cleared["contract_id"], id(active))
+	}
+	if cleared["supplier_id"] != e.Supplier.String() {
+		t.Errorf("supplier after clearing: got %v, want the catalog items' %v", cleared["supplier_id"], e.Supplier)
+	}
+	if n := len(apitest.List(t, cleared, "items")); n != 2 {
+		t.Errorf("items after clearing: got %d, want 2", n)
 	}
 	// The stored items still say whose it is once a catalog item is retired.
 	e.act(t, "/v1/catalog-items/"+id(pens), "retire", "")
 	e.Problem(422, "procurement.catalog_item_supplier", "PATCH", path, fmt.Sprintf(`{"supplier_id": %q}`, e.Vendor), tag)
 	// New items replace them: without catalog items the requisition is the requester's again.
 	upd, _ := e.Must(200, "PATCH", path, fmt.Sprintf(`{"items": %s, "supplier_id": %q, "contract_id": null}`, items(item(e.office, "1", "EA", "1.00", "EUR", "")), e.Vendor), tag)
-	if upd["supplier_id"] != e.Vendor.String() || upd["contract_id"] != nil || firstItem(t, upd)["catalog_item_id"] != nil {
-		t.Errorf("after replacing the items: got supplier %v contract %v catalog item %v, want %v and none", upd["supplier_id"], upd["contract_id"],
-			firstItem(t, upd)["catalog_item_id"], e.Vendor)
+	if upd["supplier_id"] != e.Vendor.String() {
+		t.Errorf("supplier after replacing the items: got %v, want %v", upd["supplier_id"], e.Vendor)
+	}
+	if upd["contract_id"] != nil {
+		t.Errorf("contract after replacing the items: got %v, want none", upd["contract_id"])
+	}
+	if got := firstItem(t, upd)["catalog_item_id"]; got != nil {
+		t.Errorf("catalog item after replacing the items: got %v, want none", got)
 	}
 }
 
@@ -189,20 +204,23 @@ func TestRequisitionCatalogRefusals(t *testing.T) {
 	}
 	// The refusals name the catalog item by its key.
 	refusal := e.Problem(422, "procurement.invalid_catalog_item", "POST", "/v1/requisitions", body(items(e.fromCatalog(id(retired), "1", ""))), "")
-	if detail := apitest.String(t, refusal, "detail"); !strings.Contains(detail, "CHAIR-00") || !strings.Contains(detail, "retired") {
-		t.Errorf("the refusal of a retired item: got %q, want it to name CHAIR-00 as retired", detail)
+	if detail := apitest.String(t, refusal, "detail"); !strings.Contains(detail, "catalog item CHAIR-00 is retired") {
+		t.Errorf("the refusal of a retired item: got %q, want it to say catalog item CHAIR-00 is retired", detail)
 	}
 	refusal = e.Problem(422, "procurement.invalid_catalog_item", "POST", "/v1/requisitions", body(items(e.fromCatalog(id(usd), "1", ""))), "")
-	if detail := apitest.String(t, refusal, "detail"); !strings.Contains(detail, "CHAIR-USD") || !strings.Contains(detail, "USD") {
-		t.Errorf("the refusal of an item in another currency: got %q, want it to name CHAIR-USD and USD", detail)
+	if detail := apitest.String(t, refusal, "detail"); !strings.Contains(detail, "catalog item CHAIR-USD is priced in USD") {
+		t.Errorf("the refusal of an item in another currency: got %q, want it to say catalog item CHAIR-USD is priced in USD", detail)
 	}
 	// A draft changed to an item from the catalog is checked the same way.
 	r := e.requisition(t, items(ok), "")
 	path := "/v1/requisitions/" + id(r)
 	e.Problem(422, "procurement.invalid_catalog_item", "PATCH", path, `{"items": `+items(e.fromCatalog(id(retired), "1", ""))+`}`, `"1"`)
 	upd, _ := e.Must(200, "PATCH", path, `{"items": `+items(e.fromCatalog(id(chair), "3", ""))+`}`, `"1"`)
-	if it := firstItem(t, upd); it["item_key"] != "CHAIR-01" || upd["supplier_id"] != e.Supplier.String() {
-		t.Errorf("changed to a catalog item: got key %v supplier %v, want CHAIR-01 %v", it["item_key"], upd["supplier_id"], e.Supplier)
+	if got := firstItem(t, upd)["item_key"]; got != "CHAIR-01" {
+		t.Errorf("item key after the change to a catalog item: got %v, want CHAIR-01", got)
+	}
+	if upd["supplier_id"] != e.Supplier.String() {
+		t.Errorf("supplier after the change to a catalog item: got %v, want %v", upd["supplier_id"], e.Supplier)
 	}
 	// Taking an item from the catalog reads the catalog: without the
 	// permission it is refused, and nothing is created.
