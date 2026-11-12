@@ -9,7 +9,23 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
+
+// ParseAmount reads an API amount of the currency, a decimal string with
+// exactly its exp minor-unit digits, into minor units (ADR-0005). Another
+// form is 400 request.invalid_amount naming field, the request's own
+// field of the amount.
+func ParseAmount(value, code string, exp int, field string) (money.Minor, error) {
+	n, err := money.ParseAmount(value, exp)
+	if err != nil {
+		return 0, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", code, exp),
+			problem.FieldError{Field: field, Code: "invalid", Message: err.Error()})
+	}
+	return n, nil
+}
 
 // Querier is the part of a transaction Exponent needs.
 type Querier interface {

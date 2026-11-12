@@ -43,6 +43,7 @@ pointing its schema at a separate database. Callers do not change.
 | **ledger** | Chart of accounts, fiscal calendars, periods, currencies, exchange rates, journal entries, open items, clearing, balances, balance carry-forward runs (ADR-0060) | `JournalEntryPosted`, `PeriodClosed`, `BalanceCarriedForward` |
 | **procurement** | Requisitions, purchase orders, contracts, goods receipts | `PurchaseOrderReleased`, `GoodsReceived` |
 | **payables** | Supplier invoices, matching results, invoice holds | `SupplierInvoicePosted`, `InvoiceHeld` |
+| **receivables** (ADR-0063) | Customer invoices entered without a sales order, with their items and the output tax calculated for them (T75a); their posting as the customer's open items, incoming payments applied, credit memos and the aging read planned (T75b-T75e) | `CustomerInvoiceChanged` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |
 | **workflow** | Approval requests, steps, decisions | `ApprovalCompleted` |
 | **audit** | Audit events (hash-chained) | — (consumes everything) |
@@ -54,8 +55,9 @@ pointing its schema at a separate database. Callers do not change.
 | **consolidation** (ADR-0059, a leaf) | The consolidation groups and the group chart as configured (T68a: the group chart, the mapping and the groups are configuration, read through its ports); consolidation runs per group and period as the workflow `ConsolidationRun` and their translated balances (T68d, through the ports `Ledger` and `Runs`; the ledger's `ConsolidationReads`); a run's consolidated balance sheet and profit and loss from its stored rows (T68e); its intercompany differences and elimination entries (T68f); accepting differences by a person and finalizing runs on locked periods, superseding the period's previous final run, with `stale` by the periods' versions (T68g, the port `People`); the investment eliminated against each member's share capital and the acquisition figures its first final run freezes, for members the parent incorporated and holds whole, whose earlier results and reserve stay the group's (T68h, T68h2; trading partners are on the ledger's journal lines, T68b-T68c) | `ConsolidationRunChanged`, `IntercompanyDifferenceAccepted` |
 | **einvoicing** (ADR-0061, a leaf) | E-invoice documents received from (and, in phase 3, sent through) the tenant's accredited provider, their statuses and the provider port; the connector is integration's (T65a: fetched on demand as the workflow `FetchEInvoices` through the port `workflows.EInvoices`, recorded `received` and acknowledged, read through the ports `Connectors`, `Companies` and `Runs`; the provider's stand-in its only adapter; T65b: fetched once per `ERP_EINVOICE_FETCH_INTERVAL` from every active connector as the workflow `ScheduledEInvoiceFetch`, a redelivery with other bytes recorded as the document's change, the original served as received; validation, entering and people's resolution planned, T65c-T65f) | `EInvoiceChanged` |
 
-Later phases add `sales`, `receivables`, `inventory`, `manufacturing`,
-`maintenance`, `projects` and `hr` with the same rules.
+Later phases add `sales`, `inventory`, `manufacturing`, `maintenance`,
+`projects` and `hr` with the same rules; `receivables` is built from T75a
+(ADR-0063).
 
 Dependencies between contexts point one way (no cycles):
 
@@ -70,6 +72,8 @@ flowchart LR
   ledger --> procurement
   ledger --> payables
   procurement --> payables
+  ledger --> receivables
+  partner --> receivables
   payables --> payments
   partner --> payments
   ledger --> payments

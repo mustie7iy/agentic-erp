@@ -21701,6 +21701,7 @@ func (*ConflictHeaders) createConnectorRes()                       {}
 func (*ConflictHeaders) createConsolidationRunRes()                {}
 func (*ConflictHeaders) createContractRes()                        {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
+func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createEntryTemplateRes()                   {}
 func (*ConflictHeaders) createExchangeRateRes()                    {}
@@ -27122,6 +27123,22 @@ type CreateCostCenterUnprocessableEntity Problem
 
 func (*CreateCostCenterUnprocessableEntity) createCostCenterRes() {}
 
+type CreateCustomerInvoiceBadRequest Problem
+
+func (*CreateCustomerInvoiceBadRequest) createCustomerInvoiceRes() {}
+
+type CreateCustomerInvoiceForbidden Problem
+
+func (*CreateCustomerInvoiceForbidden) createCustomerInvoiceRes() {}
+
+type CreateCustomerInvoicePreconditionRequired Problem
+
+func (*CreateCustomerInvoicePreconditionRequired) createCustomerInvoiceRes() {}
+
+type CreateCustomerInvoiceUnprocessableEntity Problem
+
+func (*CreateCustomerInvoiceUnprocessableEntity) createCustomerInvoiceRes() {}
+
 type CreateDownPaymentRequestBadRequest Problem
 
 func (*CreateDownPaymentRequestBadRequest) createDownPaymentRequestRes() {}
@@ -28047,6 +28064,677 @@ func (s *CustomFieldSchemaSchema) init() CustomFieldSchemaSchema {
 	}
 	return m
 }
+
+// Merged schema.
+// Ref: #/components/schemas/CustomerInvoice
+type CustomerInvoice struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `customer_invoice` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that issued the invoice.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// What the document is: `invoice`. Its amounts are never negative; the kind gives their direction.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The invoice date, its tax date.
+	InvoiceDate time.Time `json:"invoice_date"`
+	// The posting date entered; absent when none was.
+	PostingDate OptDate `json:"posting_date"`
+	// The invoice's currency (ISO 4217).
+	Currency string `json:"currency"`
+	// The sum of the items' net amounts.
+	NetAmount Money `json:"net_amount"`
+	// The sum of the items' tax.
+	TaxAmount Money `json:"tax_amount"`
+	// What the customer owes: `net_amount` and `tax_amount`.
+	GrossAmount Money `json:"gross_amount"`
+	// `draft`: entered, not posted. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status string `json:"status"`
+	// The items, by item number.
+	Items []CustomerInvoiceItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *CustomerInvoice) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CustomerInvoice) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CustomerInvoice) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CustomerInvoice) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CustomerInvoice) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CustomerInvoice) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *CustomerInvoice) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerInvoice) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CustomerInvoice) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CustomerInvoice) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerInvoice) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CustomerInvoice) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CustomerInvoice) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetKind returns the value of Kind.
+func (s *CustomerInvoice) GetKind() string {
+	return s.Kind
+}
+
+// GetInvoiceDate returns the value of InvoiceDate.
+func (s *CustomerInvoice) GetInvoiceDate() time.Time {
+	return s.InvoiceDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CustomerInvoice) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CustomerInvoice) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CustomerInvoice) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *CustomerInvoice) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *CustomerInvoice) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetStatus returns the value of Status.
+func (s *CustomerInvoice) GetStatus() string {
+	return s.Status
+}
+
+// GetItems returns the value of Items.
+func (s *CustomerInvoice) GetItems() []CustomerInvoiceItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *CustomerInvoice) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CustomerInvoice) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CustomerInvoice) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CustomerInvoice) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CustomerInvoice) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CustomerInvoice) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *CustomerInvoice) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerInvoice) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CustomerInvoice) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CustomerInvoice) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerInvoice) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CustomerInvoice) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CustomerInvoice) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CustomerInvoice) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetInvoiceDate sets the value of InvoiceDate.
+func (s *CustomerInvoice) SetInvoiceDate(val time.Time) {
+	s.InvoiceDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CustomerInvoice) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CustomerInvoice) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CustomerInvoice) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *CustomerInvoice) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *CustomerInvoice) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CustomerInvoice) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetItems sets the value of Items.
+func (s *CustomerInvoice) SetItems(val []CustomerInvoiceItem) {
+	s.Items = val
+}
+
+// Enter a customer invoice. It is created `draft`; its tax and totals are calculated.
+// Ref: #/components/schemas/CustomerInvoiceCreate
+type CustomerInvoiceCreate struct {
+	// The company that issued the invoice: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer: an active business partner with the customer role.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The invoice date; the tax date its items' tax codes are rated on (ADR-0049 §4).
+	InvoiceDate time.Time `json:"invoice_date"`
+	// The posting date the invoice is to post on; absent: decided when it posts.
+	PostingDate OptDate `json:"posting_date"`
+	// The invoice's currency (ISO 4217), every item's.
+	Currency string `json:"currency"`
+	// The items, numbered in this order from 1.
+	Items []CustomerInvoiceItemCreate `json:"items"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerInvoiceCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerInvoiceCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetInvoiceDate returns the value of InvoiceDate.
+func (s *CustomerInvoiceCreate) GetInvoiceDate() time.Time {
+	return s.InvoiceDate
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CustomerInvoiceCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CustomerInvoiceCreate) GetCurrency() string {
+	return s.Currency
+}
+
+// GetItems returns the value of Items.
+func (s *CustomerInvoiceCreate) GetItems() []CustomerInvoiceItemCreate {
+	return s.Items
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerInvoiceCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerInvoiceCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetInvoiceDate sets the value of InvoiceDate.
+func (s *CustomerInvoiceCreate) SetInvoiceDate(val time.Time) {
+	s.InvoiceDate = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CustomerInvoiceCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CustomerInvoiceCreate) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetItems sets the value of Items.
+func (s *CustomerInvoiceCreate) SetItems(val []CustomerInvoiceItemCreate) {
+	s.Items = val
+}
+
+// CustomerInvoiceHeaders wraps CustomerInvoice with response headers.
+type CustomerInvoiceHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CustomerInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *CustomerInvoiceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CustomerInvoiceHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CustomerInvoiceHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CustomerInvoiceHeaders) GetResponse() CustomerInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CustomerInvoiceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CustomerInvoiceHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CustomerInvoiceHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CustomerInvoiceHeaders) SetResponse(val CustomerInvoice) {
+	s.Response = val
+}
+
+func (*CustomerInvoiceHeaders) createCustomerInvoiceRes() {}
+
+// An item of a customer invoice, with the tax calculated for it when the invoice was entered.
+// Ref: #/components/schemas/CustomerInvoiceItem
+type CustomerInvoiceItem struct {
+	// The item's number in the invoice.
+	ItemNo int32 `json:"item_no"`
+	// What was invoiced; absent when none was entered.
+	Description OptString `json:"description"`
+	// The account the item credits when the invoice posts.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The item's net amount.
+	NetAmount Money `json:"net_amount"`
+	// The item's output tax code; absent: it bears no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The tax its code gave at the invoice date's rates: the item's share of the tax calculated for the
+	// invoice; 0 without a code.
+	TaxAmount Money `json:"tax_amount"`
+	// The item's net amount and tax.
+	GrossAmount Money `json:"gross_amount"`
+	// The cost center entered; absent when none was.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The cost center's code; absent with `cost_center_id`.
+	CostCenterCode OptString `json:"cost_center_code"`
+	// The profit center entered; absent when none was.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+	// The profit center's code; absent with `profit_center_id`.
+	ProfitCenterCode OptString `json:"profit_center_code"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *CustomerInvoiceItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetDescription returns the value of Description.
+func (s *CustomerInvoiceItem) GetDescription() OptString {
+	return s.Description
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CustomerInvoiceItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *CustomerInvoiceItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *CustomerInvoiceItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CustomerInvoiceItem) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *CustomerInvoiceItem) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetTaxAmount returns the value of TaxAmount.
+func (s *CustomerInvoiceItem) GetTaxAmount() Money {
+	return s.TaxAmount
+}
+
+// GetGrossAmount returns the value of GrossAmount.
+func (s *CustomerInvoiceItem) GetGrossAmount() Money {
+	return s.GrossAmount
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *CustomerInvoiceItem) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *CustomerInvoiceItem) GetCostCenterCode() OptString {
+	return s.CostCenterCode
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *CustomerInvoiceItem) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// GetProfitCenterCode returns the value of ProfitCenterCode.
+func (s *CustomerInvoiceItem) GetProfitCenterCode() OptString {
+	return s.ProfitCenterCode
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *CustomerInvoiceItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CustomerInvoiceItem) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CustomerInvoiceItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *CustomerInvoiceItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *CustomerInvoiceItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CustomerInvoiceItem) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *CustomerInvoiceItem) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetTaxAmount sets the value of TaxAmount.
+func (s *CustomerInvoiceItem) SetTaxAmount(val Money) {
+	s.TaxAmount = val
+}
+
+// SetGrossAmount sets the value of GrossAmount.
+func (s *CustomerInvoiceItem) SetGrossAmount(val Money) {
+	s.GrossAmount = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *CustomerInvoiceItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *CustomerInvoiceItem) SetCostCenterCode(val OptString) {
+	s.CostCenterCode = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *CustomerInvoiceItem) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// SetProfitCenterCode sets the value of ProfitCenterCode.
+func (s *CustomerInvoiceItem) SetProfitCenterCode(val OptString) {
+	s.ProfitCenterCode = val
+}
+
+// An item of a customer invoice to enter: a net amount on an account, with its output tax code.
+// Ref: #/components/schemas/CustomerInvoiceItemCreate
+type CustomerInvoiceItemCreate struct {
+	// What was invoiced.
+	Description OptString `json:"description"`
+	// The account the item credits when the invoice posts, revenue as a rule: one that can be posted in
+	// the company (`GET /v1/accounts`).
+	AccountID uuid.UUID `json:"account_id"`
+	// The item's net amount, more than zero, in the invoice's currency.
+	NetAmount Money `json:"net_amount"`
+	// An output tax code of the company with a rate in force on the invoice date; absent: the item bears
+	// no tax.
+	TaxCode OptString `json:"tax_code"`
+	// The item's cost center; absent: its account's default, where the ledger asks for one.
+	CostCenterID OptUUID `json:"cost_center_id"`
+	// The item's profit center; absent: the one the ledger derives.
+	ProfitCenterID OptUUID `json:"profit_center_id"`
+}
+
+// GetDescription returns the value of Description.
+func (s *CustomerInvoiceItemCreate) GetDescription() OptString {
+	return s.Description
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *CustomerInvoiceItemCreate) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetNetAmount returns the value of NetAmount.
+func (s *CustomerInvoiceItemCreate) GetNetAmount() Money {
+	return s.NetAmount
+}
+
+// GetTaxCode returns the value of TaxCode.
+func (s *CustomerInvoiceItemCreate) GetTaxCode() OptString {
+	return s.TaxCode
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *CustomerInvoiceItemCreate) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// GetProfitCenterID returns the value of ProfitCenterID.
+func (s *CustomerInvoiceItemCreate) GetProfitCenterID() OptUUID {
+	return s.ProfitCenterID
+}
+
+// SetDescription sets the value of Description.
+func (s *CustomerInvoiceItemCreate) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *CustomerInvoiceItemCreate) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetNetAmount sets the value of NetAmount.
+func (s *CustomerInvoiceItemCreate) SetNetAmount(val Money) {
+	s.NetAmount = val
+}
+
+// SetTaxCode sets the value of TaxCode.
+func (s *CustomerInvoiceItemCreate) SetTaxCode(val OptString) {
+	s.TaxCode = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *CustomerInvoiceItemCreate) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetProfitCenterID sets the value of ProfitCenterID.
+func (s *CustomerInvoiceItemCreate) SetProfitCenterID(val OptUUID) {
+	s.ProfitCenterID = val
+}
+
+// One page of customer invoices.
+// Ref: #/components/schemas/CustomerInvoicePage
+type CustomerInvoicePage struct {
+	// The customer invoices on this page.
+	Items []CustomerInvoice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CustomerInvoicePage) GetItems() []CustomerInvoice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CustomerInvoicePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CustomerInvoicePage) SetItems(val []CustomerInvoice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CustomerInvoicePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CustomerInvoicePage) listCustomerInvoicesRes() {}
 
 type DecideRecommendationBadRequest Problem
 
@@ -34266,6 +34954,46 @@ func (*GetCurrentPrincipalBadRequest) getCurrentPrincipalRes() {}
 type GetCurrentPrincipalForbidden Problem
 
 func (*GetCurrentPrincipalForbidden) getCurrentPrincipalRes() {}
+
+type GetCustomerInvoiceBadRequest Problem
+
+func (*GetCustomerInvoiceBadRequest) getCustomerInvoiceRes() {}
+
+type GetCustomerInvoiceForbidden Problem
+
+func (*GetCustomerInvoiceForbidden) getCustomerInvoiceRes() {}
+
+type GetCustomerInvoiceNotFound Problem
+
+func (*GetCustomerInvoiceNotFound) getCustomerInvoiceRes() {}
+
+// GetCustomerInvoiceOKHeaders wraps CustomerInvoice with response headers.
+type GetCustomerInvoiceOKHeaders struct {
+	ETag     OptString
+	Response CustomerInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCustomerInvoiceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCustomerInvoiceOKHeaders) GetResponse() CustomerInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCustomerInvoiceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCustomerInvoiceOKHeaders) SetResponse(val CustomerInvoice) {
+	s.Response = val
+}
+
+func (*GetCustomerInvoiceOKHeaders) getCustomerInvoiceRes() {}
 
 type GetDepreciationRunBadRequest Problem
 
@@ -43554,6 +44282,14 @@ func (*ListCountryPacksBadRequest) listCountryPacksRes() {}
 type ListCountryPacksForbidden Problem
 
 func (*ListCountryPacksForbidden) listCountryPacksRes() {}
+
+type ListCustomerInvoicesBadRequest Problem
+
+func (*ListCustomerInvoicesBadRequest) listCustomerInvoicesRes() {}
+
+type ListCustomerInvoicesForbidden Problem
+
+func (*ListCustomerInvoicesForbidden) listCustomerInvoicesRes() {}
 
 type ListDepreciationRunsBadRequest Problem
 
@@ -70769,6 +71505,7 @@ func (*TooManyRequestsHeaders) createConnectorRes()                       {}
 func (*TooManyRequestsHeaders) createConsolidationRunRes()                {}
 func (*TooManyRequestsHeaders) createContractRes()                        {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
+func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()                    {}
@@ -70853,6 +71590,7 @@ func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
+func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
 func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
@@ -70952,6 +71690,7 @@ func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
+func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
@@ -71275,6 +72014,7 @@ func (*UnauthorizedHeaders) createConnectorRes()                       {}
 func (*UnauthorizedHeaders) createConsolidationRunRes()                {}
 func (*UnauthorizedHeaders) createContractRes()                        {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
+func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) createExchangeRateRes()                    {}
@@ -71359,6 +72099,7 @@ func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
+func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
 func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
@@ -71458,6 +72199,7 @@ func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
+func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}

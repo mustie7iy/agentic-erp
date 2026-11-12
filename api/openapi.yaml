@@ -55,6 +55,8 @@ tags:
     description: Requisitions, purchase orders, contracts and goods receipts.
   - name: payables
     description: Supplier invoices and three-way match results.
+  - name: receivables
+    description: "Accounts receivable (ADR-0063): customer invoices."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -14597,6 +14599,180 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ConsolidationEntryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/customer-invoices:
+    get:
+      operationId: listCustomerInvoices
+      tags:
+        - receivables
+      summary: List customer invoices
+      description: "The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its totals and its items. Filtered by company, customer, status, document number and invoice date. Sortable by: `invoice_date`, `document_number`."
+      x-permission: receivables.invoice.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the invoices to this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only invoices in this status.
+          schema:
+            type: string
+            description: "Customer invoice status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - draft
+        - $ref: "#/components/parameters/DocumentNumber"
+        - name: invoice_date_from
+          in: query
+          required: false
+          description: Only invoices dated on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: invoice_date_to
+          in: query
+          required: false
+          description: Only invoices dated on or before this date.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of customer invoices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerInvoicePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCustomerInvoice
+      tags:
+        - receivables
+      summary: Enter a customer invoice
+      description: "Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It is created `draft` with a document number from the company's `customer_invoice` number range of the invoice date's fiscal year; nothing is posted. The customer is an active business partner with the customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the invoice's currency on an account that can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`)."
+      x-permission: receivables.invoice.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.no_fiscal_period
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.items_required
+        - receivables.tax_jurisdiction_not_supported
+        - receivables.unknown_currency
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The customer invoice to enter.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerInvoiceCreate"
+            examples:
+              one_item:
+                summary: One item with output tax
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  invoice_date: "2026-11-11"
+                  currency: CAD
+                  items:
+                    - description: Consulting, October
+                      account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+                      net_amount:
+                        amount: "1000.00"
+                        currency: CAD
+                      tax_code: GO5
+      responses:
+        "201":
+          description: "Created; the new customer invoice."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerInvoice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/customer-invoices/{id}":
+    get:
+      operationId: getCustomerInvoice
+      tags:
+        - receivables
+      summary: Get a customer invoice
+      description: "One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number and name, its net, tax and gross totals and its items, each with its account's number and name, its centers' codes and the tax calculated for it when it was entered. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: receivables.invoice.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The customer invoice.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerInvoice"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -41965,6 +42141,130 @@ components:
         group_code: {type: string, pattern: "^[A-Z0-9_]{1,30}$", description: "The group's code.", example: MAPLE}
         fiscal_year: {type: integer, format: int32, minimum: 1900, maximum: 2999, description: The fiscal year.}
         period: {type: integer, format: int32, minimum: 1, maximum: 16, description: "The period; a regular one (1-12)."}
+    CustomerInvoiceItemCreate:
+      type: object
+      description: "An item of a customer invoice to enter: a net amount on an account, with its output tax code."
+      required: [account_id, net_amount]
+      additionalProperties: false
+      properties:
+        description: {type: string, minLength: 1, maxLength: 500, description: "What was invoiced."}
+        account_id: {type: string, format: uuid, description: "The account the item credits when the invoice posts, revenue as a rule: one that can be posted in the company (`GET /v1/accounts`)."}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The item's net amount, more than zero, in the invoice's currency."}
+        tax_code: {type: string, minLength: 1, maxLength: 20, description: "An output tax code of the company with a rate in force on the invoice date; absent: the item bears no tax."}
+        cost_center_id: {type: string, format: uuid, description: "The item's cost center; absent: its account's default, where the ledger asks for one."}
+        profit_center_id: {type: string, format: uuid, description: "The item's profit center; absent: the one the ledger derives."}
+    CustomerInvoiceCreate:
+      type: object
+      description: "Enter a customer invoice. It is created `draft`; its tax and totals are calculated."
+      required: [legal_entity_id, customer_id, invoice_date, currency, items]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company that issued the invoice: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer: an active business partner with the customer role."}
+        invoice_date: {type: string, format: date, description: "The invoice date; the tax date its items' tax codes are rated on (ADR-0049 §4)."}
+        posting_date: {type: string, format: date, description: "The posting date the invoice is to post on; absent: decided when it posts."}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The invoice's currency (ISO 4217), every item's."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/CustomerInvoiceItemCreate"}
+          description: "The items, numbered in this order from 1."
+    CustomerInvoiceItem:
+      type: object
+      description: "An item of a customer invoice, with the tax calculated for it when the invoice was entered."
+      required: [item_no, account_id, account_number, account_name, net_amount, tax_amount, gross_amount]
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the invoice.", readOnly: true}
+        description: {type: string, description: "What was invoiced; absent when none was entered.", readOnly: true}
+        account_id: {type: string, format: uuid, description: "The account the item credits when the invoice posts.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The item's net amount."}
+        tax_code: {type: string, description: "The item's output tax code; absent: it bears no tax.", readOnly: true}
+        tax_amount: {$ref: "#/components/schemas/Money", description: "The tax its code gave at the invoice date's rates: the item's share of the tax calculated for the invoice; 0 without a code."}
+        gross_amount: {$ref: "#/components/schemas/Money", description: "The item's net amount and tax."}
+        cost_center_id: {type: string, format: uuid, description: "The cost center entered; absent when none was.", readOnly: true}
+        cost_center_code: {type: string, description: "The cost center's code; absent with `cost_center_id`.", readOnly: true}
+        profit_center_id: {type: string, format: uuid, description: "The profit center entered; absent when none was.", readOnly: true}
+        profit_center_code: {type: string, description: "The profit center's code; absent with `profit_center_id`.", readOnly: true}
+    CustomerInvoice:
+      description: "A customer invoice (accounts receivable, ADR-0063 §2): the accounting record of an invoice the company issued."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, kind, invoice_date,
+            currency, net_amount, tax_amount, gross_amount, status, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `customer_invoice` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that issued the invoice.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            kind:
+              type: string
+              x-extensible-enum: [invoice]
+              description: "What the document is: `invoice`. Its amounts are never negative; the kind gives their direction. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            invoice_date: {type: string, format: date, description: "The invoice date, its tax date.", readOnly: true}
+            posting_date: {type: string, format: date, description: "The posting date entered; absent when none was.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The invoice's currency (ISO 4217).", readOnly: true}
+            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' net amounts."}
+            tax_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' tax."}
+            gross_amount: {$ref: "#/components/schemas/Money", description: "What the customer owes: `net_amount` and `tax_amount`."}
+            status:
+              type: string
+              x-extensible-enum: [draft]
+              description: "`draft`: entered, not posted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/CustomerInvoiceItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+          version: 1
+          created_at: "2026-11-11T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-11T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: CI100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          kind: invoice
+          invoice_date: "2026-11-11"
+          currency: CAD
+          net_amount: {amount: "1000.00", currency: CAD}
+          tax_amount: {amount: "50.00", currency: CAD}
+          gross_amount: {amount: "1050.00", currency: CAD}
+          status: draft
+          items:
+            - item_no: 1
+              description: Consulting, October
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              account_number: "4000"
+              account_name: Sales revenue
+              net_amount: {amount: "1000.00", currency: CAD}
+              tax_code: GO5
+              tax_amount: {amount: "50.00", currency: CAD}
+              gross_amount: {amount: "1050.00", currency: CAD}
+    CustomerInvoicePage:
+      type: object
+      description: One page of customer invoices.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CustomerInvoice"}
+          description: The customer invoices on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

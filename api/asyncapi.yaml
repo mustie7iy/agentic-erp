@@ -91,6 +91,7 @@ info:
     - name: ledger
     - name: procurement
     - name: payables
+    - name: receivables
     - name: payments
     - name: workflow
     - name: integration
@@ -403,6 +404,14 @@ channels:
     messages:
       ConsolidationRunChanged: {$ref: '#/components/messages/ConsolidationRunChanged'}
       IntercompanyDifferenceAccepted: {$ref: '#/components/messages/IntercompanyDifferenceAccepted'}
+  receivables:
+    address: 'erp.{cell}.receivables.{tenant}.{event}'
+    title: Accounts receivable events
+    description: Customer invoices (ADR-0063 §9).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -654,6 +663,12 @@ operations:
     messages:
       - $ref: '#/channels/consolidation/messages/ConsolidationRunChanged'
       - $ref: '#/channels/consolidation/messages/IntercompanyDifferenceAccepted'
+  publishReceivablesEvents:
+    action: send
+    title: Receivables publishes
+    channel: {$ref: '#/channels/receivables'}
+    messages:
+      - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3547,6 +3562,29 @@ components:
         - name: bytes_changed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000e02, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.einvoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000e11, time: '2026-11-08T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {einvoice_id: 0192a000-0000-7000-8000-000000000e11, connector_id: 0192a000-0000-7000-8000-000000000e01, message_id: MSG-0001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: AE01, status: received, status_before: received, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, changed_sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752, changed_fetch_operation_id: 0192a000-0000-7000-8000-000000000e22, fetch_operation_id: 0192a000-0000-7000-8000-000000000e21, version: 3}
+    CustomerInvoiceChanged:
+      name: CustomerInvoiceChanged
+      x-webhook: true
+      title: Customer invoice changed
+      summary: A customer invoice was entered.
+      description: |
+        Emitted at each change of a customer invoice's status (ADR-0063 §9,
+        T75a): when it is entered (`draft`, status_before null). The slices
+        that post it add its posting. It carries the document's totals, not
+        its items, and names the customer by id and number, never by name.
+        `GET /v1/customer-invoices/{id}` returns the document at `version`
+        or later. Subject is the customer invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.customer_invoice_changed.v1}
+      payload: {$ref: '#/components/schemas/CustomerInvoiceChangedV1'}
+      examples:
+        - name: entered
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f01, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, status: draft, status_before: null, version: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4149,6 +4187,24 @@ components:
         changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`). Added within v1, so not required (ADR-0041); every event carries it."}
         changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those other bytes: its Operation; null with `changed_sha256`. Added within v1, so not required (ADR-0041); every event carries it."}
         fetch_operation_id: {$ref: '#/components/schemas/Uuid', description: 'The fetch that recorded it: its Operation.'}
+        version: {type: integer, description: "The document's version after the change."}
+    CustomerInvoiceChangedV1:
+      type: object
+      required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, invoice_date, net_amount, tax_amount, gross_amount, status, status_before, version]
+      properties:
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.customer_invoice.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issued it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        kind: {type: string, description: 'Open enum: invoice.'}
+        invoice_date: {$ref: '#/components/schemas/Date'}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: 'What the customer owes: net and tax.'}
+        status: {type: string, description: "The document's status after the change. Open enum: draft."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was entered.'}
         version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:
       type: object

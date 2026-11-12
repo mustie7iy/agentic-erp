@@ -460,9 +460,7 @@ func (RuleSamples) Sample(ctx context.Context, since time.Time, limit int) ([]ru
 	return out, nil
 }
 
-func invalid(code, field, message string) error {
-	return problem.Unprocessable(code, message, problem.FieldError{Field: field, Code: "invalid", Message: message})
-}
+func invalid(code, field, message string) error { return problem.Invalid(code, field, message) }
 
 // validate checks an invoice for entry: a supplier reference that is more
 // than white space, a legal entity the caller may act in, a usable
@@ -635,12 +633,7 @@ func (v *invoiceCheck) parse(a Amount, field string) (money.Minor, error) {
 	if a.Currency != v.c.currency {
 		return 0, invalid("payables.currency_mismatch", field+".currency", "Every amount of an invoice is in one currency, "+v.c.currency+".")
 	}
-	n, err := money.ParseAmount(a.Value, v.exp)
-	if err != nil {
-		return 0, problem.BadRequest("request.invalid_amount", fmt.Sprintf("Amounts in %s have exactly %d decimals.", v.c.currency, v.exp),
-			problem.FieldError{Field: field + ".amount", Code: "invalid", Message: err.Error()})
-	}
-	return n, nil
+	return currency.ParseAmount(a.Value, v.c.currency, v.exp, field+".amount")
 }
 
 // order reads a purchase order and checks that it is a released order of

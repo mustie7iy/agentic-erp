@@ -1095,14 +1095,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Customer open items",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant enters a customer invoice without a sales order (customer, items by revenue account with output tax code) and reads it back with its calculated tax and totals; the receivables context and its ADR",
-        "r": "T75a · docs/design/plan-breadth-week1.md §T75a",
+        "r": "T75a · docs/design/plan-breadth-week1.md §T75a · db/migrations/000265 · receivables.customer_invoice, customer_invoice_item · POST /v1/customer-invoices · GET /v1/customer-invoices · GET /v1/customer-invoices/{id} · CustomerInvoiceChanged · receivables.invoice.read, .write, .post · walkthrough step_customer_invoice · ADR-0063 §1-§4, §8, §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

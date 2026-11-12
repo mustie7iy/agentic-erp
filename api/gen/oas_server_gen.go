@@ -743,6 +743,28 @@ type Handler interface {
 	//
 	// POST /v1/cost-centers
 	CreateCostCenter(ctx context.Context, req *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
+	// CreateCustomerInvoice implements createCustomerInvoice operation.
+	//
+	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
+	// an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It
+	// is created `draft` with a document number from the company's `customer_invoice` number range of the
+	// invoice date's fiscal year; nothing is posted. The customer is an active business partner with the
+	// customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one,
+	// `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the
+	// invoice's currency on an account that can be posted in the company (422
+	// `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks
+	// of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax
+	// code of the company with a rate in force on the invoice date, the tax date (422
+	// `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's
+	// rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net
+	// and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`,
+	// exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one
+	// code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names
+	// no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/customer-invoices
+	CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
 	// CreateDownPaymentRequest implements createDownPaymentRequest operation.
 	//
 	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -1775,6 +1797,15 @@ type Handler interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetCustomerInvoice implements getCustomerInvoice operation.
+	//
+	// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
+	// and name, its net, tax and gross totals and its items, each with its account's number and name, its
+	// centers' codes and the tax calculated for it when it was entered. One of a company the caller may
+	// not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/customer-invoices/{id}
+	GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error)
 	// GetDepreciationRun implements getDepreciationRun operation.
 	//
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -2819,6 +2850,15 @@ type Handler interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListCustomerInvoices implements listCustomerInvoices operation.
+	//
+	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
+	// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
+	// totals and its items. Filtered by company, customer, status, document number and invoice date.
+	// Sortable by: `invoice_date`, `document_number`.
+	//
+	// GET /v1/customer-invoices
+	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
 	// ListDepreciationRuns implements listDepreciationRuns operation.
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with

@@ -764,6 +764,28 @@ type Invoker interface {
 	//
 	// POST /v1/cost-centers
 	CreateCostCenter(ctx context.Context, request *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
+	// CreateCustomerInvoice invokes createCustomerInvoice operation.
+	//
+	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
+	// an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It
+	// is created `draft` with a document number from the company's `customer_invoice` number range of the
+	// invoice date's fiscal year; nothing is posted. The customer is an active business partner with the
+	// customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one,
+	// `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the
+	// invoice's currency on an account that can be posted in the company (422
+	// `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks
+	// of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax
+	// code of the company with a rate in force on the invoice date, the tax date (422
+	// `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's
+	// rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net
+	// and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`,
+	// exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one
+	// code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names
+	// no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/customer-invoices
+	CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
 	// CreateDownPaymentRequest invokes createDownPaymentRequest operation.
 	//
 	// Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -1796,6 +1818,15 @@ type Invoker interface {
 	//
 	// GET /v1/me
 	GetCurrentPrincipal(ctx context.Context) (GetCurrentPrincipalRes, error)
+	// GetCustomerInvoice invokes getCustomerInvoice operation.
+	//
+	// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
+	// and name, its net, tax and gross totals and its items, each with its account's number and name, its
+	// centers' codes and the tax calculated for it when it was entered. One of a company the caller may
+	// not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/customer-invoices/{id}
+	GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error)
 	// GetDepreciationRun invokes getDepreciationRun operation.
 	//
 	// One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -2840,6 +2871,15 @@ type Invoker interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListCustomerInvoices invokes listCustomerInvoices operation.
+	//
+	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
+	// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
+	// totals and its items. Filtered by company, customer, status, document number and invoice date.
+	// Sortable by: `invoice_date`, `document_number`.
+	//
+	// GET /v1/customer-invoices
+	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
 	// ListDepreciationRuns invokes listDepreciationRuns operation.
 	//
 	// The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -13330,6 +13370,152 @@ func (c *Client) sendCreateCostCenter(ctx context.Context, request *CostCenterCr
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateCustomerInvoice invokes createCustomerInvoice operation.
+//
+// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
+// an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It
+// is created `draft` with a document number from the company's `customer_invoice` number range of the
+// invoice date's fiscal year; nothing is posted. The customer is an active business partner with the
+// customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one,
+// `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the
+// invoice's currency on an account that can be posted in the company (422
+// `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks
+// of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax
+// code of the company with a rate in force on the invoice date, the tax date (422
+// `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's
+// rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net
+// and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`,
+// exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one
+// code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names
+// no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/customer-invoices
+func (c *Client) CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error) {
+	res, err := c.sendCreateCustomerInvoice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (res CreateCustomerInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCustomerInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/customer-invoices"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCustomerInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/customer-invoices"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCustomerInvoiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCustomerInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCustomerInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25718,6 +25904,140 @@ func (c *Client) sendGetCurrentPrincipal(ctx context.Context) (res GetCurrentPri
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCurrentPrincipalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCustomerInvoice invokes getCustomerInvoice operation.
+//
+// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
+// and name, its net, tax and gross totals and its items, each with its account's number and name, its
+// centers' codes and the tax calculated for it when it was entered. One of a company the caller may
+// not act in is not found (404), as one that does not exist.
+//
+// GET /v1/customer-invoices/{id}
+func (c *Client) GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error) {
+	res, err := c.sendGetCustomerInvoice(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (res GetCustomerInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCustomerInvoice"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/customer-invoices/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCustomerInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/customer-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCustomerInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCustomerInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -43948,6 +44268,279 @@ func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPac
 
 	stage = "DecodeResponse"
 	result, err := decodeListCountryPacksResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCustomerInvoices invokes listCustomerInvoices operation.
+//
+// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
+// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
+// totals and its items. Filtered by company, customer, status, document number and invoice date.
+// Sortable by: `invoice_date`, `document_number`.
+//
+// GET /v1/customer-invoices
+func (c *Client) ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error) {
+	res, err := c.sendListCustomerInvoices(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (res ListCustomerInvoicesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCustomerInvoices"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/customer-invoices"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCustomerInvoicesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/customer-invoices"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "invoice_date_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "invoice_date_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.InvoiceDateFrom.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "invoice_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "invoice_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.InvoiceDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCustomerInvoicesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCustomerInvoicesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

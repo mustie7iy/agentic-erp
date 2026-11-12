@@ -205,6 +205,10 @@ type CreateCostCenterRes interface {
 	createCostCenterRes()
 }
 
+type CreateCustomerInvoiceRes interface {
+	createCustomerInvoiceRes()
+}
+
 type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
@@ -539,6 +543,10 @@ type GetCostCenterRes interface {
 
 type GetCurrentPrincipalRes interface {
 	getCurrentPrincipalRes()
+}
+
+type GetCustomerInvoiceRes interface {
+	getCustomerInvoiceRes()
 }
 
 type GetDepreciationRunRes interface {
@@ -935,6 +943,10 @@ type ListCostCentersRes interface {
 
 type ListCountryPacksRes interface {
 	listCountryPacksRes()
+}
+
+type ListCustomerInvoicesRes interface {
+	listCustomerInvoicesRes()
 }
 
 type ListDepreciationRunsRes interface {
