@@ -42,7 +42,7 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 	for i, it := range o.Items {
 		base := itemAPI(it.Item, o.Currency, o.Exponent, refs)
 		out.Items[i] = gen.SalesOrderItem{ItemNo: base.ItemNo, ItemKey: base.ItemKey, Description: base.Description, Quantity: base.Quantity,
-			UnitPrice: base.UnitPrice, PriceUnit: base.PriceUnit, NetAmount: base.NetAmount, AccountID: base.AccountID,
+			UnitPrice: base.UnitPrice, PriceUnit: base.PriceUnit, PriceSource: base.PriceSource, Conditions: base.Conditions, NetAmount: base.NetAmount, AccountID: base.AccountID,
 			AccountNumber: base.AccountNumber, AccountName: base.AccountName, TaxCode: base.TaxCode,
 			DeliveredQuantity: gen.Quantity{Value: it.Delivered, Unit: it.Unit}, BilledQuantity: gen.Quantity{Value: it.Billed, Unit: it.Unit}}
 	}

@@ -27,7 +27,8 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.order.read", "sales.order.write", "sales.order.confirm",
-	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write"}
+	"sales.delivery.confirm", "sales.billing.read", "sales.billing.write",
+	"sales.price.read", "sales.price.write"}
 
 // far is a validity no run of the tests reaches.
 const far = "2099-12-31"
@@ -63,7 +64,13 @@ func outputCodes(doc *config.Config) {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	f := fixture.NewWith(t, nil, outputCodes, perms...)
+	return setupWith(t, outputCodes)
+}
+
+// setupWith is setup with the configuration document changed by extend.
+func setupWith(t *testing.T, extend func(*config.Config)) env {
+	t.Helper()
+	f := fixture.NewWith(t, nil, extend, perms...)
 	e := env{Env: f, revenue: f.Account(t, "2000", "400000"), other: f.Account(t, "2000", "530000")}
 	e.customer = e.partner(t, "BP70000001", "Northwind Traders", "active", "customer")
 	e.companyData(t, e.customer, e.DE, "NT30")
@@ -506,7 +513,7 @@ func TestQuotationDatesAreTheCompanys(t *testing.T) {
 	// 03:00 UTC on 10 March is still 9 March in Toronto.
 	h := endpoints(t, instant(t, "2026-03-10T03:00:00Z"))
 	in := sales.QuotationInput{LegalEntityID: e.DE, CustomerID: e.customer, ValidUntil: instant(t, "2026-03-09T00:00:00Z"), Currency: "EUR",
-		Items: []sales.ItemInput{{Description: "Bracket", Quantity: "1", Unit: "EA", UnitPrice: sales.Amount{Value: "10.00", Currency: "EUR"},
+		Items: []sales.ItemInput{{Description: "Bracket", Quantity: "1", Unit: "EA", UnitPrice: &sales.Amount{Value: "10.00", Currency: "EUR"},
 			PriceUnit: 1, AccountID: e.revenue}}}
 	never := func(int32) error { return nil }
 	err := e.inRequest(t, func(ctx context.Context) error {

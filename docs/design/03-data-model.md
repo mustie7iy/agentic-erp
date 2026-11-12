@@ -4491,10 +4491,13 @@ foreign key out of its schema (02 §2.1) and posts nothing itself (billing
 posts through receivables, §3.26). T78a (migration 000290) builds the
 schema with its outbox and inbox and the quotation: what the company
 offers a customer, valid until a date, net of tax. T78b (migration
-000291) adds the sales order and T78c (migration 000292) the delivery
+000291) adds the sales order, T78c (migration 000292) the delivery
 confirmation, which moves no stock (stock is outside the required
-scope), and T79a (migration 000293) the billing document, which posts
-nothing until T79b. There is no material
+scope), T79a (migration 000293) the billing document, which posts
+nothing until T79b, T80a (migration 000294) the price
+records an item without a price is priced from, and T80b (migration
+000295) discounts among them and the conditions applied to an item.
+There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
 `item_key`.
@@ -4521,7 +4524,9 @@ erDiagram
     text uom_code "ref.unit_of_measure"
     bigint unit_price "per price_unit, above zero"
     int price_unit
-    bigint net_amount "quantity x unit_price / price_unit, rounded"
+    text price_source "manual or price_list"
+    jsonb conditions "the price and discounts applied, in order"
+    bigint net_amount "the value less the discounts"
     uuid account_id "ledger, revenue as a rule"
     text tax_code "optional output tax code"
   }
@@ -4579,6 +4584,19 @@ erDiagram
     numeric quantity "above zero"
     bigint net_amount "above zero"
   }
+  price { uuid id PK
+    uuid legal_entity_id "tenancy"
+    text item_key "as sales items give it"
+    uuid customer_id "optional: partner; null for every customer"
+    text condition_type "optional: configuration, pricing.condition_types"
+    text uom_code "a price's: ref.unit_of_measure"
+    char currency "a price's"
+    bigint unit_price "a price's: per price_unit, above zero"
+    int price_unit "a price's"
+    numeric percent "a discount's: (9,6), above 0 and below 100"
+    date valid_from
+    date valid_to "optional, not before valid_from"
+  }
 ```
 
 - `sales.quotation`: numbered once per company
@@ -4599,7 +4617,11 @@ erDiagram
   unit price above zero per a price unit above zero
   (`quotation_item_price_positive`, `quotation_item_price_unit_positive`)
   and a net value above zero (`quotation_item_net_positive`);
-  insert-only (`platform.forbid_mutation`).
+  insert-only (`platform.forbid_mutation`). `price_source` (T80a) says
+  where the unit price came from: `manual`, entered with the item, the
+  default, or `price_list`, a price record's
+  (`quotation_item_price_source_check`; on an order item
+  `sales_order_item_price_source_check`).
 - `sales.sales_order` (T78b, migration 000291): numbered once per
   company (`sales_order_number_once`), with a payment term and a net
   value above zero (`sales_order_net_positive`); the status is `draft` or
@@ -4668,9 +4690,41 @@ erDiagram
   the order's item, which nothing changes. Insert-only
   (`platform.forbid_mutation`); `billing_document_item_by_order_item`
   serves what earlier documents billed of an order item.
+- `sales.price` (T80a, migration 000294; ADR-0067 §10): the net price of
+  an item key (`price_item_key_check`) in a company, for every customer
+  (`customer_id` null) or for one, above zero (`price_positive`) per a
+  price unit above zero (`price_unit_positive`) of a unit of the
+  reference data, in a currency, valid from a day and, when `valid_to`
+  is set, until a day not before it (`price_validity`). Insert-only
+  (`platform.forbid_mutation`; the application may not update or delete):
+  a new price is a new record, and the same key may have several. An
+  item without a price takes the record of its key valid on the
+  document's date in its unit and the document's currency: the
+  customer's before the general one, then the latest `valid_from`, then
+  the latest `created_at` and `id`. The determination and the list read a
+  company's records of a key (`price_by_item_key`) and a customer's
+  (`price_by_customer`).
+  From T80b (migration 000295; ADR-0067 §11) a record may name a
+  `condition_type` of the configuration (`price_condition_type_check`,
+  a short code; the configuration is another context's, so there is no
+  foreign key, and a type is never removed once activated), and a record
+  is a price or a discount, never a mix (`price_or_percent`): a price
+  has its unit, currency, price and price unit and no percent; a
+  discount has a condition type and a `percent` above 0 and below 100
+  (`price_percent_range`) and none of a price's columns. The discounts
+  of a key are read by their type (`price_by_condition`).
+- `conditions` on `sales.quotation_item` and `sales.sales_order_item`
+  (T80b): a JSON array (`quotation_item_conditions_array`,
+  `sales_order_item_conditions_array`), empty by default, of the
+  conditions the pricing procedure applied when the item was created, in
+  its order. Each has `condition_type`, `name`, `kind` and `amount`
+  (minor units of the document's currency, a discount's negative); a
+  price its `unit_price` and `price_unit`, a discount its `percent`. The
+  amounts add up to the item's `net_amount`.
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
-  `BillingDocumentChanged`).
+  `BillingDocumentChanged`, `SalesPriceChanged`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
   `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
-  `.write` and `.post` (posting comes with T79b).
+  `.write` and `.post` (posting comes with T79b); `sales.price.read` and
+  `.write`.

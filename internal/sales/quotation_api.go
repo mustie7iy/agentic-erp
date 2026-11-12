@@ -40,7 +40,9 @@ func (e *Endpoints) references(ctx context.Context, docs []named) (references, e
 	refs := references{companies: map[uuid.UUID]tenancy.Entity{}}
 	var partners, accounts []uuid.UUID
 	for _, d := range docs {
-		partners = append(partners, d.customer)
+		if d.customer != uuid.Nil { // a general price names none
+			partners = append(partners, d.customer)
+		}
 		for _, it := range d.items {
 			accounts = append(accounts, it.AccountID)
 		}
@@ -77,19 +79,36 @@ func itemInputs(items []gen.SalesItemCreate) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
 		out[i] = ItemInput{ItemKey: apitypes.Ptr[string](it.ItemKey), Description: it.Description, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit,
-			UnitPrice: Amount{Value: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency}, PriceUnit: it.PriceUnit.Or(1), AccountID: it.AccountID,
-			TaxCode: apitypes.Ptr[string](it.TaxCode)}
+			PriceUnit: it.PriceUnit.Or(1), AccountID: it.AccountID, TaxCode: apitypes.Ptr[string](it.TaxCode)}
+		if p, ok := it.UnitPrice.Get(); ok {
+			out[i].UnitPrice = &Amount{Value: p.Amount, Currency: p.Currency}
+		}
+	}
+	return out
+}
+
+// conditionAPI is a condition applied to an item as the API gives it, its
+// amounts in the document's currency.
+func conditionAPI(c Condition, currency string, exp int) gen.SalesCondition {
+	out := gen.SalesCondition{ConditionType: c.Type, Name: c.Name, Kind: c.Kind, PriceUnit: apitypes.OptInt32(c.PriceUnit),
+		Percent: apitypes.OptString(c.Percent), Amount: apitypes.Money(c.Amount, currency, exp)}
+	if c.UnitPrice != nil {
+		out.UnitPrice = gen.NewOptMoney(apitypes.Money(*c.UnitPrice, currency, exp))
 	}
 	return out
 }
 
 // itemAPI is an item as the API gives it, in the document's currency,
-// with its account's number and name.
+// with its account's number and name and the conditions applied to it.
 func itemAPI(it Item, currency string, exp int, refs references) gen.SalesItem {
 	account := refs.accounts[it.AccountID]
+	conditions := make([]gen.SalesCondition, len(it.Conditions))
+	for i, c := range it.Conditions {
+		conditions[i] = conditionAPI(c, currency, exp)
+	}
 	return gen.SalesItem{ItemNo: it.ItemNo, ItemKey: apitypes.OptString(it.ItemKey), Description: it.Description,
 		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp), PriceUnit: it.PriceUnit,
-		NetAmount: apitypes.Money(it.Net, currency, exp), AccountID: it.AccountID, AccountNumber: account.Number, AccountName: account.Name,
+		PriceSource: it.PriceSource, Conditions: conditions, NetAmount: apitypes.Money(it.Net, currency, exp), AccountID: it.AccountID, AccountNumber: account.Number, AccountName: account.Name,
 		TaxCode: apitypes.OptString(it.TaxCode)}
 }
 

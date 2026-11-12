@@ -14624,8 +14624,17 @@ type BillingDocumentItem struct {
 	UnitPrice Money `json:"unit_price"`
 	// The quantity the unit price refers to.
 	PriceUnit int32 `json:"price_unit"`
+	// Where the unit price came from: `manual`, entered with the item; `price_list`, the price record
+	// valid for the item key on the document's date when the item was created (ADR-0067 §10). The price
+	// is fixed on the item: a later price record does not change it. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	PriceSource string `json:"price_source"`
+	// The conditions the tenant's pricing procedure applied to the item when it was created, in the
+	// procedure's order: the price, then each discount found for the item key (ADR-0067 §11). Their
+	// amounts add up to `net_amount`. Empty for an item priced without a pricing procedure.
+	Conditions []SalesCondition `json:"conditions"`
 	// The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the
-	// currency's minor unit.
+	// currency's minor unit, less its discounts (`conditions`).
 	NetAmount Money `json:"net_amount"`
 	// The revenue account the item credits when it is billed.
 	AccountID uuid.UUID `json:"account_id"`
@@ -14667,6 +14676,16 @@ func (s *BillingDocumentItem) GetUnitPrice() Money {
 // GetPriceUnit returns the value of PriceUnit.
 func (s *BillingDocumentItem) GetPriceUnit() int32 {
 	return s.PriceUnit
+}
+
+// GetPriceSource returns the value of PriceSource.
+func (s *BillingDocumentItem) GetPriceSource() string {
+	return s.PriceSource
+}
+
+// GetConditions returns the value of Conditions.
+func (s *BillingDocumentItem) GetConditions() []SalesCondition {
+	return s.Conditions
 }
 
 // GetNetAmount returns the value of NetAmount.
@@ -14727,6 +14746,16 @@ func (s *BillingDocumentItem) SetUnitPrice(val Money) {
 // SetPriceUnit sets the value of PriceUnit.
 func (s *BillingDocumentItem) SetPriceUnit(val int32) {
 	s.PriceUnit = val
+}
+
+// SetPriceSource sets the value of PriceSource.
+func (s *BillingDocumentItem) SetPriceSource(val string) {
+	s.PriceSource = val
+}
+
+// SetConditions sets the value of Conditions.
+func (s *BillingDocumentItem) SetConditions(val []SalesCondition) {
+	s.Conditions = val
 }
 
 // SetNetAmount sets the value of NetAmount.
@@ -24095,6 +24124,7 @@ func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSalesOrderRes()                      {}
+func (*ConflictHeaders) createSalesPriceRes()                      {}
 func (*ConflictHeaders) createSegmentRes()                         {}
 func (*ConflictHeaders) createSodRuleRes()                         {}
 func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
@@ -30136,6 +30166,22 @@ func (*CreateSalesOrderPreconditionRequired) createSalesOrderRes() {}
 type CreateSalesOrderUnprocessableEntity Problem
 
 func (*CreateSalesOrderUnprocessableEntity) createSalesOrderRes() {}
+
+type CreateSalesPriceBadRequest Problem
+
+func (*CreateSalesPriceBadRequest) createSalesPriceRes() {}
+
+type CreateSalesPriceForbidden Problem
+
+func (*CreateSalesPriceForbidden) createSalesPriceRes() {}
+
+type CreateSalesPricePreconditionRequired Problem
+
+func (*CreateSalesPricePreconditionRequired) createSalesPriceRes() {}
+
+type CreateSalesPriceUnprocessableEntity Problem
+
+func (*CreateSalesPriceUnprocessableEntity) createSalesPriceRes() {}
 
 type CreateSegmentBadRequest Problem
 
@@ -40714,6 +40760,46 @@ func (s *GetSalesOrderOKHeaders) SetResponse(val SalesOrder) {
 
 func (*GetSalesOrderOKHeaders) getSalesOrderRes() {}
 
+type GetSalesPriceBadRequest Problem
+
+func (*GetSalesPriceBadRequest) getSalesPriceRes() {}
+
+type GetSalesPriceForbidden Problem
+
+func (*GetSalesPriceForbidden) getSalesPriceRes() {}
+
+type GetSalesPriceNotFound Problem
+
+func (*GetSalesPriceNotFound) getSalesPriceRes() {}
+
+// GetSalesPriceOKHeaders wraps SalesPrice with response headers.
+type GetSalesPriceOKHeaders struct {
+	ETag     OptString
+	Response SalesPrice
+}
+
+// GetETag returns the value of ETag.
+func (s *GetSalesPriceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetSalesPriceOKHeaders) GetResponse() SalesPrice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetSalesPriceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetSalesPriceOKHeaders) SetResponse(val SalesPrice) {
+	s.Response = val
+}
+
+func (*GetSalesPriceOKHeaders) getSalesPriceRes() {}
+
 type GetSchemaBadRequest Problem
 
 func (*GetSchemaBadRequest) getSchemaRes() {}
@@ -51278,6 +51364,14 @@ func (*ListSalesOrdersBadRequest) listSalesOrdersRes() {}
 type ListSalesOrdersForbidden Problem
 
 func (*ListSalesOrdersForbidden) listSalesOrdersRes() {}
+
+type ListSalesPricesBadRequest Problem
+
+func (*ListSalesPricesBadRequest) listSalesPricesRes() {}
+
+type ListSalesPricesForbidden Problem
+
+func (*ListSalesPricesForbidden) listSalesPricesRes() {}
 
 type ListSegmentsBadRequest Problem
 
@@ -74954,6 +75048,100 @@ type RunBalanceCarryForwardUnprocessableEntity Problem
 
 func (*RunBalanceCarryForwardUnprocessableEntity) runBalanceCarryForwardRes() {}
 
+// A condition applied to a sales item by the pricing procedure (ADR-0067 §11): the price, or a
+// discount taken off the value before it.
+// Ref: #/components/schemas/SalesCondition
+type SalesCondition struct {
+	// The condition type's code (`pricing.condition_types` of the configuration).
+	ConditionType string `json:"condition_type"`
+	// The condition type's name when the item was created.
+	Name string `json:"name"`
+	// `price`: the item's price; `discount_percent`: a percentage off the value before it. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Kind string `json:"kind"`
+	// A price's rate: the net price per `price_unit`; absent for a discount.
+	UnitPrice OptMoney `json:"unit_price"`
+	// The quantity a price's unit price refers to; absent for a discount.
+	PriceUnit OptInt32 `json:"price_unit"`
+	// A discount's rate: the percentage of the value before it, a decimal string; absent for a price.
+	Percent OptString `json:"percent"`
+	// What the condition adds to the item's net value: for a price, quantity × unit price ÷ price unit;
+	// for a discount, the percentage of the value before it, rounded half away from zero to the currency's
+	// minor unit, negative.
+	Amount Money `json:"amount"`
+}
+
+// GetConditionType returns the value of ConditionType.
+func (s *SalesCondition) GetConditionType() string {
+	return s.ConditionType
+}
+
+// GetName returns the value of Name.
+func (s *SalesCondition) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *SalesCondition) GetKind() string {
+	return s.Kind
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesCondition) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *SalesCondition) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// GetPercent returns the value of Percent.
+func (s *SalesCondition) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetAmount returns the value of Amount.
+func (s *SalesCondition) GetAmount() Money {
+	return s.Amount
+}
+
+// SetConditionType sets the value of ConditionType.
+func (s *SalesCondition) SetConditionType(val string) {
+	s.ConditionType = val
+}
+
+// SetName sets the value of Name.
+func (s *SalesCondition) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *SalesCondition) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesCondition) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *SalesCondition) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *SalesCondition) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *SalesCondition) SetAmount(val Money) {
+	s.Amount = val
+}
+
 // A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person
 // confirmed as delivered on a date. It moves no stock and posts nothing. It is written once and never
 // changed.
@@ -75245,8 +75433,17 @@ type SalesItem struct {
 	UnitPrice Money `json:"unit_price"`
 	// The quantity the unit price refers to.
 	PriceUnit int32 `json:"price_unit"`
+	// Where the unit price came from: `manual`, entered with the item; `price_list`, the price record
+	// valid for the item key on the document's date when the item was created (ADR-0067 §10). The price
+	// is fixed on the item: a later price record does not change it. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	PriceSource string `json:"price_source"`
+	// The conditions the tenant's pricing procedure applied to the item when it was created, in the
+	// procedure's order: the price, then each discount found for the item key (ADR-0067 §11). Their
+	// amounts add up to `net_amount`. Empty for an item priced without a pricing procedure.
+	Conditions []SalesCondition `json:"conditions"`
 	// The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the
-	// currency's minor unit.
+	// currency's minor unit, less its discounts (`conditions`).
 	NetAmount Money `json:"net_amount"`
 	// The revenue account the item credits when it is billed.
 	AccountID uuid.UUID `json:"account_id"`
@@ -75286,6 +75483,16 @@ func (s *SalesItem) GetUnitPrice() Money {
 // GetPriceUnit returns the value of PriceUnit.
 func (s *SalesItem) GetPriceUnit() int32 {
 	return s.PriceUnit
+}
+
+// GetPriceSource returns the value of PriceSource.
+func (s *SalesItem) GetPriceSource() string {
+	return s.PriceSource
+}
+
+// GetConditions returns the value of Conditions.
+func (s *SalesItem) GetConditions() []SalesCondition {
+	return s.Conditions
 }
 
 // GetNetAmount returns the value of NetAmount.
@@ -75343,6 +75550,16 @@ func (s *SalesItem) SetPriceUnit(val int32) {
 	s.PriceUnit = val
 }
 
+// SetPriceSource sets the value of PriceSource.
+func (s *SalesItem) SetPriceSource(val string) {
+	s.PriceSource = val
+}
+
+// SetConditions sets the value of Conditions.
+func (s *SalesItem) SetConditions(val []SalesCondition) {
+	s.Conditions = val
+}
+
 // SetNetAmount sets the value of NetAmount.
 func (s *SalesItem) SetNetAmount(val Money) {
 	s.NetAmount = val
@@ -75369,18 +75586,25 @@ func (s *SalesItem) SetTaxCode(val OptString) {
 }
 
 // An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a
-// unit price, with the revenue account and output tax code its billing posts with.
+// unit price, entered with it or taken from the company's price records by its item key (§10), with
+// the revenue account and output tax code its billing posts with.
 // Ref: #/components/schemas/SalesItemCreate
 type SalesItemCreate struct {
-	// A free-text key naming what is sold, as the company calls it; there is no material master.
+	// A free-text key naming what is sold, as the company calls it; there is no material master. An item
+	// without a `unit_price` is priced by it (`createSalesPrice`).
 	ItemKey OptString `json:"item_key"`
 	// What is sold.
 	Description string `json:"description"`
 	// The quantity, more than zero, in a unit of measure of the reference data.
 	Quantity Quantity `json:"quantity"`
-	// The net price per `price_unit`, in the document's currency.
-	UnitPrice Money `json:"unit_price"`
-	// The quantity the unit price refers to.
+	// The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price
+	// records say (`price_source` `manual`). Absent: the item takes the price recorded for its `item_key`,
+	// valid on the document's date, in the item's unit and the document's currency: the customer's before
+	// the general one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is
+	// refused (422 `sales.no_price`).
+	UnitPrice OptMoney `json:"unit_price"`
+	// The quantity the unit price refers to. It is read with `unit_price` alone: a price from the price
+	// records comes with its own.
 	PriceUnit OptInt32 `json:"price_unit"`
 	// The revenue account the item credits when it is billed: one that can be posted in the company
 	// (`GET /v1/accounts`).
@@ -75406,7 +75630,7 @@ func (s *SalesItemCreate) GetQuantity() Quantity {
 }
 
 // GetUnitPrice returns the value of UnitPrice.
-func (s *SalesItemCreate) GetUnitPrice() Money {
+func (s *SalesItemCreate) GetUnitPrice() OptMoney {
 	return s.UnitPrice
 }
 
@@ -75441,7 +75665,7 @@ func (s *SalesItemCreate) SetQuantity(val Quantity) {
 }
 
 // SetUnitPrice sets the value of UnitPrice.
-func (s *SalesItemCreate) SetUnitPrice(val Money) {
+func (s *SalesItemCreate) SetUnitPrice(val OptMoney) {
 	s.UnitPrice = val
 }
 
@@ -75867,8 +76091,17 @@ type SalesOrderItem struct {
 	UnitPrice Money `json:"unit_price"`
 	// The quantity the unit price refers to.
 	PriceUnit int32 `json:"price_unit"`
+	// Where the unit price came from: `manual`, entered with the item; `price_list`, the price record
+	// valid for the item key on the document's date when the item was created (ADR-0067 §10). The price
+	// is fixed on the item: a later price record does not change it. Open enumeration: clients must accept
+	// and preserve values not listed here; values may be added within /v1.
+	PriceSource string `json:"price_source"`
+	// The conditions the tenant's pricing procedure applied to the item when it was created, in the
+	// procedure's order: the price, then each discount found for the item key (ADR-0067 §11). Their
+	// amounts add up to `net_amount`. Empty for an item priced without a pricing procedure.
+	Conditions []SalesCondition `json:"conditions"`
 	// The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the
-	// currency's minor unit.
+	// currency's minor unit, less its discounts (`conditions`).
 	NetAmount Money `json:"net_amount"`
 	// The revenue account the item credits when it is billed.
 	AccountID uuid.UUID `json:"account_id"`
@@ -75914,6 +76147,16 @@ func (s *SalesOrderItem) GetUnitPrice() Money {
 // GetPriceUnit returns the value of PriceUnit.
 func (s *SalesOrderItem) GetPriceUnit() int32 {
 	return s.PriceUnit
+}
+
+// GetPriceSource returns the value of PriceSource.
+func (s *SalesOrderItem) GetPriceSource() string {
+	return s.PriceSource
+}
+
+// GetConditions returns the value of Conditions.
+func (s *SalesOrderItem) GetConditions() []SalesCondition {
+	return s.Conditions
 }
 
 // GetNetAmount returns the value of NetAmount.
@@ -75981,6 +76224,16 @@ func (s *SalesOrderItem) SetPriceUnit(val int32) {
 	s.PriceUnit = val
 }
 
+// SetPriceSource sets the value of PriceSource.
+func (s *SalesOrderItem) SetPriceSource(val string) {
+	s.PriceSource = val
+}
+
+// SetConditions sets the value of Conditions.
+func (s *SalesOrderItem) SetConditions(val []SalesCondition) {
+	s.Conditions = val
+}
+
 // SetNetAmount sets the value of NetAmount.
 func (s *SalesOrderItem) SetNetAmount(val Money) {
 	s.NetAmount = val
@@ -76046,6 +76299,481 @@ func (s *SalesOrderPage) SetNextPageToken(val OptString) {
 }
 
 func (*SalesOrderPage) listSalesOrdersRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/SalesPrice
+type SalesPrice struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose price it is.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The key naming what is sold.
+	ItemKey string `json:"item_key"`
+	// The customer the price is for (`GET /v1/business-partners/{id}`); absent: a general price.
+	CustomerID OptUUID `json:"customer_id"`
+	// The customer's business partner number; absent for a general price.
+	CustomerNumber OptString `json:"customer_number"`
+	// The customer's name, as it is now; absent for a general price.
+	CustomerName OptString `json:"customer_name"`
+	// What the record is: a `price`, or a `discount_percent`, a percentage of the item's value before it.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The record's condition type (`pricing.condition_types` of the configuration); absent for a price
+	// recorded without one.
+	ConditionType OptString `json:"condition_type"`
+	// A price's unit of measure; absent for a discount.
+	Unit OptString `json:"unit"`
+	// A price: the net price per `price_unit`; absent for a discount.
+	UnitPrice OptMoney `json:"unit_price"`
+	// The quantity a price's unit price refers to; absent for a discount.
+	PriceUnit OptInt32 `json:"price_unit"`
+	// A discount: the percentage of the item's value before it, a decimal string; absent for a price.
+	Percent OptString `json:"percent"`
+	// The first day the price is valid.
+	ValidFrom time.Time `json:"valid_from"`
+	// The last day the price is valid; absent: no last day.
+	ValidTo OptDate `json:"valid_to"`
+}
+
+// GetID returns the value of ID.
+func (s *SalesPrice) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *SalesPrice) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SalesPrice) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *SalesPrice) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SalesPrice) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *SalesPrice) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SalesPrice) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *SalesPrice) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *SalesPrice) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *SalesPrice) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *SalesPrice) GetCustomerID() OptUUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *SalesPrice) GetCustomerNumber() OptString {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *SalesPrice) GetCustomerName() OptString {
+	return s.CustomerName
+}
+
+// GetKind returns the value of Kind.
+func (s *SalesPrice) GetKind() string {
+	return s.Kind
+}
+
+// GetConditionType returns the value of ConditionType.
+func (s *SalesPrice) GetConditionType() OptString {
+	return s.ConditionType
+}
+
+// GetUnit returns the value of Unit.
+func (s *SalesPrice) GetUnit() OptString {
+	return s.Unit
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesPrice) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *SalesPrice) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// GetPercent returns the value of Percent.
+func (s *SalesPrice) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *SalesPrice) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *SalesPrice) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// SetID sets the value of ID.
+func (s *SalesPrice) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *SalesPrice) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SalesPrice) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *SalesPrice) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SalesPrice) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *SalesPrice) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SalesPrice) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *SalesPrice) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *SalesPrice) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *SalesPrice) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *SalesPrice) SetCustomerID(val OptUUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *SalesPrice) SetCustomerNumber(val OptString) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *SalesPrice) SetCustomerName(val OptString) {
+	s.CustomerName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *SalesPrice) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetConditionType sets the value of ConditionType.
+func (s *SalesPrice) SetConditionType(val OptString) {
+	s.ConditionType = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *SalesPrice) SetUnit(val OptString) {
+	s.Unit = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesPrice) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *SalesPrice) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *SalesPrice) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *SalesPrice) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *SalesPrice) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// Record a price for an item key (ADR-0067 §10), or a discount on it (§11): for every customer of
+// the company, or for one. A price gives `unit` and `unit_price`; a discount gives `condition_type`, a
+// configured type of kind `discount_percent`, and `percent`.
+// Ref: #/components/schemas/SalesPriceCreate
+type SalesPriceCreate struct {
+	// The company whose price it is: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The free-text key naming what is sold, as sales items give it (`item_key`); compared exactly.
+	ItemKey string `json:"item_key"`
+	// The customer the price is for: an active business partner with the customer role; absent: a general
+	// price, for every customer.
+	CustomerID OptUUID `json:"customer_id"`
+	// A condition type of the active configuration (`pricing.condition_types`): of kind `price` for a
+	// price, of kind `discount_percent` for a discount. Absent: a price, which the pricing procedure's
+	// price step takes as it takes one of its own type.
+	ConditionType OptString `json:"condition_type"`
+	// A price's unit of measure (reference data); an item in another unit does not take it. Required for a
+	// price, not given for a discount.
+	Unit OptString `json:"unit"`
+	// A price: the net price per `price_unit`, more than zero, in its currency; a document in another
+	// currency does not take it. Required for a price, not given for a discount.
+	UnitPrice OptMoney `json:"unit_price"`
+	// The quantity a price's unit price refers to; 1 when a price gives none. Not given for a discount.
+	PriceUnit OptInt32 `json:"price_unit"`
+	// A discount: the percentage of the item's value before it, a decimal more than 0 and less than 100 of
+	// at most six decimals. Required for a discount, not given for a price.
+	Percent OptString `json:"percent"`
+	// The first day the price is valid, a document's date.
+	ValidFrom time.Time `json:"valid_from"`
+	// The last day the price is valid, not before `valid_from`; absent: valid until a later record
+	// replaces it.
+	ValidTo OptDate `json:"valid_to"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *SalesPriceCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *SalesPriceCreate) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *SalesPriceCreate) GetCustomerID() OptUUID {
+	return s.CustomerID
+}
+
+// GetConditionType returns the value of ConditionType.
+func (s *SalesPriceCreate) GetConditionType() OptString {
+	return s.ConditionType
+}
+
+// GetUnit returns the value of Unit.
+func (s *SalesPriceCreate) GetUnit() OptString {
+	return s.Unit
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SalesPriceCreate) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *SalesPriceCreate) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// GetPercent returns the value of Percent.
+func (s *SalesPriceCreate) GetPercent() OptString {
+	return s.Percent
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *SalesPriceCreate) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *SalesPriceCreate) GetValidTo() OptDate {
+	return s.ValidTo
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *SalesPriceCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *SalesPriceCreate) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *SalesPriceCreate) SetCustomerID(val OptUUID) {
+	s.CustomerID = val
+}
+
+// SetConditionType sets the value of ConditionType.
+func (s *SalesPriceCreate) SetConditionType(val OptString) {
+	s.ConditionType = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *SalesPriceCreate) SetUnit(val OptString) {
+	s.Unit = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SalesPriceCreate) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *SalesPriceCreate) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// SetPercent sets the value of Percent.
+func (s *SalesPriceCreate) SetPercent(val OptString) {
+	s.Percent = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *SalesPriceCreate) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *SalesPriceCreate) SetValidTo(val OptDate) {
+	s.ValidTo = val
+}
+
+// SalesPriceHeaders wraps SalesPrice with response headers.
+type SalesPriceHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           SalesPrice
+}
+
+// GetETag returns the value of ETag.
+func (s *SalesPriceHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *SalesPriceHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *SalesPriceHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *SalesPriceHeaders) GetResponse() SalesPrice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *SalesPriceHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *SalesPriceHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *SalesPriceHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SalesPriceHeaders) SetResponse(val SalesPrice) {
+	s.Response = val
+}
+
+func (*SalesPriceHeaders) createSalesPriceRes() {}
+
+// One page of price records.
+// Ref: #/components/schemas/SalesPricePage
+type SalesPricePage struct {
+	// The price records on this page.
+	Items []SalesPrice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *SalesPricePage) GetItems() []SalesPrice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SalesPricePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *SalesPricePage) SetItems(val []SalesPrice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SalesPricePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*SalesPricePage) listSalesPricesRes() {}
 
 // Merged schema.
 // Ref: #/components/schemas/Segment
@@ -81482,6 +82210,7 @@ func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSalesOrderRes()                      {}
+func (*TooManyRequestsHeaders) createSalesPriceRes()                      {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                         {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()                 {}
@@ -81604,6 +82333,7 @@ func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
 func (*TooManyRequestsHeaders) getSalesOrderRes()                         {}
+func (*TooManyRequestsHeaders) getSalesPriceRes()                         {}
 func (*TooManyRequestsHeaders) getSchemaRes()                             {}
 func (*TooManyRequestsHeaders) getSegmentRes()                            {}
 func (*TooManyRequestsHeaders) getSodRuleRes()                            {}
@@ -81731,6 +82461,7 @@ func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
 func (*TooManyRequestsHeaders) listSalesDeliveriesRes()                   {}
 func (*TooManyRequestsHeaders) listSalesOrdersRes()                       {}
+func (*TooManyRequestsHeaders) listSalesPricesRes()                       {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()                  {}
@@ -82258,6 +82989,7 @@ func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSalesOrderRes()                      {}
+func (*UnauthorizedHeaders) createSalesPriceRes()                      {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
 func (*UnauthorizedHeaders) createSodRuleRes()                         {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()                 {}
@@ -82380,6 +83112,7 @@ func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
 func (*UnauthorizedHeaders) getSalesOrderRes()                         {}
+func (*UnauthorizedHeaders) getSalesPriceRes()                         {}
 func (*UnauthorizedHeaders) getSchemaRes()                             {}
 func (*UnauthorizedHeaders) getSegmentRes()                            {}
 func (*UnauthorizedHeaders) getSodRuleRes()                            {}
@@ -82507,6 +83240,7 @@ func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
 func (*UnauthorizedHeaders) listSalesDeliveriesRes()                   {}
 func (*UnauthorizedHeaders) listSalesOrdersRes()                       {}
+func (*UnauthorizedHeaders) listSalesPricesRes()                       {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()                  {}

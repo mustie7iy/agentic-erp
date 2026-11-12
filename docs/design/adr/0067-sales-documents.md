@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's to T79a's are there now. The defaults
+records what it built under "As built"; T78a's to T79a's, T80a's and T80b's are there now. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -107,8 +107,8 @@ an output tax code.
 - **One pricing function.** The item's price and value are set in one
   function for both documents (`internal/sales/pricing.go`, `price`). In
   T78a and T78b the price is the one entered with the item; price
-  determination (T80a, T80b) changes that function and nothing else of
-  the documents.
+  determination (T80a, T80b; §10) changes that function and nothing else
+  of the documents.
 - **The account.** Any account that can be posted in the company may
   carry an item, as on a customer invoice (ADR-0063, default 2). Revenue
   account determination comes later.
@@ -145,8 +145,8 @@ name the customer by id and number, never by name.
 
 ### 7. Permissions and agents
 `sales.quotation.read` and `.write` (creating, and recording the
-customer's answer); `sales.order.read`, `.write` and `.confirm`; the later
-slices add theirs. None is an approval permission. Every write of the
+customer's answer); `sales.order.read`, `.write` and `.confirm`;
+`sales.price.read` and `.write` (§10); the later slices add theirs. None is an approval permission. Every write of the
 context is human-only (`x-agent: false`) in the first version, as
 receivables' are (ADR-0063 §8): no ADR gives an agent a sales action, and
 the order capture agent is a leaf of its own.
@@ -201,7 +201,113 @@ customer, a closed period, an account or code that lapsed after the
 document was created) leaves the document unposted, and a created
 document is not cancelled in the first version.
 
+### 10. Prices and their determination (T80a)
+A price record is the net price of an item key in a company: for every
+customer, or for one; per a price unit of a unit of measure, in a
+currency; valid from a day and, when it has a last day, until it (plan
+default 8). Records are insert-only: a price is never changed or
+deleted, and a new price is a new record. A pricing analyst records
+them (`POST /v1/sales-prices`, `sales.price.write`, human-only as every
+write of the context, §7).
+
+An item that gives a `unit_price` keeps it, whatever the records say:
+the price sent with the item overrides the price list, and the item
+reads `price_source` `manual`. An item without one takes the record of
+its `item_key` in the document's company that is valid on the document's
+date (the company's date, §2), in the item's unit of measure and the
+document's currency; it reads `price_source` `price_list`. Among the
+records that qualify:
+
+1. the customer's price wins over the general one;
+2. then the latest `valid_from`;
+3. then, of two with the same `valid_from`, the one recorded last
+   (`created_at`, then `id`), so that a price typed wrong is corrected by
+   recording it again, and the choice never depends on the order rows
+   are read in.
+
+A record in another unit or another currency is not converted and does
+not count: the unit and the currency must be the item's. An item with
+neither a price nor such a record, or without an item key to look one
+up by, is refused naming the price it lacks (422 `sales.no_price`,
+`items[i].unit_price`). The item key is compared exactly, as it is
+stored.
+
+The price is fixed on the item when it is created: the item stores the
+unit price, the price unit and the net value, and a later record changes
+no item. An order created from a quotation copies the quotation's items
+with their prices and their sources (§5); it is not priced again. The
+item's value is computed as before (§3): quantity × unit price ÷ price
+unit, half away from zero at the minor unit, more than zero.
+
+### 11. Condition types and the pricing procedure (T80b)
+How an item is priced is the tenant's configuration (plan default 9):
+the section `pricing` of the configuration document holds the
+**condition types**, each a code, a name and a kind, `price` or
+`discount_percent`, and one **procedure**, the condition types in the
+order they apply. None is shipped in a country pack. The procedure names
+each type once, a price first and no second price: one price is what the
+discounts are taken from. A condition type is never removed once
+activated and keeps its kind, as a payment term is never removed: price
+records name it. Its name may change and it may leave the procedure. The
+section posts nothing, so its changes are tier 2 (operational), a type's
+name tier 1.
+
+A price record (§10) may name a condition type. A record of a type of
+kind `discount_percent` is a **discount**: for an item key in a company,
+for every customer or for one, valid as a price is, a percentage more
+than 0 and less than 100 of at most six decimals, with no unit, currency
+or price. A record of a type of kind `price`, or without a type, is a
+price. A record naming a type the active configuration does not have is
+refused.
+
+A tenant **without a procedure** prices as §10 says: the item has its
+price, entered or recorded without a type, and no conditions. With a
+procedure, an item is priced in its order:
+
+1. **The price.** The price entered with the item or, without one, the
+   record that applies (§10) among those without a type and those of the
+   procedure's price type.
+2. **Each discount type**, in the procedure's order: the record of that
+   type for the item's key that applies, chosen as a price is (the
+   customer's before the general one, then the latest `valid_from`, then
+   the one recorded last). Its discount is its percentage of the value
+   before it, the item's value less the discounts already taken, rounded
+   half away from zero to the currency's minor unit (`money.Scale`). A
+   type without such a record is passed over.
+
+The item's net value is its value less its discounts, exact in minor
+units, and stays more than zero (422 `sales.amount_not_positive`). The
+item keeps the conditions applied, each with its type, the type's name
+then, its rate (a price's unit price per price unit, a discount's
+percent) and its amount, a discount's negative: the amounts add up to
+the net value. They are fixed with the price when the item is created
+and copied to the order a quotation gives. A discount applies to an
+entered price as to a recorded one: the entered price takes the place of
+the price list's price, not of the customer's discount. An item without
+an item key has no discount, since discounts are recorded by key.
+
 ## Alternatives
+- **Discounts in a table of their own, with their own endpoint**: the
+  plan puts `condition_type` and `percent` on `sales.price` and adds no
+  endpoint; a discount is found as a price is, by the same key and
+  dates.
+- **The conditions in a table per item table**: two more tables to hold
+  what is written once with the item and only read with it. A JSON
+  array on the item keeps the snapshot with what it explains.
+- **An entered price as the final net value, with no discount**: it
+  would make the entered price a way round the customer's discount in
+  one direction and deny the customer its discount in the other. Not
+  taken (default 15, for the product owner).
+- **A price record changed in place, with versions**: the items priced
+  from it would point at a row that no longer says what they took. An
+  insert-only record with a validity is what the plan names, and the
+  later record wins.
+- **One record per key, customer, unit, currency and `valid_from`
+  (a unique rule)**: a wrong price could then not be corrected for its
+  first day. Not taken: the record written last wins.
+- **Converting a price from another unit or currency**: needs unit
+  conversions per item and a rate date; the plan lists currency
+  conversion of a price for later.
 - **Quotations and orders in `receivables`**: not taken. 02 §2.2 and 03
   §3.16 name `sales` as a context of its own, and receivables' documents
   post while sales' do not.
@@ -247,9 +353,50 @@ Plan defaults 1-7 above. Taken in T78a beside them:
 8. The customer's rejection is recorded by `:decline`, not the plan's
    `:reject` (§2): the contract's rule on approval decisions decides it.
 
+Taken in T80a beside plan default 8:
+
+9. A price record names its unit and currency, and only an item in that
+   unit on a document in that currency takes it; nothing is converted.
+10. Of two records with the same `valid_from` the one recorded last
+    wins; there is no uniqueness rule on a record's key and dates.
+11. A record's customer is checked as a quotation's is (active, the
+    customer role, not blocked for posting in the company); `valid_from`
+    may be any day, past or to come.
+12. `price_unit` sent without a `unit_price` is not read: a recorded
+    price comes with its own.
+13. Recording prices is human-only, as every sales write (§7).
+
+Taken in T80b beside plan default 9:
+
+14. A discount is recorded for an item key, general or for one customer,
+    as a price is; there is no discount for a customer on every item
+    (an access sequence, which the plan leaves for later).
+15. With a procedure, the discounts found for an item's key are taken
+    off an entered price too; an item without a key has none.
+16. A discount is more than 0 and less than 100 percent: one of 100
+    would leave an item no value, which no item may have (default 4).
+17. A price recorded without a condition type counts as the procedure's
+    price, so the records made before a procedure was activated keep
+    pricing; a record of a type applies only through a procedure that
+    names its type.
+18. The procedure has exactly one price, its first step; a condition
+    type keeps its kind once activated.
+19. Changes to the `pricing` section are tier 2, a type's name tier 1.
+20. An item's conditions are kept as a JSON array on the item, with the
+    condition type's name when the item was priced.
+
 ## Questions
 - Plan questions 2 and 3 (accounting specialist, product owner): when
   control passes, and cost of goods sold without stock.
+- **Discounts on an entered price** (product owner; a money rule):
+  default 15 takes the customer's discount off a price the sales
+  representative enters. Should an entered price be the final net value
+  instead?
+- **Billing at the order's prices** (product owner, T79a): once an item
+  has discounts its net value is less than quantity × unit price ÷ price
+  unit, so a billing document must take its share of the item's net
+  value (net value × billed quantity ÷ ordered quantity), not the unit
+  price times the billed quantity.
 - **The emirate on a sales item** (product owner; scope): as on a customer
   invoice (ADR-0063, Questions), the UAE's one-code-for-every-emirate
   output codes are refused; selling under them needs a jurisdiction per
@@ -543,3 +690,116 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   down payment requests, pro forma invoices, billing without delivery,
   intercompany billing, the billing due list, the invoice as a document
   or an e-invoice.
+
+### T80a Prices and their determination (migration 000294)
+- `internal/sales/prices.go`, `price_api.go`; `pricing.go`'s `price`
+  now takes the transaction and the document's customer
+  (`document.customer`, set where a document is made in `quotations.go`
+  and `orders.go`), and returns where the price came from. `items.go`
+  stores and reads `price_source`; `ItemInput.UnitPrice` is optional.
+  `quotations.go`'s `parties` is split into `company` and `customer`,
+  which a price record's checks reuse. No new port and no new wiring.
+- Migration 000294: `sales.price` (`price_item_key_check`,
+  `price_positive`, `price_unit_positive`, `price_validity`; a unit and
+  a currency of the reference data; insert-only by
+  `platform.forbid_mutation`; `price_by_item_key`, `price_by_customer`);
+  `price_source` on `sales.quotation_item` and `sales.sales_order_item`
+  (`manual` by default, so the rows there and the previous version's
+  writes are entered prices; `quotation_item_price_source_check`,
+  `sales_order_item_price_source_check`); the permissions
+  `sales.price.read` and `.write`. Schema tests in
+  `db/sales_price_test.go`.
+- `POST /v1/sales-prices` (201 with `Location` and `ETag`, idempotent,
+  human-only), `GET /v1/sales-prices` (the companies the caller may act
+  in; filters `legal_entity_id`, `item_key`, `customer_id`, `valid_on`;
+  sortable by `item_key` and `valid_from`; cursor paging),
+  `GET /v1/sales-prices/{id}` (404 for another company's). A record's
+  `version` is 1: it is written once. It names its company by code and
+  name and its customer by number and name.
+- `unit_price` of `SalesItemCreate` is optional (a request that was
+  valid stays valid); `SalesItem` and `SalesOrderItem` gain
+  `price_source`.
+- Refusals of a price record, each naming the request's own field: an
+  item key of white space `request.validation_failed` (`item_key`); an
+  unknown customer `request.reference_not_found`, one that cannot be
+  sold to `sales.customer_not_usable` (`customer_id`); an unknown unit
+  `sales.unknown_unit` (`unit`); an unknown currency
+  `sales.unknown_currency` (`unit_price.currency`); an amount that is
+  not the currency's `request.invalid_amount`, one of zero or less
+  `sales.amount_not_positive` (`unit_price.amount`); `valid_to` before
+  `valid_from` `sales.invalid_validity` (`valid_to`). Of an item: no
+  price and no valid record, or no key, 422 `sales.no_price`
+  (`items[i].unit_price`); a determined price whose value rounds to
+  zero `sales.amount_not_positive` naming `items[i].quantity.value`,
+  since the price was not the request's.
+- `SalesPriceChanged` (`x-webhook`; the customer by id and number, both
+  null for a general price) and the audit record `sales.price.create`,
+  in the record's transaction.
+- T78a's and T78b's tests pass as they were, but for what the contract's
+  change forces: three literals in `quotations_test.go`,
+  `orders_test.go` and `failures_test.go` give the now optional price as
+  an optional value, and the tests' permission list names the two new
+  permissions. Walkthrough steps 54 and 55 are unchanged.
+- Walkthrough `step_price_list` (step 56): Paula, the pricing analyst,
+  records the general price of BRACKET-M8 and Northwind's own per 100;
+  Sally's quotation item without a price takes Northwind's (250 at
+  1174.99 per 100: 2937.48, rounded half away from zero) beside an item
+  at a price she enters; the same item for Contoso, a second customer,
+  takes the general price; a key without a record and an item without a
+  key are refused naming the price; a later general price changes no
+  item priced before.
+- **Decided by default:** defaults 9-13 above. Not built, by the plan:
+  scales, prices per customer group, price list type or sales
+  organization, surcharges and freight, minimum prices and approval,
+  currency conversion of a price, repricing a document, mass changes
+  and uploads, prices taken over from SAP.
+
+### T80b Condition types and the pricing procedure (migration 000295)
+- `internal/config/pricing.go`: the section `pricing` (`Pricing`,
+  `ConditionType`, `ProcedureStep`), its validation (`validate.go` calls
+  it), `PricingTransitions` (a type is never removed and keeps its kind;
+  `internal/configuration` calls it beside the other transitions) and
+  its tiers and list key in `diff.go`.
+- `internal/sales/pricing.go`: `price` applies the procedure
+  (`conditioned`), and one query shape (`validRecord`) picks the record
+  that applies for prices and discounts alike; `document` carries the
+  procedure, read from the active configuration where a document is
+  made. `prices.go` records a discount or a price by the condition
+  type's kind; `items.go` stores and reads `conditions`.
+- Migration 000295: `condition_type` and `percent` on `sales.price`
+  (`price_condition_type_check`, `price_percent_range`), a price's
+  columns nullable, `price_or_percent`, `price_by_condition`;
+  `conditions` on `sales.quotation_item` and `sales.sales_order_item`
+  (`quotation_item_conditions_array`,
+  `sales_order_item_conditions_array`, empty by default). Schema tests
+  in `db/sales_condition_test.go`.
+- No new endpoint. `SalesPriceCreate` gains `condition_type` and
+  `percent`, and `unit` and `unit_price` are required of a price only;
+  `SalesPrice` gains `kind`, `condition_type` and `percent`, and a
+  discount has no `unit`, `unit_price` or `price_unit`;
+  `GET /v1/sales-prices` filters by `condition_type`; `SalesItem` and
+  `SalesOrderItem` gain `conditions[]` (`SalesCondition`: type, name,
+  kind, the rate as `unit_price` per `price_unit` or `percent`, and
+  `amount`). `SalesPriceChanged` gains `kind`, `condition_type` and
+  `percent`; a discount's `unit`, `unit_price` and `price_unit` are
+  null.
+- Refusals of a record: a condition type the configuration does not
+  have 422 `sales.unknown_condition_type` (`condition_type`); a field of
+  the other kind given, or one of its own missing,
+  `sales.price_or_percent` naming it; a percent that is not a plain
+  decimal above 0 and below 100 of at most six decimals
+  `sales.invalid_percent` (`percent`). Of an item: discounts that leave
+  no value `sales.amount_not_positive`.
+- Walkthrough `step_price_list` (step 56) extended: Ada's pricing
+  procedure, PR00 and K007, is approved as a tier 2 change and
+  activated; Paula records Northwind's discount of five percent on
+  BRACKET-M8, and a record of an unknown type is refused; Sally's new
+  quotation item shows the price, 2937.48, the discount, 146.87 (five
+  percent of it, 146.874, rounded half away from zero), and the net
+  value, 2790.61.
+- **Decided by default:** defaults 14-20 above. Not built, by the plan:
+  several procedures chosen by customer and document type, access
+  sequences, fixed-amount and quantity-based conditions, header
+  conditions, condition exclusion, statistical conditions, tax as a
+  condition, rebates, pricing configuration generated from SAP's
+  condition tables.

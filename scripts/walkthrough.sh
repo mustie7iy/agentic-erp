@@ -7003,6 +7003,124 @@ step_billing() {
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
   passed
 }
+# step_price_list is T80a (ADR-0067 §10): Paula, the pricing analyst,
+# records a general price and Northwind's own price for one item key;
+# Sally's quotation item that names the key without a price takes
+# Northwind's price, another customer's takes the general one, and a
+# price entered with an item stays; an item with neither is refused
+# naming its price; a later record does not change an item priced
+# before. T80b (ADR-0067 §11): Ada activates a pricing procedure, a price
+# and a customer discount, through a governed change; Paula records
+# Northwind's discount of five percent; a new quotation item shows the
+# price, the discount and the net value after it.
+step_price_list() {
+  heading "Step 56 — Sales prices: a general price and a customer's price recorded for an item key; a quotation item without a price takes the customer's, another customer's the general one; an entered price stays; the price is fixed on the item; a pricing procedure through a governed change, a customer's discount, and an item's conditions with its net value after them"
+  local customer=$CUSTOMER sales ar until from item manual quotation contoso base cr request
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ada
+  say "Ada adds Paula, the pricing analyst, to the team:"
+  person paula "Paula Pricing" finance_staff
+  as paula
+  sales=$(account 4000)
+  ar=$(account 1200)
+  from="$YEAR-01-01"
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple sells its machined bracket, item key BRACKET-M8, at 12.50 CAD each. Paula records that as the general"
+  say "price, for every customer, valid from $from, and Northwind's own price, 1174.99 CAD per 100 (ADR-0067 §10):"
+  api 201 '"price of \(.item_key) for every customer, \(.company_code) \(.company_name): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"12.50\", \"currency\": \"CAD\"}, \"valid_from\": \"$from\"}"
+  expect "the general price names no customer" "$(field '.customer_id // "none"')" none
+  api 201 '"price of \(.item_key) for \(.customer_number) \(.customer_name): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"1174.99\", \"currency\": \"CAD\"}, \"price_unit\": 100, \"valid_from\": \"$from\"}"
+  expect "the customer's price by name" "$(field '"\(.customer_name) \(.unit_price.amount) \(.price_unit)"')" "Northwind Traders 1174.99 100"
+  api 200 '.items[] | "  \(.item_key) \(.customer_number // "every customer"): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit) from \(.valid_from)"' \
+    listSalesPrices -p "legal_entity_id=$LE" -p item_key=BRACKET-M8 -p "valid_on=$TODAY" -p order_by=valid_from
+  expect "the prices of the key valid today" "$(field '[.items[] | .unit_price.amount] | sort | join(" ")')" "1174.99 12.50"
+  as sally
+  say "Sally quotes Northwind 250 brackets without a price, and the installation at a price she enters. The bracket"
+  say "takes Northwind's price: 250 at 1174.99 per 100 are 2937.475, 2937.48 rounded half away from zero. The"
+  say "installation keeps her price:"
+  item="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"250\", \"unit\": \"EA\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  manual="{\"description\": \"Installation on site\", \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}, \"unit_price\": {\"amount\": \"95.01\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)) = \(.net_amount.amount)")' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item, $manual]}"
+  expect "each item's price, its source and its value" \
+    "$(field '[.items[] | "\(.unit_price.amount) per \(.price_unit) \(.price_source) \(.net_amount.amount)"] | join(", ")')" \
+    "1174.99 per 100 price_list 2937.48, 95.01 per 1 manual 237.53"
+  expect "the net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "3175.01 CAD"
+  say "Contoso, a new customer, has no price of its own. Ruth creates it and Carla approves it, as Northwind was:"
+  as ruth
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Contoso Ltd\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ar\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys machined parts from Maple\"}"
+  contoso=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$contoso" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its purchase order"
+  as sally
+  say "The same item for Contoso takes the general price:"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)) = \(.net_amount.amount)")' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item]}"
+  quotation=$(field .id)
+  expect "the general price on Contoso's item" "$(field '.items[0] | "\(.unit_price.amount) per \(.price_unit) \(.price_source) \(.net_amount.amount)"')" \
+    "12.50 per 1 price_list 3125.00"
+  say "WASHER-M8 has no price record, and an item without a key cannot be looked up: each is refused naming the"
+  say "price the item lacks:"
+  refused 422 sales.no_price createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [${item/BRACKET-M8/WASHER-M8}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].unit_price"
+  refused 422 sales.no_price createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item, ${item/\"item_key\": \"BRACKET-M8\", /}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[1].unit_price"
+  say "Paula raises the general price to 13.25 from today. A record is never changed: the new price is a new"
+  say "record, and Contoso's quotation keeps the price it was made with:"
+  as paula
+  api 201 '"price of \(.item_key) for every customer: \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"13.25\", \"currency\": \"CAD\"}, \"valid_from\": \"$TODAY\"}"
+  as sally
+  api 200 '"quotation \(.document_number): item 1 at \(.items[0].unit_price.amount) per \(.items[0].price_unit) = \(.items[0].net_amount.amount), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    getQuotation -p "id=$quotation"
+  expect "the item priced before" "$(field '.items[0] | "\(.unit_price.amount) \(.net_amount.amount)"')" "12.50 3125.00"
+  say "Maple now gives Northwind a discount. Discounts need a pricing procedure (ADR-0067 §11): the condition types"
+  say "and the order they apply in are the tenant's configuration, and none is shipped. Ada proposes a price, PR00,"
+  say "and a customer discount, K007, a percentage of the value before it. They post nothing, so the change is"
+  say "tier 2, approved by the process owner:"
+  as ada
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Pricing procedure\", rationale: \"Maple's condition types and their order (T80b)\", base_version: $base,
+    proposed: (.items[0].document | .pricing = {condition_types: [{code: \"PR00\", name: \"Price\", kind: \"price\"},
+      {code: \"K007\", name: \"Customer discount\", kind: \"discount_percent\"}], procedure: [{condition_type: \"PR00\"}, {condition_type: \"K007\"}]})}" \
+    "$WORK/last.json" >"$WORK/pricing.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @pricing.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the pricing settings among the changes" "$(field '[.items[] | select(.path | startswith("pricing."))] | length')" 4
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The pricing procedure, as agreed with sales"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as paula
+  say "Paula records Northwind's discount on the bracket, five percent. A record of a condition type the"
+  say "configuration does not have is refused:"
+  api 201 '"\(.kind) \(.condition_type) on \(.item_key) for \(.customer_number) \(.customer_name): \(.percent) percent, valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"condition_type\": \"K007\", \"percent\": \"5\", \"valid_from\": \"$from\"}"
+  expect "the discount" "$(field '"\(.kind) \(.condition_type) \(.percent) \(.customer_name)"')" "discount_percent K007 5 Northwind Traders"
+  refused 422 sales.unknown_condition_type createSalesPrice \
+    -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"condition_type\": \"ZZ00\", \"percent\": \"5\", \"valid_from\": \"$from\"}"
+  expect "the field refused" "$(field '.errors[0].field')" "condition_type"
+  as sally
+  say "A new quotation to Northwind shows each condition applied to the item and the net value after it: the price,"
+  say "2937.48, less five percent of it, 146.874: 146.87 rounded half away from zero, leaves 2790.61:"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)), net \(.net_amount.amount)", (.conditions[] | "    \(.condition_type) \(.name): \(if .kind == "price" then "\(.unit_price.amount) per \(.price_unit)" else "\(.percent) percent" end) = \(.amount.amount) \(.amount.currency)"))' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item]}"
+  expect "the conditions applied" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.kind) \(.amount.amount)"] | join(", ")')" \
+    "PR00 price 2937.48, K007 discount_percent -146.87"
+  expect "the discount's rate" "$(field '.items[0].conditions[1].percent')" 5
+  expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9027,7 +9145,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_close'
 
 main() {
   stop_unseen

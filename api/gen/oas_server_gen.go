@@ -1224,16 +1224,25 @@ type Handler interface {
 	// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
 	// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
 	// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
-	// `price_unit`, the revenue account its billing credits, one that can be posted in the company (422
-	// `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the
-	// company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming
-	// `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422
-	// `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is
-	// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
-	// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the
-	// quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the
-	// order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation
-	// created. Human-only (`x-agent: false`).
+	// `price_unit`, or without one the price recorded for its `item_key` that is valid on the quotation's
+	// date in the item's unit and the quotation's currency, the customer's before the general one and then
+	// the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price
+	// nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
+	// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
+	// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
+	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
+	// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer
+	// invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half
+	// away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive`
+	// naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not
+	// give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a
+	// pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key
+	// and valid on the quotation's date, the customer's before the general one, is taken off in the
+	// procedure's order, as a percentage of the value before it rounded half away from zero; `conditions`
+	// lists the price and the discounts applied, and `net_amount` is the value less the discounts, still
+	// more than zero (ADR-0067 §11). Amounts are net: the tax is calculated when the order is billed, at
+	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/quotations
 	CreateQuotation(ctx context.Context, req *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
@@ -1305,11 +1314,12 @@ type Handler interface {
 	// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
 	// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
 	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
-	// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date.
-	// Either way the order needs the customer's data in the company, as a receivables document does: a
-	// customer that is not active, has no customer role, has no data in the company or is blocked for
-	// posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`).
-	// The order's payment term is `payment_term_code`, a configured term (422
+	// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date: an
+	// item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when
+	// there is none). Either way the order needs the customer's data in the company, as a receivables
+	// document does: a customer that is not active, has no customer role, has no data in the company or is
+	// blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or
+	// `customer_id`). The order's payment term is `payment_term_code`, a configured term (422
 	// `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the
 	// company's date today in its time zone, with a document number from the company's `sales_order`
 	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
@@ -1318,6 +1328,34 @@ type Handler interface {
 	//
 	// POST /v1/sales-orders
 	CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
+	// CreateSalesPrice implements createSalesPrice operation.
+	//
+	// Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
+	// `customer_id` for one, per `price_unit` of a unit of measure, in the currency of `unit_price`, valid
+	// from a day and, with `valid_to`, until a day. A quotation or sales order item that names the item
+	// key without a `unit_price` takes the price valid on the document's date in the item's unit and the
+	// document's currency: the customer's before the general one and, among several, the one with the
+	// latest `valid_from` (of two with the same `valid_from`, the one recorded last). The company is one
+	// the caller may act in. The item key is not white space alone (422 `request.validation_failed`). A
+	// customer is an active business partner with the customer role that is not blocked for posting in the
+	// company (422 `request.reference_not_found` naming `customer_id` for an unknown one,
+	// `sales.customer_not_usable` otherwise). The unit is one of the reference data (422
+	// `sales.unknown_unit` naming `unit`), the currency a known one (422 `sales.unknown_currency` naming
+	// `unit_price.currency`) and the price more than zero (422 `sales.amount_not_positive` naming
+	// `unit_price.amount`). `valid_to` is not before `valid_from` (422 `sales.invalid_validity`). With
+	// `condition_type` the record is of that type of the active configuration (422
+	// `sales.unknown_condition_type` for one it does not have): one of kind `price` is a price as above,
+	// one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422
+	// `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422
+	// `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
+	// item key when the pricing procedure names its type, the customer's before the general one as a price
+	// is found (ADR-0067 §11). A record is never changed or deleted: a new price is recorded with a later
+	// `valid_from`, and the items priced before keep their price. Audited, and published as
+	// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/sales-prices
+	CreateSalesPrice(ctx context.Context, req *SalesPriceCreate, params CreateSalesPriceParams) (CreateSalesPriceRes, error)
 	// CreateSegment implements createSegment operation.
 	//
 	// Creates a segment at once: a segment changes nothing until a profit center names it, which is an
@@ -2786,6 +2824,14 @@ type Handler interface {
 	//
 	// GET /v1/sales-orders/{id}
 	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
+	// GetSalesPrice implements getSalesPrice operation.
+	//
+	// One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
+	// and name and, for a customer's record, the customer's number and name. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/sales-prices/{id}
+	GetSalesPrice(ctx context.Context, params GetSalesPriceParams) (GetSalesPriceRes, error)
 	// GetSchema implements getSchema operation.
 	//
 	// The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the
@@ -4062,6 +4108,17 @@ type Handler interface {
 	//
 	// GET /v1/sales-orders
 	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
+	// ListSalesPrices implements listSalesPrices operation.
+	//
+	// The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices
+	// and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a
+	// customer's record, the customer's number and name. Filtered by company, item key, customer (the
+	// records for that customer; general ones have none), condition type and `valid_on`, a day the record
+	// is valid on. Records are never changed: a new price is a new record with a later `valid_from`.
+	// Sortable by: `item_key`, `valid_from`.
+	//
+	// GET /v1/sales-prices
+	ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (ListSalesPricesRes, error)
 	// ListSegments implements listSegments operation.
 	//
 	// Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`.

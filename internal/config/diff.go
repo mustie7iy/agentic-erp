@@ -182,6 +182,11 @@ var tierRules = []struct {
 	// dunning run proposes and at which level (ADR-0065 §2), as payment
 	// terms' days decide what is due.
 	{rx(`^companies\[\*\]\.dunning(\.|$)`), TierOperational},
+	// Condition types and the pricing procedure post nothing: they decide
+	// the net value new sales items take (ADR-0067 §11), as payment terms
+	// decide what is due. A type's name is a text.
+	{rx(`^pricing\.condition_types\[\*\]\.name$`), TierCosmetic},
+	{rx(`^pricing(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -237,6 +242,9 @@ var listKeys = map[string]string{
 	"net_investments": "company,account,partner",
 	// A company's dunning levels by their number (ADR-0065 §2).
 	"levels": "level",
+	// Condition types by code (ADR-0067 §11); the procedure's steps are
+	// listed by position, since their order is the setting.
+	"condition_types": "code",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is

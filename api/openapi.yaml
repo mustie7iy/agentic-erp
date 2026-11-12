@@ -60,7 +60,7 @@ tags:
   - name: collections
     description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
   - name: sales
-    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries and billing documents."
+    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries, billing documents and sales prices."
   - name: credit
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
   - name: payments
@@ -17324,7 +17324,7 @@ paths:
       tags:
         - sales
       summary: Create a quotation
-      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit`, the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit`, or without one the price recorded for its `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency, the customer's before the general one and then the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and valid on the quotation's date, the customer's before the general one, is taken off in the procedure's order, as a percentage of the value before it rounded half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the value less the discounts, still more than zero (ADR-0067 §11). Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
       x-permission: sales.quotation.write
       x-agent: false
       x-problem-codes:
@@ -17342,6 +17342,7 @@ paths:
         - sales.invalid_quantity
         - sales.invalid_validity
         - sales.items_required
+        - sales.no_price
         - sales.tax_jurisdiction_not_supported
         - sales.unknown_currency
         - sales.unknown_tax_code
@@ -17587,7 +17588,7 @@ paths:
       tags:
         - sales
       summary: Create a sales order
-      description: "Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With `quotation_id`, the order copies the quotation's company, customer, currency and items as they were offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the field given). The quotation is one of a company the caller may act in (422 `request.reference_not_found` naming `quotation_id`) that the customer accepted (409 `sales.quotation_not_accepted`), and it gives one order: a second is refused (409 `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`, `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and the items are checked and priced as a quotation's are (`createQuotation`), on the order's date. Either way the order needs the customer's data in the company, as a receivables document does: a customer that is not active, has no customer role, has no data in the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the company's date today in its time zone, with a document number from the company's `sales_order` number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
+      description: "Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With `quotation_id`, the order copies the quotation's company, customer, currency and items as they were offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the field given). The quotation is one of a company the caller may act in (422 `request.reference_not_found` naming `quotation_id`) that the customer accepted (409 `sales.quotation_not_accepted`), and it gives one order: a second is refused (409 `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`, `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and the items are checked and priced as a quotation's are (`createQuotation`), on the order's date: an item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when there is none). Either way the order needs the customer's data in the company, as a receivables document does: a customer that is not active, has no customer role, has no data in the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the company's date today in its time zone, with a document number from the company's `sales_order` number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
       x-permission: sales.order.write
       x-agent: false
       x-problem-codes:
@@ -17604,6 +17605,7 @@ paths:
         - sales.customer_not_usable
         - sales.invalid_quantity
         - sales.items_required
+        - sales.no_price
         - sales.quotation_not_accepted
         - sales.quotation_or_items
         - sales.quotation_ordered
@@ -17746,6 +17748,189 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/sales-prices:
+    get:
+      operationId: listSalesPrices
+      tags:
+        - sales
+      summary: List sales prices
+      description: "The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a customer's record, the customer's number and name. Filtered by company, item key, customer (the records for that customer; general ones have none), condition type and `valid_on`, a day the record is valid on. Records are never changed: a new price is a new record with a later `valid_from`. Sortable by: `item_key`, `valid_from`."
+      x-permission: sales.price.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: item_key
+          in: query
+          required: false
+          description: Only the prices of this item key.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the prices recorded for this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: condition_type
+          in: query
+          required: false
+          description: Only the records of this condition type.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 10
+        - name: valid_on
+          in: query
+          required: false
+          description: "Only the records valid on this day: `valid_from` is not after it and `valid_to`, when there is one, not before it."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of price records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesPricePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createSalesPrice
+      tags:
+        - sales
+      summary: Record a sales price
+      description: "Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with `customer_id` for one, per `price_unit` of a unit of measure, in the currency of `unit_price`, valid from a day and, with `valid_to`, until a day. A quotation or sales order item that names the item key without a `unit_price` takes the price valid on the document's date in the item's unit and the document's currency: the customer's before the general one and, among several, the one with the latest `valid_from` (of two with the same `valid_from`, the one recorded last). The company is one the caller may act in. The item key is not white space alone (422 `request.validation_failed`). A customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise). The unit is one of the reference data (422 `sales.unknown_unit` naming `unit`), the currency a known one (422 `sales.unknown_currency` naming `unit_price.currency`) and the price more than zero (422 `sales.amount_not_positive` naming `unit_price.amount`). `valid_to` is not before `valid_from` (422 `sales.invalid_validity`). With `condition_type` the record is of that type of the active configuration (422 `sales.unknown_condition_type` for one it does not have): one of kind `price` is a price as above, one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422 `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422 `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the item key when the pricing procedure names its type, the customer's before the general one as a price is found (ADR-0067 §11). A record is never changed or deleted: a new price is recorded with a later `valid_from`, and the items priced before keep their price. Audited, and published as SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only (`x-agent: false`)."
+      x-permission: sales.price.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_amount
+        - request.validation_failed
+        - sales.amount_not_positive
+        - sales.customer_not_usable
+        - sales.invalid_percent
+        - sales.invalid_validity
+        - sales.price_or_percent
+        - sales.unknown_condition_type
+        - sales.unknown_currency
+        - sales.unknown_unit
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The price to record.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesPriceCreate"
+            examples:
+              general:
+                summary: A price for every customer
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  item_key: BRACKET-M8
+                  unit: EA
+                  unit_price:
+                    amount: "12.50"
+                    currency: CAD
+                  valid_from: "2026-11-01"
+              for_a_customer:
+                summary: A price for one customer, per 100
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  item_key: BRACKET-M8
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  unit: EA
+                  unit_price:
+                    amount: "1175.00"
+                    currency: CAD
+                  price_unit: 100
+                  valid_from: "2026-11-01"
+                  valid_to: "2027-10-31"
+              discount:
+                summary: A customer's discount of five percent
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  item_key: BRACKET-M8
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  condition_type: K007
+                  percent: "5"
+                  valid_from: "2026-11-01"
+      responses:
+        "201":
+          description: "Created; the new price record."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesPrice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-prices/{id}":
+    get:
+      operationId: getSalesPrice
+      tags:
+        - sales
+      summary: Get a sales price
+      description: "One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code and name and, for a customer's record, the customer's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.price.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The price record.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesPrice"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/sales-orders/{id}/deliveries":
@@ -47854,21 +48039,21 @@ components:
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     SalesItemCreate:
       type: object
-      description: "An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a unit price, with the revenue account and output tax code its billing posts with."
-      required: [description, quantity, unit_price, account_id]
+      description: "An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a unit price, entered with it or taken from the company's price records by its item key (§10), with the revenue account and output tax code its billing posts with."
+      required: [description, quantity, account_id]
       additionalProperties: false
       properties:
-        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it; there is no material master."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it; there is no material master. An item without a `unit_price` is priced by it (`createSalesPrice`)."}
         description: {type: string, minLength: 1, maxLength: 200, description: "What is sold."}
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity, more than zero, in a unit of measure of the reference data."}
-        unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`, in the document's currency."}
-        price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "The quantity the unit price refers to."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`, in the document's currency; it stays as entered, whatever the price records say (`price_source` `manual`). Absent: the item takes the price recorded for its `item_key`, valid on the document's date, in the item's unit and the document's currency: the customer's before the general one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is refused (422 `sales.no_price`)."}
+        price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "The quantity the unit price refers to. It is read with `unit_price` alone: a price from the price records comes with its own."}
         account_id: {type: string, format: uuid, description: "The revenue account the item credits when it is billed: one that can be posted in the company (`GET /v1/accounts`)."}
         tax_code: {type: string, minLength: 1, maxLength: 20, description: "An output tax code of the company with a rate in force on the document's date; absent: the item bears no tax. The tax is calculated when the item is billed."}
     SalesItem:
       type: object
       description: "An item of a quotation (ADR-0067 §3), with its net value."
-      required: [item_no, description, quantity, unit_price, price_unit, net_amount, account_id, account_number, account_name]
+      required: [item_no, description, quantity, unit_price, price_unit, price_source, conditions, net_amount, account_id, account_number, account_name]
       properties:
         item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the document.", readOnly: true}
         item_key: {type: string, description: "The free-text key naming what is sold; absent when none was given.", readOnly: true}
@@ -47876,11 +48061,37 @@ components:
         quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity and its unit of measure."}
         unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`."}
         price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the unit price refers to.", readOnly: true}
-        net_amount: {$ref: "#/components/schemas/Money", description: "The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit."}
+        price_source:
+          type: string
+          x-extensible-enum: [manual, price_list]
+          description: "Where the unit price came from: `manual`, entered with the item; `price_list`, the price record valid for the item key on the document's date when the item was created (ADR-0067 §10). The price is fixed on the item: a later price record does not change it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        conditions:
+          type: array
+          items: {$ref: "#/components/schemas/SalesCondition"}
+          description: "The conditions the tenant's pricing procedure applied to the item when it was created, in the procedure's order: the price, then each discount found for the item key (ADR-0067 §11). Their amounts add up to `net_amount`. Empty for an item priced without a pricing procedure."
+          readOnly: true
+        net_amount: {$ref: "#/components/schemas/Money", description: "The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit, less its discounts (`conditions`)."}
         account_id: {type: string, format: uuid, description: "The revenue account the item credits when it is billed.", readOnly: true}
         account_number: {type: string, description: "The account's number.", readOnly: true}
         account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
         tax_code: {type: string, description: "The item's output tax code; absent: it bears no tax.", readOnly: true}
+    SalesCondition:
+      type: object
+      description: "A condition applied to a sales item by the pricing procedure (ADR-0067 §11): the price, or a discount taken off the value before it."
+      required: [condition_type, name, kind, amount]
+      properties:
+        condition_type: {type: string, description: "The condition type's code (`pricing.condition_types` of the configuration).", readOnly: true}
+        name: {type: string, description: "The condition type's name when the item was created.", readOnly: true}
+        kind:
+          type: string
+          x-extensible-enum: [price, discount_percent]
+          description: "`price`: the item's price; `discount_percent`: a percentage off the value before it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        unit_price: {$ref: "#/components/schemas/Money", description: "A price's rate: the net price per `price_unit`; absent for a discount."}
+        price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity a price's unit price refers to; absent for a discount.", readOnly: true}
+        percent: {type: string, description: "A discount's rate: the percentage of the value before it, a decimal string; absent for a price.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the condition adds to the item's net value: for a price, quantity × unit price ÷ price unit; for a discount, the percentage of the value before it, rounded half away from zero to the currency's minor unit, negative."}
     QuotationCreate:
       type: object
       description: "Create a quotation. It is created `open`, dated the company's date today; its items' values and its net value are calculated."
@@ -47952,6 +48163,8 @@ components:
               quantity: {value: "120", unit: EA}
               unit_price: {amount: "12.50", currency: CAD}
               price_unit: 1
+              price_source: manual
+              conditions: []
               net_amount: {amount: "1500.00", currency: CAD}
               account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
               account_number: "4000"
@@ -48051,6 +48264,8 @@ components:
               quantity: {value: "120", unit: EA}
               unit_price: {amount: "12.50", currency: CAD}
               price_unit: 1
+              price_source: manual
+              conditions: []
               net_amount: {amount: "1500.00", currency: CAD}
               account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
               account_number: "4000"
@@ -48067,6 +48282,78 @@ components:
           type: array
           items: {$ref: "#/components/schemas/SalesOrder"}
           description: The sales orders on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    SalesPriceCreate:
+      type: object
+      description: "Record a price for an item key (ADR-0067 §10), or a discount on it (§11): for every customer of the company, or for one. A price gives `unit` and `unit_price`; a discount gives `condition_type`, a configured type of kind `discount_percent`, and `percent`."
+      required: [legal_entity_id, item_key, valid_from]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose price it is: a legal entity the caller may act in."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "The free-text key naming what is sold, as sales items give it (`item_key`); compared exactly."}
+        customer_id: {type: string, format: uuid, description: "The customer the price is for: an active business partner with the customer role; absent: a general price, for every customer."}
+        condition_type: {type: string, minLength: 1, maxLength: 10, description: "A condition type of the active configuration (`pricing.condition_types`): of kind `price` for a price, of kind `discount_percent` for a discount. Absent: a price, which the pricing procedure's price step takes as it takes one of its own type."}
+        unit: {type: string, minLength: 1, maxLength: 6, description: "A price's unit of measure (reference data); an item in another unit does not take it. Required for a price, not given for a discount."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "A price: the net price per `price_unit`, more than zero, in its currency; a document in another currency does not take it. Required for a price, not given for a discount."}
+        price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity a price's unit price refers to; 1 when a price gives none. Not given for a discount."}
+        percent: {type: string, minLength: 1, maxLength: 10, description: "A discount: the percentage of the item's value before it, a decimal more than 0 and less than 100 of at most six decimals. Required for a discount, not given for a price.", example: "5"}
+        valid_from: {type: string, format: date, description: "The first day the price is valid, a document's date."}
+        valid_to: {type: string, format: date, description: "The last day the price is valid, not before `valid_from`; absent: valid until a later record replaces it."}
+    SalesPrice:
+      description: "A price record (sales, ADR-0067 §10, §11): the net price of an item key in a company, or a percentage discount on it, for every customer or for one, valid from a day. `kind` says which: a `price` has `unit`, `unit_price` and `price_unit`, a `discount_percent` has `percent`. It is written once and never changed, so its `version` is 1."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, item_key, kind, valid_from]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company whose price it is.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            item_key: {type: string, description: "The key naming what is sold.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer the price is for (`GET /v1/business-partners/{id}`); absent: a general price.", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number; absent for a general price.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now; absent for a general price.", readOnly: true}
+            kind:
+              type: string
+              x-extensible-enum: [price, discount_percent]
+              description: "What the record is: a `price`, or a `discount_percent`, a percentage of the item's value before it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            condition_type: {type: string, description: "The record's condition type (`pricing.condition_types` of the configuration); absent for a price recorded without one.", readOnly: true}
+            unit: {type: string, description: "A price's unit of measure; absent for a discount.", readOnly: true}
+            unit_price: {$ref: "#/components/schemas/Money", description: "A price: the net price per `price_unit`; absent for a discount."}
+            price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity a price's unit price refers to; absent for a discount.", readOnly: true}
+            percent: {type: string, description: "A discount: the percentage of the item's value before it, a decimal string; absent for a price.", readOnly: true}
+            valid_from: {type: string, format: date, description: "The first day the price is valid.", readOnly: true}
+            valid_to: {type: string, format: date, description: "The last day the price is valid; absent: no last day.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 1
+          created_at: "2026-11-19T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-19T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          item_key: BRACKET-M8
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          kind: price
+          unit: EA
+          unit_price: {amount: "1175.00", currency: CAD}
+          price_unit: 100
+          valid_from: "2026-11-01"
+          valid_to: "2027-10-31"
+    SalesPricePage:
+      type: object
+      description: One page of price records.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesPrice"}
+          description: The price records on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     SalesDeliveryCreate:
       type: object
