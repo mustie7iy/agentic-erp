@@ -408,12 +408,13 @@ channels:
   receivables:
     address: 'erp.{cell}.receivables.{tenant}.{event}'
     title: Accounts receivable events
-    description: Customer invoices (ADR-0063 §9).
+    description: Customer invoices and incoming payments applied (ADR-0063 §9).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
       CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
+      IncomingPaymentApplied: {$ref: '#/components/messages/IncomingPaymentApplied'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -673,6 +674,7 @@ operations:
     messages:
       - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
       - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
+      - $ref: '#/channels/receivables/messages/IncomingPaymentApplied'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3629,6 +3631,30 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_posted.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', posting_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, payment_term_code: NT30, net_due_date: '2026-12-11', journal_entry_id: 0192a000-0000-7000-8000-000000000f31, journal_entry_year: 2026, journal_entry_number: '1800000001', status: posted, status_before: draft, version: 2}
+    IncomingPaymentApplied:
+      name: IncomingPaymentApplied
+      x-webhook: true
+      title: Incoming payment applied
+      summary: An incoming payment was applied to a customer's open items.
+      description: |
+        Emitted when an incoming payment waiting on a house bank's incoming
+        payments clearing account is applied to a customer's open items
+        (ADR-0063 §6, §9, T75c): one clearing entry cleared the receipt and
+        the items, which equal it exactly. It carries the amount and the
+        number of items, not the items, and names the customer by id and
+        number, never by name. `GET /v1/incoming-payments/{id}` returns the
+        document, which never changes. Subject is the incoming payment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.incoming_payment_applied.v1}
+      payload: {$ref: '#/components/schemas/IncomingPaymentAppliedV1'}
+      examples:
+        - name: applied
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_applied.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, posting_date: '2026-11-12', amount: {amount: '1050.00', currency: CAD}, receipt_journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_year: 2026, journal_entry_number: '1400000001', item_count: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4287,6 +4313,23 @@ components:
         status: {type: string, description: "The document's status after the change: posted."}
         status_before: {type: string, description: 'Its status before: draft.'}
         version: {type: integer, description: "The document's version after the change."}
+    IncomingPaymentAppliedV1:
+      type: object
+      required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, posting_date, amount, receipt_journal_entry_id, journal_entry_id, journal_entry_year, journal_entry_number, item_count]
+      properties:
+        incoming_payment_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.incoming_payment.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that received the payment.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        posting_date: {$ref: '#/components/schemas/Date', description: The posting date of the clearing entry.}
+        amount: {$ref: '#/components/schemas/Money', description: "What was received and applied: the receipt's amount, the sum of the items'."}
+        receipt_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the receipt, the entry the bank statement line posted.'}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the clearing entry.'}
+        journal_entry_year: {type: integer, description: "The clearing entry's fiscal year."}
+        journal_entry_number: {type: string, description: "The clearing entry's document number."}
+        item_count: {type: integer, description: "How many open items of the customer the payment was applied to."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

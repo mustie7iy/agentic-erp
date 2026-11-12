@@ -9,8 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestReceivablesPermissions (T75a, migration 000265; ADR-0063 §8): the
-// customer invoice permissions are seeded and are no approval permissions.
+// TestReceivablesPermissions (T75a, migration 000265; T75c, migration
+// 000268; ADR-0063 §8): the customer invoice permissions and the one to
+// apply incoming payments are seeded and are no approval permissions.
 func TestReceivablesPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'receivables.%' AND NOT is_approval ORDER BY code`)
@@ -21,7 +22,7 @@ func TestReceivablesPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "receivables.invoice.post receivables.invoice.read receivables.invoice.write"; got != want {
+	if got, want := strings.Join(codes, " "), "receivables.invoice.post receivables.invoice.read receivables.invoice.write receivables.payment.apply"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -275,4 +276,96 @@ func TestCustomerInvoiceIsTheTenants(t *testing.T) {
 			VALUES ($1, gen_random_uuid(), 'CI2', gen_random_uuid(), gen_random_uuid(), 'invoice', '2026-03-10', 'EUR', 100, 0, 100, 'draft', $2, $2)`, a, actor)
 	})
 	failsWith(t, err, "row-level security")
+}
+
+// TestIncomingPaymentRules (T75c, migration 000268; ADR-0063 §6): an
+// incoming payment applied is written once with its items: numbered once
+// per company, a positive amount, one application per receipt and per
+// clearing entry, each item a non-zero amount and applied once; nothing
+// of it is changed or deleted.
+func TestIncomingPaymentRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO receivables.incoming_payment (tenant_id, id, document_number, legal_entity_id, customer_id, receipt_entry_year,
+		receipt_entry_id, receipt_account_id, posting_date, currency, amount, clearing_entry_year, clearing_entry_id, created_by)
+		VALUES ($1, $2, $3, $4, gen_random_uuid(), 2026, $5, gen_random_uuid(), '2026-03-21', 'EUR', $6, 2026, $7, $1)`
+	const item = `INSERT INTO receivables.incoming_payment_item (tenant_id, incoming_payment_id, item_no, fiscal_year, journal_entry_id, line_no, amount)
+		VALUES ($1, $2, $3, 2026, $4, $5, $6)`
+	type scene struct{ tenant, company, doc, receipt, clearing, invoice uuid.UUID }
+	applied := func(s scene) stmt {
+		return step(header, s.tenant, s.doc, "IP1", s.company, s.receipt, 10000, s.clearing)
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a payment applied to an invoice and a credit", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 13000), step(item, s.tenant, s.doc, 2, id(), 1, -3000))
+		}, ""},
+		{"an amount of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(header, s.tenant, s.doc, "IP1", s.company, s.receipt, 0, s.clearing))
+		}, "incoming_payment_amount_positive"},
+		{"a negative amount", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(header, s.tenant, s.doc, "IP1", s.company, s.receipt, -1, s.clearing))
+		}, "incoming_payment_amount_positive"},
+		{"a number issued twice in the company", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(header, s.tenant, id(), "IP1", s.company, id(), 1, id()))
+		}, "incoming_payment_number_once"},
+		{"the same number in another company", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(header, s.tenant, id(), "IP1", id(), id(), 1, id()))
+		}, ""},
+		{"a receipt applied twice", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(header, s.tenant, id(), "IP2", s.company, s.receipt, 10000, id()))
+		}, "incoming_payment_receipt_once"},
+		{"two payments with one clearing entry", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(header, s.tenant, id(), "IP2", s.company, id(), 10000, s.clearing))
+		}, "incoming_payment_entry_once"},
+		{"an item of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 0))
+		}, "incoming_payment_item_amount_not_zero"},
+		{"an item numbered 0", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 0, s.invoice, 1, 10000))
+		}, "incoming_payment_item_item_no_check"},
+		{"an item on line 0", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 0, 10000))
+		}, "incoming_payment_item_line_no_check"},
+		{"an item of no payment", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(item, s.tenant, s.doc, 1, s.invoice, 1, 10000))
+		}, "incoming_payment_item_tenant_id_incoming_payment_id_fkey"},
+		{"an open item applied twice", func(tx pgx.Tx, s scene) error {
+			other := id()
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 10000),
+				step(header, s.tenant, other, "IP2", s.company, id(), 10000, id()), step(item, s.tenant, other, 1, s.invoice, 1, 10000))
+		}, "incoming_payment_item_once"},
+		{"another line of the same entry", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 6000), step(item, s.tenant, s.doc, 2, s.invoice, 2, 4000))
+		}, ""},
+		{"a payment changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(`UPDATE receivables.incoming_payment SET amount = 1 WHERE id = $1`, s.doc))
+		}, "permission denied"},
+		{"a payment deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(`DELETE FROM receivables.incoming_payment WHERE id = $1`, s.doc))
+		}, "permission denied"},
+		{"an item changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 10000),
+				step(`UPDATE receivables.incoming_payment_item SET amount = 1 WHERE incoming_payment_id = $1`, s.doc))
+		}, "permission denied"},
+		{"an item deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, applied(s), step(item, s.tenant, s.doc, 1, s.invoice, 1, 10000),
+				step(`DELETE FROM receivables.incoming_payment_item WHERE incoming_payment_id = $1`, s.doc))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), company: id(), doc: id(), receipt: id(), clearing: id(), invoice: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
 }

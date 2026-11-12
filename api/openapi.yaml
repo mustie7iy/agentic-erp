@@ -14902,6 +14902,227 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/incoming-payments:
+    get:
+      operationId: listIncomingPayments
+      tags:
+        - receivables
+      summary: List incoming payments applied
+      description: "The incoming payments applied to customers' open items in the companies the caller may act in (ADR-0063 §6, T75c), each as `getIncomingPayment` gives it: with its company's code and name, its customer's number and name, its receipt, its clearing entry and the items it was applied to. Filtered by company, customer, document number and posting date. Sortable by: `posting_date`, `document_number`."
+      x-permission: receivables.invoice.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the payments applied to this customer's items (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/DocumentNumber"
+        - name: posting_date_from
+          in: query
+          required: false
+          description: Only payments applied on or after this posting date.
+          schema:
+            type: string
+            format: date
+        - name: posting_date_to
+          in: query
+          required: false
+          description: Only payments applied on or before this posting date.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of incoming payments applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingPaymentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createIncomingPayment
+      tags:
+        - receivables
+      summary: Apply an incoming payment to a customer's open items
+      description: "Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c; plan default 4). The payment is a receipt: the journal entry a bank statement line matched as incoming posted, whose credit line waits as an open item on the house bank's incoming payments clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and credits alike, in the receipt's currency; together they equal the receipt exactly (422 `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every item at the amounts they were booked at and clears them all; what that leaves in local or group currency, receipt and items having been booked at different rates, is a realized exchange difference on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The application is a document with a number from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written with it. A receipt that is not waiting on an incoming payments clearing account of the company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409 `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409 `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its place in `items`. Nothing is posted when the application is refused. A retry with the same `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An application is not undone in the first version. Human-only (`x-agent: false`)."
+      x-permission: receivables.payment.apply
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.clearing_not_balanced
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.duplicate_item
+        - ledger.entry_reversed
+        - ledger.item_already_cleared
+        - ledger.item_reserved
+        - ledger.legal_entity_not_active
+        - ledger.mixed_items
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_items
+        - ledger.not_a_receipt
+        - ledger.not_an_open_item
+        - ledger.not_open_item_managed
+        - ledger.not_the_customers_item
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_item
+        - ledger.special_gl_required
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unknown_unit
+        - receivables.receipt_already_applied
+        - receivables.receipt_not_open
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The incoming payment to apply.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IncomingPaymentCreate"
+            examples:
+              one_invoice:
+                summary: A receipt applied to one invoice
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  receipt_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+                  items:
+                    - fiscal_year: 2026
+                      journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
+                      line_no: 1
+      responses:
+        "201":
+          description: "Created; the incoming payment applied."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingPayment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/incoming-payments/{id}":
+    get:
+      operationId: getIncomingPayment
+      tags:
+        - receivables
+      summary: Get an incoming payment applied
+      description: "One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's number and name, its amount, the receipt it applied (the journal entry the statement line posted, with its number and the incoming payments clearing account's number and name), the clearing entry that cleared receipt and items, and the items it was applied to, each with its journal entry's number and reference and the amount it stood at, a credit of the customer's negative. One of a company the caller may not act in is not found."
+      x-permission: receivables.invoice.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The incoming payment applied.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncomingPayment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/unapplied-receipts:
+    get:
+      operationId: listUnappliedReceipts
+      tags:
+        - receivables
+      summary: List the receipts not yet applied
+      description: "The incoming payments of a company that wait to be applied (ADR-0063 §6, T75c; ADR-0047): the open credit lines on the incoming payments clearing accounts of the company's house banks that bank statement lines matched as incoming posted, each with its journal entry's number and text, its posting date, its amount, the account's number and name and the house bank's code. A receipt leaves the list when `createIncomingPayment` applies it, or when its entry is reversed. The statement lines themselves are read with `GET /v1/bank-statements/{id}/matches`, which names each posting but not whether accounts receivable cleared it. The company is one the caller may act in. Sortable by: `posting_date`."
+      x-permission: receivables.invoice.read
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company whose receipts to list.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of receipts not yet applied.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnappliedReceiptPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/e-invoices:fetch":
     post:
       operationId: fetchEInvoices
@@ -42490,6 +42711,139 @@ components:
           type: array
           items: {$ref: "#/components/schemas/CustomerInvoice"}
           description: The customer invoices on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    IncomingPaymentCreate:
+      type: object
+      description: "Apply an incoming payment to a customer's open items, in full and exactly."
+      required: [legal_entity_id, customer_id, receipt_journal_entry_id, items]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company that received the payment: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer whose open items the payment is applied to (business partner id)."}
+        receipt_journal_entry_id: {type: string, format: uuid, description: "The receipt: the journal entry a bank statement line matched as incoming posted, waiting on a house bank's incoming payments clearing account (`listUnappliedReceipts`)."}
+        posting_date: {type: string, format: date, description: "The posting date of the clearing entry; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          uniqueItems: true
+          items: {$ref: "#/components/schemas/ClearingItemRef"}
+          description: "The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits; together they equal the receipt exactly, in its currency."
+    IncomingPaymentItem:
+      type: object
+      description: "An open item an incoming payment was applied to, identified by (fiscal_year, journal_entry_id, line_no)."
+      required: [item_no, fiscal_year, journal_entry_id, line_no, journal_entry_number, reference, amount]
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the payment, in the order of the request.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "Fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The item's journal entry (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The item's line in the entry.", readOnly: true}
+        journal_entry_number: {type: string, description: "The entry's document number.", readOnly: true}
+        reference: {type: string, description: "The entry's reference, a customer invoice's document number for one; its document number when it has none.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The amount the item stood at, in the payment's currency: positive for what the customer owed (an invoice), negative for a credit of the customer's."}
+    IncomingPayment:
+      description: "An incoming payment applied to a customer's open items (accounts receivable, ADR-0063 §6): a receipt from a house bank's incoming payments clearing account, cleared with the items by one journal entry. It is written once and never changed, so its `version` is 1."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, posting_date, currency, amount,
+            receipt_journal_entry_id, receipt_journal_entry_year, receipt_journal_entry_number, receipt_account_id, receipt_account_number,
+            receipt_account_name, journal_entry_id, journal_entry_year, journal_entry_number, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `incoming_payment` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that received the payment.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            posting_date: {type: string, format: date, description: "The posting date of the clearing entry.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The payment's currency (ISO 4217), the receipt's and every item's.", readOnly: true}
+            amount: {$ref: "#/components/schemas/Money", description: "What was received and applied: the receipt's amount, the sum of the items' amounts."}
+            receipt_journal_entry_id: {type: string, format: uuid, description: "The receipt: the journal entry the bank statement line posted (`GET /v1/journal-entries/{id}`).", readOnly: true}
+            receipt_journal_entry_year: {type: integer, format: int32, description: "The receipt entry's fiscal year.", readOnly: true}
+            receipt_journal_entry_number: {type: string, description: "The receipt entry's document number.", readOnly: true}
+            receipt_account_id: {type: string, format: uuid, description: "The incoming payments clearing account the receipt waited on.", readOnly: true}
+            receipt_account_number: {type: string, description: "That account's number.", readOnly: true}
+            receipt_account_name: {type: string, description: "That account's name, as it is now.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The clearing entry that cleared the receipt and the items (`GET /v1/journal-entries/{id}`).", readOnly: true}
+            journal_entry_year: {type: integer, format: int32, description: "The clearing entry's fiscal year.", readOnly: true}
+            journal_entry_number: {type: string, description: "The clearing entry's document number.", readOnly: true}
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/IncomingPaymentItem"}
+              description: "The items the payment was applied to, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 1
+          created_at: "2026-11-12T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-12T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: IP100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          posting_date: "2026-11-12"
+          currency: CAD
+          amount: {amount: "1050.00", currency: CAD}
+          receipt_journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          receipt_journal_entry_year: 2026
+          receipt_journal_entry_number: "100000042"
+          receipt_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d52"
+          receipt_account_number: "1015"
+          receipt_account_name: Bank incoming - RBC CAD
+          journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d73"
+          journal_entry_year: 2026
+          journal_entry_number: "1400000001"
+          items:
+            - item_no: 1
+              fiscal_year: 2026
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
+              line_no: 1
+              journal_entry_number: "1800000001"
+              reference: CI100001
+              amount: {amount: "1050.00", currency: CAD}
+    IncomingPaymentPage:
+      type: object
+      description: One page of incoming payments applied.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/IncomingPayment"}
+          description: The incoming payments on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    UnappliedReceipt:
+      type: object
+      description: "An incoming payment waiting on a house bank's incoming payments clearing account (ADR-0047): the open credit line of the journal entry a bank statement line matched as incoming posted."
+      required: [journal_entry_id, journal_entry_year, journal_entry_number, legal_entity_id, posting_date, amount, account_id, account_number, account_name]
+      properties:
+        journal_entry_id: {type: string, format: uuid, description: "The receipt's journal entry: what `createIncomingPayment` takes as `receipt_journal_entry_id`.", readOnly: true}
+        journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year.", readOnly: true}
+        journal_entry_number: {type: string, description: "The entry's document number.", readOnly: true}
+        text: {type: string, description: "The entry's header text, which names the bank statement and line that posted it; absent when it has none.", readOnly: true}
+        legal_entity_id: {type: string, format: uuid, description: "The company that received the payment.", readOnly: true}
+        posting_date: {type: string, format: date, description: "The date the receipt was posted on.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What was received, more than zero, in the receipt's currency."}
+        account_id: {type: string, format: uuid, description: "The incoming payments clearing account the receipt waits on.", readOnly: true}
+        account_number: {type: string, description: "That account's number.", readOnly: true}
+        account_name: {type: string, description: "That account's name, as it is now.", readOnly: true}
+        house_bank_code: {type: string, description: "The code of the house bank whose incoming payments clearing account it is (`GET /v1/house-banks`); absent when the configuration no longer names the account for a house bank.", readOnly: true}
+        statement_match_id: {type: string, format: uuid, description: "The bank statement match that posted the receipt (`GET /v1/bank-statements/{id}/matches`); absent when the entry names no source document.", readOnly: true}
+    UnappliedReceiptPage:
+      type: object
+      description: One page of receipts not yet applied.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/UnappliedReceipt"}
+          description: The receipts on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object

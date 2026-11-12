@@ -233,6 +233,10 @@ type CreateHierarchyRes interface {
 	createHierarchyRes()
 }
 
+type CreateIncomingPaymentRes interface {
+	createIncomingPaymentRes()
+}
+
 type CreateLegalEntityRes interface {
 	createLegalEntityRes()
 }
@@ -599,6 +603,10 @@ type GetHierarchyNodeRes interface {
 
 type GetHierarchyRes interface {
 	getHierarchyRes()
+}
+
+type GetIncomingPaymentRes interface {
+	getIncomingPaymentRes()
 }
 
 type GetJournalEntryRes interface {
@@ -1005,6 +1013,10 @@ type ListHouseBanksRes interface {
 	listHouseBanksRes()
 }
 
+type ListIncomingPaymentsRes interface {
+	listIncomingPaymentsRes()
+}
+
 type ListIntercompanyDifferencesRes interface {
 	listIntercompanyDifferencesRes()
 }
@@ -1187,6 +1199,10 @@ type ListTaxReturnDraftItemsRes interface {
 
 type ListTaxReturnsRes interface {
 	listTaxReturnsRes()
+}
+
+type ListUnappliedReceiptsRes interface {
+	listUnappliedReceiptsRes()
 }
 
 type ListVarianceCommentsRes interface {

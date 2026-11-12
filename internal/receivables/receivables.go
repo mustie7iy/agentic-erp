@@ -8,9 +8,11 @@
 // draft when entered and nothing is posted; posting it (T75b, ADR-0063
 // §5) debits the customer's reconciliation account, which is the
 // customer's open item with its payment terms, and credits revenue and
-// output tax. Credit memos and the aging read follow in T75d and T75e
-// (ADR-0063 §7, §10). Its amounts are never negative: the kind gives
-// their direction.
+// output tax. An incoming payment waiting on a house bank's incoming
+// payments clearing account is applied to the customer's open items in
+// full and exactly (T75c, ADR-0063 §6; incoming.go). Credit memos and the
+// aging read follow in T75d and T75e (ADR-0063 §7, §10). An invoice's
+// amounts are never negative: the kind gives their direction.
 //
 // The context reads the ledger (accounts, tax codes, assignments), the
 // partner context (the customer by role and its company data), tenancy
@@ -82,15 +84,24 @@ type Terms interface {
 	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
 }
 
-// Postings is the ledger's posting port (03 §3.16).
+// Postings is the ledger's posting port (03 §3.16): a customer invoice's
+// entry, and the entry that applies a receipt to a customer's open items.
 type Postings interface {
 	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	ApplyReceipt(ctx context.Context, in ledger.ReceiptApplication) (ledger.AppliedReceipt, error)
 }
 
-// Entries names journal entries by their document numbers (ledger
-// context).
+// Entries names journal entries by their document numbers and by their
+// references (ledger context).
 type Entries interface {
 	Numbers(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+	References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
+// Receipts reads the receipts not yet applied on a company's incoming
+// payments clearing accounts (ledger context).
+type Receipts interface {
+	Receipts(ctx context.Context, page *pagination.Keyset, legalEntity uuid.UUID, accounts []uuid.UUID, entry *uuid.UUID) ([]ledger.Receipt, error)
 }
 
 // Partners names business partners by number and name (partner context).
@@ -107,8 +118,10 @@ type Accounts interface {
 }
 
 // References names the accounts and centers a document's items carry by
-// id (ledger context).
+// id, and finds a company's accounts by the numbers the configuration
+// names them by (ledger context).
 type References interface {
+	Accounts(ctx context.Context, legalEntity uuid.UUID, numbers []string) (map[string]uuid.UUID, error)
 	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
 	CenterNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CenterName, error)
 }
@@ -123,7 +136,8 @@ type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 }
 
-// Settings reads the active configuration: a company's tax rounding
+// Settings reads the active configuration: a company's tax rounding, its
+// time zone and its house banks' incoming payments clearing accounts
 // (configuration context).
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
@@ -139,6 +153,7 @@ type Endpoints struct {
 	Partners      Partners
 	Postings      Postings
 	Entries       Entries
+	Receipts      Receipts
 	Accounts      Accounts
 	References    References
 	Numbers       Numbers

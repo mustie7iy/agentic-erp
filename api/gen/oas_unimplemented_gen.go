@@ -1035,6 +1035,39 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 	return r, ht.ErrNotImplemented
 }
 
+// CreateIncomingPayment implements createIncomingPayment operation.
+//
+// Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c;
+// plan default 4). The payment is a receipt: the journal entry a bank statement line matched as
+// incoming posted, whose credit line waits as an open item on the house bank's incoming payments
+// clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the
+// customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and
+// credits alike, in the receipt's currency; together they equal the receipt exactly (422
+// `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One
+// clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every
+// item at the amounts they were booked at and clears them all; what that leaves in local or group
+// currency, receipt and items having been booked at different rates, is a realized exchange difference
+// on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The
+// posting date is the request's, else today, the company's date in its time zone; it must be in an
+// open period (409 `ledger.period_not_open`). The application is a document with a number from the
+// company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written
+// with it. A receipt that is not waiting on an incoming payments clearing account of the company is
+// refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
+// `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
+// open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
+// are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
+// cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409
+// `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds
+// (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
+// place in `items`. Nothing is posted when the application is refused. A retry with the same
+// `Idempotency-Key` answers the payment applied; another request for the same receipt is refused. An
+// application is not undone in the first version. Human-only (`x-agent: false`).
+//
+// POST /v1/incoming-payments
+func (UnimplementedHandler) CreateIncomingPayment(ctx context.Context, req *IncomingPaymentCreate, params CreateIncomingPaymentParams) (r CreateIncomingPaymentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateLegalEntity implements createLegalEntity operation.
 //
 // Creates a legal entity in status `inactive`.
@@ -2385,6 +2418,20 @@ func (UnimplementedHandler) GetHierarchy(ctx context.Context, params GetHierarch
 //
 // GET /v1/hierarchies/{id}/nodes/{node_id}
 func (UnimplementedHandler) GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (r GetHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetIncomingPayment implements getIncomingPayment operation.
+//
+// One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's
+// number and name, its amount, the receipt it applied (the journal entry the statement line posted,
+// with its number and the incoming payments clearing account's number and name), the clearing entry
+// that cleared receipt and items, and the items it was applied to, each with its journal entry's
+// number and reference and the amount it stood at, a credit of the customer's negative. One of a
+// company the caller may not act in is not found.
+//
+// GET /v1/incoming-payments/{id}
+func (UnimplementedHandler) GetIncomingPayment(ctx context.Context, params GetIncomingPaymentParams) (r GetIncomingPaymentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3771,6 +3818,19 @@ func (UnimplementedHandler) ListHouseBanks(ctx context.Context, params ListHouse
 	return r, ht.ErrNotImplemented
 }
 
+// ListIncomingPayments implements listIncomingPayments operation.
+//
+// The incoming payments applied to customers' open items in the companies the caller may act in
+// (ADR-0063 §6, T75c), each as `getIncomingPayment` gives it: with its company's code and name, its
+// customer's number and name, its receipt, its clearing entry and the items it was applied to.
+// Filtered by company, customer, document number and posting date. Sortable by: `posting_date`,
+// `document_number`.
+//
+// GET /v1/incoming-payments
+func (UnimplementedHandler) ListIncomingPayments(ctx context.Context, params ListIncomingPaymentsParams) (r ListIncomingPaymentsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListIntercompanyDifferences implements listIntercompanyDifferences operation.
 //
 // A consolidation run's intercompany matching (ADR-0059 §8, T68f; SAP's intercompany matching and
@@ -4333,6 +4393,22 @@ func (UnimplementedHandler) ListTaxReturnDraftItems(ctx context.Context, params 
 //
 // GET /v1/tax-registrations/{id}/returns
 func (UnimplementedHandler) ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (r ListTaxReturnsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListUnappliedReceipts implements listUnappliedReceipts operation.
+//
+// The incoming payments of a company that wait to be applied (ADR-0063 §6, T75c; ADR-0047): the open
+// credit lines on the incoming payments clearing accounts of the company's house banks that bank
+// statement lines matched as incoming posted, each with its journal entry's number and text, its
+// posting date, its amount, the account's number and name and the house bank's code. A receipt leaves
+// the list when `createIncomingPayment` applies it, or when its entry is reversed. The statement lines
+// themselves are read with `GET /v1/bank-statements/{id}/matches`, which names each posting but not
+// whether accounts receivable cleared it. The company is one the caller may act in. Sortable by:
+// `posting_date`.
+//
+// GET /v1/unapplied-receipts
+func (UnimplementedHandler) ListUnappliedReceipts(ctx context.Context, params ListUnappliedReceiptsParams) (r ListUnappliedReceiptsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

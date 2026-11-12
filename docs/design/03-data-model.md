@@ -4002,6 +4002,10 @@ inbox and the customer invoice, the accounting record of an invoice the
 company issued, entered as a draft. T75b (migration 000267) posts it,
 once: the invoice names its journal entry, whose debit line on the
 customer's reconciliation account is the customer's open item (§3.7).
+T75c (migration 000268) applies an incoming payment waiting on a house
+bank's incoming payments clearing account (ADR-0047) to a customer's open
+items, in full and exactly: a document written once, naming the receipt's
+entry and the ledger's clearing entry that cleared receipt and items.
 
 ```mermaid
 erDiagram
@@ -4031,6 +4035,24 @@ erDiagram
     bigint tax_amount "0 without a code"
     uuid cost_center_id
     uuid profit_center_id }
+  incoming_payment ||--|{ incoming_payment_item : "applied to"
+  incoming_payment { uuid id PK
+    text document_number "incoming_payment range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    smallint receipt_entry_year
+    uuid receipt_entry_id "ledger: the statement line's entry, applied once"
+    uuid receipt_account_id "ledger: the incoming payments clearing account"
+    date posting_date
+    char currency
+    bigint amount "above 0: the receipt's, the items' sum"
+    smallint clearing_entry_year
+    uuid clearing_entry_id "ledger: cleared receipt and items" }
+  incoming_payment_item { int item_no PK
+    smallint fiscal_year
+    uuid journal_entry_id "ledger: the open item"
+    int line_no
+    bigint amount "debit positive; a credit negative" }
 ```
 
 - `receivables.customer_invoice`: amounts are minor units of `currency`,
@@ -4054,10 +4076,30 @@ erDiagram
   `customer_invoice_item_tax_needs_code`); insert-only
   (`platform.forbid_mutation`). The items' net and tax add up to the
   header's, which the context writes in one transaction.
+- `receivables.incoming_payment` (T75c): an incoming payment applied.
+  The number is unique per company (`incoming_payment_number_once`); the
+  amount is above zero (`incoming_payment_amount_positive`); a receipt is
+  applied once (`incoming_payment_receipt_once`) and a clearing entry is
+  one application's (`incoming_payment_entry_once`). Insert-only
+  (`platform.forbid_mutation`, no update or delete grant): an application
+  is not undone in the first version.
+- `receivables.incoming_payment_item`: the open items it was applied to,
+  each with the amount it stood at in the payment's currency, never zero
+  (`incoming_payment_item_amount_not_zero`), a credit of the customer's
+  negative; an open item is applied once (`incoming_payment_item_once`).
+  Insert-only. The items add up to the payment's amount, which the ledger
+  holds the application to (`ledger.Postings.ApplyReceipt`).
 - `receivables.outbox`, `receivables.inbox`: the context's events
-  (`CustomerInvoiceChanged`, `CustomerInvoicePosted`).
-- Permissions `receivables.invoice.read`, `.write` and `.post`.
+  (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
+  `IncomingPaymentApplied`).
+- Permissions `receivables.invoice.read`, `.write` and `.post`, and
+  `receivables.payment.apply`.
 - In the ledger, `ledger.open_item_terms` keeps the terms of a customer
   open item as of a supplier's (T75b), and `ledger.OpenItems.Receivable`
   reads the customer open items of a company for the aging, dunning, the
   collection worklist and the credit exposure (ADR-0063 As built).
+  `ledger.Postings.ApplyReceipt` posts the entry that clears a receipt on
+  an incoming payments clearing account with a customer's open items, and
+  `ledger.OpenItems.Receipts` reads the receipts not yet applied (T75c;
+  §3.7's clearing, `ledger.clearing` and `ledger.clearing_item`, with no
+  new table).
