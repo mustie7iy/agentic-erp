@@ -16,7 +16,10 @@ import (
 // put every item where the open items' aging counts it in SQL
 // (agingSelect), on every key date and for every set of days: items not
 // yet due, due on the key date, overdue on a bucket's first and last day
-// and past the last bucket, and an item without terms.
+// and past the last bucket, and an item without terms, which the list
+// shows without a due date. The reader of customer items parts from the
+// list there (PO 2026-11-12): for it the item is due on its document date
+// and ages from the day after.
 func TestAgingBucketAsTheList(t *testing.T) {
 	e := setup(t)
 	if err := apply(t, e, withReceivables(t)); err != nil {
@@ -67,8 +70,8 @@ func TestAgingBucketAsTheList(t *testing.T) {
 			}
 			counts, sums := map[string]int{}, map[string]money.Minor{}
 			for _, it := range items {
-				overdue, due := it.DaysOverdue(date(c.key))
-				name, from, to := ledger.AgingRange(ledger.AgingBucket(overdue, due, days), days)
+				// The list ages an item as posted: without terms, without a due date.
+				name, from, to := ledger.AgingRange(ledger.AgingBucket(it.DaysOverdue(date(c.key)), it.Terms != nil, days), days)
 				key := name + " <nil> <nil>"
 				if from != nil {
 					key = fmt.Sprintf("%s %d <nil>", name, *from)
@@ -84,6 +87,24 @@ func TestAgingBucketAsTheList(t *testing.T) {
 			}
 			if !maps.Equal(read, listed) {
 				t.Errorf("buckets: got %v from AgingBucket, want the list's %v", read, listed)
+			}
+		})
+	}
+	// The item without terms is dated 4 March: due then for the reader.
+	without := items[3]
+	if due := without.NetDueDate(); without.Terms != nil || due != date("2026-03-04") {
+		t.Fatalf("the item without terms: got terms %+v, due %s; want none, due on its document date 2026-03-04", without.Terms, due.Format("2006-01-02"))
+	}
+	for _, c := range []struct {
+		name, key string
+		bucket    int
+	}{
+		{"on its document date", "2026-03-04", 0}, {"the day after", "2026-03-05", 1}, {"30 days after", "2026-04-03", 1},
+		{"31 days after", "2026-04-04", 2}, {"91 days after", "2026-06-03", 4},
+	} {
+		t.Run("without terms, "+c.name, func(t *testing.T) {
+			if got := ledger.AgingBucket(without.DaysOverdue(date(c.key)), true, []int32{30, 60, 90}); got != c.bucket {
+				t.Errorf("bucket on %s: got %d, want %d", c.key, got, c.bucket)
 			}
 		})
 	}

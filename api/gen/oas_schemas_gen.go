@@ -22111,7 +22111,8 @@ type CollectionWorklistCustomer struct {
 	OpenAmount Money `json:"open_amount"`
 	// What the customer's items overdue on the key date add up to; credit items do not reduce it.
 	OverdueAmount Money `json:"overdue_amount"`
-	// The earliest net due date among the customer's overdue items.
+	// The earliest net due date among the customer's overdue items; an item posted without payment terms
+	// is due on its document date.
 	OldestDueDate time.Time `json:"oldest_due_date"`
 	// The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0
 	// when none was dunned.
@@ -32966,7 +32967,8 @@ type DunningNoticeItem struct {
 	Reference OptString `json:"reference"`
 	// The journal entry's document date.
 	DocumentDate time.Time `json:"document_date"`
-	// The item's net due date by the payment terms it was posted with.
+	// The item's net due date: by the payment terms it was posted with, or, posted without any, its
+	// document date.
 	NetDueDate time.Time `json:"net_due_date"`
 	// The days from the net due date to the run's key date.
 	DaysOverdue int32 `json:"days_overdue"`
@@ -67712,7 +67714,8 @@ func (*ReceivablesAging) getReceivablesAgingRes() {}
 // Ref: #/components/schemas/ReceivablesAgingBucket
 type ReceivablesAgingBucket struct {
 	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
-	// due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms.
+	// due date (the last overdue bucket without `days_to`); `no_due_date`: always empty, since an item
+	// posted without payment terms is due on its document date (until 2026-11-12 it was counted here).
 	// Open enumeration: clients must accept and preserve values not listed here; values may be added
 	// within /v1.
 	Bucket string `json:"bucket"`

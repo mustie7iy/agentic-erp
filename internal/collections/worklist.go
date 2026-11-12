@@ -69,8 +69,9 @@ func inWorklistOrder(a, b WorklistCustomer) int {
 
 // WorklistOf computes the collection worklist of a company the caller may
 // act in on a key date, from the ledger's open customer items as they are
-// now: nothing is stored. A customer is listed when an item it owes, posted
-// with payment terms, is past its net due date on the key date (overdue);
+// now: nothing is stored. A customer is listed when an item it owes is past
+// its net due date on the key date (overdue as a dunning run counts it:
+// an item posted without payment terms is due on its document date);
 // a customer with nothing overdue is not listed, whatever it owes. The
 // customers' numbers, names and dunning are not read here: describe reads
 // them for a page.
@@ -128,7 +129,7 @@ func (w *Worklist) add(open []ledger.ReceivableItem) bool {
 		var all, due []money.Minor
 		for _, o := range overdue(c.items, w.KeyDate) {
 			due = append(due, o.AmountLC)
-			if d := o.Terms.NetDueDate(); c.OldestDue.IsZero() || d.Before(c.OldestDue) {
+			if d := o.NetDueDate(); c.OldestDue.IsZero() || d.Before(c.OldestDue) {
 				c.OldestDue = d
 			}
 		}

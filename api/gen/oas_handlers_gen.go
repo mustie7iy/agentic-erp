@@ -12167,20 +12167,21 @@ func (s *Server) handleCreateDownPaymentRequestRequest(args [0]string, argsEscap
 // on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on
 // the items, and nothing is sent to a customer. The items are the open items on the company's customer
 // reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the
-// customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its
-// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
-// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
-// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
-// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
-// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
-// highest level stays there. A notice's level is the highest among its items. A key date after
-// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
-// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
-// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
-// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
-// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
-// answers the run started. Human-only (`x-agent: false`).
+// customer owes it (a debit) and, on the key date, it is past its net due date by at least the days of
+// the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due
+// on the key date is not overdue. The net due date is that of the payment terms the item was posted
+// with; an item posted without payment terms (a manual or migrated entry's) is due on its document
+// date and is proposed like any other. Credit items (a credit memo, a payment on account) are not
+// dunned and reduce nothing, with or without terms. An item rises one level per confirmed run at most,
+// from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never
+// dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second
+// level's days, and one at the highest level stays there. A notice's level is the highest among its
+// items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming
+// `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as
+// is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not
+// supported yet) and one whose amounts add up to more than an amount holds (422
+// `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices.
+// A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (s *Server) handleCreateDunningRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -28284,21 +28285,22 @@ func (s *Server) handleGetCloseCalendarRequest(args [0]string, argsEscaped bool,
 // overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
 // dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
 // (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
-// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
-// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
-// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
-// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
-// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
-// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
-// counts what is overdue. Amounts are in the company's currency, as the items were booked.
-// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
-// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
-// company and key date. Each page is computed anew and continues after the last customer's overdue
-// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
-// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
-// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
-// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
-// naming `key_date`). A legal entity the caller cannot act in is 404.
+// dunning run counts it: the customer owes it (a debit) and the key date is past its net due date,
+// which is that of the payment terms it was posted with or, for an item posted without payment terms
+// (a manual or migrated entry's), its document date; an item due on the key date is not overdue, so an
+// item without terms is overdue from the day after its document date, and credit items reduce no
+// overdue amount. A customer with nothing overdue is not listed, whatever it owes. The worklist is
+// computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the
+// items are the ones open now on the company's customer reconciliation accounts in the leading ledger,
+// whoever posted them, and the key date only counts what is overdue. Amounts are in the company's
+// currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top
+// are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a
+// page token is bound to the company and key date. Each page is computed anew and continues after the
+// last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be
+// listed again with its new amount, and one whose amount rose is not read again, so a consumer that
+// pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no
+// dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422
+// `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404.
 //
 // GET /v1/collection-worklist
 func (s *Server) handleGetCollectionWorklistRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -38409,19 +38411,22 @@ func (s *Server) handleGetPurchaseOrderDocumentRequest(args [1]string, argsEscap
 // read from the ledger's customer open items of the leading ledger, as they are now (not as they were
 // on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
 // cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
-// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
-// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
-// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
-// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
-// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
-// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
-// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
-// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
-// `totals` are those of every customer the request selects, on every page, and equal the open items of
-// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
-// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
-// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
-// naming `key_date`).
+// one bucket by its net due date: the baseline date plus the net days of the payment terms it was
+// posted with, as `GET /v1/open-items` ages it with `aging_key_date`, or, for an item posted without
+// payment terms (a manual or migrated entry's), its document date, where that list shows it as
+// `no_due_date`. An item is `not_due` when due on the key date or later, else in the `overdue` bucket
+// holding its days past the due date, so an item without terms is overdue from the day after its
+// document date; a credit item ages the same way, with or without terms. `aging_days` are the overdue
+// buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90
+// days); every bucket is given, an empty one with no items and an amount of 0, in the order not due,
+// overdue by days, no due date; `no_due_date` is always empty, since every item has a due date, and is
+// kept so that the response keeps its shape. Amounts are in the company's local currency (`currency`),
+// as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account)
+// is negative and reduces its customer's bucket and total. `totals` are those of every customer the
+// request selects, on every page, and equal the open items of the company's customer reconciliation
+// accounts. `items` is one row per customer with open items, by customer id, in cursor pages;
+// `customer_id` selects one customer. The company must be one the caller may act in. The key date is
+// in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`).
 //
 // GET /v1/receivables-aging
 func (s *Server) handleGetReceivablesAgingRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -59922,10 +59927,12 @@ func (s *Server) handleListNumberRangesRequest(args [0]string, argsEscaped bool,
 //
 // Uncleared lines on supplier and customer reconciliation accounts. An item posted with payment terms
 // (T36b) is due on their `net_due_date`, and earns a discount until each tier's `until`; an item
-// without terms (posted before T36, manually, migrated, a customer's) has no due date the ledger
-// keeps. With `aging_key_date` the first page also carries `aging`: every item the filters select, not
-// only the page's, summed per local currency by how many days past its net due date it is on the key
-// date (ADR-0052 G4). Sortable by: `posting_date`.
+// without terms (posted before T36, manually, migrated) has no due date in this list, a supplier's and
+// a customer's alike: the list shows the items as they were posted. The AR aging, a dunning run and
+// the collection worklist take a customer item without terms as due on its document date
+// (`GET /v1/receivables-aging`). With `aging_key_date` the first page also carries `aging`: every item
+// the filters select, not only the page's, summed per local currency by how many days past its net due
+// date it is on the key date (ADR-0052 G4). Sortable by: `posting_date`.
 //
 // GET /v1/open-items
 func (s *Server) handleListOpenItemsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

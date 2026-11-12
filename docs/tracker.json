@@ -2925,6 +2925,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "A customer item posted without payment terms (a manual or migrated entry's) is due on its document date: overdue from the day after, proposed by a dunning run, listed as overdue in the collection worklist and aged by that date in the AR aging, whose bucket for items without a due date stays in the response and is always empty; credit items stay undunned",
+        "r": "product owner 2026-11-12 (row 10; ADR-0065 question 2) · ledger.ReceivableItem.NetDueDate and DaysOverdue (internal/ledger/receivable.go), the one place the rule is kept · internal/receivables/aging.go · internal/collections propose.go, worklist.go · TestReceivableItems, TestAgingBucketAsTheList, TestReceivablesAging, TestAgingTotalsAreTheOpenItems, TestItemsWithoutTerms, TestWorklist · GET /v1/open-items and supplier items unchanged · ADR-0063 and ADR-0065 As built, Items without payment terms",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: dunning variants: charges and interest, letters and e-mails, grace days and minimum amounts, dunning blocks, procedures per customer, scheduled and large runs as a workflow, cancelling a confirmed run (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week1.md §T76b, Later",

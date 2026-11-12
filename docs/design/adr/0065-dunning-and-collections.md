@@ -124,12 +124,14 @@ Of the company's open customer items, a run proposes those that
 - the customer owes: a debit, an amount above zero. Credit items (a
   credit memo, a payment on account) are not dunned and reduce nothing
   (plan default 6): a notice's amount is the sum of its debit items;
-- were posted with payment terms: an item without terms has no due date
-  the ledger keeps (ADR-0063 §5), so it is never overdue. Special G/L
-  items are posted without terms today and so are left out with them;
 - are overdue on the key date by at least the days of the first level:
   days are counted from the net due date to the key date, and an item due
   on the key date is not overdue (`ledger.ReceivableItem.DaysOverdue`).
+  The net due date is that of the payment terms the item was posted
+  with; an item posted without payment terms (a manual or migrated
+  entry's) is due on its document date (product owner 2026-11-12; As
+  built, Items without payment terms). Until then such an item had no
+  due date and was never dunned.
 
 The level an item would reach is the last level whose days it has
 reached, but one above the level it was last dunned at, at most, and
@@ -231,7 +233,9 @@ is a report read and gets a budget test.
 2. A run's key date is required and may be any date up to 2100-12-31
    (the limit is T76b's, As built).
 3. An item is proposed only once it is overdue by the first level's
-   days; an item without payment terms is never dunned.
+   days; an item without payment terms is due on its document date
+   (product owner 2026-11-12, overruling the default that it is never
+   dunned).
 4. A run with nothing to dun is stored, without notices.
 5. One run proposes at most 5,000 items; more is refused.
 6. Starting a run is people's; agents read runs and notices.
@@ -247,7 +251,8 @@ is a report read and gets a budget test.
 2. **Items without payment terms** (product owner): a customer item
    posted by a manual or migrated entry without terms has no due date and
    is never dunned. Should such an item be due on its document date
-   instead?
+   instead? Answered 2026-11-12: yes (As built, Items without payment
+   terms).
 
 ## As built
 
@@ -388,8 +393,8 @@ is a report read and gets a budget test.
 - **Rows.** `collections.WorklistOf` reads every open customer item of
   the company (`ledger.OpenItems.Receivable`) and groups them by
   customer. A customer is listed when one of its items is overdue on the
-  key date as §4 counts it (a debit with payment terms, past its net due
-  date by a day at least; the first dunning level's days do not matter,
+  key date as §4 counts it (a debit past its net due date by a day at
+  least, the document date for an item without payment terms; the first dunning level's days do not matter,
   and a company without dunning levels has a worklist too). Each row:
   the customer's id, number and name; `open_amount`, all its open items
   with credits; `overdue_amount`, its overdue items, which credits do
@@ -428,3 +433,38 @@ is a report read and gets a budget test.
   date as last dunning date, its open amount less than that by the
   credit memo of step 54, which reduces nothing overdue; at the due date
   it is not listed.
+
+### Items without payment terms (po:2026-11-12, no migration)
+
+- **Rule** (product owner 2026-11-12, answering question 2 and
+  overruling default 3): a customer open item posted without payment
+  terms is due on its document date. On that date it is not overdue; from
+  the day after it is, by the days past it.
+- **One place.** `ledger.ReceivableItem.NetDueDate()` returns the terms'
+  net due date or, without terms, the document date, and
+  `DaysOverdue(on)` counts from it; both lost their second result
+  (`ok`), so no reader can branch on "no terms" any more. `overdue`
+  (propose.go), which a run's proposal, a confirmation's check and the
+  worklist share, reads them; a notice item's `net_due_date` and the
+  worklist's `oldest_due_date` are that date. Nothing is stored
+  differently: an item without terms still has no row in
+  `ledger.open_item_terms`, and posting defaults no terms.
+- **What a run now proposes.** A debit without terms once it is past its
+  document date by the first level's days, at the levels and one-level
+  steps of §4. Credit items stay undunned and reduce nothing, with or
+  without terms. Customer special G/L items do not exist today (special
+  G/L A is the supplier down payment account's, ADR-0037); one would
+  follow the rule.
+- **Not changed:** supplier items (a payment proposal takes an item
+  without terms as due by its supplier's current terms), and
+  `GET /v1/open-items`, whose `due_date_to` filter and aging show an item
+  without terms, a customer's too, without a due date (`no_due_date`):
+  that list shows the items as posted. The AR aging follows the rule
+  (ADR-0063 As built).
+- **Tests.** `TestItemsWithoutTerms` (worklist: not listed on the
+  document date, listed the day after with that date as oldest due date;
+  a run: nothing on the document date or a day short of the first level,
+  proposed at its days with the document date as `net_due_date`);
+  `TestNextLevel`, `TestConfirmationsSerialize`, `TestKeyDates`,
+  `TestWorklist` and `TestWorklistPages` now carry the story's debit
+  without terms, dated the key date, through the later runs.

@@ -121,13 +121,13 @@ type overdueItem struct {
 
 // overdue are, of the open items, in their order, those overdue on the
 // key date: the ones the customer owes (a debit: credit items are not
-// dunned and reduce nothing) that were posted with payment terms (an item
-// without has no due date) and are past their net due date by a day at
-// least.
+// dunned and reduce nothing) that are past their net due date by a day at
+// least. The due date is the ledger's (ReceivableItem.NetDueDate): the
+// terms', or the document date of an item posted without any.
 func overdue(open []ledger.ReceivableItem, keyDate time.Time) []overdueItem {
 	var out []overdueItem
 	for _, it := range open {
-		if days, ok := it.DaysOverdue(keyDate); ok && days > 0 && it.Amount > 0 {
+		if days := it.DaysOverdue(keyDate); days > 0 && it.Amount > 0 {
 			out = append(out, overdueItem{ReceivableItem: it, days: days})
 		}
 	}
@@ -164,7 +164,7 @@ func propose(due []overdueItem, levels []config.DunningLevel, previous map[ledge
 		}
 		n := &notices[len(notices)-1]
 		n.Items = append(n.Items, Item{ItemNo: int32(len(n.Items) + 1), ItemRef: it.ItemRef, DocumentNumber: it.Number, Reference: it.Reference,
-			DocumentDate: it.DocumentDate, NetDueDate: it.Terms.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency, Amount: it.Amount,
+			DocumentDate: it.DocumentDate, NetDueDate: it.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency, Amount: it.Amount,
 			AmountLC: it.AmountLC, PreviousLevel: before.Level, Level: int32(level), PreviousDunnings: before.Times})
 	}
 	return notices
