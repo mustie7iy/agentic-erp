@@ -14,8 +14,10 @@ ALTER TABLE sales.sales_order
   ADD COLUMN credit_block text NOT NULL DEFAULT 'none'
     CONSTRAINT sales_order_credit_block_check CHECK (credit_block IN ('none', 'blocked', 'released')),
   ADD COLUMN credit_released_by uuid,          -- identity context
-  ADD COLUMN credit_released_by_name text CONSTRAINT sales_order_credit_released_by_name_check
-    CHECK (btrim(credit_released_by_name) <> '' AND length(credit_released_by_name) <= 200),
+  -- The principal's display name as identity holds it then, whatever it
+  -- is: identity's rule for a name is the only one, so a release is never
+  -- refused for the name of who made it.
+  ADD COLUMN credit_released_by_name text,
   ADD COLUMN credit_released_at timestamptz,
   -- A released block names who released it and when; nothing else does.
   ADD CONSTRAINT sales_order_credit_release CHECK ((credit_block = 'released') = (credit_released_by IS NOT NULL)

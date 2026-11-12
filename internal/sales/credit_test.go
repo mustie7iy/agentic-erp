@@ -183,6 +183,14 @@ func TestCreditCheckAmount(t *testing.T) {
 			}
 		})
 	}
+	t.Run("two items of one tax code, taxed together", func(t *testing.T) {
+		// 2 x 100.00 with 19% tax is 238.00, the limit.
+		customer := e.buyer(t, "BP70000031", "238.00")
+		got := e.placed(t, customer, e.item(line{quantity: "10", code: "A1"}), e.item(line{quantity: "10", code: "A1"}))
+		if got["credit_block"] != "none" {
+			t.Errorf("credit_block: got %v, want none: 238.00 EUR at the limit", got["credit_block"])
+		}
+	})
 	t.Run("an order of a customer without a limit counts in its exposure", func(t *testing.T) {
 		customer := e.buyer(t, "BP70000030", "")
 		id := e.placed(t, customer, e.item(line{quantity: "10", code: "A1"}))["id"].(string)
@@ -243,7 +251,10 @@ func TestCreditBlockReleased(t *testing.T) {
 		}
 		var name string
 		pgtest.Scan(t, `SELECT display_name FROM identity.principal WHERE tenant_id = $1 AND id = $2`, []any{e.Tenant.ID, e.Tenant.Human.ID}, &name)
-		if a["credit_released_by_name"] != name || name == "" {
+		if name == "" {
+			t.Fatal("the releasing person's display name: got none, want the fixture's")
+		}
+		if a["credit_released_by_name"] != name {
 			t.Errorf("credit_released_by_name: got %v, want the releasing person's name, %q", a["credit_released_by_name"], name)
 		}
 		if tag := first.Header().Get("ETag"); tag != `"3"` {

@@ -673,9 +673,9 @@ func TestSalesOrderCreditBlockRules(t *testing.T) {
 		{"released without the name of who released it", func(tx pgx.Tx, s scene) error {
 			return all(tx, confirmed(s, "blocked", step(release, s.order, "released", s.actor, at, nil))...)
 		}, "sales_order_credit_release"},
-		{"released by a name of white space", func(tx pgx.Tx, s scene) error {
+		{"released by a name identity accepts, of white space", func(tx pgx.Tx, s scene) error {
 			return all(tx, confirmed(s, "blocked", step(release, s.order, "released", s.actor, at, " "))...)
-		}, "sales_order_credit_released_by_name_check"},
+		}, ""},
 		{"who released an order that is not released", func(tx pgx.Tx, s scene) error {
 			return all(tx, append(draft(s), step(`UPDATE sales.sales_order SET status = 'confirmed', credit_block = 'blocked', credit_released_by = $2,
 				credit_released_at = $3, version = version + 1 WHERE id = $1`, s.order, s.actor, at))...)

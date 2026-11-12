@@ -4644,8 +4644,8 @@ erDiagram
   block: `credit_block` is `none`, `blocked` or `released`
   (`sales_order_credit_block_check`), `none` for a draft
   (`sales_order_credit_block_confirmed`); `credit_released_by`,
-  `credit_released_by_name` (the name then, not white space,
-  `sales_order_credit_released_by_name_check`) and
+  `credit_released_by_name` (the principal's display name then, as
+  identity holds it, with no rule of its own) and
   `credit_released_at` are set exactly when it is `released`
   (`sales_order_credit_release`). The change rule
   (`sales_order_confirmed_once`) admits a draft confirmed with `none` or

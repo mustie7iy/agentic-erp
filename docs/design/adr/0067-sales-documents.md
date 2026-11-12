@@ -822,7 +822,9 @@ which records what the check compares, the exposure and the lock).
 - Migration 000296: on `sales.sales_order`, `credit_block` (`none`,
   `blocked`, `released`; `sales_order_credit_block_check`),
   `credit_released_by`, `credit_released_by_name` (the releaser's name
-  as it was then, as a close's sign-off keeps its signer's) and
+  as it was then, as a close's sign-off keeps its signer's, with no
+  rule of its own beside identity's for a display name: review round 2)
+  and
   `credit_released_at`, set exactly when it is released
   (`sales_order_credit_release`); a draft has no block
   (`sales_order_credit_block_confirmed`). The order's change rule
