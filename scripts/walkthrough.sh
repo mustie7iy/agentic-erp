@@ -7210,9 +7210,9 @@ step_credit_block() {
   as ruth
   say "Ruth speaks to Northwind, which has always paid, and releases the block at the version she read. It is"
   say "released once, with who released it and when, audited and published as SalesOrderCreditReleased:"
-  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block) by \(.credit_released_by) at \(.credit_released_at), version \(.version)"' \
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block) by \(.credit_released_by_name) at \(.credit_released_at), version \(.version)"' \
     releaseSalesOrderCreditBlock -p "id=$large" -if-match "$tag"
-  expect "the released order" "$(field '"\(.status) \(.credit_block) \(.credit_released_by) \(.version)"')" "confirmed released $ruth 3"
+  expect "the released order" "$(field '"\(.status) \(.credit_block) \(.credit_released_by) \(.credit_released_by_name) \(.version)"')" "confirmed released $ruth Ruth Receivables 3"
   refused 409 sales.order_not_credit_blocked releaseSalesOrderCreditBlock -p "id=$large" -if-match "$ETAG"
   api 200 '"open orders \(.open_orders.amount) (\(.open_order_count)), exposure \(.exposure.amount), limit \(.limit.amount), available \(.available.amount); within the limit: \(.is_within_limit)"' \
     getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"

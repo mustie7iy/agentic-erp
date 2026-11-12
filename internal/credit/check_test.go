@@ -12,6 +12,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/credit"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
@@ -136,7 +137,7 @@ func TestCheck(t *testing.T) {
 			}
 		})
 	}
-	t.Run("without a limit", func(t *testing.T) {
+	t.Run("without a limit the exposure is not read", func(t *testing.T) {
 		unread := endpoints(t)
 		unread.Orders = ordered{err: errors.New("the orders are not to be read")}
 		x, err := check(t, unread, e.east, 1_000_000_00)
@@ -162,11 +163,14 @@ func TestCheck(t *testing.T) {
 	})
 }
 
-// TestCheckHoldsTheLimit: a check holds the customer's limit until its
-// transaction ends, so a second check of the customer, or a change of
-// the limit, waits for it: two orders of one customer are checked one
-// after the other (ADR-0066, As built T77b; ADR-0008).
-func TestCheckHoldsTheLimit(t *testing.T) {
+// TestCheckHoldsTheCustomer: a check holds the customer in the company
+// until its transaction ends, so a second check of the customer waits
+// for it: two orders of one customer are checked one after the other.
+// It holds a customer without a limit too, so a limit is not set beside
+// a confirmation under way, which the next check would then not count;
+// and a change of the limit waits for a check (ADR-0066, As built T77b;
+// ADR-0008).
+func TestCheckHoldsTheCustomer(t *testing.T) {
 	e := setup(t)
 	e.Must(201, "POST", "/v1/credit-limits", limitOf(e.DE, e.north, "500.00", "EUR"), "")
 	h := endpoints(t)
@@ -181,4 +185,36 @@ func TestCheckHoldsTheLimit(t *testing.T) {
 	if second != nil {
 		t.Errorf("the second check: got %v, want it answered once the first ended", second)
 	}
+	t.Run("a limit set while a customer without one is checked", func(t *testing.T) {
+		unlimited := func(ctx context.Context) error {
+			_, err := h.Check(ctx, e.DE, e.east, 100)
+			return err
+		}
+		set := func(ctx context.Context) error {
+			_, err := h.SetLimit(ctx, credit.LimitInput{LegalEntityID: e.DE, CustomerID: e.east, Amount: "100.00", Currency: "EUR"})
+			return err
+		}
+		checked, limited := apitest.Serialized(t, e.Tenant, e.Tenant.Human, unlimited, set)
+		if checked != nil {
+			t.Errorf("the check: got %v, want it answered", checked)
+		}
+		if limited != nil {
+			t.Errorf("setting the limit: got %v, want it set once the check ended", limited)
+		}
+	})
+	t.Run("a limit changed while the customer is checked", func(t *testing.T) {
+		var id uuid.UUID
+		pgtest.Scan(t, `SELECT id FROM credit.credit_limit WHERE tenant_id = $1 AND customer_id = $2`, []any{e.Tenant.ID, e.north}, &id)
+		change := func(ctx context.Context) error {
+			_, err := h.ChangeLimit(ctx, id, func(int32) error { return nil }, "600.00", "EUR")
+			return err
+		}
+		checked, changed := apitest.Serialized(t, e.Tenant, e.Tenant.Human, check, change)
+		if checked != nil {
+			t.Errorf("the check: got %v, want it answered", checked)
+		}
+		if changed != nil {
+			t.Errorf("the change: got %v, want it made once the check ended", changed)
+		}
+	})
 }

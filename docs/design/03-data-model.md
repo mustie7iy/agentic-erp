@@ -4457,8 +4457,9 @@ writes nothing (ADR-0066 §4). From T77b the exposure has a second part,
 the customer's confirmed sales orders not yet billed, read from the
 sales context (§3.29) through a port and stored nowhere either; the
 check a sales order's confirmation asks reads the limit's row
-`FOR UPDATE`, so two orders of one customer are checked one after the
-other (ADR-0066, As built T77b). T77b adds no table and no column
+`FOR UPDATE` under an advisory lock on the customer in the company,
+which setting a limit takes too, so two orders of one customer are
+checked one after the other (ADR-0066, As built T77b). T77b adds no table and no column
 here.
 
 ```mermaid
@@ -4642,12 +4643,14 @@ erDiagram
   `sales_order_by_customer`). T77b (migration 000296) adds the credit
   block: `credit_block` is `none`, `blocked` or `released`
   (`sales_order_credit_block_check`), `none` for a draft
-  (`sales_order_credit_block_confirmed`); `credit_released_by` and
+  (`sales_order_credit_block_confirmed`); `credit_released_by`,
+  `credit_released_by_name` (the name then, not white space,
+  `sales_order_credit_released_by_name_check`) and
   `credit_released_at` are set exactly when it is `released`
   (`sales_order_credit_release`). The change rule
   (`sales_order_confirmed_once`) admits a draft confirmed with `none` or
   `blocked`, and a blocked order released, once; the application may
-  also update these three columns. The credit exposure reads a
+  also update these four columns. The credit exposure reads a
   customer's confirmed, unblocked orders by `sales_order_by_customer`.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:

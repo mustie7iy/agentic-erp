@@ -329,17 +329,22 @@ The check that blocked nothing now blocks a sales order
   order over the limit is confirmed with `credit_block` `blocked`; one
   within it with `none`. The order is not checked again (plan default
   10).
-- **The lock.** `credit.Endpoints.Check` reads the customer's limit row
-  `FOR UPDATE` and holds it until the confirming transaction ends, and
-  reads the exposure after the lock is held. Two confirmations of two
-  orders of one customer therefore run one after the other, and the
-  second is checked against an exposure that holds the first: they
-  cannot both take the room only one fits. Changing the limit waits on
-  the same row. The order's own row is locked first, the limit second,
-  and nothing takes them the other way round. A customer without a limit
-  has no row to hold and needs none. Within the check the orders are
-  read before the open items, so an invoice posted between the two reads
-  is counted in both, never in neither.
+- **The lock.** `credit.Endpoints.Check` takes the customer's key in
+  the company (a transaction advisory lock on tenant, company and
+  customer, `credit.hold`) and holds it until the confirming transaction
+  ends, whether the customer has a limit or not; it then reads the limit
+  row `FOR UPDATE` and, after both are held, the exposure. Two
+  confirmations of two orders of one customer therefore run one after
+  the other, and the second is checked against an exposure that holds
+  the first: they cannot both take the room only one fits. Setting a
+  limit takes the same key, so a limit is not set beside a confirmation
+  under way that found none (review round 1: the next order would have
+  been checked against an exposure without the first); changing a limit
+  waits on the row. The order's own row is locked first, the key second,
+  the limit's row third, and nothing takes them the other way round.
+  Within the check the orders are read before the open items, so an
+  invoice posted between the two reads is counted in both, never in
+  neither.
 - **A blocked order does not count in the exposure** until it is
   released. Decided by default: the product owner counted "confirmed
   orders not yet billed"; a blocked order cannot be delivered, so it
@@ -374,6 +379,18 @@ The check that blocked nothing now blocks a sales order
   posted half is added: after the post, `open_orders` falls by the
   document's gross, `open_items` rises by the invoice's, and `exposure`
   stays when the invoice's tax is the order date's.
+- **What an order that cannot be valued does.** A confirmed order whose
+  tax code or rate is later taken away refuses the customer's exposure,
+  and with it every confirmation of that customer's orders once it has a
+  limit, until the code or the rate is restored: the refusal names the
+  order. Nothing is guessed.
+- **The read is not bounded yet.** `sales.openOrders` reads every
+  confirmed, unblocked order of the customer and leaves out those with
+  nothing open; an order never leaves `confirmed`. Once T79b posts
+  billing documents, fully billed orders are still read, under the
+  customer's key. T79b, or the depth phase, bounds it: a flag or status
+  on an order billed in full, or a partial index on orders with
+  something open. Not a tracker item (review round 1, a nit).
 - **Not built, by the plan's "Later":** checking again at delivery or
   when an order changes, automatic release on payment, rejecting a
   blocked order, a worklist of blocked orders, approval of a release

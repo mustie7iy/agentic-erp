@@ -62,6 +62,12 @@ type Rates interface {
 	Conversion(ctx context.Context, from, to string, date time.Time) (ledger.Conversion, error)
 }
 
+// People names principals by id (identity context): who released a
+// credit block, by the name they have then.
+type People interface {
+	PersonNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
 // openLine is what is open of an order item for the customer's credit:
 // its net value not yet posted as a customer invoice and the output tax
 // code it will be billed with.
@@ -246,6 +252,12 @@ func (v *valuation) convert(ctx context.Context, o openOrder, amount money.Minor
 		return amount, nil
 	}
 	c, err := v.e.Rates.Conversion(ctx, o.Currency, v.le.LocalCurrency, o.Date)
+	if p := problem.From(err); err != nil && p.Code == "ledger.no_exchange_rate" {
+		// The ledger's refusal names a document's currency field; here the order and its date are what the reader needs.
+		return 0, problem.Unprocessable("ledger.no_exchange_rate", fmt.Sprintf(
+			"Sales order %s is in %s: no average exchange rate into %s, the company's currency, is valid on its date %s, so its value for the customer's credit cannot be calculated; record the rate first.",
+			o.Number, o.Currency, v.le.LocalCurrency, o.Date.Format(time.DateOnly)))
+	}
 	if err != nil {
 		return 0, fmt.Errorf("sales: value of sales order %s in %s: %w", o.Number, v.le.LocalCurrency, err)
 	}
@@ -321,7 +333,8 @@ func (c checked) detail(le tenancy.Entity) map[string]any {
 // over its customer's limit (ADR-0066, As built T77b), once. The order's
 // row is read FOR UPDATE and only a blocked order is released (ADR-0008):
 // a second release waits for the first and is then refused, 409
-// sales.order_not_credit_blocked. Who released it and when, the audit
+// sales.order_not_credit_blocked. Who released it, by id and by the name
+// they have then, as a sign-off keeps its signer's, and when, the audit
 // record and SalesOrderCreditReleased are written in the request's
 // transaction. Nothing is checked again: the release is the credit
 // manager's decision, whatever the amount.
@@ -349,8 +362,13 @@ func (e *Endpoints) ReleaseCreditBlock(ctx context.Context, id uuid.UUID, ifMatc
 	if err != nil {
 		return Order{}, fmt.Errorf("sales: customer of sales order %s: %w", id, err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE sales.sales_order SET credit_block = $2, credit_released_by = $3, credit_released_at = $4, version = version + 1,
-			updated_by = $3 WHERE id = $1 AND credit_block = $5`, id, Released, p.ID, clock.Now(e.Now), Blocked); err != nil {
+	people, err := e.People.PersonNames(ctx, []uuid.UUID{p.ID})
+	if err != nil {
+		return Order{}, fmt.Errorf("sales: name of the person releasing sales order %s: %w", id, err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sales.sales_order SET credit_block = $2, credit_released_by = $3, credit_released_by_name = $6,
+			credit_released_at = $4, version = version + 1, updated_by = $3 WHERE id = $1 AND credit_block = $5`,
+		id, Released, p.ID, clock.Now(e.Now), Blocked, people[p.ID]); err != nil {
 		return Order{}, fmt.Errorf("sales: release the credit block of sales order %s: %w", id, err)
 	}
 	released, err := loadOrder(ctx, tx, id, false)
@@ -362,7 +380,7 @@ func (e *Endpoints) ReleaseCreditBlock(ctx context.Context, id uuid.UUID, ifMatc
 		"legal_entity_code": le.Code, "customer_id": released.CustomerID, "customer_number": names[o.CustomerID].Number,
 		"released_by": p.ID, "released_at": at, "version": released.Version}
 	detail := map[string]any{"document_number": released.DocumentNumber, "customer_id": released.CustomerID, "credit_block": Released,
-		"credit_block_before": Blocked, "released_at": at}
+		"credit_block_before": Blocked, "released_by_name": people[p.ID], "released_at": at}
 	if err := audit.Record(ctx, "sales.sales_order.release_credit_block", "sales.sales_order", id, detail,
 		outbox.Event{Context: "sales", Name: "sales_order_credit_released", AggregateType: "sales.sales_order", AggregateID: id, Payload: payload}); err != nil {
 		return Order{}, fmt.Errorf("sales: record the release of the credit block of sales order %s: %w", id, err)

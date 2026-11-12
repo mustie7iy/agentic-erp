@@ -821,12 +821,14 @@ which records what the check compares, the exposure and the lock).
   block, filters by it and releases it.
 - Migration 000296: on `sales.sales_order`, `credit_block` (`none`,
   `blocked`, `released`; `sales_order_credit_block_check`),
-  `credit_released_by` and `credit_released_at`, set exactly when it is
-  released (`sales_order_credit_release`); a draft has no block
+  `credit_released_by`, `credit_released_by_name` (the releaser's name
+  as it was then, as a close's sign-off keeps its signer's) and
+  `credit_released_at`, set exactly when it is released
+  (`sales_order_credit_release`); a draft has no block
   (`sales_order_credit_block_confirmed`). The order's change rule
   (`sales_order_confirmed_once`) admits a draft confirmed with or without
   a block, never already released, and a blocked order released, once;
-  the application is granted the three columns. The delivery's trigger
+  the application is granted the four columns. The delivery's trigger
   refuses a blocked order (`delivery_order_confirmed`). The permission
   `sales.order.credit_release`. Schema tests in `db/sales_test.go`.
 - `POST /v1/sales-orders/{id}:confirm` answers the order with its
@@ -835,7 +837,8 @@ which records what the check compares, the exposure and the lock).
   value cannot be calculated: 422 `sales.unknown_tax_code` (a tax code no
   longer an output code on the order's date), 422
   `ledger.no_exchange_rate` (another currency without a rate on the
-  order's date), 422 `sales.amount_too_large`.
+  order's date; the refusal is worded here, naming the order, since the
+  ledger's names a document field the confirmation does not have), 422 `sales.amount_too_large`.
 - `POST /v1/sales-orders/{id}/deliveries` refuses a blocked order, 409
   `sales.order_credit_blocked` (the plan's status; a state the order is
   in, as 409 `sales.order_not_confirmed` is). Billing bills what is
@@ -847,7 +850,10 @@ which records what the check compares, the exposure and the lock).
   released it and when; 409 `sales.order_not_credit_blocked` for an order
   without a block or already released. Nothing is checked again.
 - `GET /v1/sales-orders?credit_block=` filters by the block; the order
-  shows `credit_block`, `credit_released_by` and `credit_released_at`.
+  shows `credit_block`, `credit_released_by`, `credit_released_by_name`
+  and `credit_released_at`. The releaser's name is read from the
+  identity context through the port `People` (`app.LedgerPeople`);
+  events carry the id alone, as a sign-off's do.
 - Events and audit: `SalesOrderChanged` carries `credit_block`;
   `SalesOrderCreditBlocked` (`x-webhook`; the order's gross value, the
   amount checked, the limit and the exposure it was checked against) is

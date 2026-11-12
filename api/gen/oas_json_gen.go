@@ -189894,6 +189894,12 @@ func (s *SalesOrder) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CreditReleasedByName.Set {
+			e.FieldStart("credit_released_by_name")
+			s.CreditReleasedByName.Encode(e)
+		}
+	}
+	{
 		if s.CreditReleasedAt.Set {
 			e.FieldStart("credit_released_at")
 			s.CreditReleasedAt.Encode(e, json.EncodeDateTime)
@@ -189909,7 +189915,7 @@ func (s *SalesOrder) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrder = [24]string{
+var jsonFieldsNameOfSalesOrder = [25]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -189932,8 +189938,9 @@ var jsonFieldsNameOfSalesOrder = [24]string{
 	19: "status",
 	20: "credit_block",
 	21: "credit_released_by",
-	22: "credit_released_at",
-	23: "items",
+	22: "credit_released_by_name",
+	23: "credit_released_at",
+	24: "items",
 }
 
 // Decode decodes SalesOrder from json.
@@ -189941,7 +189948,7 @@ func (s *SalesOrder) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SalesOrder to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -190199,6 +190206,16 @@ func (s *SalesOrder) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"credit_released_by\"")
 			}
+		case "credit_released_by_name":
+			if err := func() error {
+				s.CreditReleasedByName.Reset()
+				if err := s.CreditReleasedByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_released_by_name\"")
+			}
 		case "credit_released_at":
 			if err := func() error {
 				s.CreditReleasedAt.Reset()
@@ -190210,7 +190227,7 @@ func (s *SalesOrder) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"credit_released_at\"")
 			}
 		case "items":
-			requiredBitSet[2] |= 1 << 7
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				s.Items = make([]SalesOrderItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -190236,10 +190253,11 @@ func (s *SalesOrder) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11011111,
 		0b10011111,
-		0b10011111,
+		0b00011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

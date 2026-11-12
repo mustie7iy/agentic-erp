@@ -27,10 +27,11 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-REVOKE UPDATE (credit_block, credit_released_by, credit_released_at) ON sales.sales_order FROM erp_app;
+REVOKE UPDATE (credit_block, credit_released_by, credit_released_by_name, credit_released_at) ON sales.sales_order FROM erp_app;
 ALTER TABLE sales.sales_order
   DROP CONSTRAINT sales_order_credit_block_confirmed,
   DROP CONSTRAINT sales_order_credit_release,
   DROP COLUMN credit_released_at,
+  DROP COLUMN credit_released_by_name,
   DROP COLUMN credit_released_by,
   DROP COLUMN credit_block;

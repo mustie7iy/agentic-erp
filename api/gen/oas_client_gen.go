@@ -5139,15 +5139,16 @@ type Invoker interface {
 	//
 	// Releases the credit block of a sales order that was confirmed over its customer's credit limit
 	// (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock
-	// and its `credit_block` moves from `blocked` to `released`, once, with who released it and when
-	// (`credit_released_by`, `credit_released_at`). From then on the order takes deliveries and is billed
-	// as any confirmed order, and it counts in the customer's exposure, which may then exceed the limit:
-	// the release is the credit manager's decision, whatever the amount. An order without a block, or
-	// whose block is already released, is refused (409 `sales.order_not_credit_blocked`). The release is
-	// by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart from
-	// the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and
-	// published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released
-	// order. Human-only (`x-agent: false`).
+	// and its `credit_block` moves from `blocked` to `released`, once, with who released it, by id and
+	// name, and when (`credit_released_by`, `credit_released_by_name`, `credit_released_at`). From then on
+	// the order takes deliveries and is billed as any confirmed order, and it counts in the customer's
+	// exposure, which may then exceed the limit: the release is the credit manager's decision, whatever
+	// the amount. An order without a block, or whose block is already released, is refused (409
+	// `sales.order_not_credit_blocked`). The release is by its own permission,
+	// `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed
+	// the order. Nothing is checked again and nothing is posted. Audited, and published as
+	// SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order.
+	// Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:releaseCreditBlock
 	ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error)
@@ -78830,15 +78831,16 @@ func (c *Client) sendReleasePurchaseOrder(ctx context.Context, params ReleasePur
 //
 // Releases the credit block of a sales order that was confirmed over its customer's credit limit
 // (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock
-// and its `credit_block` moves from `blocked` to `released`, once, with who released it and when
-// (`credit_released_by`, `credit_released_at`). From then on the order takes deliveries and is billed
-// as any confirmed order, and it counts in the customer's exposure, which may then exceed the limit:
-// the release is the credit manager's decision, whatever the amount. An order without a block, or
-// whose block is already released, is refused (409 `sales.order_not_credit_blocked`). The release is
-// by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart from
-// the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and
-// published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released
-// order. Human-only (`x-agent: false`).
+// and its `credit_block` moves from `blocked` to `released`, once, with who released it, by id and
+// name, and when (`credit_released_by`, `credit_released_by_name`, `credit_released_at`). From then on
+// the order takes deliveries and is billed as any confirmed order, and it counts in the customer's
+// exposure, which may then exceed the limit: the release is the credit manager's decision, whatever
+// the amount. An order without a block, or whose block is already released, is refused (409
+// `sales.order_not_credit_blocked`). The release is by its own permission,
+// `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed
+// the order. Nothing is checked again and nothing is posted. Audited, and published as
+// SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order.
+// Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:releaseCreditBlock
 func (c *Client) ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error) {

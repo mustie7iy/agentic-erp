@@ -75803,6 +75803,9 @@ type SalesOrder struct {
 	// The principal who released the credit block (`GET /v1/principals/{id}`), as `created_by` names one;
 	// absent unless `credit_block` is `released`.
 	CreditReleasedBy OptUUID `json:"credit_released_by"`
+	// The name of who released the credit block, as it was when they released it; absent unless
+	// `credit_block` is `released`.
+	CreditReleasedByName OptString `json:"credit_released_by_name"`
 	// When the credit block was released; absent unless `credit_block` is `released`.
 	CreditReleasedAt OptDateTime `json:"credit_released_at"`
 	// The items, by item number.
@@ -75917,6 +75920,11 @@ func (s *SalesOrder) GetCreditBlock() string {
 // GetCreditReleasedBy returns the value of CreditReleasedBy.
 func (s *SalesOrder) GetCreditReleasedBy() OptUUID {
 	return s.CreditReleasedBy
+}
+
+// GetCreditReleasedByName returns the value of CreditReleasedByName.
+func (s *SalesOrder) GetCreditReleasedByName() OptString {
+	return s.CreditReleasedByName
 }
 
 // GetCreditReleasedAt returns the value of CreditReleasedAt.
@@ -76037,6 +76045,11 @@ func (s *SalesOrder) SetCreditBlock(val string) {
 // SetCreditReleasedBy sets the value of CreditReleasedBy.
 func (s *SalesOrder) SetCreditReleasedBy(val OptUUID) {
 	s.CreditReleasedBy = val
+}
+
+// SetCreditReleasedByName sets the value of CreditReleasedByName.
+func (s *SalesOrder) SetCreditReleasedByName(val OptString) {
+	s.CreditReleasedByName = val
 }
 
 // SetCreditReleasedAt sets the value of CreditReleasedAt.

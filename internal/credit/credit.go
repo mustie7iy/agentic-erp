@@ -170,6 +170,20 @@ func limitOf(ctx context.Context, tx pgx.Tx, legalEntity, customer uuid.UUID, fo
 	return l, true, nil
 }
 
+// hold takes the customer's key in the company until the transaction
+// ends (ADR-0008): the checks of a customer's orders and the setting of
+// its limit run one after the other. The limit's row cannot serve while
+// there is none: a check that found no limit would not stop one being
+// set beside it, and the next order would be checked against an
+// exposure that does not hold the first yet.
+func hold(ctx context.Context, tx pgx.Tx, legalEntity, customer uuid.UUID) error {
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('credit.customer:' || platform.require_tenant() || ':' || $1::text
+		|| ':' || $2::text, 0))`, legalEntity, customer); err != nil {
+		return fmt.Errorf("credit: hold customer %s in legal entity %s: %w", customer, legalEntity, err)
+	}
+	return nil
+}
+
 // errTooLarge refuses an exposure whose amounts are out of range.
 func errTooLarge() *problem.Problem {
 	return problem.Unprocessable("credit.amount_too_large", "The customer's open items, its open orders and the amount add up to more than an amount can hold.")

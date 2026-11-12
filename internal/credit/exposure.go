@@ -102,17 +102,23 @@ func (e *Endpoints) ExposureOf(ctx context.Context, legalEntity, customer uuid.U
 // Check answers the sales context when it confirms an order (ADR-0066,
 // As built T77b): whether the amount, the order's gross value in the
 // company's currency, and the customer's exposure together are within
-// its limit in the company. The limit's row is read FOR UPDATE and held
-// until the request's transaction ends (ADR-0008), and the exposure is
-// read after the lock is held, so of two orders of one customer
-// confirmed at once the second is checked against an exposure that holds
-// the first: they cannot both take the room only one fits. A customer
-// without a limit is within it and nothing is read or held: no limit
-// restricts nothing. The caller has checked the caller's access to the
+// its limit in the company. The customer's key in the company is held
+// until the request's transaction ends (hold; ADR-0008), whether it has
+// a limit or not, and the limit and the exposure are read after it is
+// held, so of two orders of one customer confirmed at once the second is
+// checked against an exposure that holds the first: they cannot both
+// take the room only one fits; and a limit is not set beside a
+// confirmation under way, which the next check would not see. The
+// limit's row is read FOR UPDATE as well, so a change of the limit waits
+// too. A customer without a limit is within it, and its exposure is not
+// read: no limit restricts nothing. The caller has checked the caller's access to the
 // order's company; Company, Customer and Exponent are not set.
 func (e *Endpoints) Check(ctx context.Context, legalEntity, customer uuid.UUID, amount money.Minor) (Exposure, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
+		return Exposure{}, err
+	}
+	if err := hold(ctx, tx, legalEntity, customer); err != nil {
 		return Exposure{}, err
 	}
 	l, ok, err := limitOf(ctx, tx, legalEntity, customer, true)

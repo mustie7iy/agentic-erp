@@ -241,6 +241,11 @@ func TestCreditBlockReleased(t *testing.T) {
 		if at, err := time.Parse(time.RFC3339Nano, fmt.Sprint(a["credit_released_at"])); err != nil || time.Since(at) > time.Hour {
 			t.Errorf("credit_released_at: got %v (%v), want the time of the release", a["credit_released_at"], err)
 		}
+		var name string
+		pgtest.Scan(t, `SELECT display_name FROM identity.principal WHERE tenant_id = $1 AND id = $2`, []any{e.Tenant.ID, e.Tenant.Human.ID}, &name)
+		if a["credit_released_by_name"] != name || name == "" {
+			t.Errorf("credit_released_by_name: got %v, want the releasing person's name, %q", a["credit_released_by_name"], name)
+		}
 		if tag := first.Header().Get("ETag"); tag != `"3"` {
 			t.Errorf("ETag: got %s, want \"3\"", tag)
 		}
@@ -352,7 +357,10 @@ func TestCreditCheckInAnotherCurrency(t *testing.T) {
 	dollars := func(price string) string { return e.item(line{price: price, currency: "USD", code: "A1"}) }
 	t.Run("without a rate on the order's date", func(t *testing.T) {
 		id := e.drafted(t, customer, "USD", dollars("10.00"))
-		e.In(t).Problem(422, "ledger.no_exchange_rate", "POST", "/v1/sales-orders/"+id+":confirm", "", `"1"`)
+		p := e.In(t).Problem(422, "ledger.no_exchange_rate", "POST", "/v1/sales-orders/"+id+":confirm", "", `"1"`)
+		if d := fmt.Sprint(p["detail"]); !strings.Contains(d, "Sales order SO") || !strings.Contains(d, "USD") {
+			t.Errorf("detail: got %q, want it to name the order and its currency", d)
+		}
 	})
 	e.usd(t)
 	t.Run("within the limit at the rate", func(t *testing.T) {

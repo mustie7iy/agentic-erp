@@ -5,18 +5,22 @@
 -- confirmed with a credit block, takes no delivery while it is blocked,
 -- and is released once by a person holding sales.order.credit_release.
 -- `credit_block` is `none` (within the limit, or the customer has none),
--- `blocked` or `released`, the last with who released it and when.
--- Expand only (06 §6.4): three columns the previous version neither
+-- `blocked` or `released`, the last with who released it, their name as
+-- it was then, and when.
+-- Expand only (06 §6.4): four columns the previous version neither
 -- reads nor writes, the first with a default, so an order it confirms is
 -- confirmed without a block as before; a permission.
 ALTER TABLE sales.sales_order
   ADD COLUMN credit_block text NOT NULL DEFAULT 'none'
     CONSTRAINT sales_order_credit_block_check CHECK (credit_block IN ('none', 'blocked', 'released')),
   ADD COLUMN credit_released_by uuid,          -- identity context
+  ADD COLUMN credit_released_by_name text CONSTRAINT sales_order_credit_released_by_name_check
+    CHECK (btrim(credit_released_by_name) <> '' AND length(credit_released_by_name) <= 200),
   ADD COLUMN credit_released_at timestamptz,
   -- A released block names who released it and when; nothing else does.
   ADD CONSTRAINT sales_order_credit_release CHECK ((credit_block = 'released') = (credit_released_by IS NOT NULL)
-    AND (credit_released_by IS NULL) = (credit_released_at IS NULL)),
+    AND (credit_released_by IS NULL) = (credit_released_at IS NULL)
+    AND (credit_released_by IS NULL) = (credit_released_by_name IS NULL)),
   -- A draft is not checked, so it has no block.
   ADD CONSTRAINT sales_order_credit_block_confirmed CHECK (status = 'confirmed' OR credit_block = 'none');
 
@@ -40,7 +44,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-GRANT UPDATE (credit_block, credit_released_by, credit_released_at) ON sales.sales_order TO erp_app;
+GRANT UPDATE (credit_block, credit_released_by, credit_released_by_name, credit_released_at) ON sales.sales_order TO erp_app;
 
 -- An order blocked for credit takes no delivery (and so nothing of it is
 -- billed, since billing bills what is delivered): the delivery's trigger

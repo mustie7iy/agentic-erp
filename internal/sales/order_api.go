@@ -38,7 +38,8 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 		CompanyName: le.Name, CustomerID: o.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name,
 		QuotationID: apitypes.OptUUID(o.QuotationID), QuotationNumber: apitypes.OptString(o.QuotationNumber), OrderDate: o.OrderDate,
 		Currency: o.Currency, PaymentTermCode: o.PaymentTermCode, NetAmount: apitypes.Money(o.Net, o.Currency, o.Exponent), Status: o.Status,
-		CreditBlock: o.CreditBlock, CreditReleasedBy: apitypes.OptUUID(o.CreditReleasedBy), Items: make([]gen.SalesOrderItem, len(o.Items))}
+		CreditBlock: o.CreditBlock, CreditReleasedBy: apitypes.OptUUID(o.CreditReleasedBy),
+		CreditReleasedByName: apitypes.OptString(o.CreditReleasedByName), Items: make([]gen.SalesOrderItem, len(o.Items))}
 	if o.CreditReleasedAt != nil {
 		out.CreditReleasedAt.SetTo(*o.CreditReleasedAt)
 	}

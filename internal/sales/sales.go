@@ -121,6 +121,7 @@ type Endpoints struct {
 	Settings      Settings
 	Rates         Rates
 	Credit        Credit
+	People        People
 	// Now is the clock a document is dated by and a quotation's validity
 	// is judged on, in the company's time zone; nil: the wall clock.
 	Now func() time.Time

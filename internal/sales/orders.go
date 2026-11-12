@@ -57,29 +57,30 @@ type OrderItem struct {
 // of the items' net values. QuotationID and QuotationNumber name the
 // quotation it was created from, nil for an order created directly.
 // CreditBlock is NoBlock, Blocked or Released, the last with who released
-// the block and when (T77b).
+// the block, their name as it was then, and when (T77b).
 type Order struct {
-	ID               uuid.UUID
-	DocumentNumber   string
-	LegalEntityID    uuid.UUID
-	CustomerID       uuid.UUID
-	QuotationID      *uuid.UUID
-	QuotationNumber  *string
-	OrderDate        time.Time
-	Currency         string
-	Exponent         int
-	PaymentTermCode  string
-	Net              money.Minor
-	Status           string
-	CreditBlock      string
-	CreditReleasedBy *uuid.UUID
-	CreditReleasedAt *time.Time
-	Items            []OrderItem
-	Version          int32
-	CreatedAt        time.Time
-	CreatedBy        uuid.UUID
-	UpdatedAt        time.Time
-	UpdatedBy        uuid.UUID
+	ID                   uuid.UUID
+	DocumentNumber       string
+	LegalEntityID        uuid.UUID
+	CustomerID           uuid.UUID
+	QuotationID          *uuid.UUID
+	QuotationNumber      *string
+	OrderDate            time.Time
+	Currency             string
+	Exponent             int
+	PaymentTermCode      string
+	Net                  money.Minor
+	Status               string
+	CreditBlock          string
+	CreditReleasedBy     *uuid.UUID
+	CreditReleasedByName *string
+	CreditReleasedAt     *time.Time
+	Items                []OrderItem
+	Version              int32
+	CreatedAt            time.Time
+	CreatedBy            uuid.UUID
+	UpdatedAt            time.Time
+	UpdatedBy            uuid.UUID
 }
 
 // OrderInput is a sales order as a client sends it: QuotationID alone, or
@@ -101,7 +102,7 @@ type OrderInput struct {
 func orderQuery(extra string) string {
 	return `SELECT o.id, o.document_number, o.legal_entity_id, o.customer_id, o.quotation_id,
 		(SELECT q.document_number FROM sales.quotation q WHERE q.tenant_id = o.tenant_id AND q.id = o.quotation_id), o.order_date, o.currency,
-		c.exponent, o.payment_term_code, o.net_amount, o.status, o.credit_block, o.credit_released_by, o.credit_released_at, ` +
+		c.exponent, o.payment_term_code, o.net_amount, o.status, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text`+extra) + `,
 		o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
@@ -116,7 +117,7 @@ var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries)
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
 	err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.CustomerID, &o.QuotationID, &o.QuotationNumber, &o.OrderDate, &o.Currency,
-		&o.Exponent, &o.PaymentTermCode, &o.Net, &o.Status, &o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedAt, &o.Items, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)
+		&o.Exponent, &o.PaymentTermCode, &o.Net, &o.Status, &o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedByName, &o.CreditReleasedAt, &o.Items, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)
 	return o, errs.Wrapf(err, "scan sales order")
 }
 
