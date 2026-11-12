@@ -325,7 +325,7 @@ code. Costs are posted to a released order on a journal entry line (T60b,
 ADR-0064 §2): `POST /v1/journal-entries` lines take `internal_order_id`
 instead of a cost center, on a primary cost account (422
 `ledger.internal_order_invalid` on `lines[i].internal_order_id`, the field
-error's code `unknown`, `not_in_company`, `not_released`,
+error's code `unknown`, `not_in_company`, `not_released`, `closed`,
 `with_cost_center`, `not_a_cost_account` or
 `cost_center_not_valid_on_date`); the line takes its profit center and
 segment from the order's responsible cost center, and journal entry lines
@@ -367,6 +367,34 @@ otherwise); audited with the receivers before and after. `GET
 /v1/internal-orders/{id}/settlement-rule` (`controlling.order.read`) gives
 the receiver's id and code with the order's code and name and the order's
 version as `ETag`; an order without a rule is answered without a receiver.
+
+An order is settled and closed by two custom methods (ADR-0064 §3, T60e;
+`controlling.order.settle`, `x-agent: false`). `POST
+/v1/internal-orders/{id}:settle` (also `ledger.entry.read`; `If-Match`
+the order's version, which moves with its rule and not with a settlement)
+names a `fiscal_year` and a regular `fiscal_period` (422
+`ledger.no_fiscal_period`, 422 `controlling.period_not_regular`) and
+moves the order's unsettled balance up to that period to its rule's
+receiver in one journal entry dated the period's last day: per account
+the order credited and the receiving cost center debited. It answers 200
+with `settled` and, when an entry was posted, the `settlement` (period,
+posting date, receiver with its code, amount with its currency, number
+of accounts, the entry's id and number); with nothing unsettled it posts
+nothing and `settled` is false, so the action may be repeated. Refused: an
+order not released (409 `controlling.internal_order_not_released`) or
+closed (409 `controlling.internal_order_closed`), without a rule (409
+`controlling.settlement_rule_missing`), a receiver not valid on the
+posting date (409 `controlling.settlement_receiver_not_valid`), and what
+the ledger refuses of the entry (409 `ledger.period_not_open`, 422
+`ledger.cost_center_invalid`, ...). Published as `InternalOrderSettled`.
+`GET /v1/internal-orders/{id}/settlements` (`controlling.order.read` and
+`ledger.entry.read`) pages them, latest first (`posting_date`). `POST
+/v1/internal-orders/{id}:close` (`If-Match` the order's version) closes a
+released order whose balance is zero on every account (409
+`controlling.internal_order_not_settled` otherwise), once, published as
+`InternalOrderChanged` (`closed`). A closed order takes no posting (422
+`ledger.internal_order_invalid`, `closed`), and an entry that posted to
+it is not reversed (409 `ledger.internal_order_closed`).
 
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or

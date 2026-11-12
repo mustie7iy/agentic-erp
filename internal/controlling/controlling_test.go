@@ -26,9 +26,11 @@ func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // perms are what the tenant's people hold: the plan's, the ledger's entry
 // read, which plan against actual and the orders' actuals need beside
-// theirs, the orders', posting journal entries to them, and their budgets.
+// theirs, the orders', posting journal entries to them, their budgets, and
+// settling and closing them.
 var perms = []string{"controlling.plan.read", "controlling.plan.write", "controlling.plan.lock", "ledger.entry.read",
-	"controlling.order.read", "controlling.order.write", "controlling.order.release", "ledger.entry.post", "controlling.order.budget"}
+	"controlling.order.read", "controlling.order.write", "controlling.order.release", "ledger.entry.post", "controlling.order.budget",
+	"controlling.order.settle"}
 
 // plan is a tenant with company 2000's centers (fixture.CostCenters: Admin
 // 1000, Sales 2000, Locked 3000, profit center PC1) and its accounts.
@@ -168,7 +170,14 @@ func endpoints(t *testing.T) *controlling.Endpoints {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &controlling.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}, Settings: configuration.Settings{}}
+	return &controlling.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}, Settings: configuration.Settings{},
+		Postings: postings(), Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}}
+}
+
+// postings is the ledger's posting port as the controlling context posts
+// through it, its lines naming orders.
+func postings() ledger.Postings {
+	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{}, CostObjects: controlling.CostObjects{}}
 }
 
 func want[T comparable](t *testing.T, what string, got, want T) {

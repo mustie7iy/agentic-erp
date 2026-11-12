@@ -46,6 +46,18 @@
 // and its version moved with the rule, by a person holding
 // controlling.order.write; each change is audited with the receivers
 // before and after.
+//
+// A released order is settled (ADR-0064 §3, T60e): its unsettled balance
+// up to a fiscal period moves, account by account, to the rule's receiver
+// in one journal entry posted through the ledger's port (ledger.Postings,
+// source context controlling), which credits the order and debits the
+// receiving cost center on each account, so the account's balance is
+// unchanged. The order is held FOR UPDATE from before its balance is read
+// until the entry is posted, so two settlements never move one balance
+// and a settlement with nothing unsettled posts nothing. A settled order
+// is closed by a person at the version read, its balance zero on every
+// account under the same lock; a closed order takes no posting. Both are
+// a person's (controlling.order.settle), audited and published.
 package controlling
 
 import (
@@ -92,6 +104,19 @@ type Ledger interface {
 	OrderActuals(ctx context.Context, q ledger.OrderActualsQuery) (ledger.OrderActuals, error)
 	OrderBalance(ctx context.Context, le, order uuid.UUID) (money.Minor, error)
 	CostCenterValidOn(ctx context.Context, id uuid.UUID, day time.Time) (bool, error)
+	OrderAccountBalances(ctx context.Context, le, order uuid.UUID, upTo *ledger.PeriodKey) ([]ledger.OrderAccountBalance, error)
+}
+
+// Postings is what controlling posts its entries through (ledger.Postings,
+// wired with CostObjects so its lines may name orders): settlements.
+type Postings interface {
+	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+}
+
+// Calendar reads a company's regular posting periods with their dates
+// (ledger.Calendar).
+type Calendar interface {
+	Periods(ctx context.Context, legalEntity uuid.UUID, year int16) ([]ledger.FiscalPeriod, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).
@@ -111,6 +136,8 @@ type Endpoints struct {
 	LegalEntities LegalEntities
 	Ledger        Ledger
 	Settings      Settings
+	Postings      Postings
+	Calendar      Calendar
 	Now           func() time.Time // nil: the wall clock
 }
 

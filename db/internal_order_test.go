@@ -53,8 +53,10 @@ func TestInternalOrderRules(t *testing.T) {
 		"a code of thirteen characters": {internalOrderSQL, []any{f.tenant, id(), f.entity, "ABCDEFGHIJKLM", "F", f.cc, "created", f.actor}, "internal_order_code_check"},
 		"an order without a name":       {internalOrderSQL, []any{f.tenant, id(), f.entity, "NEW", " ", f.cc, "created", f.actor}, "internal_order_name_check"},
 		"a code twice in a company":     {internalOrderSQL, []any{f.tenant, id(), f.entity, "FAIR", "Again", f.cc, "created", f.actor}, "internal_order_code_once"},
-		"an unknown status": {`UPDATE controlling.internal_order SET status = 'closed', version = version + 1 WHERE id = $1`, []any{f.created},
+		"an unknown status": {`UPDATE controlling.internal_order SET status = 'archived', version = version + 1 WHERE id = $1`, []any{f.created},
 			"internal_order_status_check"},
+		"an order closed that was never released": {`UPDATE controlling.internal_order SET status = 'closed', version = version + 1 WHERE id = $1`,
+			[]any{f.created}, "is closed from released"},
 		"an order born released":         {internalOrderSQL, []any{f.tenant, id(), f.entity, "NEW", "N", f.cc, "released", f.actor}, "starts as created"},
 		"an order without a cost center": {internalOrderSQL, []any{f.tenant, id(), f.entity, "NEW", "N", nil, "created", f.actor}, "responsible_cost_center_id"},
 		"an order moved to another company": {`UPDATE controlling.internal_order SET legal_entity_id = $2, version = version + 1 WHERE id = $1`,
@@ -179,6 +181,88 @@ func TestSettlementRuleRules(t *testing.T) {
 	})
 }
 
+// An order settled and closed (T60e, migration 000273; ADR-0064 §3): a
+// settlement is kept once and never changed, and a closed order stays
+// closed.
+
+const orderSettlementSQL = `INSERT INTO controlling.order_settlement (tenant_id, id, internal_order_id, legal_entity_id, fiscal_year, fiscal_period,
+	posting_date, receiver_cost_center_id, journal_entry_id, document_number, amount, account_count, created_by)
+	VALUES ($1, $2, $3, $4, 2026, $5, '2026-05-31', $6, $7, $8, $9, $10, $11)`
+
+func TestOrderSettlementRules(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	kept, entry := id(), id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, orderSettlementSQL, f.tenant, kept, f.released, f.entity, 5, f.cc, entry, "100000001", -500, 1, f.actor)
+	})
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"a settlement of no order": {orderSettlementSQL, []any{f.tenant, id(), id(), f.entity, 5, f.cc, id(), "1", 100, 1, f.actor}, "order_settlement_order"},
+		"an entry settled twice":   {orderSettlementSQL, []any{f.tenant, id(), f.released, f.entity, 6, f.cc, entry, "1", 100, 1, f.actor}, "order_settlement_entry_once"},
+		"a period that is none":    {orderSettlementSQL, []any{f.tenant, id(), f.released, f.entity, 17, f.cc, id(), "1", 100, 1, f.actor}, "order_settlement_fiscal_period_check"},
+		"a settlement of no account": {orderSettlementSQL, []any{f.tenant, id(), f.released, f.entity, 5, f.cc, id(), "1", 100, 0, f.actor},
+			"order_settlement_account_count_check"},
+		"a settlement without its entry's number": {orderSettlementSQL, []any{f.tenant, id(), f.released, f.entity, 5, f.cc, id(), "", 100, 1, f.actor},
+			"order_settlement_document_number_check"},
+		"a settlement without a receiver": {orderSettlementSQL, []any{f.tenant, id(), f.released, f.entity, 5, nil, id(), "1", 100, 1, f.actor},
+			"receiver_cost_center_id"},
+		"a settlement changed": {`UPDATE controlling.order_settlement SET amount = 1 WHERE id = $1`, []any{kept}, "permission denied"},
+		"a settlement deleted": {`DELETE FROM controlling.order_settlement WHERE id = $1`, []any{kept}, "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, c.sql, c.args...), c.want)
+		})
+	}
+	t.Run("another tenant sees none", func(t *testing.T) {
+		var n int
+		mustApp(t, id(), func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), `SELECT count(*) FROM controlling.order_settlement`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("settlements another tenant sees: got %d, want 0", n)
+		}
+	})
+	t.Run("a released order is closed, and stays closed", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE controlling.internal_order SET status = 'closed', version = version + 1 WHERE id = $1`, f.released)
+		})
+		for name, status := range map[string]string{"released again": "released", "created again": "created"} {
+			t.Run(name, func(t *testing.T) {
+				failsWith(t, f.try(t, `UPDATE controlling.internal_order SET status = $2, version = version + 1 WHERE id = $1`, f.released, status), "stays closed")
+			})
+		}
+	})
+}
+
+// The controlling context posts journal entries (T60e, migrations 000273
+// and 000274; ADR-0064 §3): the journal takes its source context, and
+// the widened check is validated on every partition.
+func TestJournalSourceControlling(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	t.Run("an entry of the controlling context", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error { return f.entryFrom(tx, "controlling", nil, &f.released) })
+	})
+	t.Run("an entry of no context", func(t *testing.T) {
+		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return f.entryFrom(tx, "elsewhere", nil, &f.released) }),
+			"journal_entry_source_context_check")
+	})
+	t.Run("the check is validated on the table and every partition", func(t *testing.T) {
+		var tables, checked int
+		if err := testDB.QueryRow(t.Context(), `SELECT (SELECT count(*) + 1 FROM pg_inherits WHERE inhparent = 'ledger.journal_entry'::regclass),
+				(SELECT count(*) FROM pg_constraint WHERE conname = 'journal_entry_source_context_check' AND convalidated)`).Scan(&tables, &checked); err != nil {
+			t.Fatal(err)
+		}
+		if checked != tables {
+			t.Errorf("validated checks: got %d, want %d (the table and its partitions)", checked, tables)
+		}
+	})
+}
+
 // The internal order on journal lines (T60b, migrations 000268-000270;
 // ADR-0064 §2): a line carries a cost center or an order, never both; the
 // check holds on every partition, and the order's lines are indexed.
@@ -186,11 +270,16 @@ func TestSettlementRuleRules(t *testing.T) {
 // orderLine inserts an entry of the fixture's company in March 2026 whose
 // expense line carries the cost center and the internal order given.
 func (f orderFixture) orderLine(tx pgx.Tx, costCenter, order *uuid.UUID) error {
+	return f.entryFrom(tx, "ledger", costCenter, order)
+}
+
+// entryFrom is orderLine's entry posted by the source context.
+func (f orderFixture) entryFrom(tx pgx.Tx, source string, costCenter, order *uuid.UUID) error {
 	je := id()
 	if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
 		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
-		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,'ledger',$6)`,
-		f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor); err != nil {
+		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,$7,$6)`,
+		f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor, source); err != nil {
 		return err
 	}
 	const line = `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,

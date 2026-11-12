@@ -103,7 +103,8 @@ or an order**.
 - The responsible cost center's locks are for its own postings and do not
   refuse a line posted to the order.
 - A **reversal copies** the original's order and is not checked again, as
-  it copies centers (ADR-0050 §5).
+  it copies centers (ADR-0050 §5); since T60e it holds the order as a
+  posting does, and an entry on an order closed since is not reversed.
 - Derivation runs once per posting group, so every ledger's copy carries
   the same order (ADR-0045).
 - The posting holds the orders it names until its transaction ends, so a
@@ -195,6 +196,11 @@ adding up to 100, all active and of one company.
 2. **Settlement and assessment accounts** (accounting specialist; plan
    question 6): is settlement on the original accounts acceptable, and a
    secondary cost element kept as an account in the chart?
+   Since T60e also: a settlement is posted in local currency and its
+   group amount converted at the settlement date's rate, so an order's
+   balance in group currency need not be zero afterwards; and it settles
+   the leading ledger's balance in every ledger the company keeps. Is
+   either to be settled differently?
 
 ## As built
 
@@ -386,3 +392,129 @@ adding up to 100, all active and of one company.
 - **Walkthrough**: `step_order_settlement`, Carla names CC-1100 as the
   receiver of `FAIR-<year>`; a cost center that is none and a change at
   the replaced version are refused.
+
+### T60e: an order settled and closed (migrations 000273-000275)
+- **The journal takes controlling's entries.** `ledger.journal_entry`'s
+  list of source contexts gains `controlling` (000273 replaces the check
+  `NOT VALID`; 000274 validates it partition by partition, as T60b's
+  check was), and the API's open enumerations of `source_context` name
+  it. Schema test: `db/internal_order_test.go`
+  (`TestJournalSourceControlling`).
+- **Table** `controlling.order_settlement` (000275): the order (foreign
+  key), its company, the fiscal year and period settled up to, the
+  posting date, the receiver, the journal entry (once,
+  `order_settlement_entry_once`) with its document number, the amount
+  moved in minor units of the company's currency and the number of
+  accounts; row-level security; insert-only (no `UPDATE` or `DELETE` is
+  granted). The order's status gains `closed`, from `released` alone and
+  for good (`internal_order_lifecycle`). Schema test:
+  `TestOrderSettlementRules`.
+- **The ledger's port** (the files touched: `ports.go`,
+  `assignmentbalances.go`, `assignment.go`, `journal.go`).
+  `ledger.PostingLine` gains `InternalOrderID` and `ledger.Postings` a
+  `CostObjects` field, which `internal/app` wires for the controlling
+  context alone; a line naming an order is checked as a manual entry's
+  is, and without the port it is an error. A new read,
+  `ledger.AssignmentBalances.OrderAccountBalances`, gives the order's
+  balance per account, the accounts whose balance is not zero in account
+  number order, over every period up to one named (earlier years
+  included) or over all. `ledger.CostOrder` gains `Closed`: a line naming
+  a closed order is refused with the reason `closed` (422
+  `ledger.internal_order_invalid`).
+- **Settlement** (`POST /v1/internal-orders/{id}:settle`, body
+  `fiscal_year` and `fiscal_period`): the order is read `FOR UPDATE`; it
+  must be released (409 `controlling.internal_order_not_released`, 409
+  `controlling.internal_order_closed`) and have a rule (409
+  `controlling.settlement_rule_missing`); the period is a regular posting
+  period of the company's year (`ledger.Calendar.Periods`; 422
+  `ledger.no_fiscal_period`, 422 `controlling.period_not_regular`). The
+  unsettled balance is the order's balance per account up to the period.
+  With none, nothing is posted, kept or published and the answer says
+  `settled: false`. Otherwise one entry is posted through
+  `ledger.Postings.Post` (`source_context` `controlling`, document type
+  `SA`, local currency, dated the period's last day, its source document
+  the settlement): per account, in account number order, the order
+  credited with its balance and the receiver debited with it. The entry
+  balances per account, so each account's balance is unchanged. The
+  settlement is kept, audited (`controlling.internal_order.settle`) and
+  published (`InternalOrderSettled`); the answer carries it with its
+  entry's id and number. Because the settlement's own lines are in the
+  period, the order's balance up to it is zero afterwards and a second
+  settlement posts nothing; a cost posted later into a settled period is
+  unsettled again and moves with the next settlement.
+- **`GET /v1/internal-orders/{id}/settlements`**: the order's
+  settlements, latest first, by cursor (`posting_date`), each with the
+  receiver's code, the amount with its currency and the entry.
+- **Close** (`POST /v1/internal-orders/{id}:close`, `If-Match` the
+  order's version): the order is read `FOR UPDATE`, must be released,
+  and its balance must be zero on every account over every year (409
+  `controlling.internal_order_not_settled`, naming an account and its
+  balance); it moves to `closed` once, audited
+  (`controlling.internal_order.close`) and published as
+  `InternalOrderChanged` (`closed`).
+- **A closed order takes no posting**: a line naming it is refused (the
+  reason `closed`), and so is the reversal of an entry that posted to it
+  (409 `ledger.internal_order_closed`): a reversal copies its original's
+  order without deriving it again (§2), so `postAll` now holds the orders
+  a reversal's lines carry `FOR SHARE` and refuses a closed one; its
+  balance was zero when it was closed and nothing settles it afterwards.
+- **The lock order** (T60b's review asked for it to be settled here). A
+  posting takes its period statuses `FOR SHARE`, then the orders its
+  lines name `FOR SHARE`, then its centers, then the number range
+  (`postAll`). A settlement takes its order `FOR UPDATE` first and then
+  posts, so inside it the same order follows: period statuses, the order
+  again (its own lock), centers, number range. A close takes the order
+  `FOR UPDATE` and nothing after it but its own update. The order stays
+  acyclic: the only locks a posting can hold while it waits for an order
+  are its period statuses, `FOR SHARE`, which the settlement takes `FOR
+  SHARE` too, and a new `FOR SHARE` does not queue behind a period
+  close's waiting `FOR UPDATE` (03 §3.7, entry locks); a posting never
+  holds a center lock or the number range while it waits for an order,
+  since it takes them after. A settlement therefore never waits for a
+  posting that waits for it. What the lock gives: a posting to the order
+  is either committed before the settlement reads the balance (and
+  moved) or waits for the settlement (and stays unsettled until the
+  next); a posting after a close finds the order closed; two settlements
+  never move one balance. Proved by
+  `TestInternalOrderSettlementLockOrder` (a posting held waiting for the
+  order while the settlement posts) and `TestInternalOrderSettledOnce`.
+- **Not a report read**: the settlements are a plain listing of a
+  table by its index, so they get no budget test (07 §7.7 item 7).
+- **Permission** `controlling.order.settle` (not an approval
+  permission), for settling and for closing.
+- **Decided by default:**
+  1. A settlement names a fiscal year and period, and its entry is dated
+     the period's last day (as a depreciation run's, ADR-0057 §7).
+  2. `:settle` takes `If-Match` (every custom method does, 04 §4.7): the
+     order's version, which moves with its rule, so an order whose
+     receiver was replaced since the caller read it is refused (412). A
+     settlement does not move the version.
+  3. Settling and closing are a person's (`x-agent: false`), as the
+     other order writes (§1), under the one permission the plan adds.
+     Settling and reading settlements also need `ledger.entry.read`,
+     since they show ledger amounts, as the budget does.
+  4. The receiver is checked on the period's last day before anything is
+     posted (409 `controlling.settlement_receiver_not_valid`: replace
+     the rule); a receiver locked for actual costs, a closed period and
+     every other refusal of the entry are the ledger's own problems.
+  5. A credit balance is settled as one: the amount is negative.
+  6. Only a released order is closed; one never released is not.
+  7. The order's line keeps the profit center and segment of the order's
+     responsible cost center and the receiver's line takes the
+     receiver's, so a settlement to a cost center of another profit
+     center moves the cost between profit centers.
+  8. A settlement is not reversed (plan, Later): the ledger refuses to
+     reverse an entry another context posted.
+- **Known limits, for a specialist** (question 2 below): the entry is in
+  local currency and its group amount is converted at the settlement
+  date's rate, so an order's balance in group currency need not be zero
+  after settlement when rates moved since its costs were posted; and the
+  balance settled is the leading ledger's, posted to every ledger the
+  company keeps, so a cost posted to an order in one ledger alone is not
+  settled ledger by ledger.
+- **Walkthrough**: `step_order_settlement` extended: the unsettled order
+  cannot be closed; Carla settles `FAIR-<year>` up to the current period
+  (CAD 1,500.00 to CC-1100 on account 510000, the entry's two lines
+  shown), the order's balance is zero and CC-1100's report shows the
+  cost; settling again posts nothing; the order is closed and a posting
+  to it is refused (`closed`).

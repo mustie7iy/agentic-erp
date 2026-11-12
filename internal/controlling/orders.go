@@ -21,10 +21,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// The statuses of an internal order (ADR-0064 §1).
+// The statuses of an internal order (ADR-0064 §1, §3): created, released
+// for posting, and closed once it is settled, which ends its postings.
 const (
 	OrderCreated  = "created"
 	OrderReleased = "released"
+	OrderClosed   = "closed"
 )
 
 // Order is an internal order (ADR-0064 §1). CostCenterCode is the
@@ -230,7 +232,7 @@ func (e *Endpoints) ReleaseInternalOrder(ctx context.Context, params gen.Release
 		return nil, err
 	}
 	if o.Status != OrderCreated {
-		return nil, problem.Conflict("controlling.internal_order_released", "The internal order is already released.")
+		return nil, problem.Conflict("controlling.internal_order_released", "The internal order is already "+o.Status+".")
 	}
 	o, err = scanOrder(tx.QueryRow(ctx, `UPDATE controlling.internal_order SET status = $2, version = version + 1, updated_by = $3
 		WHERE id = $1 AND version = $4 RETURNING `+orderColumns, o.ID, OrderReleased, p.ID, o.Version))
@@ -244,5 +246,7 @@ func (e *Endpoints) ReleaseInternalOrder(ctx context.Context, params gen.Release
 	if err := recordOrder(ctx, os[0], "release", "released"); err != nil {
 		return nil, err
 	}
-	return &gen.ReleaseInternalOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: orderToAPI(os[0])}, nil
+	// The generated answer is one type for release and close, named for
+	// the first of them.
+	return &gen.CloseInternalOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: orderToAPI(os[0])}, nil
 }

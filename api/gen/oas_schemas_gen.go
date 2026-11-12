@@ -20540,6 +20540,66 @@ type CloseFiscalPeriodUnprocessableEntity Problem
 
 func (*CloseFiscalPeriodUnprocessableEntity) closeFiscalPeriodRes() {}
 
+type CloseInternalOrderBadRequest Problem
+
+func (*CloseInternalOrderBadRequest) closeInternalOrderRes() {}
+
+type CloseInternalOrderForbidden Problem
+
+func (*CloseInternalOrderForbidden) closeInternalOrderRes() {}
+
+type CloseInternalOrderNotFound Problem
+
+func (*CloseInternalOrderNotFound) closeInternalOrderRes() {}
+
+// CloseInternalOrderOKHeaders wraps InternalOrder with response headers.
+type CloseInternalOrderOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *CloseInternalOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CloseInternalOrderOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CloseInternalOrderOKHeaders) GetResponse() InternalOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CloseInternalOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CloseInternalOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CloseInternalOrderOKHeaders) SetResponse(val InternalOrder) {
+	s.Response = val
+}
+
+func (*CloseInternalOrderOKHeaders) closeInternalOrderRes()   {}
+func (*CloseInternalOrderOKHeaders) releaseInternalOrderRes() {}
+
+type CloseInternalOrderPreconditionFailed Problem
+
+func (*CloseInternalOrderPreconditionFailed) closeInternalOrderRes() {}
+
+type CloseInternalOrderPreconditionRequired Problem
+
+func (*CloseInternalOrderPreconditionRequired) closeInternalOrderRes() {}
+
 // A ledger a period close covers, with its period's live posting status.
 // Ref: #/components/schemas/CloseLedger
 type CloseLedger struct {
@@ -21726,6 +21786,7 @@ func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
+func (*ConflictHeaders) closeInternalOrderRes()                    {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
@@ -21886,6 +21947,7 @@ func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
+func (*ConflictHeaders) settleInternalOrderRes()                   {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) signOffYearCloseRes()                      {}
 func (*ConflictHeaders) simulateChangeRequestRes()                 {}
@@ -40087,8 +40149,9 @@ type InternalOrder struct {
 	ResponsibleCostCenterID uuid.UUID `json:"responsible_cost_center_id"`
 	// The responsible cost center's code.
 	ResponsibleCostCenterCode string `json:"responsible_cost_center_code"`
-	// `created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration:
-	// clients must accept and preserve values not listed here; values may be added within /v1.
+	// `created`: no posting yet; `released` (`:release`): costs may be posted to it; `closed` (`:close`):
+	// settled, and no posting any more. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Status string `json:"status"`
 }
 
@@ -40804,6 +40867,376 @@ func (s *InternalOrderPage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*InternalOrderPage) listInternalOrdersRes() {}
+
+// The period an internal order is settled up to.
+// Ref: #/components/schemas/InternalOrderSettle
+type InternalOrderSettle struct {
+	// The fiscal year of the period, one set up for the legal entity.
+	FiscalYear int32 `json:"fiscal_year"`
+	// A regular posting period of the fiscal year: what was posted to the order in it and in every period
+	// before it, earlier years included, is settled, and the entry is dated its last day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettle) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettle) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettle) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettle) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled
+// balance up to a period to the receiving cost center, account by account. Never changed.
+// Ref: #/components/schemas/InternalOrderSettlement
+type InternalOrderSettlement struct {
+	// The settlement's id.
+	ID uuid.UUID `json:"id"`
+	// The internal order settled (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The fiscal year of the period settled up to.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period settled up to, and the entry's.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The entry's posting date: the period's last day.
+	PostingDate time.Time `json:"posting_date"`
+	// The cost center that received the costs (`GET /v1/cost-centers/{id}`): the receiver of the order's
+	// settlement rule when it was settled.
+	ReceiverCostCenterID uuid.UUID `json:"receiver_cost_center_id"`
+	// The receiving cost center's code.
+	ReceiverCostCenterCode string `json:"receiver_cost_center_code"`
+	// What moved from the order to the receiver, in the legal entity's local currency: the total of the
+	// accounts' balances settled, negative when the order held a credit balance.
+	Amount Money `json:"amount"`
+	// How many accounts the settlement moved a balance on.
+	AccountCount int32 `json:"account_count"`
+	// The settlement's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines
+	// show each account's credit on the order and debit on the receiver.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When the order was settled (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who settled it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *InternalOrderSettlement) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlement) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettlement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettlement) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *InternalOrderSettlement) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReceiverCostCenterID returns the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlement) GetReceiverCostCenterID() uuid.UUID {
+	return s.ReceiverCostCenterID
+}
+
+// GetReceiverCostCenterCode returns the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlement) GetReceiverCostCenterCode() string {
+	return s.ReceiverCostCenterCode
+}
+
+// GetAmount returns the value of Amount.
+func (s *InternalOrderSettlement) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAccountCount returns the value of AccountCount.
+func (s *InternalOrderSettlement) GetAccountCount() int32 {
+	return s.AccountCount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *InternalOrderSettlement) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *InternalOrderSettlement) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *InternalOrderSettlement) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *InternalOrderSettlement) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *InternalOrderSettlement) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlement) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettlement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettlement) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *InternalOrderSettlement) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReceiverCostCenterID sets the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlement) SetReceiverCostCenterID(val uuid.UUID) {
+	s.ReceiverCostCenterID = val
+}
+
+// SetReceiverCostCenterCode sets the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlement) SetReceiverCostCenterCode(val string) {
+	s.ReceiverCostCenterCode = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *InternalOrderSettlement) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAccountCount sets the value of AccountCount.
+func (s *InternalOrderSettlement) SetAccountCount(val int32) {
+	s.AccountCount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *InternalOrderSettlement) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *InternalOrderSettlement) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *InternalOrderSettlement) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *InternalOrderSettlement) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// One page of an internal order's settlements.
+// Ref: #/components/schemas/InternalOrderSettlementPage
+type InternalOrderSettlementPage struct {
+	// The settlements on this page.
+	Items []InternalOrderSettlement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *InternalOrderSettlementPage) GetItems() []InternalOrderSettlement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *InternalOrderSettlementPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *InternalOrderSettlementPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *InternalOrderSettlementPage) SetItems(val []InternalOrderSettlement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *InternalOrderSettlementPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *InternalOrderSettlementPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*InternalOrderSettlementPage) listInternalOrderSettlementsRes() {}
+
+// What settling an internal order up to a period did (ADR-0064 §3): the settlement it posted, or that
+// nothing was unsettled.
+// Ref: #/components/schemas/InternalOrderSettlementResult
+type InternalOrderSettlementResult struct {
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period settled up to.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period settled up to.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Whether an entry was posted: false when the order had no unsettled balance up to the period, so
+	// nothing changed.
+	Settled bool `json:"settled"`
+	// The settlement posted. Absent when `settled` is false.
+	Settlement OptInternalOrderSettlement `json:"settlement"`
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlementResult) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderSettlementResult) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderSettlementResult) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderSettlementResult) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettlementResult) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettlementResult) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetSettled returns the value of Settled.
+func (s *InternalOrderSettlementResult) GetSettled() bool {
+	return s.Settled
+}
+
+// GetSettlement returns the value of Settlement.
+func (s *InternalOrderSettlementResult) GetSettlement() OptInternalOrderSettlement {
+	return s.Settlement
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlementResult) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderSettlementResult) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderSettlementResult) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderSettlementResult) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettlementResult) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettlementResult) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetSettled sets the value of Settled.
+func (s *InternalOrderSettlementResult) SetSettled(val bool) {
+	s.Settled = val
+}
+
+// SetSettlement sets the value of Settlement.
+func (s *InternalOrderSettlementResult) SetSettlement(val OptInternalOrderSettlement) {
+	s.Settlement = val
+}
+
+// InternalOrderSettlementResultHeaders wraps InternalOrderSettlementResult with response headers.
+type InternalOrderSettlementResultHeaders struct {
+	IdempotentReplayed OptBool
+	Response           InternalOrderSettlementResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *InternalOrderSettlementResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderSettlementResultHeaders) GetResponse() InternalOrderSettlementResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *InternalOrderSettlementResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderSettlementResultHeaders) SetResponse(val InternalOrderSettlementResult) {
+	s.Response = val
+}
+
+func (*InternalOrderSettlementResultHeaders) settleInternalOrderRes() {}
 
 // The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's
 // legal entity, taking the whole.
@@ -42090,8 +42523,8 @@ type JournalLineInput struct {
 	// an order. The order must be one of the entry's legal entity and released, the account a primary cost
 	// account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's
 	// field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`,
-	// `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its
-	// profit center and segment from the order's responsible cost center on the posting date, and a
+	// `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes
+	// its profit center and segment from the order's responsible cost center on the posting date, and a
 	// different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry
 	// that is posted: a parked entry or an entry template naming an order is refused in this version (422
 	// `ledger.internal_order_not_parkable`).
@@ -45643,6 +46076,18 @@ func (*ListInternalOrderBalancesForbidden) listInternalOrderBalancesRes() {}
 type ListInternalOrderBalancesUnprocessableEntity Problem
 
 func (*ListInternalOrderBalancesUnprocessableEntity) listInternalOrderBalancesRes() {}
+
+type ListInternalOrderSettlementsBadRequest Problem
+
+func (*ListInternalOrderSettlementsBadRequest) listInternalOrderSettlementsRes() {}
+
+type ListInternalOrderSettlementsForbidden Problem
+
+func (*ListInternalOrderSettlementsForbidden) listInternalOrderSettlementsRes() {}
+
+type ListInternalOrderSettlementsNotFound Problem
+
+func (*ListInternalOrderSettlementsNotFound) listInternalOrderSettlementsRes() {}
 
 type ListInternalOrdersBadRequest Problem
 
@@ -52836,6 +53281,52 @@ func (o OptInt64) Get() (v int64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt64) Or(d int64) int64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInternalOrderSettlement returns new OptInternalOrderSettlement with value set to v.
+func NewOptInternalOrderSettlement(v InternalOrderSettlement) OptInternalOrderSettlement {
+	return OptInternalOrderSettlement{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInternalOrderSettlement is optional InternalOrderSettlement.
+type OptInternalOrderSettlement struct {
+	Value InternalOrderSettlement
+	Set   bool
+}
+
+// IsSet returns true if OptInternalOrderSettlement was set.
+func (o OptInternalOrderSettlement) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInternalOrderSettlement) Reset() {
+	var v InternalOrderSettlement
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInternalOrderSettlement) SetTo(v InternalOrderSettlement) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInternalOrderSettlement) Get() (v InternalOrderSettlement, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInternalOrderSettlement) Or(d InternalOrderSettlement) InternalOrderSettlement {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -64778,45 +65269,6 @@ type ReleaseInternalOrderNotFound Problem
 
 func (*ReleaseInternalOrderNotFound) releaseInternalOrderRes() {}
 
-// ReleaseInternalOrderOKHeaders wraps InternalOrder with response headers.
-type ReleaseInternalOrderOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           InternalOrder
-}
-
-// GetETag returns the value of ETag.
-func (s *ReleaseInternalOrderOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *ReleaseInternalOrderOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *ReleaseInternalOrderOKHeaders) GetResponse() InternalOrder {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *ReleaseInternalOrderOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *ReleaseInternalOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ReleaseInternalOrderOKHeaders) SetResponse(val InternalOrder) {
-	s.Response = val
-}
-
-func (*ReleaseInternalOrderOKHeaders) releaseInternalOrderRes() {}
-
 type ReleaseInternalOrderPreconditionFailed Problem
 
 func (*ReleaseInternalOrderPreconditionFailed) releaseInternalOrderRes() {}
@@ -68266,6 +68718,7 @@ func (*ServiceUnavailableHeaders) checkCloseTaskRes()                        {}
 func (*ServiceUnavailableHeaders) checkYearCloseTaskRes()                    {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                     {}
+func (*ServiceUnavailableHeaders) closeInternalOrderRes()                    {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
@@ -68396,6 +68849,7 @@ func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
+func (*ServiceUnavailableHeaders) settleInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()                 {}
@@ -68499,6 +68953,30 @@ func (s *SessionEndHeaders) SetResponse(val SessionEnd) {
 }
 
 func (*SessionEndHeaders) endCurrentSessionRes() {}
+
+type SettleInternalOrderBadRequest Problem
+
+func (*SettleInternalOrderBadRequest) settleInternalOrderRes() {}
+
+type SettleInternalOrderForbidden Problem
+
+func (*SettleInternalOrderForbidden) settleInternalOrderRes() {}
+
+type SettleInternalOrderNotFound Problem
+
+func (*SettleInternalOrderNotFound) settleInternalOrderRes() {}
+
+type SettleInternalOrderPreconditionFailed Problem
+
+func (*SettleInternalOrderPreconditionFailed) settleInternalOrderRes() {}
+
+type SettleInternalOrderPreconditionRequired Problem
+
+func (*SettleInternalOrderPreconditionRequired) settleInternalOrderRes() {}
+
+type SettleInternalOrderUnprocessableEntity Problem
+
+func (*SettleInternalOrderUnprocessableEntity) settleInternalOrderRes() {}
 
 type SignOffPeriodCloseBadRequest Problem
 
@@ -72777,6 +73255,7 @@ func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
+func (*TooManyRequestsHeaders) closeInternalOrderRes()                    {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
@@ -72999,6 +73478,7 @@ func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
+func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
@@ -73118,6 +73598,7 @@ func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
+func (*TooManyRequestsHeaders) settleInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()                 {}
@@ -73295,6 +73776,7 @@ func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
+func (*UnauthorizedHeaders) closeInternalOrderRes()                    {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
@@ -73517,6 +73999,7 @@ func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
+func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
@@ -73636,6 +74119,7 @@ func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
+func (*UnauthorizedHeaders) settleInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()                 {}

@@ -5925,14 +5925,18 @@ step_order_budget() {
   passed
 }
 
-# step_order_settlement: an order's settlement rule (ADR-0064 §3, T60d):
-# Carla names the cost center that will receive the trade fair's costs
-# when the order is settled, one receiver taking the whole. The rule is
-# replaced with the order's version.
+# step_order_settlement: an order's settlement rule and its settlement
+# (ADR-0064 §3, T60d, T60e): Carla names the cost center that will receive
+# the trade fair's costs when the order is settled, one receiver taking
+# the whole. The rule is replaced with the order's version. She then
+# settles the order up to this period: one entry moves the order's costs
+# to the receiver on the account they were posted on, the order's balance
+# is zero and the cost center's report shows the cost; settling again
+# posts nothing. The settled order is closed and takes no posting.
 step_order_settlement() {
-  heading "Step 51 — An order's settlement rule: the trade fair's order names the cost center that receives its costs, one receiver taking the whole"
+  heading "Step 51 — An order's settlement: the trade fair's order names the cost center that receives its costs, is settled to it on the original account, and is closed"
   as carla
-  local order cc line tag
+  local order cc line tag period expense bank before after settlement entry
   line='"order \(.internal_order_code) \(.internal_order_name): receiver \(.receiver_cost_center_code // "none") (order version \(.version))"'
   QUIET=1 api 200 '' listInternalOrders -p "legal_entity_id=$LE" -p "code=FAIR-$YEAR"
   order=$(field '.items[0].id')
@@ -5954,6 +5958,56 @@ step_order_settlement() {
   refused 412 request.version_mismatch updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" -body "{\"receiver_cost_center_id\": \"$cc\"}"
   api 200 "$line" getInternalOrderSettlementRule -p "id=$order"
   expect "the rule read again" "$(field .receiver_cost_center_code)" CC-1100
+  tag=$ETAG
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  period=$(field "[.items[] | select(.is_special | not) | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period][0]")
+  center_costs() {
+    QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$cc" -p page_size=100
+    field "[.items[] | select(.account_id == \"$expense\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
+  }
+  before=$(center_costs)
+  say "The order still holds the CAD 1,500.00 Alex posted to it, so it cannot be closed yet:"
+  refused 409 controlling.internal_order_not_settled closeInternalOrder -p "id=$order" -if-match "$tag"
+  say "Carla settles the order up to this period, $YEAR/$period (T60e), at the order's version she read with its rule. One"
+  say "journal entry, dated the period's last day, credits the order and debits the receiving cost center CC-1100 on the"
+  say "account the cost was posted on, so the account's balance is unchanged and the cost moves from the order to the"
+  say "cost center (ADR-0064 §3):"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(.settlement.amount.amount) \(.settlement.amount.currency) to \(.settlement.receiver_cost_center_code) on \(.settlement.account_count) account, entry \(.settlement.journal_entry_number) dated \(.settlement.posting_date)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the settlement moved" "$(field '"\(.settled) \(.settlement.amount.amount) \(.settlement.amount.currency) \(.settlement.receiver_cost_center_code) \(.settlement.account_count)"')" \
+    "true 1500.00 CAD CC-1100 1"
+  settlement=$(field .settlement.id)
+  entry=$(field .settlement.journal_entry_id)
+  api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(if .internal_order_code then "on order \(.internal_order_code)" else "on cost center \(.cost_center_code)" end)"] | join(" / "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the settlement's entry: the order credited, the cost center debited, on one account" \
+    "$(field '[.lines[] | "\(.account_id) \(.amount.amount) \(.internal_order_code // .cost_center_code)"] | join("; ")')" \
+    "$expense -1500.00 FAIR-$YEAR; $expense 1500.00 CC-1100"
+  expect "the entry's source" "$(field .source_context)" controlling
+  say "The order's balance is zero, and the cost center's report shows the cost:"
+  api 200 '"order \(.internal_order_code), \(.fiscal_year): debit \(.totals.debit.amount), credit \(.totals.credit.amount), balance \(.totals.balance.amount) \(.totals.balance.currency)"' \
+    listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the settled order's totals" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount) \(.totals.balance.currency)"')" "1500.00 1500.00 0.00 CAD"
+  after=$(center_costs)
+  say "cost center CC-1100 on account 510000: $(printf '%d.%02d' $(((after - before) / 100)) $(((after - before) % 100))) CAD more than before the settlement"
+  expect "the cost the cost center's report gained, in cents" "$((after - before))" 150000
+  say "Settling again finds nothing unsettled and posts nothing:"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(if .settled then "an entry posted" else "nothing to settle" end)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "a second settlement" "$(field '"\(.settled) \(.settlement // "none")"')" "false none"
+  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)"' \
+    listInternalOrderSettlements -p "id=$order"
+  expect "the order's settlements" "$(field '[.items[].id] | join(" ")')" "$settlement"
+  say "Carla closes the settled order. A closed order takes no posting:"
+  api 200 '"internal order \(.code): \(.status), version \(.version)"' closeInternalOrder -p "id=$order" -if-match "$tag"
+  expect "the closed order's status" "$(field .status)" closed
+  as alex
+  refused 422 ledger.internal_order_invalid postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+  expect "why a closed order takes no posting" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].internal_order_id closed"
   passed
 }
 

@@ -141,6 +141,10 @@ type CloseFiscalPeriodRes interface {
 	closeFiscalPeriodRes()
 }
 
+type CloseInternalOrderRes interface {
+	closeInternalOrderRes()
+}
+
 type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
@@ -1029,6 +1033,10 @@ type ListInternalOrderBalancesRes interface {
 	listInternalOrderBalancesRes()
 }
 
+type ListInternalOrderSettlementsRes interface {
+	listInternalOrderSettlementsRes()
+}
+
 type ListInternalOrdersRes interface {
 	listInternalOrdersRes()
 }
@@ -1503,6 +1511,10 @@ type RunAnalyticsQueryRes interface {
 
 type RunBalanceCarryForwardRes interface {
 	runBalanceCarryForwardRes()
+}
+
+type SettleInternalOrderRes interface {
+	settleInternalOrderRes()
 }
 
 type SignOffPeriodCloseRes interface {

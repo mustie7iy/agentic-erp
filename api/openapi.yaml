@@ -5850,6 +5850,7 @@ paths:
               - receivables
               - assets
               - integration
+              - controlling
         - name: source_document_id
           in: query
           required: false
@@ -5939,6 +5940,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.internal_order_not_parkable
         - ledger.invalid_tax_code
@@ -6163,6 +6165,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -6678,6 +6681,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
@@ -7306,6 +7310,7 @@ paths:
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.key_date_not_period_end
         - ledger.ledger_not_kept
@@ -7429,6 +7434,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -8096,6 +8102,7 @@ paths:
             x-extensible-enum:
               - created
               - released
+              - closed
         - name: responsible_cost_center_id
           in: query
           required: false
@@ -8418,6 +8425,204 @@ paths:
           $ref: "#/components/responses/PreconditionFailed"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}:settle":
+    post:
+      operationId: settleInternalOrder
+      tags:
+        - controlling
+      summary: Settle an internal order
+      description: "Settles a released internal order's actual costs up to a fiscal period to the receiver of its settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day), which per account credits the order and debits the receiving cost center for the order's unsettled balance, so each account's balance is unchanged and the cost moves from the order to the cost center on the accounts it was posted on. The unsettled balance of an account is the balance of the leading ledger's lines naming the order in every period up to the one named, earlier years included; an earlier settlement's lines are among them, so only what was posted since moves. With nothing unsettled no entry is posted and `settled` is false: settling again changes nothing. `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a settlement does not move it. The order is held under a row lock, so two settlements never move one balance twice and a posting to the order waits for a settlement under way. Refused: an order that is not released (409 `controlling.internal_order_not_released`) or already closed (409 `controlling.internal_order_closed`); an order without a settlement rule (409 `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace the rule); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`). The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not settle an order."
+      x-permission: controlling.order.settle
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - controlling.internal_order_closed
+        - controlling.internal_order_not_released
+        - controlling.period_not_regular
+        - controlling.settlement_receiver_not_valid
+        - controlling.settlement_rule_missing
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The period the order is settled up to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderSettle"
+      responses:
+        "200":
+          description: "What the settlement did: the settlement posted, or that nothing was unsettled."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}/settlements":
+    get:
+      operationId: listInternalOrderSettlements
+      tags:
+        - controlling
+      summary: List an internal order's settlements
+      description: "The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it was posted on, the receiving cost center with its code, the amount moved in the legal entity's local currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`), which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.order.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the order's settlements.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/internal-orders/{id}:close":
+    post:
+      operationId: closeInternalOrder
+      tags:
+        - controlling
+      summary: Close an internal order
+      description: "Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing needs the order's balance to be zero on every account, in the leading ledger over every fiscal year: an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming the balance: settle it first). An order that was never released (409 `controlling.internal_order_not_released`) or is already closed (409 `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the caller cannot act in is answered as missing (404). Agents may not close an order."
+      x-permission: controlling.order.settle
+      x-agent: false
+      x-problem-codes:
+        - controlling.internal_order_closed
+        - controlling.internal_order_exists
+        - controlling.internal_order_not_released
+        - controlling.internal_order_not_settled
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The internal order, closed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -9374,6 +9579,7 @@ paths:
         - ledger.cost_center_required
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -11229,6 +11435,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -11373,6 +11580,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -12104,6 +12312,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -12394,6 +12603,7 @@ paths:
         - ledger.down_payment_tax_shared
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -12550,6 +12760,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -13430,6 +13641,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -13592,6 +13804,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -13993,6 +14206,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -17873,6 +18087,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -18019,6 +18234,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -18182,6 +18398,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -18326,6 +18543,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -18494,6 +18712,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -18638,6 +18857,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -21688,6 +21908,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
@@ -23306,6 +23527,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_center_status
         - ledger.invalid_clearing_entry
@@ -31143,6 +31365,7 @@ components:
             - receivables
             - assets
             - integration
+            - controlling
           readOnly: true
         source_document_id:
           type: string
@@ -31278,7 +31501,7 @@ components:
         internal_order_id:
           type: string
           format: uuid
-          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
+          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
         trading_partner_id:
           type: string
           format: uuid
@@ -34331,10 +34554,11 @@ components:
               readOnly: true
             status:
               type: string
-              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it; `closed` (`:close`): settled, and no posting any more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - created
                 - released
+                - closed
               readOnly: true
       examples:
         - id: "0192a000-0000-7000-8000-000000000c01"
@@ -34569,6 +34793,226 @@ components:
       additionalProperties: false
       examples:
         - receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+    InternalOrderSettle:
+      type: object
+      description: "The period an internal order is settled up to."
+      required:
+        - fiscal_year
+        - fiscal_period
+      properties:
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: "The fiscal year of the period, one set up for the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "A regular posting period of the fiscal year: what was posted to the order in it and in every period before it, earlier years included, is settled, and the entry is dated its last day."
+      additionalProperties: false
+      examples:
+        - fiscal_year: 2026
+          fiscal_period: 11
+    InternalOrderSettlement:
+      type: object
+      description: "A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled balance up to a period to the receiving cost center, account by account. Never changed."
+      required:
+        - id
+        - internal_order_id
+        - fiscal_year
+        - fiscal_period
+        - posting_date
+        - receiver_cost_center_id
+        - receiver_cost_center_code
+        - amount
+        - account_count
+        - journal_entry_id
+        - journal_entry_number
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The settlement's id.
+          readOnly: true
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order settled (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period settled up to.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: "The period settled up to, and the entry's."
+        posting_date:
+          type: string
+          format: date
+          description: "The entry's posting date: the period's last day."
+          readOnly: true
+        receiver_cost_center_id:
+          type: string
+          format: uuid
+          description: "The cost center that received the costs (`GET /v1/cost-centers/{id}`): the receiver of the order's settlement rule when it was settled."
+          readOnly: true
+        receiver_cost_center_code:
+          type: string
+          description: The receiving cost center's code.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What moved from the order to the receiver, in the legal entity's local currency: the total of the accounts' balances settled, negative when the order held a credit balance."
+          readOnly: true
+        account_count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many accounts the settlement moved a balance on.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The settlement's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show each account's credit on the order and debit on the receiver."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: The entry's document number.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the order was settled (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who settled it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c11"
+          internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posting_date: "2026-11-30"
+          receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+          receiver_cost_center_code: CC-2100
+          amount:
+            amount: "1500.00"
+            currency: EUR
+          account_count: 1
+          journal_entry_id: "0192a000-0000-7000-8000-000000000e41"
+          journal_entry_number: "100000042"
+          created_at: "2026-11-30T16:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderSettlementResult:
+      type: object
+      description: "What settling an internal order up to a period did (ADR-0064 §3): the settlement it posted, or that nothing was unsettled."
+      required:
+        - internal_order_id
+        - internal_order_code
+        - internal_order_name
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - settled
+      properties:
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        internal_order_code:
+          type: string
+          description: The order's code.
+          readOnly: true
+        internal_order_name:
+          type: string
+          description: The order's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The order's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period settled up to.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period settled up to.
+        settled:
+          type: boolean
+          description: "Whether an entry was posted: false when the order had no unsettled balance up to the period, so nothing changed."
+          readOnly: true
+        settlement:
+          $ref: "#/components/schemas/InternalOrderSettlement"
+          description: "The settlement posted. Absent when `settled` is false."
+          readOnly: true
+      examples:
+        - internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          internal_order_code: TRADEFAIR-26
+          internal_order_name: Trade fair 2026
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          settled: true
+          settlement:
+            id: "0192a000-0000-7000-8000-000000000c11"
+            internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+            fiscal_year: 2026
+            fiscal_period: 11
+            posting_date: "2026-11-30"
+            receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+            receiver_cost_center_code: CC-2100
+            amount:
+              amount: "1500.00"
+              currency: EUR
+            account_count: 1
+            journal_entry_id: "0192a000-0000-7000-8000-000000000e41"
+            journal_entry_number: "100000042"
+            created_at: "2026-11-30T16:00:00Z"
+            created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderSettlementPage:
+      type: object
+      description: One page of an internal order's settlements.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrderSettlement"
+          description: The settlements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     InternalOrderBalance:
       type: object
       description: "The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the legal entity's local currency."

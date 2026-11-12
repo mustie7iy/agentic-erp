@@ -13,6 +13,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	orders "github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -126,6 +127,8 @@ func (a assigned) orderRefusals(t *testing.T, fair string) {
 	other := a.internalOrder(t, a.us, "US", a.ccUS, true)
 	later := a.internalOrder(t, a.de, "LATER", a.cc3000, true) // its cost center is valid from June
 	lost := a.internalOrder(t, a.de, "LOST", uuid.New(), true) // its cost center is none of the ledger's
+	closed := a.internalOrder(t, a.de, "CLOSED", a.cc1000, true)
+	pgtest.Exec(t, `UPDATE controlling.internal_order SET status = 'closed', version = version + 1 WHERE id = $1`, closed)
 	office, cc1000 := a.office.String(), a.cc1000.String()
 	for name, c := range map[string]struct {
 		line centeredLine
@@ -135,6 +138,7 @@ func (a assigned) orderRefusals(t *testing.T, fair string) {
 		"an order that is none":           {centeredLine{account: office, order: uuid.NewString()}, "ledger.internal_order_invalid", "unknown"},
 		"an order of another company":     {centeredLine{account: office, order: other}, "ledger.internal_order_invalid", "not_in_company"},
 		"an order not released":           {centeredLine{account: office, order: created}, "ledger.internal_order_invalid", "not_released"},
+		"an order closed":                 {centeredLine{account: office, order: closed}, "ledger.internal_order_invalid", "closed"},
 		"an order beside a cost center":   {centeredLine{account: office, order: fair, cc: cc1000}, "ledger.internal_order_invalid", "with_cost_center"},
 		"an order on a revenue account":   {centeredLine{account: a.revenue.String(), order: fair}, "ledger.internal_order_invalid", "not_a_cost_account"},
 		"an order on a balance sheet one": {centeredLine{account: a.bank.String(), order: fair}, "ledger.internal_order_invalid", "not_a_cost_account"},
@@ -223,6 +227,75 @@ func TestInternalOrderPort(t *testing.T) {
 			t.Errorf("problem: got %d %s, want 422 ledger.internal_order_invalid", p.Status, p.Code)
 		}
 	})
+}
+
+// TestReversalOnAClosedOrder: a closed order takes no posting, a
+// reversal's included (T60e): the entry that charged it is not reversed
+// once the order is closed, and an entry of an open order still is.
+func TestReversalOnAClosedOrder(t *testing.T) {
+	a := setupAssigned(t)
+	fair := a.internalOrder(t, a.de, "FAIR", a.cc1000, true)
+	charge := func() (string, string) {
+		posted, tag := a.Must(201, "POST", "/v1/journal-entries", centeredEntry(a.de, "2026-05-10",
+			centeredLine{account: a.office.String(), amount: "1.00", order: fair}, centeredLine{account: a.bank.String(), amount: "-1.00"}), "")
+		return "/v1/journal-entries/" + posted["id"].(string) + ":reverse", tag
+	}
+	first, firstTag := charge()
+	second, secondTag := charge()
+	a.Must(200, "POST", first, "", firstTag)
+	pgtest.Exec(t, `UPDATE controlling.internal_order SET status = 'closed', version = version + 1 WHERE id = $1`, fair)
+	t.Run("a port in error is the reversal's", func(t *testing.T) {
+		h := endpoints()
+		h.CostObjects = failingOrders{}
+		err := apitest.InRequest(t, a.ten, a.ten.Human, func(ctx context.Context) error {
+			_, err := h.ReverseJournalEntry(ctx, gen.OptJournalEntryReverse{},
+				gen.ReverseJournalEntryParams{ID: uuid.MustParse(second[len("/v1/journal-entries/") : len(second)-len(":reverse")]), IfMatch: secondTag})
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "controlling is away") {
+			t.Errorf("got %v, want the port's error", err)
+		}
+	})
+	m := a.Problem(409, "ledger.internal_order_closed", "POST", second, "", secondTag)
+	if want := "The entry posted to internal order FAIR, which is closed since and takes no posting; the entry cannot be reversed."; m["detail"] != want {
+		t.Errorf("detail: got %v, want %s", m["detail"], want)
+	}
+}
+
+// TestPostingToAnInternalOrder: another context's posting names an order
+// on its line (T60e: the controlling context's settlement), checked as a
+// manual entry's is through the port its Postings are wired with; without
+// the port the line is an error, never posted unchecked.
+func TestPostingToAnInternalOrder(t *testing.T) {
+	a := setupAssigned(t)
+	fair := uuid.MustParse(a.internalOrder(t, a.de, "FAIR", a.cc1000, true))
+	created := uuid.MustParse(a.internalOrder(t, a.de, "CREATED", a.cc1000, false))
+	day := time.Date(2026, 5, 10, 0, 0, 0, 0, time.UTC)
+	post := func(p ledger.Postings, order uuid.UUID) (entry ledger.Entry, err error) {
+		return entry, apitest.Committed(t, a.ten, a.ten.Human, func(ctx context.Context) (err error) {
+			entry, err = p.Post(ctx, ledger.Posting{LegalEntityID: a.de, DocumentType: "SA", DocumentDate: day, PostingDate: day, Currency: "EUR",
+				SourceContext: "controlling", SourceDocumentID: uuid.New(), Lines: []ledger.PostingLine{
+					{AccountID: a.office, Amount: 100, InternalOrderID: &order}, {AccountID: a.bank, Amount: -100}}})
+			return err
+		})
+	}
+	wired := postings()
+	wired.CostObjects = orders.CostObjects{}
+	entry, err := post(wired, fair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := a.Must(200, "GET", "/v1/journal-entries/"+entry.ID.String(), "", "")
+	wantOrderLines(t, got, fmt.Sprintf("-/%s:PC1/%s:SEG1 %s:FAIR", a.pc1, a.seg1, fair), "-/-/- -")
+	if got["source_context"] != "controlling" {
+		t.Errorf("source context: got %v, want controlling", got["source_context"])
+	}
+	if _, err := post(wired, created); problem.From(err).Code != "ledger.internal_order_invalid" {
+		t.Errorf("an order not released: got %v, want ledger.internal_order_invalid", err)
+	}
+	if _, err := post(postings(), fair); err == nil || !strings.Contains(err.Error(), "cost objects port is not wired") {
+		t.Errorf("postings without the port: got %v, want an error saying the port is not wired", err)
+	}
 }
 
 // TestInternalOrderNamedByPort: reading an entry whose line names an order

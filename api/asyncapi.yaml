@@ -361,6 +361,7 @@ channels:
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
       InternalOrderChanged: {$ref: '#/components/messages/InternalOrderChanged'}
       InternalOrderBudgetChanged: {$ref: '#/components/messages/InternalOrderBudgetChanged'}
+      InternalOrderSettled: {$ref: '#/components/messages/InternalOrderSettled'}
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
@@ -631,6 +632,7 @@ operations:
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
       - $ref: '#/channels/controlling/messages/InternalOrderChanged'
       - $ref: '#/channels/controlling/messages/InternalOrderBudgetChanged'
+      - $ref: '#/channels/controlling/messages/InternalOrderSettled'
   publishAssetsEvents:
     action: send
     title: Asset accounting publishes
@@ -3245,11 +3247,12 @@ components:
     InternalOrderChanged:
       name: InternalOrderChanged
       title: Internal order changed
-      summary: An internal order was created or released.
+      summary: An internal order was created, released or closed.
       description: |
-        Emitted by `internal-orders` (POST, `created`) and its `:release`
-        (`released`), ADR-0064 §1: costs may be posted to a released
-        order. Subject is the internal order id.
+        Emitted by `internal-orders` (POST, `created`), its `:release`
+        (`released`) and its `:close` (`closed`), ADR-0064 §1, §3: costs
+        may be posted to a released order, and to a closed one no more.
+        Subject is the internal order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -3282,6 +3285,29 @@ components:
         - name: replaced
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000604, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_budget_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, previous_budget: {amount: '15000.00', currency: EUR}, version: 2}
+    InternalOrderSettled:
+      name: InternalOrderSettled
+      title: Internal order settled
+      summary: An internal order's unsettled costs were moved to its receiving cost center.
+      description: |
+        Emitted by `internal-orders/{id}:settle`, ADR-0064 §3, when it posts
+        an entry: the order's unsettled balance up to the period moved to
+        the receiver of its settlement rule on the accounts it was posted
+        on, with the settlement's journal entry (also published by the
+        ledger as JournalEntryPosted). A settlement that finds nothing
+        unsettled posts nothing and emits nothing. Subject is the internal
+        order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_settled.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderSettledV1'}
+      examples:
+        - name: settled
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000605, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_settled.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-30T16:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, settlement_id: 0192a000-0000-7000-8000-000000000c11, fiscal_year: 2026, fiscal_period: 11, posting_date: '2026-11-30', receiver_cost_center_id: 0192a000-0000-7000-8000-000000000202, receiver_cost_center_code: CC-2100, amount: {amount: '1500.00', currency: EUR}, account_count: 1, journal_entry_id: 0192a000-0000-7000-8000-000000000e41, journal_entry_number: '100000042'}
     TaxReturnPrepared:
       name: TaxReturnPrepared
       x-webhook: true
@@ -3950,7 +3976,7 @@ components:
         currency_lc: {$ref: '#/components/schemas/CurrencyCode'}
         currency_gc: {$ref: '#/components/schemas/CurrencyCode'}
         reference: {type: [string, 'null']}
-        source_context: {type: string, description: 'Open enum: ledger, payables, payments, procurement, receivables, assets, integration.'}
+        source_context: {type: string, description: 'Open enum: ledger, payables, payments, procurement, receivables, assets, integration, controlling.'}
         source_document_id: {$ref: '#/components/schemas/NullableUuid'}
         reversal_of_id: {$ref: '#/components/schemas/NullableUuid', description: Set on reversal entries.}
         reversal_of_year: {type: [integer, 'null']}
@@ -4633,8 +4659,8 @@ components:
         name: {type: string}
         responsible_cost_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.cost_center.id`.'}
         responsible_cost_center_code: {type: string}
-        status: {type: string, description: 'The status after the change. Open enum: created, released.'}
-        change: {type: string, description: 'Open enum: created, released.'}
+        status: {type: string, description: 'The status after the change. Open enum: created, released, closed.'}
+        change: {type: string, description: 'Open enum: created, released, closed.'}
     InternalOrderBudgetChangedV1:
       type: object
       required: [internal_order_id, legal_entity_id, code, name, budget, version]
@@ -4646,6 +4672,24 @@ components:
         budget: {$ref: '#/components/schemas/Money', description: The budget after the change, in the legal entity's local currency.}
         previous_budget: {$ref: '#/components/schemas/Money', description: The budget before the change. Absent when the order had none.}
         version: {type: integer, description: 'The budget''s version after the change: 1 when first set.'}
+    InternalOrderSettledV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, settlement_id, fiscal_year, fiscal_period, posting_date, receiver_cost_center_id, receiver_cost_center_code, amount, account_count, journal_entry_id, journal_entry_number]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        settlement_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.order_settlement.id`.'}
+        fiscal_year: {type: integer, description: The fiscal year of the period settled up to.}
+        fiscal_period: {type: integer, description: 'The period settled up to, and the entry''s.'}
+        posting_date: {type: string, format: date, description: 'The entry''s posting date: the period''s last day.'}
+        receiver_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The cost center that received the costs, `ledger.cost_center.id`.'}
+        receiver_cost_center_code: {type: string}
+        amount: {$ref: '#/components/schemas/Money', description: 'What moved from the order to the receiver, in the legal entity''s local currency; negative when the order held a credit balance.'}
+        account_count: {type: integer, description: How many accounts the settlement moved a balance on.}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The settlement''s entry in the leading ledger, `ledger.journal_entry.id`.'}
+        journal_entry_number: {type: string, description: The entry's document number.}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]

@@ -2711,7 +2711,14 @@ per purchase order (`'ledger.gr_ir:' || tenant || ':' || order`), taken in
 one sorted call by every posting that moves a GR/IR position and by a
 reversal of one, after its entry bucket. The lock order is entry buckets,
 then GR/IR orders, then the `period_status` row of each period posted into
-(`FOR SHARE`), then the number range.
+(`FOR SHARE`), then the internal orders the lines name
+(`controlling.internal_order`, `FOR SHARE` through `ledger.CostObjects`;
+a reversal holds the orders its lines carry over), then the lines' centers,
+then the number range. An order's settlement (ADR-0064 As built, T60e)
+takes its order `FOR UPDATE` before it posts, and its close takes it and
+nothing after; a posting holds only its period statuses, `FOR SHARE`,
+while it waits for an order, which the settlement's entry takes `FOR
+SHARE` too, so the order stays acyclic.
 
 Every posting (manual entries, the ports other contexts post through,
 clearings, settlements, reversals and the migration load) reads its
@@ -3346,8 +3353,8 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
-and internal orders with their budgets and settlement rules (ADR-0064;
-T60a, T60b, T60c, T60d).
+and internal orders with their budgets, settlement rules and settlements
+(ADR-0064; T60a-T60e).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3359,7 +3366,10 @@ permission, which agents cannot hold). Migration 000267 adds the order
 master and the permissions `controlling.order.read`,
 `controlling.order.write` and `controlling.order.release` (an approval
 permission). Migration 000271 adds the order's budget and the permission
-`controlling.order.budget`; migration 000272 the order's settlement rule.
+`controlling.order.budget`; migration 000272 the order's settlement rule;
+migration 000275 the order's settlements, the status `closed` and the
+permission `controlling.order.settle` (000273 and 000274 let the journal
+take entries whose `source_context` is `controlling`).
 
 ```mermaid
 erDiagram
@@ -3396,7 +3406,7 @@ erDiagram
     text code "unique per company"
     text name
     uuid responsible_cost_center_id "ledger context"
-    text status "created, released" }
+    text status "created, released, closed" }
   internal_order ||--o| order_budget : "budgeted by"
   order_budget { uuid internal_order_id PK
     bigint amount "local currency, minor units, zero or more"
@@ -3404,6 +3414,17 @@ erDiagram
   internal_order ||--o| settlement_rule : "settles to"
   settlement_rule { uuid internal_order_id PK
     uuid receiver_cost_center_id "ledger context" }
+  internal_order ||--o{ order_settlement : "settled by"
+  order_settlement { uuid id PK
+    uuid internal_order_id FK
+    smallint fiscal_year
+    smallint fiscal_period "settled up to"
+    date posting_date
+    uuid receiver_cost_center_id "ledger context"
+    uuid journal_entry_id "ledger context, once"
+    text document_number
+    bigint amount "local currency, minor units"
+    int account_count }
 ```
 
 | Table | Purpose |
@@ -3414,7 +3435,8 @@ erDiagram
 | `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
 | `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
 | `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
-| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`), relayed as every context's (`outbox.Contexts`) |
+| `controlling.order_settlement` | A settlement of an order (ADR-0064 §3, T60e), insert-only (no `UPDATE` or `DELETE` granted): the order (`order_settlement_order`), its company, the fiscal year and regular period settled up to, the posting date (the period's last day), the receiving cost center and the journal entry (the ledger's; no foreign key crosses the schema; an entry is one settlement's, `order_settlement_entry_once`) with its document number, the amount moved in minor units of the company's local currency (the total of the accounts' balances, negative for a credit balance) and the number of accounts. The entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the settlement as its source document: per account the order credited and the receiver debited, so each account's balance is unchanged. The order is read FOR UPDATE from before its balance is read (`ledger.AssignmentBalances.OrderAccountBalances`) until the entry is posted; with nothing unsettled no row is written. A settled order, its balance zero on every account, is closed (`controlling.internal_order.status` `closed`, from `released` alone and for good, `internal_order_lifecycle`): a closed order takes no posting, and the entries that posted to it are no longer reversed |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
 /v1/profit-center-plan-actual`, T56g3) stores nothing: the category's

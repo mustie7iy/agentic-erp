@@ -34,10 +34,16 @@ type Postings struct {
 	// to the asset's cost (GRIRItem.ItemAccountID). Read only for a
 	// posting whose items name their account.
 	Settings Settings
+	// CostObjects answers for the internal orders lines name
+	// (PostingLine.InternalOrderID, ADR-0064 §2): wired by the controlling
+	// context, the one context whose postings name orders (T60e). nil: a
+	// line naming an order is an error, never posted unchecked.
+	CostObjects CostObjects
 }
 
 func (p Postings) endpoints() *Endpoints {
-	return &Endpoints{LegalEntities: p.LegalEntities, Partners: p.Partners, Numbers: p.Numbers, TaxReturns: p.TaxReturns, Settings: p.Settings}
+	return &Endpoints{LegalEntities: p.LegalEntities, Partners: p.Partners, Numbers: p.Numbers, TaxReturns: p.TaxReturns, Settings: p.Settings,
+		CostObjects: p.CostObjects}
 }
 
 // PostingLine is a line to post, in minor units of the entry's currency,
@@ -78,6 +84,11 @@ type PostingLine struct {
 	// or invoice item's cost center, a profit center for a P&L line
 	// without one; nil: derived by the ledger.
 	CostCenterID, ProfitCenterID, SegmentID *uuid.UUID
+	// InternalOrderID is the internal order the line's cost is posted to
+	// (ADR-0064 §2), instead of a cost center: an order's settlement
+	// credits the order (T60e). Checked as a manual entry's is (422
+	// ledger.internal_order_invalid), through Postings.CostObjects.
+	InternalOrderID *uuid.UUID
 	// TradingPartner is the tenant's company on the other side of the line
 	// (ADR-0059 §4): a legal entity of the tenant other than the entry's
 	// (422 ledger.trading_partner_invalid). nil: Posting.TradingPartner.
@@ -454,7 +465,8 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 	for i, l := range in.Lines {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC, gc: l.GC,
-			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: in.tradingPartnerOf(l)}
+			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: in.tradingPartnerOf(l),
+			InternalOrderID: l.InternalOrderID}
 	}
 	posted, err := p.endpoints().postJournalEntry(ctx, tx, principal, entry)
 	if err != nil {

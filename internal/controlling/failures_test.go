@@ -53,6 +53,16 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	ruled := uuid.MustParse(c.order(t, "RULED"))
 	c.Must(200, "PATCH", "/v1/internal-orders/"+ruled.String()+"/settlement-rule", ruleBody(c.c.Sales), `"1"`)
 	balances := gen.ListInternalOrderBalancesParams{InternalOrderID: charged, FiscalYear: 2026, PageSize: gen.NewOptInt32(1)}
+	// An order with costs to settle, and one settled twice and ready to close.
+	unsettledID, _ := c.ruledOrder(t, "UNSETTLED", c.c.Sales)
+	c.charge(t, unsettledID, "2026-05-10", c.office, "10.00")
+	settledID, settledPath := c.ruledOrder(t, "SETTLED", c.c.Sales)
+	for _, m := range []int{5, 6} {
+		c.charge(t, settledID, fmt.Sprintf("2026-%02d-10", m), c.office, "10.00")
+		c.Must(200, "POST", settledPath+":settle", settleBody(2026, m), `"3"`)
+	}
+	unsettled, settled := uuid.MustParse(unsettledID), uuid.MustParse(settledID)
+	settlements := gen.ListInternalOrderSettlementsParams{ID: settled, PageSize: gen.NewOptInt32(1)}
 	calls := map[string]func(ctx context.Context) error{
 		"create an order": func(ctx context.Context) error {
 			_, err := h.CreateInternalOrder(ctx, &gen.InternalOrderCreate{LegalEntityID: c.DE, Code: "NEW", Name: "N", ResponsibleCostCenterID: c.c.Admin},
@@ -100,6 +110,28 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		"replace an order's settlement rule": func(ctx context.Context) error {
 			_, err := h.UpdateInternalOrderSettlementRule(ctx, &gen.InternalOrderSettlementRuleUpdate{ReceiverCostCenterID: c.c.Admin},
 				gen.UpdateInternalOrderSettlementRuleParams{ID: ruled, IfMatch: `"2"`})
+			return err
+		},
+		"settle an order": func(ctx context.Context) error {
+			_, err := h.SettleInternalOrder(ctx, &gen.InternalOrderSettle{FiscalYear: 2026, FiscalPeriod: 5}, gen.SettleInternalOrderParams{ID: unsettled, IfMatch: `"3"`})
+			return err
+		},
+		"list an order's settlements, a page after the first": func(ctx context.Context) error {
+			res, err := h.ListInternalOrderSettlements(ctx, settlements)
+			if err != nil {
+				return err
+			}
+			next := settlements
+			next.PageToken = gen.NewOptString(res.(*gen.InternalOrderSettlementPage).NextPageToken.Or("none"))
+			_, err = h.ListInternalOrderSettlements(ctx, next)
+			return err
+		},
+		"close an order": func(ctx context.Context) error {
+			_, err := h.CloseInternalOrder(ctx, gen.CloseInternalOrderParams{ID: settled, IfMatch: `"3"`})
+			return err
+		},
+		"the ledger's balances of an order by account": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.OrderAccountBalances(ctx, c.DE, unsettled, &ledger.PeriodKey{FiscalYear: 2026, Period: 5})
 			return err
 		},
 		"the ledger's validity of a cost center": func(ctx context.Context) error {

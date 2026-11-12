@@ -42,12 +42,12 @@ func (CostObjects) Orders(ctx context.Context, ids []uuid.UUID, hold bool) (map[
 	if hold {
 		lock = ` ORDER BY id FOR SHARE`
 	}
-	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, code, status = $2, responsible_cost_center_id FROM controlling.internal_order
-		WHERE id = ANY($1)`+lock, ids, OrderReleased)
+	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, code, status = $2, status = $3, responsible_cost_center_id FROM controlling.internal_order
+		WHERE id = ANY($1)`+lock, ids, OrderReleased, OrderClosed)
 	out := map[uuid.UUID]ledger.CostOrder{}
 	var id uuid.UUID
 	var o ledger.CostOrder
-	_, err = pgx.ForEachRow(rows, []any{&id, &o.LegalEntityID, &o.Code, &o.Postable, &o.CostCenterID}, func() error { out[id] = o; return nil })
+	_, err = pgx.ForEachRow(rows, []any{&id, &o.LegalEntityID, &o.Code, &o.Postable, &o.Closed, &o.CostCenterID}, func() error { out[id] = o; return nil })
 	return out, errs.Wrapf(err, "controlling: internal orders named by journal lines")
 }
 
