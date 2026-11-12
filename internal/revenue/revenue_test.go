@@ -91,6 +91,19 @@ func (e env) confirmed(t *testing.T, items ...string) (id, number string) {
 	return id, o["document_number"].(string)
 }
 
+// foreign creates and confirms a sales order in US dollars and returns
+// its id. The confirmation values the order in the company's currency
+// for the customer's credit (T77b), so it needs the day's average rate:
+// 0.80 EUR for a US dollar from 2026, recorded here.
+func (e env) foreign(t *testing.T) string {
+	t.Helper()
+	pgtest.Exec(t, `INSERT INTO ledger.exchange_rate (tenant_id, id, rate_type, from_currency, to_currency, valid_from, rate, source, created_by)
+		VALUES ($1, gen_random_uuid(), 'average', 'USD', 'EUR', '2026-01-01', 0.8, 'ECB', $2)`, e.Tenant.ID, e.Tenant.Human.ID)
+	id := e.draft(t, "USD", e.item("Machined bracket M8", "", "1", "10.00", "USD"))["id"].(string)
+	e.Must(200, "POST", "/v1/sales-orders/"+id+":confirm", "", `"1"`)
+	return id
+}
+
 func forOrder(id string) string { return fmt.Sprintf(`{"sales_order_id": %q}`, id) }
 
 func amount(t *testing.T, m map[string]any, field string) string {

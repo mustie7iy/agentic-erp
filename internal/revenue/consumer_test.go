@@ -186,8 +186,7 @@ func TestContractRequestRacesTheEvent(t *testing.T) {
 func TestConsumerSkipsAndRefuses(t *testing.T) {
 	e := setup(t)
 	order, _ := e.confirmed(t, e.goods())
-	foreign := e.draft(t, "USD", e.item("Machined bracket M8", "", "1", "10.00", "USD"))["id"].(string)
-	e.Must(200, "POST", "/v1/sales-orders/"+foreign+":confirm", "", `"1"`)
+	foreign := e.foreign(t)
 	draft := e.draft(t, "EUR", e.goods())["id"].(string)
 	stranger := uuid.New()
 	for _, tc := range []struct {

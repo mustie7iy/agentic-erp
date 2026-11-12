@@ -110,8 +110,7 @@ func TestContractCreatedOnRequest(t *testing.T) {
 func TestContractRefused(t *testing.T) {
 	e := setup(t)
 	draft := e.draft(t, "EUR", e.goods())["id"].(string)
-	foreign := e.draft(t, "USD", e.item("Machined bracket M8", "", "1", "10.00", "USD"))["id"].(string)
-	e.Must(200, "POST", "/v1/sales-orders/"+foreign+":confirm", "", `"1"`)
+	foreign := e.foreign(t)
 	order, _ := e.confirmed(t, e.goods())
 	stranger := e.As(e.Reader(t, "US accountant", e.US))
 	for _, c := range []struct {

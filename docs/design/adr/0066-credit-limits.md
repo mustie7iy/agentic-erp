@@ -380,11 +380,6 @@ The check that blocked nothing now blocks a sales order
   the exposure by step 68, its billing document posted and paid in step
   64, and step 67's order, confirmed and not billed, counts at its gross
   value, 2835.00 CAD.
-  `TestOpenOrdersAndBilling` (`internal/sales/credit_test.go`) asserts
-  today's half, a created document changing nothing, and says where the
-  posted half is added: after the post, `open_orders` falls by the
-  document's gross, `open_items` rises by the invoice's, and `exposure`
-  stays when the invoice's tax is the order date's.
 - **What an order that cannot be valued does.** A confirmed order whose
   tax code or rate is later taken away refuses the customer's exposure,
   and with it every confirmation of that customer's orders once it has a
@@ -392,9 +387,9 @@ The check that blocked nothing now blocks a sales order
   order. Nothing is guessed.
 - **The read is not bounded yet.** `sales.openOrders` reads every
   confirmed, unblocked order of the customer and leaves out those with
-  nothing open; an order never leaves `confirmed`. Once T79b posts
+  nothing open; an order never leaves `confirmed`. With T79b posting
   billing documents, fully billed orders are still read, under the
-  customer's key. T79b, or the depth phase, bounds it: a flag or status
+  customer's key. The depth phase bounds it: a flag or status
   on an order billed in full, or a partial index on orders with
   something open. Not a tracker item (review round 1, a nit).
 - **Not built, by the plan's "Later":** checking again at delivery or
