@@ -379,7 +379,10 @@ adding up to 100, all active and of one company.
   a person's (`x-agent: false`), as creating an order is (§1); agents
   read it. The receiver may be the order's responsible cost center. The
   rule may be set on an order in any status; it is replaced, never
-  removed.
+  removed. A `PATCH` naming the receiver the rule already has is a change
+  like any other: both versions move and it is audited, as for the
+  budget. The rule shows the receiver's code beside its id, as the order
+  shows its responsible cost center (§1, default 4).
 - **Walkthrough**: `step_order_settlement`, Carla names CC-1100 as the
   receiver of `FAIR-<year>`; a cost center that is none and a change at
   the replaced version are refused.

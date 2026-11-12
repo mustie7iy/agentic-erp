@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
@@ -157,4 +159,48 @@ func TestInternalOrderSettlementRuleSetOnce(t *testing.T) {
 	want(t, "second change", problem.From(second).Code, "request.version_mismatch")
 	got, _ := p.Must(200, "GET", "/v1/internal-orders/"+id.String()+"/settlement-rule", "", "")
 	want(t, "the rule kept", ruleLine(got), "v2 receiver 2000")
+}
+
+// zoned is an active configuration whose company 2000 is in the zone.
+type zoned string
+
+func (z zoned) Document(context.Context) (*config.Config, int32, error) {
+	return &config.Config{Companies: []config.Company{{Code: "2000", TimeZone: string(z)}}}, 1, nil
+}
+
+// TestSettlementRuleReceiverOnTheCompanysDate: a receiver is valid today
+// on the company's date in its time zone, not UTC's (ADR-0064 §3, as
+// center changes are judged, T72n4). A cost center valid from 17 April is
+// refused in Toronto at 22:00 on the 16th, which is already the 17th in
+// UTC, with the date and the zone named, and accepted in Dubai at 01:00
+// on the 17th, still the 16th in UTC.
+func TestSettlementRuleReceiverOnTheCompanysDate(t *testing.T) {
+	p := setup(t)
+	id := uuid.MustParse(p.order(t, "FAIR-26"))
+	created, _ := p.Must(201, "POST", "/v1/cost-centers", fmt.Sprintf(`{"legal_entity_id": %q, "code": "9200", "name": "From 17 April", "responsible": "J",
+		"category": "ADMIN", "valid_from": "2026-04-17", "reason": "r"}`, p.DE), "")
+	p.Approve(t, created["pending_change_id"].(string))
+	receiver := uuid.MustParse(created["id"].(string))
+	set := func(zone zoned, at time.Time) error {
+		h := endpoints(t)
+		h.Settings, h.Now = zone, func() time.Time { return at }
+		return apitest.InRequest(t, p.Tenant, p.Tenant.Human, func(ctx context.Context) error {
+			_, err := h.UpdateInternalOrderSettlementRule(ctx, &gen.InternalOrderSettlementRuleUpdate{ReceiverCostCenterID: receiver},
+				gen.UpdateInternalOrderSettlementRuleParams{ID: id, IfMatch: `"1"`})
+			return err
+		})
+	}
+	t.Run("the 16th in Toronto, the 17th in UTC", func(t *testing.T) {
+		got := problem.From(set("America/Toronto", time.Date(2026, 4, 17, 2, 0, 0, 0, time.UTC)))
+		want(t, "problem", got.Code, "controlling.settlement_rule_receiver_invalid")
+		if len(got.Errors) != 1 || got.Errors[0].Code != "not_valid_today" {
+			t.Errorf("field errors: got %v, want one not_valid_today", got.Errors)
+		}
+		want(t, "detail", got.Detail, "The receiving cost center is not valid on 2026-04-16, the legal entity's date in America/Toronto.")
+	})
+	t.Run("the 17th in Dubai, the 16th in UTC", func(t *testing.T) {
+		if err := set("Asia/Dubai", time.Date(2026, 4, 16, 21, 0, 0, 0, time.UTC)); err != nil {
+			t.Errorf("got %v, want the receiver accepted", err)
+		}
+	})
 }
