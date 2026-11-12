@@ -777,6 +777,27 @@ type Handler interface {
 	//
 	// POST /v1/down-payment-requests
 	CreateDownPaymentRequest(ctx context.Context, req *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (CreateDownPaymentRequestRes, error)
+	// CreateDunningRun implements createDunningRun operation.
+	//
+	// Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a):
+	// per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue
+	// on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on
+	// the items, and nothing is sent to a customer. The items are the open items on the company's customer
+	// reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the
+	// customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its
+	// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
+	// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
+	// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
+	// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
+	// notice's level is the highest among its items. A company without dunning levels is refused (422
+	// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
+	// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
+	// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
+	// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/dunning-runs
+	CreateDunningRun(ctx context.Context, req *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
 	// CreateEntryTemplate implements createEntryTemplate operation.
 	//
 	// Saves a manual journal entry without its dates as a template (ADR-0056, `EntryTemplateChanged`), for
@@ -1870,6 +1891,15 @@ type Handler interface {
 	//
 	// GET /v1/down-payment-requests/{id}
 	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
+	// GetDunningRun implements getDunningRun operation.
+	//
+	// One dunning run (ADR-0065 §3, T76a) with its company's code and name, its key date, its status and
+	// its totals: the notices it proposed, their items and the items' overdue amount in the company's
+	// currency. Its notices are read with `GET /v1/dunning-runs/{id}/notices`. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/dunning-runs/{id}
+	GetDunningRun(ctx context.Context, params GetDunningRunParams) (GetDunningRunRes, error)
 	// GetEInvoice implements getEInvoice operation.
 	//
 	// One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not
@@ -2940,6 +2970,26 @@ type Handler interface {
 	//
 	// GET /v1/down-payment-requests
 	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
+	// ListDunningNotices implements listDunningNotices operation.
+	//
+	// The notices a dunning run proposed (ADR-0065 §3-§4, T76a), one per customer: the customer's number
+	// and name, the notice's level (the highest among its items), its items' count and overdue amount in
+	// the company's currency, and its items by item number, each named by its journal entry with its due
+	// date, its days overdue on the run's key date, its amount in its own currency and in the company's,
+	// and the level it would reach beside the one it was last dunned at. Filtered by customer and level.
+	// Sortable by: `customer_number`. A run of a company the caller may not act in is not found (404), as
+	// one that does not exist.
+	//
+	// GET /v1/dunning-runs/{id}/notices
+	ListDunningNotices(ctx context.Context, params ListDunningNoticesParams) (ListDunningNoticesRes, error)
+	// ListDunningRuns implements listDunningRuns operation.
+	//
+	// The dunning runs of the companies the caller may act in (ADR-0065 §3, T76a), each as
+	// `getDunningRun` gives it: with its company's code and name, its key date, its status and its totals.
+	// Filtered by company, status and key date. Sortable by: `key_date` (default, the latest first).
+	//
+	// GET /v1/dunning-runs
+	ListDunningRuns(ctx context.Context, params ListDunningRunsParams) (ListDunningRunsRes, error)
 	// ListEInvoices implements listEInvoices operation.
 	//
 	// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest

@@ -517,7 +517,10 @@ total at the run date's rate, that one releaser releases; above it a second
 person approves the release first; posting-relevant too) and the service
 posting limit (`service_posting_limit`, optional, T61n: the largest journal
 entry, by its debits, a service principal posts; above it the entry is
-parked for a person; without it the manual entry approval limit; posting-relevant). The amounts are read with the digits of the
+parked for a person; without it the manual entry approval limit; posting-relevant) and its dunning levels
+(`dunning.levels`, optional, ADR-0065 §2: each a `level` numbered from 1 and
+the `days_overdue` an item must have reached for it, ascending, at most
+nine; operational, tier 2; a company without any has no dunning, §3.27). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -4136,3 +4139,82 @@ erDiagram
   `ledger.OpenItems.Receipts` reads the receipts not yet applied (T75c;
   §3.7's clearing, `ledger.clearing` and `ledger.clearing_item`, with no
   new table).
+
+## 3.27 Dunning and collections (`collections`)
+
+ADR-0065, T76a-T76c. A leaf: it reads the ledger's customer open items
+(§3.7, `ledger.OpenItems.Receivable`), the partner context's names,
+tenancy and the configuration through its ports, posts nothing and keeps
+no foreign key out of its schema (02 §2.1). T76a (migration 000268)
+builds the schema with its outbox and inbox and the dunning run: a
+proposal of the customer items of a company overdue on a key date, one
+notice per customer. Nothing changes on the items, which stay the
+ledger's.
+
+```mermaid
+erDiagram
+  dunning_run ||--o{ dunning_notice : "proposes"
+  dunning_notice ||--|{ dunning_notice_item : "has"
+  dunning_run { uuid id PK
+    uuid legal_entity_id "tenancy"
+    date key_date
+    text status "proposed"
+    char currency "the company's"
+    int notice_count
+    int item_count
+    bigint overdue_amount "in currency"
+    int version }
+  dunning_notice { uuid id PK
+    uuid dunning_run_id FK
+    uuid customer_id "partner, one per run"
+    text customer_number "when proposed"
+    smallint level "1-9, the highest of its items"
+    int item_count "above 0"
+    bigint overdue_amount "in the run's currency" }
+  dunning_notice_item { int item_no PK
+    uuid dunning_run_id "its notice's"
+    smallint fiscal_year "ledger: the journal line"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reference
+    date document_date
+    date net_due_date
+    int days_overdue "above 0"
+    char currency "the item's"
+    bigint amount "above 0"
+    bigint amount_lc "in the run's currency, as booked"
+    smallint previous_level "0: never dunned"
+    smallint level "1-9" }
+```
+
+- `collections.dunning_run`: the status is `proposed` alone
+  (`dunning_run_status_check`), which T76b widens (`confirmed`); the
+  totals are not negative and a run has at least an item per notice
+  (`dunning_run_notice_count_check`, `dunning_run_item_count_check`,
+  `dunning_run_overdue_amount_check`). `overdue_amount` is minor units
+  of `currency`, the company's. The list reads the tenant's runs by key
+  date (`dunning_run_by_key_date`). Proposing is the only write: the
+  application may not update or delete a run (T76b grants what
+  confirming sets).
+- `collections.dunning_notice`: one per customer in a run
+  (`dunning_notice_customer_once`), at a level from 1 to 9
+  (`dunning_notice_level_check`), with at least one item
+  (`dunning_notice_item_count_check`) and its customer's number
+  (`dunning_notice_customer_number_check`); insert-only
+  (`platform.forbid_mutation`). The list reads a run's notices by
+  customer number (`dunning_notice_by_customer_number`).
+- `collections.dunning_notice_item`: an open item of the ledger, named
+  by its journal line and proposed once in a run
+  (`dunning_notice_item_once_per_run`), in its notice's run
+  (`dunning_notice_item_notice_fkey`); overdue by at least a day
+  (`dunning_notice_item_overdue`); a debit, above zero in its own
+  currency (`dunning_notice_item_amount_positive`: credit items are not
+  dunned) and not negative in the run's
+  (`dunning_notice_item_amount_lc_check`); at a level from 1 to 9
+  (`dunning_notice_item_level_check`) that is its previous level or one
+  above (`dunning_notice_item_one_level`); insert-only. T76a writes
+  `previous_level` 0: no level is recorded before T76b.
+- `collections.outbox`, `collections.inbox`: the context's events
+  (`DunningRunChanged`).
+- Permissions `collections.dunning.read` and `.run`.

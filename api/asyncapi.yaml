@@ -92,6 +92,7 @@ info:
     - name: procurement
     - name: payables
     - name: receivables
+    - name: collections
     - name: payments
     - name: workflow
     - name: integration
@@ -416,6 +417,14 @@ channels:
       CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
       CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
       IncomingPaymentApplied: {$ref: '#/components/messages/IncomingPaymentApplied'}
+  collections:
+    address: 'erp.{cell}.collections.{tenant}.{event}'
+    title: Dunning and collections events
+    description: Dunning runs (ADR-0065 §6).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -677,6 +686,12 @@ operations:
       - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
       - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
       - $ref: '#/channels/receivables/messages/IncomingPaymentApplied'
+  publishCollectionsEvents:
+    action: send
+    title: Collections publishes
+    channel: {$ref: '#/channels/collections'}
+    messages:
+      - $ref: '#/channels/collections/messages/DunningRunChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3652,6 +3667,30 @@ components:
         - name: posted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_posted.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', posting_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, payment_term_code: NT30, net_due_date: '2026-12-11', journal_entry_id: 0192a000-0000-7000-8000-000000000f31, journal_entry_year: 2026, journal_entry_number: '1800000001', status: posted, status_before: draft, version: 2}
+    DunningRunChanged:
+      name: DunningRunChanged
+      x-webhook: true
+      title: Dunning run changed
+      summary: A dunning run was proposed.
+      description: |
+        Emitted at each change of a dunning run's status (ADR-0065 §6,
+        T76a): when it is started (`proposed`, status_before null). The
+        slice that confirms a run adds its confirmation. It carries the
+        run's totals, not its notices, and names no customer:
+        `GET /v1/dunning-runs/{id}/notices` returns the notices, and
+        `GET /v1/dunning-runs/{id}` the run at `version` or later. Subject
+        is the dunning run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.collections.dunning_run_changed.v1}
+      payload: {$ref: '#/components/schemas/DunningRunChangedV1'}
+      examples:
+        - name: proposed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, status: proposed, status_before: null, version: 1}
     IncomingPaymentApplied:
       name: IncomingPaymentApplied
       x-webhook: true
@@ -4335,6 +4374,20 @@ components:
         status: {type: string, description: "The document's status after the change: posted."}
         status_before: {type: string, description: 'Its status before: draft.'}
         version: {type: integer, description: "The document's version after the change."}
+    DunningRunChangedV1:
+      type: object
+      required: [dunning_run_id, legal_entity_id, legal_entity_code, key_date, notice_count, item_count, overdue_amount, status, status_before, version]
+      properties:
+        dunning_run_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dunning_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose customers the run duns.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        key_date: {$ref: '#/components/schemas/Date', description: "The date the items' days overdue were counted on."}
+        notice_count: {type: integer, description: 'The notices the run proposed, one per customer.'}
+        item_count: {type: integer, description: 'The overdue items in those notices.'}
+        overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+        status: {type: string, description: "The run's status after the change. Open enum: proposed."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started.'}
+        version: {type: integer, description: "The run's version after the change."}
     IncomingPaymentAppliedV1:
       type: object
       required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, posting_date, amount, receipt_journal_entry_id, journal_entry_id, journal_entry_year, journal_entry_number, item_count]

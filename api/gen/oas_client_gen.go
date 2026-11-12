@@ -798,6 +798,27 @@ type Invoker interface {
 	//
 	// POST /v1/down-payment-requests
 	CreateDownPaymentRequest(ctx context.Context, request *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (CreateDownPaymentRequestRes, error)
+	// CreateDunningRun invokes createDunningRun operation.
+	//
+	// Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a):
+	// per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue
+	// on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on
+	// the items, and nothing is sent to a customer. The items are the open items on the company's customer
+	// reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the
+	// customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its
+	// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
+	// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
+	// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
+	// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
+	// notice's level is the highest among its items. A company without dunning levels is refused (422
+	// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
+	// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
+	// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
+	// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/dunning-runs
+	CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
 	// CreateEntryTemplate invokes createEntryTemplate operation.
 	//
 	// Saves a manual journal entry without its dates as a template (ADR-0056, `EntryTemplateChanged`), for
@@ -1891,6 +1912,15 @@ type Invoker interface {
 	//
 	// GET /v1/down-payment-requests/{id}
 	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
+	// GetDunningRun invokes getDunningRun operation.
+	//
+	// One dunning run (ADR-0065 §3, T76a) with its company's code and name, its key date, its status and
+	// its totals: the notices it proposed, their items and the items' overdue amount in the company's
+	// currency. Its notices are read with `GET /v1/dunning-runs/{id}/notices`. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/dunning-runs/{id}
+	GetDunningRun(ctx context.Context, params GetDunningRunParams) (GetDunningRunRes, error)
 	// GetEInvoice invokes getEInvoice operation.
 	//
 	// One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not
@@ -2961,6 +2991,26 @@ type Invoker interface {
 	//
 	// GET /v1/down-payment-requests
 	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
+	// ListDunningNotices invokes listDunningNotices operation.
+	//
+	// The notices a dunning run proposed (ADR-0065 §3-§4, T76a), one per customer: the customer's number
+	// and name, the notice's level (the highest among its items), its items' count and overdue amount in
+	// the company's currency, and its items by item number, each named by its journal entry with its due
+	// date, its days overdue on the run's key date, its amount in its own currency and in the company's,
+	// and the level it would reach beside the one it was last dunned at. Filtered by customer and level.
+	// Sortable by: `customer_number`. A run of a company the caller may not act in is not found (404), as
+	// one that does not exist.
+	//
+	// GET /v1/dunning-runs/{id}/notices
+	ListDunningNotices(ctx context.Context, params ListDunningNoticesParams) (ListDunningNoticesRes, error)
+	// ListDunningRuns invokes listDunningRuns operation.
+	//
+	// The dunning runs of the companies the caller may act in (ADR-0065 §3, T76a), each as
+	// `getDunningRun` gives it: with its company's code and name, its key date, its status and its totals.
+	// Filtered by company, status and key date. Sortable by: `key_date` (default, the latest first).
+	//
+	// GET /v1/dunning-runs
+	ListDunningRuns(ctx context.Context, params ListDunningRunsParams) (ListDunningRunsRes, error)
 	// ListEInvoices invokes listEInvoices operation.
 	//
 	// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
@@ -13802,6 +13852,151 @@ func (c *Client) sendCreateDownPaymentRequest(ctx context.Context, request *Down
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateDownPaymentRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateDunningRun invokes createDunningRun operation.
+//
+// Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a):
+// per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue
+// on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on
+// the items, and nothing is sent to a customer. The items are the open items on the company's customer
+// reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the
+// customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its
+// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
+// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
+// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
+// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
+// notice's level is the highest among its items. A company without dunning levels is refused (422
+// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
+// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
+// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
+// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs
+func (c *Client) CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error) {
+	res, err := c.sendCreateDunningRun(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (res CreateDunningRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createDunningRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/dunning-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/dunning-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateDunningRunRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateDunningRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateDunningRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -26750,6 +26945,140 @@ func (c *Client) sendGetDownPaymentRequest(ctx context.Context, params GetDownPa
 
 	stage = "DecodeResponse"
 	result, err := decodeGetDownPaymentRequestResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetDunningRun invokes getDunningRun operation.
+//
+// One dunning run (ADR-0065 §3, T76a) with its company's code and name, its key date, its status and
+// its totals: the notices it proposed, their items and the items' overdue amount in the company's
+// currency. Its notices are read with `GET /v1/dunning-runs/{id}/notices`. One of a company the caller
+// may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/dunning-runs/{id}
+func (c *Client) GetDunningRun(ctx context.Context, params GetDunningRunParams) (GetDunningRunRes, error) {
+	res, err := c.sendGetDunningRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetDunningRun(ctx context.Context, params GetDunningRunParams) (res GetDunningRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getDunningRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/dunning-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/dunning-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetDunningRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetDunningRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -45730,6 +46059,471 @@ func (c *Client) sendListDownPaymentRequests(ctx context.Context, params ListDow
 
 	stage = "DecodeResponse"
 	result, err := decodeListDownPaymentRequestsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListDunningNotices invokes listDunningNotices operation.
+//
+// The notices a dunning run proposed (ADR-0065 §3-§4, T76a), one per customer: the customer's number
+// and name, the notice's level (the highest among its items), its items' count and overdue amount in
+// the company's currency, and its items by item number, each named by its journal entry with its due
+// date, its days overdue on the run's key date, its amount in its own currency and in the company's,
+// and the level it would reach beside the one it was last dunned at. Filtered by customer and level.
+// Sortable by: `customer_number`. A run of a company the caller may not act in is not found (404), as
+// one that does not exist.
+//
+// GET /v1/dunning-runs/{id}/notices
+func (c *Client) ListDunningNotices(ctx context.Context, params ListDunningNoticesParams) (ListDunningNoticesRes, error) {
+	res, err := c.sendListDunningNotices(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListDunningNotices(ctx context.Context, params ListDunningNoticesParams) (res ListDunningNoticesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listDunningNotices"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/dunning-runs/{id}/notices"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListDunningNoticesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/dunning-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/notices"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "level" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "level",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Level.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListDunningNoticesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListDunningNoticesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListDunningRuns invokes listDunningRuns operation.
+//
+// The dunning runs of the companies the caller may act in (ADR-0065 §3, T76a), each as
+// `getDunningRun` gives it: with its company's code and name, its key date, its status and its totals.
+// Filtered by company, status and key date. Sortable by: `key_date` (default, the latest first).
+//
+// GET /v1/dunning-runs
+func (c *Client) ListDunningRuns(ctx context.Context, params ListDunningRunsParams) (ListDunningRunsRes, error) {
+	res, err := c.sendListDunningRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListDunningRuns(ctx context.Context, params ListDunningRunsParams) (res ListDunningRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listDunningRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/dunning-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListDunningRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/dunning-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "key_date_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "key_date_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.KeyDateFrom.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "key_date_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "key_date_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.KeyDateTo.Get(); ok {
+				return e.EncodeValue(conv.DateToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListDunningRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListDunningRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

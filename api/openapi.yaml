@@ -57,6 +57,8 @@ tags:
     description: Supplier invoices and three-way match results.
   - name: receivables
     description: "Accounts receivable (ADR-0063): customer invoices."
+  - name: collections
+    description: "Dunning and collections (ADR-0065): dunning runs and their notices."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -15186,6 +15188,198 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/dunning-runs:
+    get:
+      operationId: listDunningRuns
+      tags:
+        - collections
+      summary: List dunning runs
+      description: "The dunning runs of the companies the caller may act in (ADR-0065 §3, T76a), each as `getDunningRun` gives it: with its company's code and name, its key date, its status and its totals. Filtered by company, status and key date. Sortable by: `key_date` (default, the latest first)."
+      x-permission: collections.dunning.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: status
+          in: query
+          required: false
+          description: Only runs in this status.
+          schema:
+            type: string
+            description: "Dunning run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - proposed
+        - name: key_date_from
+          in: query
+          required: false
+          description: Only runs with a key date on or after this date.
+          schema:
+            type: string
+            format: date
+        - name: key_date_to
+          in: query
+          required: false
+          description: Only runs with a key date on or before this date.
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of dunning runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createDunningRun
+      tags:
+        - collections
+      summary: Start a dunning run
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per run at most: one never dunned would reach level 1. A notice's level is the highest among its items. A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.run
+      x-agent: false
+      x-problem-codes:
+        - collections.amount_too_large
+        - collections.no_dunning_levels
+        - collections.run_too_large
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The dunning run to start.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DunningRunCreate"
+            examples:
+              month_end:
+                summary: A company's run at a month's end
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  key_date: "2026-12-31"
+      responses:
+        "201":
+          description: "Created; the run with its proposal's totals."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-runs/{id}":
+    get:
+      operationId: getDunningRun
+      tags:
+        - collections
+      summary: Get a dunning run
+      description: "One dunning run (ADR-0065 §3, T76a) with its company's code and name, its key date, its status and its totals: the notices it proposed, their items and the items' overdue amount in the company's currency. Its notices are read with `GET /v1/dunning-runs/{id}/notices`. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: collections.dunning.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The dunning run.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-runs/{id}/notices":
+    get:
+      operationId: listDunningNotices
+      tags:
+        - collections
+      summary: List a dunning run's notices
+      description: "The notices a dunning run proposed (ADR-0065 §3-§4, T76a), one per customer: the customer's number and name, the notice's level (the highest among its items), its items' count and overdue amount in the company's currency, and its items by item number, each named by its journal entry with its due date, its days overdue on the run's key date, its amount in its own currency and in the company's, and the level it would reach beside the one it was last dunned at. Filtered by customer and level. Sortable by: `customer_number`. A run of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: collections.dunning.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the notice of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: level
+          in: query
+          required: false
+          description: Only notices at this dunning level.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 9
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the run's notices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningNoticePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/incoming-payments:
@@ -43298,6 +43492,129 @@ components:
           type: array
           items: {$ref: "#/components/schemas/CustomerInvoice"}
           description: The customer invoices on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    DunningRunCreate:
+      type: object
+      description: "Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue on the key date."
+      required: [legal_entity_id, key_date]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in the configuration."}
+        key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue."}
+    DunningRun:
+      description: "A dunning run (collections, ADR-0065 §3): a company's customer items overdue on a key date, proposed for dunning."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, key_date, status, currency, notice_count, item_count, overdue_amount]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company whose customers the run duns.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            key_date: {type: string, format: date, description: "The date the items' days overdue were counted on.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [proposed]
+              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of `overdue_amount`.", readOnly: true}
+            notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
+            item_count: {type: integer, format: int32, minimum: 0, description: "The overdue items in those notices.", readOnly: true}
+            overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were booked."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          version: 1
+          created_at: "2026-12-31T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-12-31T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          key_date: "2026-12-31"
+          status: proposed
+          currency: CAD
+          notice_count: 1
+          item_count: 1
+          overdue_amount: {amount: "1050.00", currency: CAD}
+    DunningRunPage:
+      type: object
+      description: One page of dunning runs.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/DunningRun"}
+          description: The dunning runs on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    DunningNoticeItem:
+      type: object
+      description: "An item of a dunning notice: a customer's open item overdue on the run's key date, as the run read it."
+      required: [item_no, fiscal_year, journal_entry_id, line_no, document_number, document_date, net_due_date, days_overdue, amount, local_amount, previous_level, level]
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the notice.", readOnly: true}
+        fiscal_year: {type: integer, format: int32, description: "The fiscal year of the item's journal entry.", readOnly: true}
+        journal_entry_id: {type: string, format: uuid, description: "The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).", readOnly: true}
+        line_no: {type: integer, format: int32, minimum: 1, description: "The line of the journal entry that is the open item.", readOnly: true}
+        document_number: {type: string, description: "The journal entry's document number.", readOnly: true}
+        reference: {type: string, description: "The journal entry's reference, a customer invoice's document number for one; absent when it has none.", readOnly: true}
+        document_date: {type: string, format: date, description: "The journal entry's document date.", readOnly: true}
+        net_due_date: {type: string, format: date, description: "The item's net due date by the payment terms it was posted with.", readOnly: true}
+        days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
+        local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
+        previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at; 0 for an item never dunned.", readOnly: true}
+        level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The dunning level the item would reach: the last level whose days overdue it has reached, one above `previous_level` at most.", readOnly: true}
+    DunningNotice:
+      type: object
+      description: "A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer."
+      required: [id, dunning_run_id, customer_id, customer_number, customer_name, level, item_count, overdue_amount, items]
+      properties:
+        id: {type: string, format: uuid, description: "The notice's id.", readOnly: true}
+        dunning_run_id: {type: string, format: uuid, description: "The run that proposed it (`GET /v1/dunning-runs/{id}`).", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The notice's dunning level: the highest among its items.", readOnly: true}
+        item_count: {type: integer, format: int32, minimum: 1, description: "The notice's items.", readOnly: true}
+        overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' `local_amount`, in the company's currency."}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/DunningNoticeItem"}
+          description: "The customer's overdue items, by item number."
+          readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d72"
+          dunning_run_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          level: 1
+          item_count: 1
+          overdue_amount: {amount: "1050.00", currency: CAD}
+          items:
+            - item_no: 1
+              fiscal_year: 2026
+              journal_entry_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d63"
+              line_no: 1
+              document_number: "1800000001"
+              reference: CI100001
+              document_date: "2026-11-11"
+              net_due_date: "2026-12-11"
+              days_overdue: 20
+              amount: {amount: "1050.00", currency: CAD}
+              local_amount: {amount: "1050.00", currency: CAD}
+              previous_level: 0
+              level: 1
+    DunningNoticePage:
+      type: object
+      description: One page of a dunning run's notices.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/DunningNotice"}
+          description: The notices on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     IncomingPaymentCreate:
       type: object

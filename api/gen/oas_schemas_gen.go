@@ -21744,6 +21744,7 @@ func (*ConflictHeaders) createContractRes()                        {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
+func (*ConflictHeaders) createDunningRunRes()                      {}
 func (*ConflictHeaders) createEntryTemplateRes()                   {}
 func (*ConflictHeaders) createExchangeRateRes()                    {}
 func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
@@ -27196,6 +27197,22 @@ type CreateDownPaymentRequestUnprocessableEntity Problem
 
 func (*CreateDownPaymentRequestUnprocessableEntity) createDownPaymentRequestRes() {}
 
+type CreateDunningRunBadRequest Problem
+
+func (*CreateDunningRunBadRequest) createDunningRunRes() {}
+
+type CreateDunningRunForbidden Problem
+
+func (*CreateDunningRunForbidden) createDunningRunRes() {}
+
+type CreateDunningRunPreconditionRequired Problem
+
+func (*CreateDunningRunPreconditionRequired) createDunningRunRes() {}
+
+type CreateDunningRunUnprocessableEntity Problem
+
+func (*CreateDunningRunUnprocessableEntity) createDunningRunRes() {}
+
 type CreateEntryTemplateBadRequest Problem
 
 func (*CreateEntryTemplateBadRequest) createEntryTemplateRes() {}
@@ -31043,6 +31060,614 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 }
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
+
+// A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer.
+// Ref: #/components/schemas/DunningNotice
+type DunningNotice struct {
+	// The notice's id.
+	ID uuid.UUID `json:"id"`
+	// The run that proposed it (`GET /v1/dunning-runs/{id}`).
+	DunningRunID uuid.UUID `json:"dunning_run_id"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The notice's dunning level: the highest among its items.
+	Level int32 `json:"level"`
+	// The notice's items.
+	ItemCount int32 `json:"item_count"`
+	// The sum of the items' `local_amount`, in the company's currency.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The customer's overdue items, by item number.
+	Items []DunningNoticeItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *DunningNotice) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDunningRunID returns the value of DunningRunID.
+func (s *DunningNotice) GetDunningRunID() uuid.UUID {
+	return s.DunningRunID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningNotice) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DunningNotice) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *DunningNotice) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetLevel returns the value of Level.
+func (s *DunningNotice) GetLevel() int32 {
+	return s.Level
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *DunningNotice) GetItemCount() int32 {
+	return s.ItemCount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *DunningNotice) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetItems returns the value of Items.
+func (s *DunningNotice) GetItems() []DunningNoticeItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *DunningNotice) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDunningRunID sets the value of DunningRunID.
+func (s *DunningNotice) SetDunningRunID(val uuid.UUID) {
+	s.DunningRunID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningNotice) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DunningNotice) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *DunningNotice) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetLevel sets the value of Level.
+func (s *DunningNotice) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *DunningNotice) SetItemCount(val int32) {
+	s.ItemCount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *DunningNotice) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *DunningNotice) SetItems(val []DunningNoticeItem) {
+	s.Items = val
+}
+
+// An item of a dunning notice: a customer's open item overdue on the run's key date, as the run read
+// it.
+// Ref: #/components/schemas/DunningNoticeItem
+type DunningNoticeItem struct {
+	// The item's number in the notice.
+	ItemNo int32 `json:"item_no"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The journal entry's document date.
+	DocumentDate time.Time `json:"document_date"`
+	// The item's net due date by the payment terms it was posted with.
+	NetDueDate time.Time `json:"net_due_date"`
+	// The days from the net due date to the run's key date.
+	DaysOverdue int32 `json:"days_overdue"`
+	// What the customer owes on the item, in the item's currency.
+	Amount Money `json:"amount"`
+	// The same in the company's currency, as it was booked.
+	LocalAmount Money `json:"local_amount"`
+	// The dunning level the item was last dunned at; 0 for an item never dunned.
+	PreviousLevel int32 `json:"previous_level"`
+	// The dunning level the item would reach: the last level whose days overdue it has reached, one above
+	// `previous_level` at most.
+	Level int32 `json:"level"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *DunningNoticeItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningNoticeItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningNoticeItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningNoticeItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DunningNoticeItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DunningNoticeItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *DunningNoticeItem) GetDocumentDate() time.Time {
+	return s.DocumentDate
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *DunningNoticeItem) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetDaysOverdue returns the value of DaysOverdue.
+func (s *DunningNoticeItem) GetDaysOverdue() int32 {
+	return s.DaysOverdue
+}
+
+// GetAmount returns the value of Amount.
+func (s *DunningNoticeItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLocalAmount returns the value of LocalAmount.
+func (s *DunningNoticeItem) GetLocalAmount() Money {
+	return s.LocalAmount
+}
+
+// GetPreviousLevel returns the value of PreviousLevel.
+func (s *DunningNoticeItem) GetPreviousLevel() int32 {
+	return s.PreviousLevel
+}
+
+// GetLevel returns the value of Level.
+func (s *DunningNoticeItem) GetLevel() int32 {
+	return s.Level
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *DunningNoticeItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningNoticeItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningNoticeItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningNoticeItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DunningNoticeItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DunningNoticeItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *DunningNoticeItem) SetDocumentDate(val time.Time) {
+	s.DocumentDate = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *DunningNoticeItem) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetDaysOverdue sets the value of DaysOverdue.
+func (s *DunningNoticeItem) SetDaysOverdue(val int32) {
+	s.DaysOverdue = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DunningNoticeItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLocalAmount sets the value of LocalAmount.
+func (s *DunningNoticeItem) SetLocalAmount(val Money) {
+	s.LocalAmount = val
+}
+
+// SetPreviousLevel sets the value of PreviousLevel.
+func (s *DunningNoticeItem) SetPreviousLevel(val int32) {
+	s.PreviousLevel = val
+}
+
+// SetLevel sets the value of Level.
+func (s *DunningNoticeItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// One page of a dunning run's notices.
+// Ref: #/components/schemas/DunningNoticePage
+type DunningNoticePage struct {
+	// The notices on this page.
+	Items []DunningNotice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DunningNoticePage) GetItems() []DunningNotice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DunningNoticePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DunningNoticePage) SetItems(val []DunningNotice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DunningNoticePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DunningNoticePage) listDunningNoticesRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/DunningRun
+type DunningRun struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose customers the run duns.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items' days overdue were counted on.
+	KeyDate time.Time `json:"key_date"`
+	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// The company's currency (ISO 4217), the currency of `overdue_amount`.
+	Currency string `json:"currency"`
+	// The notices the run proposed, one per customer; 0 when nothing was overdue.
+	NoticeCount int32 `json:"notice_count"`
+	// The overdue items in those notices.
+	ItemCount int32 `json:"item_count"`
+	// The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were
+	// booked.
+	OverdueAmount Money `json:"overdue_amount"`
+}
+
+// GetID returns the value of ID.
+func (s *DunningRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *DunningRun) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DunningRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DunningRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DunningRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *DunningRun) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DunningRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *DunningRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *DunningRun) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *DunningRun) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetStatus returns the value of Status.
+func (s *DunningRun) GetStatus() string {
+	return s.Status
+}
+
+// GetCurrency returns the value of Currency.
+func (s *DunningRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNoticeCount returns the value of NoticeCount.
+func (s *DunningRun) GetNoticeCount() int32 {
+	return s.NoticeCount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *DunningRun) GetItemCount() int32 {
+	return s.ItemCount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *DunningRun) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// SetID sets the value of ID.
+func (s *DunningRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DunningRun) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DunningRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DunningRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DunningRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *DunningRun) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DunningRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *DunningRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *DunningRun) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *DunningRun) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DunningRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *DunningRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNoticeCount sets the value of NoticeCount.
+func (s *DunningRun) SetNoticeCount(val int32) {
+	s.NoticeCount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *DunningRun) SetItemCount(val int32) {
+	s.ItemCount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *DunningRun) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue
+// on the key date.
+// Ref: #/components/schemas/DunningRunCreate
+type DunningRunCreate struct {
+	// The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in
+	// the configuration.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The date the items' days overdue are counted on. An item due on this date is not overdue.
+	KeyDate time.Time `json:"key_date"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DunningRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *DunningRunCreate) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DunningRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *DunningRunCreate) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// DunningRunHeaders wraps DunningRun with response headers.
+type DunningRunHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *DunningRunHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DunningRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *DunningRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *DunningRunHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DunningRunHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DunningRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *DunningRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DunningRunHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*DunningRunHeaders) createDunningRunRes() {}
+
+// One page of dunning runs.
+// Ref: #/components/schemas/DunningRunPage
+type DunningRunPage struct {
+	// The dunning runs on this page.
+	Items []DunningRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DunningRunPage) GetItems() []DunningRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DunningRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DunningRunPage) SetItems(val []DunningRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DunningRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DunningRunPage) listDunningRunsRes() {}
 
 // A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15):
 // recorded once per connector and the provider's message id, its bytes kept as received.
@@ -35344,6 +35969,46 @@ func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 }
 
 func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
+
+type GetDunningRunBadRequest Problem
+
+func (*GetDunningRunBadRequest) getDunningRunRes() {}
+
+type GetDunningRunForbidden Problem
+
+func (*GetDunningRunForbidden) getDunningRunRes() {}
+
+type GetDunningRunNotFound Problem
+
+func (*GetDunningRunNotFound) getDunningRunRes() {}
+
+// GetDunningRunOKHeaders wraps DunningRun with response headers.
+type GetDunningRunOKHeaders struct {
+	ETag     OptString
+	Response DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *GetDunningRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDunningRunOKHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetDunningRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDunningRunOKHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*GetDunningRunOKHeaders) getDunningRunRes() {}
 
 type GetEInvoiceBadRequest Problem
 
@@ -45885,6 +46550,26 @@ func (*ListDownPaymentRequestsBadRequest) listDownPaymentRequestsRes() {}
 type ListDownPaymentRequestsForbidden Problem
 
 func (*ListDownPaymentRequestsForbidden) listDownPaymentRequestsRes() {}
+
+type ListDunningNoticesBadRequest Problem
+
+func (*ListDunningNoticesBadRequest) listDunningNoticesRes() {}
+
+type ListDunningNoticesForbidden Problem
+
+func (*ListDunningNoticesForbidden) listDunningNoticesRes() {}
+
+type ListDunningNoticesNotFound Problem
+
+func (*ListDunningNoticesNotFound) listDunningNoticesRes() {}
+
+type ListDunningRunsBadRequest Problem
+
+func (*ListDunningRunsBadRequest) listDunningRunsRes() {}
+
+type ListDunningRunsForbidden Problem
+
+func (*ListDunningRunsForbidden) listDunningRunsRes() {}
 
 type ListEInvoicesBadRequest Problem
 
@@ -73300,6 +73985,7 @@ func (*TooManyRequestsHeaders) createContractRes()                        {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
+func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()                    {}
 func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
@@ -73388,6 +74074,7 @@ func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
+func (*TooManyRequestsHeaders) getDunningRunRes()                         {}
 func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
 func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
@@ -73490,6 +74177,8 @@ func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
+func (*TooManyRequestsHeaders) listDunningNoticesRes()                    {}
+func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
@@ -74027,6 +74716,7 @@ func (*UnauthorizedHeaders) createContractRes()                        {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
+func (*UnauthorizedHeaders) createDunningRunRes()                      {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) createExchangeRateRes()                    {}
 func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
@@ -74115,6 +74805,7 @@ func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
+func (*UnauthorizedHeaders) getDunningRunRes()                         {}
 func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
 func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
@@ -74217,6 +74908,8 @@ func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
+func (*UnauthorizedHeaders) listDunningNoticesRes()                    {}
+func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}

@@ -672,6 +672,20 @@ func encodeCreateDownPaymentRequestRequest(
 	return nil
 }
 
+func encodeCreateDunningRunRequest(
+	req *DunningRunCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateEntryTemplateRequest(
 	req *EntryTemplateCreate,
 	r *http.Request,

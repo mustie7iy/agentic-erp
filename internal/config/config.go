@@ -289,6 +289,9 @@ type Company struct {
 	// the retained earnings account a carry-forward carries the year's
 	// profit or loss to, one for every ledger the company keeps.
 	YearEnd YearEnd `yaml:"year_end,omitempty" json:"year_end,omitzero"`
+	// Dunning is how the company duns its customers' overdue items
+	// (ADR-0065 §2): its dunning levels. None: the company has no dunning.
+	Dunning Dunning `yaml:"dunning,omitempty" json:"dunning,omitzero"`
 }
 
 // YearEnd is a company's year-end settings (ADR-0060 §4). Without a
