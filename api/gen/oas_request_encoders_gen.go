@@ -644,6 +644,20 @@ func encodeCreateCostCenterRequest(
 	return nil
 }
 
+func encodeCreateCustomerInvoiceRequest(
+	req *CustomerInvoiceCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateDownPaymentRequestRequest(
 	req *DownPaymentRequestCreate,
 	r *http.Request,
@@ -716,6 +730,20 @@ func encodeCreateGrIrClearingRequest(
 
 func encodeCreateHierarchyRequest(
 	req *HierarchyCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateInternalOrderRequest(
+	req *InternalOrderCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

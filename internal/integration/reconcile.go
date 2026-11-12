@@ -31,7 +31,7 @@ type Check struct {
 // quantity invoiced in SAP (invoicedQuantities).
 type Diff struct {
 	CompanyCode string `json:"company_code"`
-	Key         string `json:"key"` // "cost center <KOKRS>/<KOSTL>" or "profit center <KOKRS>/<PRCTR>" (their periods, ADR-0050 §10), "cost center total <KOKRS>/<KOSTL>", "profit center total <KOKRS>/<PRCTR>" or "segment total <SEGMENT>" (migrated totals, T56h4), account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency), "trading partner <company code>" or "trading partner <id>" (open payables by trading partner: by the SAP company code of the vendors' trading partner, or by the id of a legal entity no vendor of the extract names), "payment method <method> items of vendor <LIFNR>" or "payment method <method> items of partner <id> (<name>)" (open items that fix that payment method: their number and total)
+	Key         string `json:"key"` // "cost center <KOKRS>/<KOSTL>" or "profit center <KOKRS>/<PRCTR>" (their periods, ADR-0050 §10), "cost center total <KOKRS>/<KOSTL>", "profit center total <KOKRS>/<PRCTR>" or "segment total <SEGMENT>" (migrated totals, T56h4), account number, "vendor <LIFNR>", "down payments of vendor <LIFNR>", "partner <id> (<name>)" or "down payments of partner <id> (<name>)" (a platform supplier that is no migrated vendor), "bank account of vendor <LIFNR>", "order item <EBELN>/<EBELP>", "GR/IR of order item <EBELN>/<EBELP>", "open items of vendor <LIFNR>" or "open items of partner <id> (<name>)", "<currency> items of vendor <LIFNR>" or "<currency> items of partner <id> (<name>)" (open items in a foreign document currency), "trading partner <company code>" or "trading partner <id>" (open payables by trading partner: by the SAP company code of the vendors' trading partner, or by the id of a legal entity the extract does not name), "account <number> trading partner <company code>" or "account <number> trading partner <id>" (account balances by trading partner, of the accounts that are no supplier reconciliation accounts), "payment method <method> items of vendor <LIFNR>" or "payment method <method> items of partner <id> (<name>)" (open items that fix that payment method: their number and total)
 	SAP         string `json:"sap"`
 	Platform    string `json:"platform"`
 }
@@ -64,6 +64,8 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 	for _, v := range ext.LFA1 {
 		rc.partnerOf[v.LIFNR] = sap.CompanyID(v.VBUND)
 	}
+	foreign, _ := foreignDocuments(ext, t) // the conflicts are the quality gate's
+	rc.derived = derivedPartners(ext, t, foreign)
 	for key, id := range r {
 		if lifnr, ok := strings.CutPrefix(key, "LFA1/"); ok {
 			rc.vendorOf[id] = sap.Alpha(lifnr)
@@ -103,6 +105,9 @@ type reconciler struct {
 	// partnerOf is each vendor's trading partner, the company ID its master
 	// names (LFA1-VBUND, sap.CompanyID), "" for none.
 	partnerOf map[string]string
+	// derived is, per document, the company ID of the trading partner its
+	// vendor lines give its other lines (derivedPartners), "" for none.
+	derived map[string]string
 }
 
 // companyScope is one company code under reconciliation.
@@ -161,6 +166,9 @@ func (rc *reconciler) company(ctx context.Context, cc, cur string) error {
 		return err
 	}
 	if err := rc.tradingPartners(ctx, s, j.byPartner); err != nil {
+		return err
+	}
+	if err := rc.partnerBalances(ctx, s); err != nil {
 		return err
 	}
 	if err := rc.foreignItems(ctx, s); err != nil {

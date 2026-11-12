@@ -4,13 +4,16 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
 	"github.com/mustie7iy/agentic-erp/internal/platform/database"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
+	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 )
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
@@ -75,4 +78,45 @@ func TestLoadCodes(t *testing.T) {
 			t.Errorf("got %v, want the injected failure", err)
 		}
 	})
+}
+
+// TestParseAmount: an amount with exactly the currency's minor-unit digits
+// is read into minor units; another form is 400 request.invalid_amount
+// naming the request's field.
+func TestParseAmount(t *testing.T) {
+	for name, c := range map[string]struct {
+		value   string
+		exp     int
+		want    money.Minor
+		refused bool
+	}{
+		"two decimals":        {"1080.50", 2, 108050, false},
+		"none":                {"1080", 0, 1080, false},
+		"negative":            {"-5.00", 2, -500, false},
+		"too many decimals":   {"1.001", 2, 0, true},
+		"too few decimals":    {"1.0", 2, 0, true},
+		"decimals where none": {"1.00", 0, 0, true},
+		"not a number":        {"ten", 2, 0, true},
+		"out of range":        {"99999999999999999999.00", 2, 0, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := currency.ParseAmount(c.value, "EUR", c.exp, "items[0].amount.amount")
+			if !c.refused {
+				if err != nil || got != c.want {
+					t.Errorf("got %d (%v), want %d", got, err, c.want)
+				}
+				return
+			}
+			p := problem.From(err)
+			if p.Status != 400 || p.Code != "request.invalid_amount" {
+				t.Fatalf("got %v, want 400 request.invalid_amount", err)
+			}
+			if len(p.Errors) != 1 || p.Errors[0].Field != "items[0].amount.amount" || p.Errors[0].Code != "invalid" {
+				t.Errorf("field errors: got %+v, want one naming items[0].amount.amount", p.Errors)
+			}
+			if !strings.Contains(p.Detail, "EUR") {
+				t.Errorf("detail: got %q, want it to name the currency", p.Detail)
+			}
+		})
+	}
 }

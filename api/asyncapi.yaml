@@ -91,6 +91,7 @@ info:
     - name: ledger
     - name: procurement
     - name: payables
+    - name: receivables
     - name: payments
     - name: workflow
     - name: integration
@@ -200,6 +201,7 @@ channels:
     messages:
       BusinessPartnerCreated: {$ref: '#/components/messages/BusinessPartnerCreated'}
       SupplierApproved: {$ref: '#/components/messages/SupplierApproved'}
+      CustomerApproved: {$ref: '#/components/messages/CustomerApproved'}
       BankAccountChanged: {$ref: '#/components/messages/BankAccountChanged'}
       PartnerBlocked: {$ref: '#/components/messages/PartnerBlocked'}
       PartnerUnblocked: {$ref: '#/components/messages/PartnerUnblocked'}
@@ -351,12 +353,13 @@ channels:
   controlling:
     address: 'erp.{cell}.controlling.{tenant}.{event}'
     title: Controlling events
-    description: Plan categories and plan batches (ADR-0050 §8).
+    description: Plan categories and plan batches (ADR-0050 §8), and internal orders (ADR-0064).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       PlanCategoryChanged: {$ref: '#/components/messages/PlanCategoryChanged'}
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
+      InternalOrderChanged: {$ref: '#/components/messages/InternalOrderChanged'}
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
@@ -403,6 +406,14 @@ channels:
     messages:
       ConsolidationRunChanged: {$ref: '#/components/messages/ConsolidationRunChanged'}
       IntercompanyDifferenceAccepted: {$ref: '#/components/messages/IntercompanyDifferenceAccepted'}
+  receivables:
+    address: 'erp.{cell}.receivables.{tenant}.{event}'
+    title: Accounts receivable events
+    description: Customer invoices (ADR-0063 §9).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -477,6 +488,7 @@ operations:
     messages:
       - $ref: '#/channels/partner/messages/BusinessPartnerCreated'
       - $ref: '#/channels/partner/messages/SupplierApproved'
+      - $ref: '#/channels/partner/messages/CustomerApproved'
       - $ref: '#/channels/partner/messages/BankAccountChanged'
       - $ref: '#/channels/partner/messages/PartnerBlocked'
       - $ref: '#/channels/partner/messages/PartnerUnblocked'
@@ -616,6 +628,7 @@ operations:
     messages:
       - $ref: '#/channels/controlling/messages/PlanCategoryChanged'
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
+      - $ref: '#/channels/controlling/messages/InternalOrderChanged'
   publishAssetsEvents:
     action: send
     title: Asset accounting publishes
@@ -654,6 +667,12 @@ operations:
     messages:
       - $ref: '#/channels/consolidation/messages/ConsolidationRunChanged'
       - $ref: '#/channels/consolidation/messages/IntercompanyDifferenceAccepted'
+  publishReceivablesEvents:
+    action: send
+    title: Receivables publishes
+    channel: {$ref: '#/channels/receivables'}
+    messages:
+      - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -843,6 +862,22 @@ components:
         - name: acme
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000008, source: /erp/eu-1/partner, type: com.example.erp.partner.supplier_approved.v1, subject: 0192a000-0000-7000-8000-000000000301, time: '2026-10-04T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {partner_id: 0192a000-0000-7000-8000-000000000301, number: BP-100231, partner_change_id: 0192a000-0000-7000-8000-000000000304, workflow_request_id: 0192a000-0000-7000-8000-000000000901, status: active, legal_entity_ids: [0192a000-0000-7000-8000-000000000201]}
+    CustomerApproved:
+      name: CustomerApproved
+      title: Customer approved
+      summary: A new customer's create change was approved and applied; the customer is active.
+      description: "Emitted when a `create` partner change for a partner with the customer role is applied after approval and the partner becomes `active` (T74a). `legal_entity_ids` are the legal entities it has customer company data in, read through `GET /v1/business-partners/{id}`. A partner with both roles gets this event and SupplierApproved. An active partner that becomes a customer later, by an `update` change giving it the role, publishes no CustomerApproved: BusinessPartnerUpdated then names `roles`, and `customer_company.<legal_entity_id>` for its data. Subject is the business partner id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.partner.customer_approved.v1}
+      payload: {$ref: '#/components/schemas/CustomerApprovedV1'}
+      examples:
+        - name: northwind
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000c1, source: /erp/eu-1/partner, type: com.example.erp.partner.customer_approved.v1, subject: 0192a000-0000-7000-8000-000000000311, time: '2026-11-11T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {partner_id: 0192a000-0000-7000-8000-000000000311, number: BP00000042, partner_change_id: 0192a000-0000-7000-8000-000000000314, workflow_request_id: 0192a000-0000-7000-8000-000000000911, status: active, legal_entity_ids: [0192a000-0000-7000-8000-000000000201]}
     BankAccountChanged:
       name: BankAccountChanged
       title: Bank account changed
@@ -2670,7 +2705,7 @@ components:
       name: BusinessPartnerUpdated
       title: Business partner updated
       summary: "An approved `update` change was applied to a business partner."
-      description: "Emitted when an `update` partner change is applied. `changed_fields` names every changed attribute (business partner columns, `roles`, `address.<purpose>`, `tax_identifier.<scheme>`, `supplier_company.<legal_entity_id>`); the new values of the business partner's own non-sensitive columns are included when they changed. Tax identifiers and addresses are read through the API. Subject is the business partner id."
+      description: "Emitted when an `update` partner change is applied. `changed_fields` names every changed attribute (business partner columns, `roles`, `address.<purpose>`, `tax_identifier.<scheme>`, `supplier_company.<legal_entity_id>`, `customer_company.<legal_entity_id>`); the new values of the business partner's own non-sensitive columns are included when they changed. Tax identifiers and addresses are read through the API. Subject is the business partner id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -3205,6 +3240,25 @@ components:
         - name: applied
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000602, source: /erp/eu-1/controlling, type: com.example.erp.controlling.plan_batch_applied.v1, subject: 0192a000-0000-7000-8000-000000000b01, time: '2026-10-27T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {plan_batch_id: 0192a000-0000-7000-8000-000000000b01, plan_category_id: 0192a000-0000-7000-8000-000000000a01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, fiscal_year: 2027, batch_key: budget-2027-v1, line_count: 12, replaced_count: 0, cost_center_ids: [0192a000-0000-7000-8000-000000000201], profit_center_ids: []}
+    InternalOrderChanged:
+      name: InternalOrderChanged
+      title: Internal order changed
+      summary: An internal order was created or released.
+      description: |
+        Emitted by `internal-orders` (POST, `created`) and its `:release`
+        (`released`), ADR-0064 §1: costs may be posted to a released
+        order. Subject is the internal order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_changed.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderChangedV1'}
+      examples:
+        - name: released
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000603, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, responsible_cost_center_id: 0192a000-0000-7000-8000-000000000201, responsible_cost_center_code: CC-1100, status: released, change: released}
     TaxReturnPrepared:
       name: TaxReturnPrepared
       x-webhook: true
@@ -3547,6 +3601,29 @@ components:
         - name: bytes_changed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000e02, source: /erp/eu-1/einvoicing, type: com.example.erp.einvoicing.einvoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000e11, time: '2026-11-08T11:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {einvoice_id: 0192a000-0000-7000-8000-000000000e11, connector_id: 0192a000-0000-7000-8000-000000000e01, message_id: MSG-0001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: AE01, status: received, status_before: received, sha256: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08, changed_sha256: 60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752, changed_fetch_operation_id: 0192a000-0000-7000-8000-000000000e22, fetch_operation_id: 0192a000-0000-7000-8000-000000000e21, version: 3}
+    CustomerInvoiceChanged:
+      name: CustomerInvoiceChanged
+      x-webhook: true
+      title: Customer invoice changed
+      summary: A customer invoice was entered.
+      description: |
+        Emitted at each change of a customer invoice's status (ADR-0063 §9,
+        T75a): when it is entered (`draft`, status_before null). The slices
+        that post it add its posting. It carries the document's totals, not
+        its items, and names the customer by id and number, never by name.
+        `GET /v1/customer-invoices/{id}` returns the document at `version`
+        or later. Subject is the customer invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.customer_invoice_changed.v1}
+      payload: {$ref: '#/components/schemas/CustomerInvoiceChangedV1'}
+      examples:
+        - name: entered
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f01, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, status: draft, status_before: null, version: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -3791,6 +3868,19 @@ components:
           type: array
           items: {$ref: '#/components/schemas/Uuid'}
           description: Legal entities with supplier company data.
+    CustomerApprovedV1:
+      type: object
+      required: [partner_id, number, partner_change_id, status, legal_entity_ids]
+      properties:
+        partner_id: {$ref: '#/components/schemas/Uuid'}
+        number: {type: string, description: The business partner's number.}
+        partner_change_id: {$ref: '#/components/schemas/Uuid'}
+        workflow_request_id: {$ref: '#/components/schemas/NullableUuid'}
+        status: {type: string, description: 'Partner status after approval (active).'}
+        legal_entity_ids:
+          type: array
+          items: {$ref: '#/components/schemas/Uuid'}
+          description: Legal entities with customer company data, ordered by id; empty for a customer without any.
     BankAccountChangedV1:
       type: object
       required: [partner_id, bank_account_id, purpose, account_scheme, account_last4, bank_country_code, valid_from, valid_to, ended_bank_account_id, partner_change_id]
@@ -3870,6 +3960,7 @@ components:
               profit_center_code: {type: string, description: 'Code of the profit center, set with profit_center_id.'}
               segment_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s segment, its profit center''s. Absent on lines without one.'}
               segment_code: {type: string, description: 'Code of the segment, set with segment_id.'}
+              internal_order_id: {$ref: '#/components/schemas/Uuid', description: 'The internal order the line''s cost is posted to (ADR-0064 §2), `controlling.internal_order.id`. Absent on lines without one.'}
               trading_partner_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s trading partner (ADR-0059 §4), a legal entity of the tenant other than the entry''s. Absent on lines without one.'}
     JournalEntryReversedV1:
       type: object
@@ -4149,6 +4240,24 @@ components:
         changed_sha256: {type: [string, 'null'], description: "The SHA-256 of other bytes the provider delivered later under the same message id, the latest, hex; null while there are none. The document keeps its first bytes (`sha256`). Added within v1, so not required (ADR-0041); every event carries it."}
         changed_fetch_operation_id: {type: [string, 'null'], format: uuid, description: "The fetch that found those other bytes: its Operation; null with `changed_sha256`. Added within v1, so not required (ADR-0041); every event carries it."}
         fetch_operation_id: {$ref: '#/components/schemas/Uuid', description: 'The fetch that recorded it: its Operation.'}
+        version: {type: integer, description: "The document's version after the change."}
+    CustomerInvoiceChangedV1:
+      type: object
+      required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, invoice_date, net_amount, tax_amount, gross_amount, status, status_before, version]
+      properties:
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.customer_invoice.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issued it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        kind: {type: string, description: 'Open enum: invoice.'}
+        invoice_date: {$ref: '#/components/schemas/Date'}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: 'What the customer owes: net and tax.'}
+        status: {type: string, description: "The document's status after the change. Open enum: draft."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was entered.'}
         version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:
       type: object
@@ -4491,6 +4600,18 @@ components:
         replaced_count: {type: integer, description: "The earlier lines of its centers it marked replaced (kept, never deleted)."}
         cost_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The cost centers whose plan the batch replaced.}
         profit_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The profit centers whose plan the batch replaced.}
+    InternalOrderChangedV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, responsible_cost_center_id, responsible_cost_center_code, status, change]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        responsible_cost_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.cost_center.id`.'}
+        responsible_cost_center_code: {type: string}
+        status: {type: string, description: 'The status after the change. Open enum: created, released.'}
+        change: {type: string, description: 'Open enum: created, released.'}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]

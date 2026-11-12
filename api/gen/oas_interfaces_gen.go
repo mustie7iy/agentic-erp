@@ -205,6 +205,10 @@ type CreateCostCenterRes interface {
 	createCostCenterRes()
 }
 
+type CreateCustomerInvoiceRes interface {
+	createCustomerInvoiceRes()
+}
+
 type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
@@ -227,6 +231,10 @@ type CreateGrIrClearingRes interface {
 
 type CreateHierarchyRes interface {
 	createHierarchyRes()
+}
+
+type CreateInternalOrderRes interface {
+	createInternalOrderRes()
 }
 
 type CreateLegalEntityRes interface {
@@ -541,6 +549,10 @@ type GetCurrentPrincipalRes interface {
 	getCurrentPrincipalRes()
 }
 
+type GetCustomerInvoiceRes interface {
+	getCustomerInvoiceRes()
+}
+
 type GetDepreciationRunRes interface {
 	getDepreciationRunRes()
 }
@@ -591,6 +603,10 @@ type GetHierarchyNodeRes interface {
 
 type GetHierarchyRes interface {
 	getHierarchyRes()
+}
+
+type GetInternalOrderRes interface {
+	getInternalOrderRes()
 }
 
 type GetJournalEntryRes interface {
@@ -937,6 +953,10 @@ type ListCountryPacksRes interface {
 	listCountryPacksRes()
 }
 
+type ListCustomerInvoicesRes interface {
+	listCustomerInvoicesRes()
+}
+
 type ListDepreciationRunsRes interface {
 	listDepreciationRunsRes()
 }
@@ -995,6 +1015,14 @@ type ListHouseBanksRes interface {
 
 type ListIntercompanyDifferencesRes interface {
 	listIntercompanyDifferencesRes()
+}
+
+type ListInternalOrderBalancesRes interface {
+	listInternalOrderBalancesRes()
+}
+
+type ListInternalOrdersRes interface {
+	listInternalOrdersRes()
 }
 
 type ListJournalEntriesRes interface {
@@ -1371,6 +1399,10 @@ type RejectVarianceCommentRes interface {
 
 type ReleaseContractRes interface {
 	releaseContractRes()
+}
+
+type ReleaseInternalOrderRes interface {
+	releaseInternalOrderRes()
 }
 
 type ReleasePaymentRunRes interface {

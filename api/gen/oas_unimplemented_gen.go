@@ -901,6 +901,31 @@ func (UnimplementedHandler) CreateCostCenter(ctx context.Context, req *CostCente
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCustomerInvoice implements createCustomerInvoice operation.
+//
+// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
+// an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It
+// is created `draft` with a document number from the company's `customer_invoice` number range of the
+// invoice date's fiscal year; nothing is posted. The customer is an active business partner with the
+// customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one,
+// `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the
+// invoice's currency on an account that can be posted in the company (422
+// `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks
+// of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax
+// code of the company with a rate in force on the invoice date, the tax date (422
+// `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's
+// rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net
+// and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`,
+// exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one
+// code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names
+// no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/customer-invoices
+func (UnimplementedHandler) CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (r CreateCustomerInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateDownPaymentRequest implements createDownPaymentRequest operation.
 //
 // Requests a down payment to a supplier (SAP F-47, special G/L F): a payables document, not a ledger
@@ -1004,6 +1029,22 @@ func (UnimplementedHandler) CreateGrIrClearing(ctx context.Context, req *GrIrCle
 //
 // POST /v1/hierarchies
 func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (r CreateHierarchyRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateInternalOrder implements createInternalOrder operation.
+//
+// Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
+// controlling context, to which costs are posted once it is released (`:release`). The code is unique
+// in the legal entity (409 `controlling.internal_order_exists`). The responsible cost center must be
+// an active cost center of the legal entity (422 `controlling.internal_order_cost_center_invalid`,
+// whose field error's code says why: `unknown`, `not_in_company`, `not_active`). A legal entity the
+// caller cannot act in is answered as missing (422 `request.reference_not_found`). Created directly by
+// permission, with no approval request. Audited, and published as InternalOrderChanged. Agents may not
+// create one.
+//
+// POST /v1/internal-orders
+func (UnimplementedHandler) CreateInternalOrder(ctx context.Context, req *InternalOrderCreate, params CreateInternalOrderParams) (r CreateInternalOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2185,6 +2226,18 @@ func (UnimplementedHandler) GetCurrentPrincipal(ctx context.Context) (r GetCurre
 	return r, ht.ErrNotImplemented
 }
 
+// GetCustomerInvoice implements getCustomerInvoice operation.
+//
+// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
+// and name, its net, tax and gross totals and its items, each with its account's number and name, its
+// centers' codes and the tax calculated for it when it was entered. One of a company the caller may
+// not act in is not found (404), as one that does not exist.
+//
+// GET /v1/customer-invoices/{id}
+func (UnimplementedHandler) GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (r GetCustomerInvoiceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetDepreciationRun implements getDepreciationRun operation.
 //
 // One depreciation run (ADR-0057 §7, T57f): its company, ledger and period, its status, the assets it
@@ -2344,6 +2397,16 @@ func (UnimplementedHandler) GetHierarchy(ctx context.Context, params GetHierarch
 //
 // GET /v1/hierarchies/{id}/nodes/{node_id}
 func (UnimplementedHandler) GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (r GetHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetInternalOrder implements getInternalOrder operation.
+//
+// Returns one internal order with its responsible cost center's code. An order of a legal entity the
+// caller cannot act in is answered as missing (404).
+//
+// GET /v1/internal-orders/{id}
+func (UnimplementedHandler) GetInternalOrder(ctx context.Context, params GetInternalOrderParams) (r GetInternalOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3526,6 +3589,18 @@ func (UnimplementedHandler) ListCountryPacks(ctx context.Context, params ListCou
 	return r, ht.ErrNotImplemented
 }
 
+// ListCustomerInvoices implements listCustomerInvoices operation.
+//
+// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
+// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
+// totals and its items. Filtered by company, customer, status, document number and invoice date.
+// Sortable by: `invoice_date`, `document_number`.
+//
+// GET /v1/customer-invoices
+func (UnimplementedHandler) ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (r ListCustomerInvoicesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListDepreciationRuns implements listDepreciationRuns operation.
 //
 // The depreciation runs of the legal entities the caller may act in (ADR-0057 §7, T57f), each with
@@ -3749,6 +3824,33 @@ func (UnimplementedHandler) ListHouseBanks(ctx context.Context, params ListHouse
 //
 // GET /v1/consolidation-runs/{id}/differences
 func (UnimplementedHandler) ListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (r ListIntercompanyDifferencesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListInternalOrderBalances implements listInternalOrderBalances operation.
+//
+// The actual costs of one internal order in a fiscal year, per account and fiscal period (ADR-0064
+// §2), in the order's legal entity's local currency, exact at the moment of the read: the leading
+// ledger's journal lines that name the order (`internal_order_id` on a journal entry line), their
+// debits and credits added up, a reversal's lines included. Rows are in the order of the account
+// number, then the period. The totals are the whole selection's on every page, whatever the page. An
+// order that does not exist, or of a legal entity the caller cannot act in, is answered as missing
+// (422 `request.reference_not_found` on `internal_order_id`). The actuals are ledger amounts, so
+// besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the trial balance
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-order-balances
+func (UnimplementedHandler) ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (r ListInternalOrderBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListInternalOrders implements listInternalOrders operation.
+//
+// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its
+// responsible cost center's code. Sortable by: `code`.
+//
+// GET /v1/internal-orders
+func (UnimplementedHandler) ListInternalOrders(ctx context.Context, params ListInternalOrdersParams) (r ListInternalOrdersRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5184,6 +5286,19 @@ func (UnimplementedHandler) RejectVarianceComment(ctx context.Context, req *Reas
 //
 // POST /v1/contracts/{id}:release
 func (UnimplementedHandler) ReleaseContract(ctx context.Context, params ReleaseContractParams) (r ReleaseContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ReleaseInternalOrder implements releaseInternalOrder operation.
+//
+// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
+// (`If-Match`): the order is read under a row lock and moves to `released` once. An order already
+// released is refused (409 `controlling.internal_order_released`). Releasing is a person's decision:
+// `controlling.order.release` is an approval permission, which agents cannot hold. Audited, and
+// published as InternalOrderChanged.
+//
+// POST /v1/internal-orders/{id}:release
+func (UnimplementedHandler) ReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (r ReleaseInternalOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

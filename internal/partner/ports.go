@@ -23,7 +23,11 @@ type Postings struct{}
 // PostingBlock says why the partner may not be posted on a reconciliation
 // account of the kind (supplier or customer) in the legal entity, or ""
 // when it may: the partner must be active, play the role and, as a
-// supplier, be set up and not blocked for posting in the legal entity.
+// supplier, be set up and not blocked for posting in the legal entity. A
+// customer must not be blocked for posting there; one without company
+// data stays postable, by manual journal entries as before T74a
+// (plan-breadth-week1, default 2), while receivables documents require the
+// company data (Customer.Usable).
 func (Postings) PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UUID, kind string) (string, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -31,11 +35,12 @@ func (Postings) PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UU
 	}
 	var status string
 	var hasRole bool
-	var blocked *bool
+	var blocked, customerBlocked *bool
 	err = tx.QueryRow(ctx, `SELECT p.status,
 			EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = $3),
-			(SELECT sc.is_posting_blocked FROM partner.supplier_company sc WHERE sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2)
-		FROM partner.business_partner p WHERE p.id = $1`, partnerID, legalEntity, kind).Scan(&status, &hasRole, &blocked)
+			(SELECT sc.is_posting_blocked FROM partner.supplier_company sc WHERE sc.tenant_id = p.tenant_id AND sc.partner_id = p.id AND sc.legal_entity_id = $2),
+			(SELECT cc.is_posting_blocked FROM partner.customer_company cc WHERE cc.tenant_id = p.tenant_id AND cc.partner_id = p.id AND cc.legal_entity_id = $2)
+		FROM partner.business_partner p WHERE p.id = $1`, partnerID, legalEntity, kind).Scan(&status, &hasRole, &blocked, &customerBlocked)
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return "there is no business partner with this id", nil
@@ -49,6 +54,8 @@ func (Postings) PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UU
 		return "the supplier is not set up in this legal entity", nil
 	case kind == "supplier" && *blocked:
 		return "the supplier is blocked for posting in this legal entity", nil
+	case kind == "customer" && customerBlocked != nil && *customerBlocked:
+		return "the customer is blocked for posting in this legal entity", nil
 	}
 	return "", nil
 }
@@ -206,6 +213,71 @@ func (Suppliers) Supplier(ctx context.Context, partnerID, legalEntity uuid.UUID)
 		s.SetUp, s.ReconciliationID, s.PaymentTermCode, s.IsPostingBlocked, s.IsPaymentBlocked = true, *recon, *term, *posting, *payment
 	}
 	return s, true, nil
+}
+
+// Customers answers receivables' and credit's questions about customers in
+// the request's transaction (T74a).
+type Customers struct{}
+
+// Customer is a business partner as a customer of one legal entity.
+type Customer struct {
+	ID         uuid.UUID
+	Number     string
+	Name       string
+	Status     string // business partner status
+	IsCustomer bool   // plays the customer role
+	SetUp      bool   // has customer data in the legal entity
+	// ReconciliationID, PaymentTermCode and IsPostingBlocked are the
+	// customer's company data; zero unless SetUp.
+	ReconciliationID uuid.UUID
+	PaymentTermCode  string
+	IsPostingBlocked bool
+}
+
+// Usable reports why a receivables document cannot name the customer in
+// the legal entity, or "" when it can: such a document needs the company
+// data, which a manual journal entry does not (Postings.PostingBlock).
+func (c Customer) Usable() string {
+	switch {
+	case c.Status != Active:
+		return "the business partner is " + c.Status
+	case !c.IsCustomer:
+		return "the business partner is not a customer"
+	case !c.SetUp:
+		return "the customer is not set up in this legal entity"
+	case c.IsPostingBlocked:
+		return "the customer is blocked for posting in this legal entity"
+	}
+	return ""
+}
+
+// Customer returns the partner as a customer of the legal entity, or
+// ok = false when there is no partner with the id.
+func (Customers) Customer(ctx context.Context, partnerID, legalEntity uuid.UUID) (Customer, bool, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return Customer{}, false, err
+	}
+	c := Customer{ID: partnerID}
+	var term *string
+	var recon *uuid.UUID
+	var blocked *bool
+	err = tx.QueryRow(ctx, `SELECT p.number, p.name, p.status,
+			EXISTS (SELECT FROM partner.partner_role r WHERE r.tenant_id = p.tenant_id AND r.partner_id = p.id AND r.role = 'customer'),
+			cc.reconciliation_account_id, cc.payment_term_code, cc.is_posting_blocked
+		FROM partner.business_partner p
+		LEFT JOIN partner.customer_company cc ON cc.tenant_id = p.tenant_id AND cc.partner_id = p.id AND cc.legal_entity_id = $2
+		WHERE p.id = $1`, partnerID, legalEntity).Scan(&c.Number, &c.Name, &c.Status, &c.IsCustomer, &recon, &term, &blocked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Customer{}, false, nil
+	}
+	if err != nil {
+		return Customer{}, false, fmt.Errorf("partner: read customer %s of legal entity %s: %w", partnerID, legalEntity, err)
+	}
+	if term != nil { // the three columns are NOT NULL: null together when the customer has no row
+		c.SetUp, c.ReconciliationID, c.PaymentTermCode, c.IsPostingBlocked = true, *recon, *term, *blocked
+	}
+	return c, true, nil
 }
 
 // PaymentAccount is a partner's payments bank account as a migration's

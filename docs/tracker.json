@@ -1095,14 +1095,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Customer open items",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant enters a customer invoice without a sales order (customer, items by revenue account with output tax code) and reads it back with its calculated tax and totals; the receivables context and its ADR",
-        "r": "T75a · docs/design/plan-breadth-week1.md §T75a",
+        "r": "T75a · docs/design/plan-breadth-week1.md §T75a · db/migrations/000265 · receivables.customer_invoice, customer_invoice_item · POST /v1/customer-invoices · GET /v1/customer-invoices · GET /v1/customer-invoices/{id} · CustomerInvoiceChanged · receivables.invoice.read, .write, .post · walkthrough step_customer_invoice · ADR-0063 §1-§4, §8, §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -3237,21 +3237,21 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Order master",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller creates an internal order (code, name, company, responsible cost center) and releases it for posting; the controlling II ADR that ADR-0050 asks T60 for",
-        "r": "T60a · docs/design/plan-breadth-week1.md §T60a",
+        "r": "T60a · docs/design/plan-breadth-week1.md §T60a · migration 000267 · internal/controlling/orders.go · ADR-0064 §1 · scripts/walkthrough.sh step_internal_order",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A GL accountant posts a cost to a released internal order on a journal entry line (a second real cost object beside the cost center), and a controller reads the order's actual costs by account and period",
-        "r": "T60b · docs/design/plan-breadth-week1.md §T60b",
+        "r": "T60b · docs/design/plan-breadth-week1.md §T60b · migrations 000268-000270 · internal/ledger/assignment.go (ledger.CostObjects) · internal/controlling/orderbalances.go · ADR-0064 §2 · scripts/walkthrough.sh step_internal_order",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -4257,14 +4257,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Customer master with company data",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant creates a customer (a business partner with the role customer) with its company data (reconciliation account, payment term, posting block) through the partner change and its approval, and reads it back",
-        "r": "T74a · docs/design/plan-breadth-week1.md §T74a",
+        "r": "T74a · docs/design/plan-breadth-week1.md §T74a · migration 000266 (partner.customer_company) · customer_companies[] on createBusinessPartner, createPartnerChange (BusinessPartnerChanges) and BusinessPartner (CustomerCompany with reconciliation_account_number, CustomerCompanyInput; 422 partner.customer_role_required) · event CustomerApproved, BusinessPartnerUpdated changed_fields customer_company.<legal_entity_id> · partner.Customers.Customer, Customer.Usable · partner.Postings.PostingBlock (a customer blocked for posting in the company) · config chart_of_accounts[].customer_reconciliation, ledger.Setup (reconciliation_kind customer) · TestCustomerCompanyData, TestCustomersRead, TestCustomerCompanyRefusals, TestCustomerReconciliationAccounts, TestCustomerItemsRevalued, TestCustomerReconciliationValid, TestCustomerCompanyRules, TestCustomerCompanyIsolation · walkthrough step_customer (step 47) · 03-data-model §3.6",
         "src": "po:2026-11-10 · design:03 §3.6",
         "c": []
        },
@@ -9814,6 +9814,20 @@
       "t": "SAP's trading partner on migrated intercompany documents (ADR-0059 question 4, answered po:2026-11-05: a migration leaf once an SAP specialist confirms the fields; the SAP specialist answered po:2026-11-09, A2): the extract reads the vendor's LFA1-VBUND (KNA1-VBUND for a customer) [H] and each line's ACDOCA-RASSC [H]; SAP does not guarantee RASSC on every line of a document [M] (lines from MIRO and GR/IR, tax, exchange and price difference and cash discount lines, documents with several vendors and lines a user cleared often lack it), so the load gives a whole intercompany document the trading partner of its vendor line, as ADR-0059 §4's derivation does on the platform, instead of requiring it on each SAP line; how a VBUND names the tenant's legal entity is settled in the step; checked on the pilot's data with the specialist's query (documents whose vendor line has a RASSC that another line lacks)",
       "r": "ADR-0059 §4, question 4 (answered), As built (SAP's trading partner on migrated intercompany documents) · internal/sap (LFA1 VBUND, ACDOCA RASSC, T001 RCOMP, Extract.CompanyCodes) · internal/integration tradingpartner.go (the supplier's group company from VBUND, the gate's warnings, the open payables by trading partner) · ledger Reports.OpenPayablesByTradingPartner, Posting.Collective (the opening entry's balances take no trading partner) · docs/migration.md · walkthrough step 3 (migration_group_company, migrated_trading_partner). Settled in the step: a VBUND names the legal entity of the company code T001-RCOMP assigns to it (RCOMP from memory, for the specialist); one that names none is a warning",
       "src": "po:2026-11-05 · po:2026-11-09 · adr:ADR-0059",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A migrated line's own trading partner in documents mode (po:2026-11-10; the first case the trading partner leaf left): a line the load posts without a supplier carries the trading partner it names itself (ACDOCA-RASSC [H], the SAP specialist's A2), mapped to the tenant's legal entity as a vendor's VBUND is (the company code T001-RCOMP assigns to the company ID; RCOMP still from memory), so an intercompany document without a vendor line arrives with its partner; a vendor line keeps its supplier's and a line SAP left without one its document's vendor lines'; a RASSC that names no legal entity or the line's own company is a warning per company code and trading partner; the reconciliation compares the balances per account and trading partner of the lines posted without a supplier; an extract without RASSC loads as before",
+      "r": "ADR-0059 As built (a migrated line's own trading partner, documents mode) · internal/integration tradingpartner.go (target.ownPartner, groupCompanies, otherLines), partnerbalances.go (the control), load.go (journalPosting) · ledger Reports.BalancesByTradingPartner · internal/sap mock.go (intercompanySale) · api/openapi.yaml (MigrationDiff.key) · TestTradingPartnerFromTheLine · TestOwnPartner · TestPartnerBalancesReconciliation · TestBalancesByTradingPartner · docs/migration.md · walkthrough step 3 (migrated_line_partner) · step a2b",
+      "src": "po:2026-11-10",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Balances by trading partner in balances mode (po:2026-11-10; the second case the trading partner leaf left): an opening entry's account balances are loaded grouped by the trading partner their SAP lines name (ACDOCA-RASSC), so an intercompany G/L balance arrives with its partner instead of without one, and the reconciliation's balances per account and trading partner cover it; a balance takes only the trading partner its own lines name, never its documents' vendor items' (the entry is collective), and an extract without RASSC loads as before",
+      "r": "ADR-0059 As built (balances by trading partner in balances mode) · internal/integration load.go (openingLines, openingBalances), tradingpartner.go (otherLines), partnerbalances.go · TestBalancesByTradingPartnerInBalancesMode · docs/migration.md · walkthrough step 3 (balances_by_partner_rehearsed) · step a2b",
+      "src": "po:2026-11-10",
       "c": []
      },
      {

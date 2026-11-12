@@ -683,6 +683,12 @@ As built in T56d, T56d2 and T56d4 (migrations 000155-000160; the commit-time che
   approval: §3 as built. Additive (ADR-0041): two new problem codes on
   `redateProfitCenter`, `lockProfitCenter` and the approval; no migration
   (the profit center indexes of 000158 serve the lookup).
+- **T60b** (ADR-0064 §2): the second real cost object. A primary cost line
+  names a cost center or an internal order (`journal_line.internal_order_id`,
+  the order asked of the controlling context through `ledger.CostObjects`);
+  a line naming an order takes no default cost center and derives its
+  profit center and segment from the order's responsible cost center. What
+  is built is in ADR-0064, As built.
 
 ### 6. Procurement and payables capture the assignment
 - **Requisition and PO items** gain `account_assignment` (`none` | `cost_center`;

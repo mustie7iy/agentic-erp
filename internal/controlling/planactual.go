@@ -198,10 +198,9 @@ func (e *Endpoints) planActualQuery(ctx context.Context, tx pgx.Tx, k paKind, pa
 	if err != nil {
 		return paQuery{}, err
 	}
-	from, to := int16(params.from.Or(1)), int16(params.to.Or(16))
-	if from > to {
-		return paQuery{}, problem.BadRequest("request.invalid_parameter", "fiscal_period_to is before fiscal_period_from.",
-			problem.FieldError{Field: "fiscal_period_to", Code: "before_start", Message: "on or after fiscal_period_from"})
+	from, to, err := periodRange(params.from, params.to)
+	if err != nil {
+		return paQuery{}, err
 	}
 	q := paQuery{kind: k, category: params.category, from: from, to: to, size: size,
 		scope:   fmt.Sprintf("%s|%s|%s|%d|%d|%d|%v|%v", k.operation, params.category, params.legalEntity, params.year, from, to, params.center, params.node),
@@ -228,6 +227,17 @@ func (e *Endpoints) planActualQuery(ctx context.Context, tx pgx.Tx, k paKind, pa
 	q.actuals.Centers, ok, err = k.centers(e.Ledger, ctx, params.center, params.node)
 	q.centerFilter, q.noRows = q.actuals.Centers != nil, !ok
 	return q, err
+}
+
+// periodRange is the range of fiscal periods a report asks for, 1 to 16
+// by default; one ending before it starts is refused.
+func periodRange(first, last gen.OptInt32) (from, to int16, err error) {
+	from, to = int16(first.Or(1)), int16(last.Or(16))
+	if from > to {
+		return 0, 0, problem.BadRequest("request.invalid_parameter", "fiscal_period_to is before fiscal_period_from.",
+			problem.FieldError{Field: "fiscal_period_to", Code: "before_start", Message: "on or after fiscal_period_from"})
+	}
+	return from, to, nil
 }
 
 // planActualRows are the page's rows and one more, if there is one: the

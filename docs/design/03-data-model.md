@@ -576,11 +576,13 @@ is not led by `tenant_id`, as it has none.
 erDiagram
   business_partner ||--o{ partner_role : plays
   business_partner ||--o{ supplier_company : "supplier in"
+  business_partner ||--o{ customer_company : "customer in"
   business_partner ||--o{ address : has
   business_partner ||--o{ bank_account : has
   business_partner ||--o{ tax_identifier : has
   business_partner ||--o{ partner_change : "changed by"
   payment_term ||--o{ supplier_company : used_by
+  payment_term ||--o{ customer_company : used_by
   business_partner { uuid id PK
     text number
     text kind "organization | person"
@@ -599,6 +601,11 @@ erDiagram
     bool is_payment_blocked
     text_array payment_methods "allowed methods; T45b"
     text planning_group "cash.planning_groups; T53b" }
+  customer_company { uuid partner_id PK
+    uuid legal_entity_id PK
+    uuid reconciliation_account_id "ledger"
+    text payment_term_code
+    bool is_posting_blocked "T74a" }
   bank_account { uuid id PK
     uuid partner_id
     bytea account_cipher
@@ -637,7 +644,8 @@ when it is set on creation or an update change is requested (422
 `partner.group_company_unknown`).
 
 One business partner can be both supplier and customer (SAP business partner
-model). Company-specific supplier data lives in `supplier_company`. Bank
+model). Company-specific supplier data lives in `supplier_company`, and a
+customer's in `customer_company` (below). Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
 which drives the payment hold after bank changes. "Today" for a bank
 account is UTC's day, one rule for the whole partner, which serves
@@ -686,6 +694,79 @@ partner asks about through its own port (`partner.PlanningGroups`, wired by
 the composition root, §3.18). A configuration taking away a group a
 supplier has, or a pending change gives, is refused
 (`partner.PlanningGroupCodes`, under the planning group lock).
+
+**Customers' company data (T74a, migration 000266; as built).** A customer
+is a business partner with the role `customer`; its data in a company is a
+row of `partner.customer_company` per legal entity, as a supplier's is of
+`supplier_company`, so a partner that is both has a row of each, each on
+its own reconciliation account. The row holds the reconciliation account
+its receivables post to, its payment term and whether postings to it are
+blocked there. The database requires the
+customer role (a foreign key to `partner_role` through `role_customer`,
+as `role_supplier` does for suppliers) and a payment term of the tenant;
+the legal entity and the account are other contexts' and are checked by
+partner when the data is requested: a legal entity the caller may act in,
+an active customer reconciliation account set up in it
+(`Accounts.IsReconciliationAccount` with kind `customer`, 422
+`partner.invalid_reconciliation_account`) and a configured payment term
+(422 `partner.unknown_payment_term`), each refusal naming the request's
+own field (`customer_companies[n]…`, under `payload.` in a change).
+Payment terms have no status: a configured term is never removed
+(`partner.PaymentTerms`), so every configured term is usable.
+
+The data is given as `customer_companies[]` on `createBusinessPartner` and
+in an `update` partner change (`createPartnerChange`), and applies as
+supplier data does: written with the pending partner on creation, by the
+approved change on an update. An entry replaces the customer's data in its
+legal entity as a whole, the posting block included (`is_posting_blocked`,
+false when left out), so a block is set and lifted by an approved change;
+legal entities the change does not name keep their data, and none is
+deleted. The partner's representation returns `customer_companies` of the
+legal entities the caller may act in, ordered by legal entity id, each
+with its reconciliation account's number beside the id (read from the
+ledger through `Accounts.AccountNumbers`, once per page). Approval
+of a customer's creation publishes `CustomerApproved` (the partner, its
+number and the legal entities it has customer data in), beside
+`SupplierApproved` for a partner that is both; an applied update names
+`customer_company.<legal_entity_id>` among BusinessPartnerUpdated's
+`changed_fields`. Both are audited as every partner change is.
+
+Other contexts read a customer through `partner.Customers.Customer`
+(partner, legal entity): its number, name, status, whether it plays the
+role, and its company data when it is set up there; `Customer.Usable` says
+why a receivables document cannot name it (not active, no customer, not
+set up in the company, blocked for posting). The ledger asks
+`partner.Postings.PostingBlock`, which refuses a line naming a customer
+blocked for posting in the line's company (422
+`ledger.partner_not_postable`). A customer without company data stays
+postable by manual journal entries, as before; receivables documents
+require the company data (plan-breadth-week1, default 2).
+
+A customer reconciliation account is an account of the configuration's
+chart flagged `customer_reconciliation` (SAP SKB1-MITKZ D, as
+`internal/sap` reads the field), as
+`vendor_reconciliation` flags a supplier's: an asset that reconciles
+nothing else, which the ledger creates with `reconciliation_kind =
+'customer'`, open-item managed, each line naming its customer (§3.7). The
+flag is structural (tier 4) and, like the other kinds, cannot change once
+the account is activated; no other use of an account (account
+determination, tax, statement rules, asset accounts, FX adjustment,
+withholding, retained earnings, accruals) may name such an account, and it
+is not revalued as a balance. Decided by default (07 §7.7): nothing but the
+configuration creates accounts, and the ledger has known the kind since
+000005, so the flag details what T74a needs. A customer reconciliation
+account's open items in a foreign currency are revalued as a supplier's
+are: the account is named in `fx_valuation.accounts` with its adjustment
+account (ADR-0042), and a run refuses one that is not. The SAP
+configuration draft does not yet map MITKZ D, since customers are not
+taken over from SAP in the first version: until it does, a drafted chart's
+receivables accounts must be flagged by the reviewer before the first
+activation, because an activated account's kind cannot change.
+
+Not built in the first version (plan-breadth-week1, "Later"): sales-area
+data and partner functions, contact persons, customer payment methods and
+direct debit mandates, a planning group, custom fields on the company
+data, and taking customers over from SAP.
 
 ## 3.7 General ledger (`ledger`)
 
@@ -747,7 +828,8 @@ erDiagram
     uuid cost_center_id "T56d"
     uuid profit_center_id
     uuid segment_id
-    uuid trading_partner_id "T68b" }
+    uuid trading_partner_id "T68b"
+    uuid internal_order_id "T60b; controlling context" }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -1394,6 +1476,27 @@ before it. The two center reports read it with the lines still pending,
 as the trial balance reads `period_balance`, through the partial indexes
 `assignment_balance_cost_center` and `assignment_balance_profit_center`
 (company, ledger, year, period, center).
+
+The internal order on the journal line (T60b, ADR-0064 §2, migrations
+000268-000270). `journal_line.internal_order_id` is the internal order a
+primary cost line's cost is posted to, the second real cost object beside
+the cost center, nullable, NULL on lines posted before; an order id
+without a foreign key (the order master is the controlling context's,
+§3.19), which the ledger checks through its port `ledger.CostObjects`
+before it posts a line naming it: the order is known, of the line's
+company and released, the account a primary cost account, and the line
+names no cost center (422 `ledger.internal_order_invalid`, naming the line
+and why). The posting holds the orders it names `FOR SHARE` until its
+transaction ends. The line takes its profit center and segment from the
+order's responsible cost center in its period on the posting date and
+keeps `cost_center_id` empty. The database holds the other half: a line
+carries a cost center or an order, never both
+(`journal_line_one_cost_object`, added `NOT VALID` and validated partition
+by partition; a partition created later gets it validated). The partial
+index `journal_line_by_internal_order` (company, order, year, period)
+serves the order's actual costs. A reversal copies each line's order. A
+parked entry's and a template's lines keep no order in the first version:
+one naming an order is refused (422 `ledger.internal_order_not_parkable`).
 
 The trading partner on the journal line (T68b, ADR-0059 §4, migrations
 000219-000221). `journal_line.trading_partner_id` is the tenant's company
@@ -3242,7 +3345,8 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 
 ## 3.19 Controlling (`controlling`)
 
-Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g).
+Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
+and internal orders (ADR-0064; T60a, T60b).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3250,7 +3354,10 @@ centers of a hierarchy node, the actuals by cost center and account), with
 no foreign key into the ledger's schema. Migration 000164 creates the schema,
 its outbox and the permissions `controlling.plan.read`,
 `controlling.plan.write` and `controlling.plan.lock` (an approval
-permission, which agents cannot hold).
+permission, which agents cannot hold). Migration 000267 adds the order
+master and the permissions `controlling.order.read`,
+`controlling.order.write` and `controlling.order.release` (an approval
+permission).
 
 ```mermaid
 erDiagram
@@ -3282,6 +3389,12 @@ erDiagram
     numeric quantity
     text uom_code
     uuid replaced_by_batch_id FK }
+  internal_order { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text code "unique per company"
+    text name
+    uuid responsible_cost_center_id "ledger context"
+    text status "created, released" }
 ```
 
 | Table | Purpose |
@@ -3289,7 +3402,8 @@ erDiagram
 | `controlling.plan_category` | A plan category (SAP's category for planning): code (`^[0-9A-Z_]{1,10}$`, unique), name, and `locked`; locked and unlocked by a person (`controlling.plan.lock`) with the caller's version, read FOR UPDATE; never deleted |
 | `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
-| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`), relayed as every context's (`outbox.Contexts`) |
+| `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
 /v1/profit-center-plan-actual`, T56g3) stores nothing: the category's
@@ -3910,3 +4024,59 @@ columns below arrive with the slices that write them (T65c-T65f).
 | Table | Purpose |
 |---|---|
 | `einvoicing.einvoice` | A document received from the tenant's accredited provider (and, in phase 3, one sent): its company and connector, the provider's message id (unique per tenant and connector), the fetch operation that recorded it, direction, format (`pint_ae`), kind (invoice or credit note), the hash and size of the bytes kept write-once in object storage (null for a document refused as too large, which is not kept), `received_at` and `acknowledged_at`, `changed_hash` when the provider redelivered other bytes under the id, the fields read (number, issue date, currency, totals, lines, the seller's TRN fingerprint and last four characters, the supplier once found), its status (`received` → `entered`, `held` or `refused`; `held` → `entered`, `held` again on a retry with the new problem, or `dismissed`) with the problem code and detail exactly when held or refused and the reason exactly when dismissed, the supplier invoice once entered or linked (at most one document per invoice, a partial unique index), and its version |
+
+## 3.26 Accounts receivable (`receivables`)
+
+ADR-0063, T75a-T75e. Built as payables is: it reads the ledger, the
+partner context, tenancy and the configuration through its ports, posts
+only through the ledger (§3.16) and keeps no foreign key out of its schema
+(02 §2.1). T75a (migration 000265) builds the schema with its outbox and
+inbox and the customer invoice, the accounting record of an invoice the
+company issued, entered as a draft; nothing is posted yet.
+
+```mermaid
+erDiagram
+  customer_invoice ||--|{ customer_invoice_item : "has"
+  customer_invoice { uuid id PK
+    text document_number "customer_invoice range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, customer role"
+    text kind "invoice"
+    date invoice_date "the tax date"
+    date posting_date "optional"
+    char currency
+    bigint net_amount
+    bigint tax_amount
+    bigint gross_amount "net + tax"
+    text status "draft"
+    int version }
+  customer_invoice_item { int item_no PK
+    text description
+    uuid account_id "ledger"
+    bigint net_amount "above 0"
+    text tax_code "output code, optional"
+    bigint tax_amount "0 without a code"
+    uuid cost_center_id
+    uuid profit_center_id }
+```
+
+- `receivables.customer_invoice`: amounts are minor units of `currency`,
+  never negative (`customer_invoice_amounts_not_negative`); the kind gives
+  their direction. `gross_amount = net_amount + tax_amount`
+  (`customer_invoice_totals`). The number is unique per company
+  (`customer_invoice_number_once`). The kind is `invoice` and the status
+  `draft` alone (`customer_invoice_kind_check`,
+  `customer_invoice_status_check`), which T75d (`credit_memo`) and T75b
+  (`posted`) widen. The application may insert and read: nothing changes
+  or deletes a draft in the first version.
+- `receivables.customer_invoice_item`: a net amount above zero
+  (`customer_invoice_item_net_positive`) on an account, with the tax its
+  output tax code gave at the invoice date, never negative and 0 without a
+  code (`customer_invoice_item_tax_not_negative`,
+  `customer_invoice_item_tax_needs_code`); insert-only
+  (`platform.forbid_mutation`). The items' net and tax add up to the
+  header's, which the context writes in one transaction.
+- `receivables.outbox`, `receivables.inbox`: the context's events
+  (`CustomerInvoiceChanged`).
+- Permissions `receivables.invoice.read`, `.write` and `.post` (the last
+  used from T75b).

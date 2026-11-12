@@ -864,6 +864,7 @@ step_migrate() {
   parallel_run_extract
   small_item_refused "$connector"
   yen_item_rehearsed "$connector"
+  balances_by_partner_rehearsed "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -881,6 +882,7 @@ step_migrate() {
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
     'Open items fixing payment method T' 'Open items fixing payment method T total' 'Open items fixing payment method T: vendors with differences' \
     'Open payables by trading partner total' 'Open payables by trading partner: trading partners with differences' \
+    'Account balances by trading partner total' 'Account balances by trading partner: balances with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
     'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences'; do
@@ -978,7 +980,8 @@ migration_group_company() {
 # which SAP's lines name it on (ACDOCA-RASSC), and the other lines of its
 # invoices, which SAP left without one; the credit memo Alex just posted
 # through payables carries it too; and the reconciliation compared the
-# open payables per trading partner with SAP's.
+# open payables per trading partner with SAP's. Then the line's own
+# (migrated_line_partner).
 migrated_trading_partner() {
   local lifnr documents with without
   as carla
@@ -997,16 +1000,77 @@ migrated_trading_partner() {
   if [ "$without" -eq 0 ]; then fail "the extract's intercompany documents have no line without a trading partner"; fi
   say "The load does not copy SAP's lines: the ledger derives each line's trading partner from the supplier and gives"
   say "the document's other lines the same, as for every posting on the platform. The journal lists Maple's entries"
-  say "naming company 2000, and every line of them carries it:"
+  say "naming company 2000, and every line of the vendor's documents carries it (the entry with a line naming none"
+  say "is the sale without a vendor line, below):"
   api 200 '.items[] | "  entry \(.document_number) of \(.posting_date), \(.header_text): \(.lines | length) lines, trading partner \([.lines[] | .trading_partner.code // "none"] | unique | join(", "))"' \
     listJournalEntries -p "legal_entity_id=$LE" -p "trading_partner_id=$IC_COMPANY" -p page_size=100
-  expect "the migrated documents among the entries naming company 2000" "$(field '[.items[] | select((.header_text // "") | startswith("SAP document"))] | length')" "$documents"
-  expect "the trading partners of those entries' lines" "$(field '[.items[].lines[] | .trading_partner.code // "none"] | unique | join(" ")')" 2000
+  cp "$WORK/last.json" "$WORK/partner_entries.json"
+  expect "the vendor's migrated documents among the entries naming company 2000" \
+    "$(field '[.items[] | select(((.header_text // "") | startswith("SAP document")) and ([.lines[] | select(.partner_id)] | length) > 0)] | length')" "$documents"
+  expect "the trading partners of the lines of the entries with a supplier line" \
+    "$(field '[.items[] | select([.lines[] | select(.partner_id)] | length > 0) | .lines[] | .trading_partner.code // "none"] | unique | join(" ")')" 2000
   expect "the lines SAP left without a trading partner, now carrying it" \
-    "$(field '[.items[] | select((.header_text // "") | startswith("SAP document")) | .lines | length] | add')" "$((with + without))"
+    "$(field '[.items[] | select(((.header_text // "") | startswith("SAP document")) and ([.lines[] | select(.partner_id)] | length) > 0) | .lines | length] | add')" "$((with + without))"
   say "The reconciliation compared the open payables per trading partner, SAP's as the vendor masters give them:"
   grep -E 'Open payables by trading partner' "$WORK/migrate.out" | sed 's/^/     /'
+  migrated_line_partner
   as ada
+}
+
+# balances_by_partner_rehearsed CONNECTOR rehearses the scope in balances
+# mode before the load (po:2026-11-10): the opening entry groups each
+# account's balance by the trading partner its SAP lines name
+# (ACDOCA-RASSC), so the revenue of the mock's intercompany sale, a
+# document without a vendor line, arrives as a balance with company 2000,
+# and the reconciliation's balances by account and trading partner show
+# it equal to SAP's. The rehearsal is rolled back; the load that follows
+# is in documents mode.
+balances_by_partner_rehearsed() {
+  local balance
+  balance=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "") | .HSL] | join(" ")' "$WORK/data/extract.json")
+  say "A cutover that takes over balances instead of documents loads one opening entry. An intercompany G/L balance"
+  say "then arrives with its trading partner too. SAP's lines without a vendor that name one (ACDOCA-RASSC):"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.XBLNR): account \(.RACCT), \(.HSL) CAD, trading partner \(.RASSC)"' "$WORK/data/extract.json"
+  say "A rehearsal in balances mode groups each account's balance by the trading partner its lines name, and the"
+  say "reconciliation compares the balances per account and trading partner with SAP's:"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -mode balances -rehearsal
+  "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -mode balances -rehearsal >"$WORK/balances.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/balances.out"; fail "the rehearsal in balances mode did not reconcile"; }
+  grep -E '^Migration run|by trading partner' "$WORK/balances.out" | sed 's/^/     /'
+  grep -E "Account balances by trading partner total +$balance CAD +$balance CAD +PASS$" "$WORK/balances.out" >/dev/null ||
+    { sed 's/^/     /' "$WORK/balances.out"; fail "the balance by trading partner did not reconcile as $balance CAD"; }
+  grep -E 'Account balances by trading partner: balances with differences +0 +0 +PASS$' "$WORK/balances.out" >/dev/null ||
+    fail "the balances by trading partner differ"
+}
+
+# migrated_line_partner shows the trading partner a migrated line names
+# itself (ACDOCA-RASSC; po:2026-11-10): the mock's sale of January is an
+# intercompany document without a vendor line, whose revenue line names
+# company 2000's company ID and whose bank line names none. The load posted
+# the revenue line with that trading partner and the bank line without
+# one, and the reconciliation compared the balances per account and
+# trading partner with SAP's, the lines the vendor's documents gave their
+# trading partner included. It reads the entries naming company 2000 that
+# migrated_trading_partner listed.
+migrated_line_partner() {
+  local belnr sale
+  belnr=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "") | .BELNR] | unique | join(" ")' "$WORK/data/extract.json")
+  say "An intercompany document without a vendor line carries its trading partner too. In SAP a sale to the group's"
+  say "German company was posted between G/L accounts; its revenue line names the trading partner itself (RASSC):"
+  jq -r --arg cc "$CC" --arg d "$belnr" '.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == $d)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.XBLNR): account \(.RACCT), \(.HSL) CAD, trading partner \(if (.RASSC // "") == "" then "none" else .RASSC end)"' "$WORK/data/extract.json"
+  expect "the vendor lines of SAP's document" "$(jq -r --arg cc "$CC" --arg d "$belnr" '[.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == $d and (.LIFNR // "") != "")] | length' "$WORK/data/extract.json")" 0
+  say "The load takes a line's own trading partner where it posts the line without a supplier, so the migrated"
+  say "entry's revenue line names company 2000 and its bank line none:"
+  jq -r --arg h "SAP document $belnr" '.items[] | select(.header_text == $h) | "  entry \(.document_number) of \(.posting_date), \(.header_text) (\(.reference)):",
+    (.lines[] | "    line \(.line_no): \(.amount_lc.amount) \(.amount_lc.currency), trading partner \(if .trading_partner then "\(.trading_partner.code) \(.trading_partner.name)" else "none" end)")' \
+    "$WORK/partner_entries.json" | sed 's/^/   /'
+  sale=$(jq -r --arg h "SAP document $belnr" '[.items[] | select(.header_text == $h) | .lines[] | .trading_partner.code // "none"] | join(" ")' "$WORK/partner_entries.json")
+  expect "the trading partners of the migrated sale's lines" "$sale" "none 2000"
+  say "The reconciliation compared the balances per account and trading partner: SAP's lines under the trading"
+  say "partner they name, or else their document's vendor line's, against the platform's journal lines:"
+  grep -E 'Account balances by trading partner' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # migrated_centers shows SAP's controlling master data as the load brought
@@ -1481,6 +1545,8 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
+# a number range for the customer invoices of step 48 (T75a; the packs
+# number none yet),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1530,7 +1596,8 @@ PILOT_SETTINGS='
     | .service_posting_limit = "1000.00"
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
-        "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})'
+        "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
+| .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -5672,6 +5739,159 @@ step_asset_order_expenses() {
   passed
 }
 
+# step_customer is the customer with its data in a company (T74a, 03
+# §3.6): Ada adds Maple's trade receivables account, a customer
+# reconciliation account, through a governed change of the chart; Ruth, the
+# AR accountant, creates Northwind Traders as a customer of Maple with its
+# receivables account and payment term, a payables account refused there;
+# Carla approves it as she does suppliers, and Ruth reads the customer back,
+# active, with its company data. CUSTOMER is the customer for later steps.
+step_customer() {
+  heading "Step 47 — A customer with its data in a company: the receivables account through a governed change; the customer created, approved and read back"
+  as ada
+  say "A customer's receivables post to a customer reconciliation account, whose every line names its customer."
+  say "Maple's chart has none yet, so Ada proposes account 1200, a change of the chart, tier 4, with its evidence"
+  say "and two approvers:"
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base ar ap body
+  base=$(field '.items[0].number')
+  jq "{title: \"Trade receivables account\", rationale: \"Customers of the pilot company (T74a)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"1200\", \"name\": \"Trade receivables\", \"type\": \"asset\", \"customer_reconciliation\": true}
+      + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G1000\"} else {} end]))}" "$WORK/last.json" >"$WORK/receivables.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @receivables.json
+  governed "$(field .id)" "the receivables account"
+  accounts
+  ar=$(account 1200)
+  api 200 '"account \(.number) \(.name): reconciliation kind \(.reconciliation_kind)"' getAccount -p "id=$ar"
+  expect "the receivables account's reconciliation kind" "$(field .reconciliation_kind)" customer
+  say "Ada adds Ruth, the AR accountant, to the team:"
+  person ruth "Ruth Receivables" finance_staff
+  as ruth
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  ap=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  say "Ruth creates Northwind Traders as a customer of Maple: its receivables account and its payment term, net 30"
+  say "days. Naming Maple's payables account instead is refused, the field named:"
+  body="{\"kind\": \"organization\", \"name\": \"Northwind Traders\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"@ACCOUNT@\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys machined parts from Maple\"}"
+  refused 422 partner.invalid_reconciliation_account createBusinessPartner -body "${body//@ACCOUNT@/$ap}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "customer_companies[0].reconciliation_account_id"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_number), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
+    createBusinessPartner -body "${body//@ACCOUNT@/$ar}"
+  CUSTOMER=$(field .id)
+  expect "the new customer's status" "$(field .status)" pending
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$CUSTOMER" -p kind=create
+  say "Its create change waits for the approver of partner master data, Carla, as a supplier's does:"
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its purchase order"
+  as ruth
+  api 200 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_number), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
+    getBusinessPartner -p "id=$CUSTOMER"
+  expect "the customer's status" "$(field .status)" active
+  expect "the customer's company data" \
+    "$(field '[.customer_companies[] | "\(.legal_entity_id) \(.reconciliation_account_id) \(.reconciliation_account_number) \(.payment_term_code) \(.is_posting_blocked)"] | join(", ")')" \
+    "$LE $ar 1200 NT30 false"
+  expect "no supplier data on a customer" "$(field '.supplier_companies | length')" 0
+  api 200 '.items[] | "customer \(.number) \(.name), \(.country_code), \(.status)"' listBusinessPartners -p role=customer -p name_prefix=Northwind
+  expect "the customers named Northwind" "$(field '[.items[].id] | join(" ")')" "$CUSTOMER"
+  passed
+}
+
+# step_customer_invoice is T75a (ADR-0063 §2-§4): a customer invoice
+# entered without a sales order and read back; nothing is posted. The
+# customer is step_customer's, CUSTOMER.
+step_customer_invoice() {
+  heading "Step 48 — Customer invoices: an invoice to a customer entered without a sales order, its GST calculated per item at the invoice date, read back; nothing posted"
+  local customer=$CUSTOMER sales invoice number item1 item2 item3
+  as alex
+  say "Maple invoices Northwind Traders for October's consulting. The ERP issues no legal tax invoice and sends no"
+  say "e-invoice (ADR-0049 §7): the customer invoice entered here is the accounting record of the invoice Maple"
+  say "issued (ADR-0063 §2). The customer is the one Ruth created in step 47."
+  sales=$(account 4000)
+  say "Alex enters the invoice: two items on 4000 Sales with GO5, the GST output code of step 2 (5%), and a"
+  say "recharge without tax. The tax date is the invoice date (ADR-0049 §4). 5% of 1,000.10 + 499.95 is 75.0025:"
+  say "75.00 once for the code, and each item keeps its share, so the items' tax adds up to the invoice's."
+  item1="{\"description\": \"Consulting, October\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1000.10\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}"
+  item2="{\"description\": \"Workshop\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"499.95\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}"
+  item3="{\"description\": \"Courier recharged at cost\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"20.00\", \"currency\": \"CAD\"}}"
+  api 201 '"customer invoice \(.document_number) to \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)", (.items[] | "  item \(.item_no) \(.description): \(.net_amount.amount) on \(.account_number) \(.account_name), \(.tax_code // "no tax code"), tax \(.tax_amount.amount), gross \(.gross_amount.amount)")' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [$item1, $item2, $item3]}"
+  invoice=$(field .id)
+  number=$(field .document_number)
+  expect "the invoice's status" "$(field .status)" draft
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.gross_amount.currency)"')" "1520.05 75.00 1595.05 CAD"
+  expect "each item's tax" "$(field '[.items[] | .tax_amount.amount] | join(" ")')" "50.00 25.00 0.00"
+  expect "each item's gross" "$(field '[.items[] | .gross_amount.amount] | join(" ")')" "1050.10 524.95 20.00"
+  expect "the customer by name" "$(field .customer_name)" "Northwind Traders"
+  say "Read back, it is the same document:"
+  api 200 '"customer invoice \(.document_number): \(.status), \(.kind), dated \(.invoice_date), gross \(.gross_amount.amount) \(.gross_amount.currency), \(.items | length) items"' \
+    getCustomerInvoice -p "id=$invoice"
+  expect "read back" "$(field '"\(.document_number) \(.status) \(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount)"')" "$number draft 1520.05 75.00 1595.05"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    listCustomerInvoices -p "customer_id=$customer" -p status=draft
+  expect "the customer's drafts" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  say "GA, an input tax code (the return's adjustment of step 2), is no output tax code; the refusal names the item's own field:"
+  refused 422 receivables.unknown_tax_code createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item1/GO5/GA}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].tax_code"
+  say "Nothing is posted: the customer has no open item. Posting the invoice is T75b."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '.items | length')" 0
+  passed
+}
+
+# step_internal_order: internal orders (ADR-0064, T60a, T60b): Carla
+# creates an order of Maple under the finance office's cost center and
+# releases it for posting; Alex posts an expense to it on a journal entry
+# line, and Carla reads it in the order's actual costs.
+step_internal_order() {
+  heading "Step 49 — Internal orders: an order of Maple created under a cost center and released; an expense posted to it shows in its actual costs"
+  as carla
+  local cc order
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "Carla creates an internal order for the year's trade fair: a cost object of its own beside the cost centers,"
+  say "collecting what the fair costs. The finance office's cost center CC-1100 is responsible for it (ADR-0064 §1)."
+  api 201 '"internal order \(.code) \(.name): \(.status), responsible cost center \(.responsible_cost_center_code)"' createInternalOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAIR-$YEAR\", \"name\": \"Trade fair $YEAR\", \"responsible_cost_center_id\": \"$cc\"}"
+  order=$(field .id)
+  expect "the new order's status" "$(field .status)" created
+  expect "the order's responsible cost center" "$(field .responsible_cost_center_code)" CC-1100
+  say "A code is the company's once:"
+  refused 409 controlling.internal_order_exists createInternalOrder \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAIR-$YEAR\", \"name\": \"Trade fair again\", \"responsible_cost_center_id\": \"$cc\"}"
+  say "Carla releases the order for posting, at the version she read; it is released once:"
+  QUIET=1 api 200 '' getInternalOrder -p "id=$order"
+  api 200 '"internal order \(.code): \(.status), version \(.version)"' releaseInternalOrder -p "id=$order" -if-match "$ETAG"
+  expect "the released order's status" "$(field .status)" released
+  refused 409 controlling.internal_order_released releaseInternalOrder -p "id=$order" -if-match "$ETAG"
+  api 200 '.items[] | "  \(.code) \(.name): \(.status), cost center \(.responsible_cost_center_code)"' listInternalOrders -p "legal_entity_id=$LE" -p status=released
+  expect "Maple's released orders" "$(field '[.items[].code] | join(" ")')" "FAIR-$YEAR"
+  as alex
+  accounts
+  local expense bank entry
+  expense=$(account 510000)
+  bank=$(account 100000)
+  say "Alex posts the stand's materials, CAD 1,500.00, to the order on a journal entry line (T60b). A primary cost line"
+  say "carries exactly one real cost object, a cost center or an order: this one names the order and no cost center,"
+  say "and takes its profit center and segment from the order's responsible cost center CC-1100."
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .internal_order_code then " on order \(.internal_order_code), profit center \(.profit_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Trade fair stand materials\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"1500.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-1500.00\", \"currency\": \"CAD\"}}]}"
+  entry=$(field .id)
+  expect "the expense line's order, cost center and profit center" \
+    "$(field '.lines[0] | "\(.internal_order_code) \(.cost_center_id // "none") \(.profit_center_code)"')" "FAIR-$YEAR none PC-MTL"
+  say "An order beside a cost center on one line is refused:"
+  refused 422 ledger.internal_order_invalid postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\", \"cost_center_id\": \"$cc\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+  expect "why the line is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].internal_order_id with_cost_center"
+  as carla
+  say "Carla reads the order's actual costs by account and period: they are the lines posted to it."
+  api 200 '"order \(.internal_order_code) \(.internal_order_name), \(.fiscal_year):", (.items[] | "  \(.account_number) \(.account_name), period \(.fiscal_period): debit \(.debit.amount), credit \(.credit.amount), balance \(.balance.amount) \(.balance.currency)"), "  totals: debit \(.totals.debit.amount), credit \(.totals.credit.amount), balance \(.totals.balance.amount) \(.totals.balance.currency)"' \
+    listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the order's actuals" "$(field '[.items[] | "\(.account_number) \(.balance.amount)"] | join("; ")')" "510000 1500.00"
+  expect "the order's total actual costs" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount) \(.totals.balance.currency)"')" "1500.00 0.00 1500.00 CAD"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$entry"
+  expect "the entry read again names the order" "$(field '.lines[0].internal_order_code')" "FAIR-$YEAR"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7696,7 +7916,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_close'
 
 main() {
   stop_unseen

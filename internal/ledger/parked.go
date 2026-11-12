@@ -239,12 +239,16 @@ func parkPrepared(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v prepared
 	return pe, parkedChanged(ctx, pe, nil, "park", extra)
 }
 
-// parkable refuses, before anything is written, a prepared entry that
+// parkable refuses, before anything is written, a prepared entry whose
+// lines name an internal order (refuseParkedOrders), one that
 // could never be posted (refuseAutomatic), whose debits are out of range,
 // or whose lines' assignment posting it on the date would refuse now
 // (assign, without locking the centers: it is checked again when the
 // entry is posted). A date in no fiscal year is refused when it is posted.
 func parkable(ctx context.Context, tx pgx.Tx, v prepared, date time.Time) error {
+	if err := refuseParkedOrders(v.lines); err != nil {
+		return err
+	}
 	if err := refuseAutomatic(ctx, v.le.ID, v.lines); err != nil {
 		return err
 	}

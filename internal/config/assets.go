@@ -226,8 +226,8 @@ func (v *validator) assetAccount(path string, co *Company, r assetRole) {
 		v.err(path, "account %s is not in the chart of accounts", r.number)
 	case a.Type != r.want:
 		v.err(path, "account %s is %s, expected %s", r.number, a.Type, r.want)
-	case a.VendorReconciliation:
-		v.err(path, "account %s is a vendor reconciliation account, posted only through the supplier's items", r.number)
+	case a.PartnerReconciliation():
+		v.err(path, "account %s is a supplier or customer reconciliation account, posted only through the partner's items", r.number)
 	case r.reconciles && !a.AssetReconciliation:
 		v.err(path, "account %s is not an asset reconciliation account (asset_reconciliation)", r.number)
 	case !r.reconciles && a.AssetReconciliation:

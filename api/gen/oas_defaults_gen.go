@@ -27,6 +27,14 @@ func (s *ContractItem) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *CustomerCompanyInput) setDefaults() {
+	{
+		val := bool(false)
+		s.IsPostingBlocked.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *EntryTemplateCreate) setDefaults() {
 	{
 		val := string("SA")

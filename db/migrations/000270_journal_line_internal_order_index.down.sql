@@ -1,0 +1,1 @@
+DROP INDEX ledger.journal_line_by_internal_order;
