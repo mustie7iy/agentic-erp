@@ -5964,6 +5964,53 @@ step_customer_credit() {
   passed
 }
 
+# step_ar_aging is T75e (ADR-0063 §10): the aging of Maple's customer open
+# items on a key date, per customer and in total, not yet due and in
+# buckets of days overdue. The invoice and the credit memo of
+# step_customer_credit are Northwind's open items, due together 30 days
+# from today; the key dates are counted from that day, so the step never
+# depends on the day it runs. The totals are the open items of the
+# customer reconciliation account 1200.
+step_ar_aging() {
+  heading "Step 51 — AR aging: the customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue; the credit memo reduces its customer's bucket and total"
+  local customer=$CUSTOMER due later row cents
+  [ -n "$customer" ] && [ -n "$CREDITED_INVOICE_ENTRY" ] && [ -n "$CREDIT_MEMO_ENTRY" ] || fail "step 50's invoice and credit memo are not there"
+  as ruth
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  later=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 45 * 86400 | strftime("%Y-%m-%d")')
+  row='"  \(.customer_number) \(.customer_name): \(.item_count) items, \(.amount.amount) \(.amount.currency)", (.buckets[] | "    \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount.amount) \(.amount.currency)")'
+  say "Ruth reads the aging of Maple's customer open items (T75e). It is computed on read from the ledger's open"
+  say "items on customer reconciliation accounts; each item falls in one bucket by its net due date. On $due,"
+  say "the day Northwind's invoice of step 50 and its credit memo are due, neither is overdue: an item due on the"
+  say "key date is not yet due. The credit memo reduces Northwind's bucket and total to what it owes, CAD 1,680.00:"
+  api 200 '"aging of \(.company_code) \(.company_name) on \(.key_date), in \(.currency), buckets to \(.aging_days | map(tostring) | join(", ")) days", (.items[] | '"$row"')' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$due" -p aging_days=30,60 -p "customer_id=$customer"
+  expect "the report's company and currency" "$(field '"\(.company_code) \(.key_date) \(.currency) \(.aging_days | map(tostring) | join(","))"')" "$CC $due CAD 30,60"
+  expect "Northwind's row" "$(field '.items[] | "\(.customer_id) \(.customer_name) \(.item_count) \(.amount.amount) \(.amount.currency)"')" \
+    "$customer Northwind Traders 2 1680.00 CAD"
+  expect "Northwind's buckets" "$(field '[.items[0].buckets[] | "\(.bucket) \(.days_from // "-") \(.days_to // "-") \(.item_count) \(.amount.amount)"] | join(", ")')" \
+    "not_due - - 2 1680.00, overdue 1 30 0 0.00, overdue 31 60 0 0.00, overdue 61 - 0 0.00, no_due_date - - 0 0.00"
+  expect "the totals with one customer selected" "$(field '.totals | "\(.customer_count) \(.item_count) \(.amount.amount) \(.amount.currency)"')" "1 2 1680.00 CAD"
+  say "Fifteen days later, on $later, both are 15 days overdue and fall in the bucket of 1 to 30 days. Without a"
+  say "customer the report has a row per customer with open items and the totals of them all:"
+  api 200 '"aging of \(.company_code) on \(.key_date)", (.items[] | '"$row"'), "  totals: \(.totals.customer_count) customers, \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)", (.totals.buckets[] | "    \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount.amount) \(.amount.currency)")' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$later" -p aging_days=30,60
+  expect "Northwind's row, 15 days overdue" \
+    "$(field ".items[] | select(.customer_id == \"$customer\") | [.buckets[] | \"\(.bucket) \(.days_from // \"-\") \(.days_to // \"-\") \(.item_count) \(.amount.amount)\"] | join(\", \")")" \
+    "not_due - - 0 0.00, overdue 1 30 2 1680.00, overdue 31 60 0 0.00, overdue 61 - 0 0.00, no_due_date - - 0 0.00"
+  expect "the buckets add up to the total" "$(field '([.totals.buckets[].amount.amount | sub("\\."; "") | tonumber] | add) == (.totals.amount.amount | sub("\\."; "") | tonumber)')" true
+  expect "the customers' rows add up to the total" "$(field '([.items[].amount.amount | sub("\\."; "") | tonumber] | add) == (.totals.amount.amount | sub("\\."; "") | tonumber)')" true
+  cents=$(field '.totals.amount.amount | sub("\\."; "") | tonumber')
+  say "The totals are the open items of the customer reconciliation account 1200, as the open items list ages them:"
+  api 200 '.aging[] | "  open items on 1200, \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount_lc.amount) \(.currency)"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "account_id=$(account 1200)" -p "aging_key_date=$later" -p aging_days=30,60
+  expect "the open items of account 1200" "$(field '[.aging[].amount_lc.amount | sub("\\."; "") | tonumber] | add')" "$cents"
+  say "A key date outside the years 1900 to 2999 is refused, the field named:"
+  refused 422 receivables.key_date_out_of_range getReceivablesAging -p "legal_entity_id=$LE" -p key_date=3000-01-01
+  expect "the field refused" "$(field '.errors[0].field')" key_date
+  passed
+}
+
 # rbc_incoming AMOUNT writes RBC's third camt.053 statement of today: a
 # customer's payment of the amount, from the second statement's closing
 # balance (rbc_receipt's: step 8's closing and Northwind's CAD 25,000.00).
@@ -8007,7 +8054,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_incoming_payment step_customer_credit step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_incoming_payment step_customer_credit step_ar_aging step_close'
 
 main() {
   stop_unseen

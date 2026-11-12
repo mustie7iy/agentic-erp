@@ -1165,14 +1165,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "AR aging report",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller reads the aging of a company's customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue (GET /v1/receivables-aging)",
-        "r": "T75e · docs/design/plan-breadth-week1.md §T75e",
+        "r": "T75e · docs/design/plan-breadth-week1.md §T75e · GET /v1/receivables-aging · internal/receivables/aging.go · ledger.AgingDays, ledger.AgingBucket, ledger.AgingRange (internal/ledger/aging.go) · TestReceivablesAgingBudget (01 §1.3) · walkthrough step_ar_aging · ADR-0063 §10 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

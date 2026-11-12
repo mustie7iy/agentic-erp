@@ -14,8 +14,9 @@
 // same document with the kind credit_memo, posted with the signs turned;
 // one naming an invoice may not, with the other posted memos naming it,
 // exceed that invoice's gross amount (T75d, ADR-0063 §7; kinds.go). The
-// aging read follows in T75e (ADR-0063 §10). A document's amounts are
-// never negative: the kind gives their direction.
+// AR aging is computed on read from the ledger's customer open items
+// (T75e, ADR-0063 §10; aging.go). A document's amounts are never
+// negative: the kind gives their direction.
 //
 // The context reads the ledger (accounts, tax codes, assignments), the
 // partner context (the customer by role and its company data), tenancy
@@ -169,6 +170,7 @@ type Endpoints struct {
 	Postings      Postings
 	Entries       Entries
 	Receipts      Receipts
+	OpenItems     OpenItems
 	Statements    Statements
 	Accounts      Accounts
 	References    References

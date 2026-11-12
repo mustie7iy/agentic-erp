@@ -36367,6 +36367,18 @@ func (s *GetPurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 
 func (*GetPurchaseOrderOKHeaders) getPurchaseOrderRes() {}
 
+type GetReceivablesAgingBadRequest Problem
+
+func (*GetReceivablesAgingBadRequest) getReceivablesAgingRes() {}
+
+type GetReceivablesAgingForbidden Problem
+
+func (*GetReceivablesAgingForbidden) getReceivablesAgingRes() {}
+
+type GetReceivablesAgingUnprocessableEntity Problem
+
+func (*GetReceivablesAgingUnprocessableEntity) getReceivablesAgingRes() {}
+
 type GetRecommendationBadRequest Problem
 
 func (*GetRecommendationBadRequest) getRecommendationRes() {}
@@ -63500,6 +63512,321 @@ func (s *ReasonInput) SetReason(val string) {
 	s.Reason = val
 }
 
+// The AR aging of a company on a key date (ADR-0063 §10): the totals and one page of customers.
+// Ref: #/components/schemas/ReceivablesAging
+type ReceivablesAging struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items are aged on.
+	KeyDate time.Time `json:"key_date"`
+	// The company's local currency (ISO 4217), every amount's.
+	Currency string `json:"currency"`
+	// The overdue buckets' last days, as asked for or the default.
+	AgingDays []int32                `json:"aging_days"`
+	Totals    ReceivablesAgingTotals `json:"totals"`
+	// The customers on this page, by customer id.
+	Items []ReceivablesAgingCustomer `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ReceivablesAging) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ReceivablesAging) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ReceivablesAging) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *ReceivablesAging) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ReceivablesAging) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAgingDays returns the value of AgingDays.
+func (s *ReceivablesAging) GetAgingDays() []int32 {
+	return s.AgingDays
+}
+
+// GetTotals returns the value of Totals.
+func (s *ReceivablesAging) GetTotals() ReceivablesAgingTotals {
+	return s.Totals
+}
+
+// GetItems returns the value of Items.
+func (s *ReceivablesAging) GetItems() []ReceivablesAgingCustomer {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReceivablesAging) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ReceivablesAging) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ReceivablesAging) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ReceivablesAging) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *ReceivablesAging) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ReceivablesAging) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAgingDays sets the value of AgingDays.
+func (s *ReceivablesAging) SetAgingDays(val []int32) {
+	s.AgingDays = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ReceivablesAging) SetTotals(val ReceivablesAgingTotals) {
+	s.Totals = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReceivablesAging) SetItems(val []ReceivablesAgingCustomer) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReceivablesAging) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReceivablesAging) getReceivablesAgingRes() {}
+
+// One bucket of the AR aging: the open items in it and their amount in the company's local currency, a
+// credit item negative.
+// Ref: #/components/schemas/ReceivablesAgingBucket
+type ReceivablesAgingBucket struct {
+	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
+	// due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Bucket string `json:"bucket"`
+	// An overdue bucket's first day past the net due date.
+	DaysFrom OptInt32 `json:"days_from"`
+	// An overdue bucket's last day past the net due date; absent on the last overdue bucket.
+	DaysTo OptInt32 `json:"days_to"`
+	// How many open items the bucket holds.
+	ItemCount int64 `json:"item_count"`
+	// The items' amounts in local currency, added up; 0 for an empty bucket.
+	Amount Money `json:"amount"`
+}
+
+// GetBucket returns the value of Bucket.
+func (s *ReceivablesAgingBucket) GetBucket() string {
+	return s.Bucket
+}
+
+// GetDaysFrom returns the value of DaysFrom.
+func (s *ReceivablesAgingBucket) GetDaysFrom() OptInt32 {
+	return s.DaysFrom
+}
+
+// GetDaysTo returns the value of DaysTo.
+func (s *ReceivablesAgingBucket) GetDaysTo() OptInt32 {
+	return s.DaysTo
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingBucket) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingBucket) GetAmount() Money {
+	return s.Amount
+}
+
+// SetBucket sets the value of Bucket.
+func (s *ReceivablesAgingBucket) SetBucket(val string) {
+	s.Bucket = val
+}
+
+// SetDaysFrom sets the value of DaysFrom.
+func (s *ReceivablesAgingBucket) SetDaysFrom(val OptInt32) {
+	s.DaysFrom = val
+}
+
+// SetDaysTo sets the value of DaysTo.
+func (s *ReceivablesAgingBucket) SetDaysTo(val OptInt32) {
+	s.DaysTo = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingBucket) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingBucket) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// A customer's row of the AR aging: its open items on the key date, in total and by bucket.
+// Ref: #/components/schemas/ReceivablesAgingCustomer
+type ReceivablesAgingCustomer struct {
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// How many open items the customer has.
+	ItemCount int64 `json:"item_count"`
+	// What the customer owes: its open items in local currency, added up, credit items reducing it; the
+	// sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The customer's items by bucket: every bucket of the report, in its order.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ReceivablesAgingCustomer) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *ReceivablesAgingCustomer) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *ReceivablesAgingCustomer) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingCustomer) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingCustomer) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingCustomer) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ReceivablesAgingCustomer) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *ReceivablesAgingCustomer) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *ReceivablesAgingCustomer) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingCustomer) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingCustomer) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingCustomer) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
+}
+
+// The totals of the AR aging: every customer the request selects, whatever the page.
+// Ref: #/components/schemas/ReceivablesAgingTotals
+type ReceivablesAgingTotals struct {
+	// How many customers have open items: the rows of every page together.
+	CustomerCount int64 `json:"customer_count"`
+	// How many open items they have.
+	ItemCount int64 `json:"item_count"`
+	// The open items in local currency, added up: the open items of the company's customer reconciliation
+	// accounts (of the one customer, with `customer_id`); the sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The items by bucket: not due, each overdue bucket by its days, without a due date.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *ReceivablesAgingTotals) GetCustomerCount() int64 {
+	return s.CustomerCount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingTotals) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingTotals) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingTotals) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *ReceivablesAgingTotals) SetCustomerCount(val int64) {
+	s.CustomerCount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingTotals) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingTotals) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingTotals) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
+}
+
 // An agent's recommendation on a business object, and what a person decided.
 // Ref: #/components/schemas/Recommendation
 type Recommendation struct {
@@ -72735,6 +73062,7 @@ func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                      {}
+func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
@@ -73457,6 +73785,7 @@ func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                      {}
+func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}

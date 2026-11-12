@@ -2257,6 +2257,29 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetReceivablesAging implements getReceivablesAging operation.
+	//
+	// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+	// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+	// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+	// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+	// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+	// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+	// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+	// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+	// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+	// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+	// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+	// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+	// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+	// `totals` are those of every customer the request selects, on every page, and equal the open items of
+	// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+	// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+	// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+	// naming `key_date`).
+	//
+	// GET /v1/receivables-aging
+	GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error)
 	// GetRecommendation implements getRecommendation operation.
 	//
 	// Returns one recommendation.

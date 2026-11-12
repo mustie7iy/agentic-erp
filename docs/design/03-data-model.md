@@ -4013,7 +4013,10 @@ credit memo names one, a document of the tenant and never itself
 `_reference_not_itself`). That the invoice named is a posted invoice of the
 same company, customer and currency is checked at entry, and that the
 posted credit memos naming it stay within its gross amount at posting,
-under that invoice's row lock (ADR-0063 §7).
+under that invoice's row lock (ADR-0063 §7). T75e's AR aging
+(`GET /v1/receivables-aging`) keeps no table: it is computed on read from
+the ledger's customer open items (§3.7, `ledger.OpenItems.Receivable`)
+with the ledger's aging buckets (ADR-0063 §10).
 
 ```mermaid
 erDiagram

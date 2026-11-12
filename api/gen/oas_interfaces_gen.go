@@ -693,6 +693,10 @@ type GetPurchaseOrderRes interface {
 	getPurchaseOrderRes()
 }
 
+type GetReceivablesAgingRes interface {
+	getReceivablesAgingRes()
+}
+
 type GetRecommendationRes interface {
 	getRecommendationRes()
 }

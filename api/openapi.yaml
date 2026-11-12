@@ -15189,6 +15189,79 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/receivables-aging:
+    get:
+      operationId: getReceivablesAging
+      tags:
+        - receivables
+      summary: Read the aging of a company's customer open items
+      description: "The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on read from the ledger's customer open items of the leading ledger, as they are now (not as they were on the key date): invoices, credit memos, and the customer items manual and migrated entries posted, cleared items and reversed entries left out, special G/L items included. Each item falls in exactly one bucket by its net due date, the baseline date plus the net days of the payment terms it was posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in the company's local currency (`currency`), as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total. `totals` are those of every customer the request selects, on every page, and equal the open items of the company's customer reconciliation accounts. `items` is one row per customer with open items, by customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`)."
+      x-permission: receivables.invoice.read
+      x-problem-codes:
+        - receivables.amount_too_large
+        - receivables.key_date_out_of_range
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company whose customer open items to age.
+          schema:
+            type: string
+            format: uuid
+        - name: key_date
+          in: query
+          required: true
+          description: "The date the items are aged on: an item due on it or later is not due."
+          schema:
+            type: string
+            format: date
+        - name: aging_days
+          in: query
+          required: false
+          description: "The overdue buckets' last days past the net due date, ascending, comma-separated: `30,60,90` (the default) ages the items not yet due, 1 to 30, 31 to 60 and 61 to 90 days overdue, and more than 90. Days that do not ascend are refused, 400 `request.invalid_parameter`."
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 3650
+            minItems: 1
+            maxItems: 6
+          style: form
+          explode: false
+          example:
+            - 30
+            - 60
+            - 90
+        - name: customer_id
+          in: query
+          required: false
+          description: Only this customer's items (business partner id); the totals are then that customer's.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: "The aging: its totals and one page of customers."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivablesAging"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/e-invoices:fetch":
     post:
       operationId: fetchEInvoices
@@ -42924,6 +42997,100 @@ components:
           items: {$ref: "#/components/schemas/UnappliedReceipt"}
           description: The receipts on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ReceivablesAgingBucket:
+      type: object
+      description: "One bucket of the AR aging: the open items in it and their amount in the company's local currency, a credit item negative."
+      required: [bucket, item_count, amount]
+      properties:
+        bucket:
+          type: string
+          x-extensible-enum: [not_due, overdue, no_due_date]
+          description: "`not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        days_from: {type: integer, format: int32, minimum: 1, description: "An overdue bucket's first day past the net due date.", readOnly: true}
+        days_to: {type: integer, format: int32, minimum: 1, description: "An overdue bucket's last day past the net due date; absent on the last overdue bucket.", readOnly: true}
+        item_count: {type: integer, format: int64, minimum: 0, description: "How many open items the bucket holds.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The items' amounts in local currency, added up; 0 for an empty bucket."}
+    ReceivablesAgingCustomer:
+      type: object
+      description: "A customer's row of the AR aging: its open items on the key date, in total and by bucket."
+      required: [customer_id, customer_number, customer_name, item_count, amount, buckets]
+      properties:
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        item_count: {type: integer, format: int64, minimum: 1, description: "How many open items the customer has.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes: its open items in local currency, added up, credit items reducing it; the sum of `buckets`."}
+        buckets:
+          type: array
+          maxItems: 9
+          items: {$ref: "#/components/schemas/ReceivablesAgingBucket"}
+          description: "The customer's items by bucket: every bucket of the report, in its order."
+          readOnly: true
+    ReceivablesAgingTotals:
+      type: object
+      description: "The totals of the AR aging: every customer the request selects, whatever the page."
+      required: [customer_count, item_count, amount, buckets]
+      properties:
+        customer_count: {type: integer, format: int64, minimum: 0, description: "How many customers have open items: the rows of every page together.", readOnly: true}
+        item_count: {type: integer, format: int64, minimum: 0, description: "How many open items they have.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The open items in local currency, added up: the open items of the company's customer reconciliation accounts (of the one customer, with `customer_id`); the sum of `buckets`."}
+        buckets:
+          type: array
+          maxItems: 9
+          items: {$ref: "#/components/schemas/ReceivablesAgingBucket"}
+          description: "The items by bucket: not due, each overdue bucket by its days, without a due date."
+          readOnly: true
+    ReceivablesAging:
+      type: object
+      description: "The AR aging of a company on a key date (ADR-0063 §10): the totals and one page of customers."
+      required: [legal_entity_id, company_code, company_name, key_date, currency, aging_days, totals, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        key_date: {type: string, format: date, description: "The date the items are aged on.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency (ISO 4217), every amount's.", readOnly: true}
+        aging_days:
+          type: array
+          maxItems: 6
+          items: {type: integer, format: int32, minimum: 1}
+          description: "The overdue buckets' last days, as asked for or the default."
+          readOnly: true
+        totals: {$ref: "#/components/schemas/ReceivablesAgingTotals"}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReceivablesAgingCustomer"}
+          description: "The customers on this page, by customer id."
+          readOnly: true
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          key_date: "2026-12-31"
+          currency: CAD
+          aging_days: [30]
+          totals:
+            customer_count: 1
+            item_count: 2
+            amount: {amount: "1680.00", currency: CAD}
+            buckets:
+              - {bucket: not_due, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+              - {bucket: overdue, days_from: 1, days_to: 30, item_count: 2, amount: {amount: "1680.00", currency: CAD}}
+              - {bucket: overdue, days_from: 31, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+              - {bucket: no_due_date, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+          items:
+            - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              customer_name: Northwind Traders
+              item_count: 2
+              amount: {amount: "1680.00", currency: CAD}
+              buckets:
+                - {bucket: not_due, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+                - {bucket: overdue, days_from: 1, days_to: 30, item_count: 2, amount: {amount: "1680.00", currency: CAD}}
+                - {bucket: overdue, days_from: 31, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+                - {bucket: no_due_date, item_count: 0, amount: {amount: "0.00", currency: CAD}}
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

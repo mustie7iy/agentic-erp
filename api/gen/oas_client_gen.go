@@ -2278,6 +2278,29 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetReceivablesAging invokes getReceivablesAging operation.
+	//
+	// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+	// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+	// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+	// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+	// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+	// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+	// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+	// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+	// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+	// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+	// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+	// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+	// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+	// `totals` are those of every customer the request selects, on every page, and equal the open items of
+	// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+	// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+	// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+	// naming `key_date`).
+	//
+	// GET /v1/receivables-aging
+	GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error)
 	// GetRecommendation invokes getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -31440,6 +31463,245 @@ func (c *Client) sendGetPurchaseOrderDocument(ctx context.Context, params GetPur
 
 	stage = "DecodeResponse"
 	result, err := decodeGetPurchaseOrderDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetReceivablesAging invokes getReceivablesAging operation.
+//
+// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+// `totals` are those of every customer the request selects, on every page, and equal the open items of
+// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+// naming `key_date`).
+//
+// GET /v1/receivables-aging
+func (c *Client) GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error) {
+	res, err := c.sendGetReceivablesAging(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (res GetReceivablesAgingRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getReceivablesAging"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/receivables-aging"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetReceivablesAgingOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/receivables-aging"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "key_date" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.KeyDate))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "aging_days" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "aging_days",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.AgingDays != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.AgingDays {
+						if err := func() error {
+							return e.EncodeValue(conv.Int32ToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetReceivablesAgingOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetReceivablesAgingResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

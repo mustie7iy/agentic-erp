@@ -113,6 +113,11 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.GetCustomerInvoice(ctx, gen.GetCustomerInvoiceParams{ID: memo})
 			return err
 		},
+		"aging": func(ctx context.Context) error {
+			_, err := h.GetReceivablesAging(ctx, gen.GetReceivablesAgingParams{LegalEntityID: e.DE, KeyDate: date(t, "2026-05-15"),
+				CustomerID: gen.NewOptUUID(e.customer)})
+			return err
+		},
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateCustomerInvoice(ctx, create, gen.CreateCustomerInvoiceParams{})
 			return err
@@ -145,6 +150,11 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"receipts": func(ctx context.Context) error {
 			_, err := h.ListUnappliedReceipts(ctx, gen.ListUnappliedReceiptsParams{LegalEntityID: e.DE, PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"aging": func(ctx context.Context) error {
+			_, err := h.GetReceivablesAging(ctx, gen.GetReceivablesAgingParams{LegalEntityID: e.DE, KeyDate: date(t, "2026-05-15"),
+				PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 	} {

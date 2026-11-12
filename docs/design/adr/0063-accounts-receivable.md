@@ -4,7 +4,7 @@
 `go-reviewer` had no blocking finding on T75a's last commit). It decides
 the receivables context and the documents of T75a-T75e
 (`docs/design/plan-breadth-week1.md`, Lane A). Each slice records what it
-built under "As built"; T75a's, T75b's, T75c's and T75d's are there now. The
+built under "As built"; those of T75a to T75e are there now. The
 defaults taken and the questions left are listed at the end for the product
 owner's digest.
 
@@ -198,7 +198,13 @@ webhook events (2026-11-05).
 ### 10. The aging read (T75e)
 `GET /v1/receivables-aging` is computed on read from the ledger's customer
 open items (`ledger.OpenItems.Receivable`) with the bucket logic of
-`ledger/aging.go`, exported, not copied; no table.
+`ledger/aging.go`, exported, not copied; no table. It gives a company's
+open customer items on a key date per customer and in total, not yet due
+and in buckets of days overdue, in the company's local currency; a credit
+item reduces its customer's bucket and total; the totals are the open
+items of the company's customer reconciliation accounts. It ages the
+items open now, not those open on the key date (aging as at a past date
+is in the plan's "Later").
 
 ## Alternatives
 - **A leaf context reading everything through ports the composition root
@@ -474,6 +480,90 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   found (REVIEW.md, API-consumer classes).
 - Not built, by the plan: debit memos, credit memos from returns and
   credit memo requests, paying a credit out, reversal.
+
+### T75e AR aging (no migration)
+- `internal/receivables/aging.go`: `GET /v1/receivables-aging`
+  (`getReceivablesAging`, `receivables.invoice.read`; an agent tool, being
+  a read) with `legal_entity_id` and `key_date` (required), `aging_days`
+  (the overdue buckets' last days, ascending, at most six of at most 3650
+  days; `30,60,90` by default, as `GET /v1/open-items` takes them),
+  `customer_id`, `page_size` and `page_token`. It answers the company by
+  id, code and name, the key date, the local currency, the days used, the
+  `totals` (customers, items, amount, buckets) and one page of customers
+  (`items`: id, number, name, items, amount, buckets). Every bucket is
+  given in a fixed order, an empty one with no items and 0: `not_due`,
+  each `overdue` bucket with `days_from` and `days_to` (the last without
+  `days_to`), `no_due_date`. Every amount is a `Money` in the company's
+  currency.
+- **The items** are `ledger.OpenItems.Receivable`'s, read once per
+  request for the company (or the one customer): open lines on customer
+  reconciliation accounts of the leading ledger, whoever posted them, so
+  a manual or migrated entry's customer item counts as an invoice's does;
+  cleared lines and reversed entries are left out, special G/L items
+  kept. Amounts are the local-currency amounts the items were booked at,
+  a debit positive: a credit memo or a payment on the account is negative
+  and reduces its customer's bucket and total. The sums are checked
+  (`money.Sum`); one out of range is refused, 422
+  `receivables.amount_too_large`.
+- **The buckets** are the ledger's (`internal/ledger/aging.go`, exported
+  for this): `ledger.AgingDays` (the default and the ascending check that
+  `listOpenItems` makes of `aging_days`), `ledger.AgingBucket` (an item's
+  bucket from `ReceivableItem.DaysOverdue`: without terms it has no due
+  date; due on the key date or later it is not due; else the bucket
+  holding its days) and `ledger.AgingRange` (a bucket's name and days,
+  which `listOpenItems`' own aging now reads too). The list's aging counts
+  in SQL (`agingSelect`); `TestAgingBucketAsTheList` (ledger) holds
+  `AgingBucket` to it over key dates on, before and after each bucket's
+  edge, and `TestAgingTotalsAreTheOpenItems` (receivables) holds the
+  report's totals, bucket by bucket, to `GET /v1/open-items` of the
+  receivables account and to that account's open lines. So an item without
+  terms, and an item due on the key date, are treated as `listOpenItems`'
+  aging treats them.
+- **Paging.** One row per customer with open items, by customer id (the
+  order the ledger reads them in), in cursor pages (`page_size`, at most
+  500); the token is signed for the company, key date, days and customer
+  filter, and refused with any other (400 `request.invalid_page_token`).
+  The totals are those of every customer the request selects, on every
+  page. Every page reads all the company's open customer items, since the
+  totals need them.
+- **The key date** is in the years 1900 to 2999, the contract's range of
+  fiscal years (422 `receivables.key_date_out_of_range` naming
+  `key_date`). `ReceivableItem.DaysOverdue` counts through a
+  `time.Duration`, which holds about 292 years and stops there
+  (`time.Time.Sub` saturates); the method was left as it is, since other
+  contexts read it. The bound refuses a date no fiscal period can hold;
+  it is not what keeps the buckets exact. With a bucket's last day at
+  most 3650, an item's bucket is exact whatever the key date: anything
+  292 years overdue is past every bucket, and anything 292 years before
+  its due date is not due (`TestAgingFarDates`).
+- **Budget** (01 §1.3, a new row): the aging of one company over 100,000
+  open customer items, p95 3 s, as the liquidity forecast over a
+  company's open items has; `TestReceivablesAgingBudget` seeds 2,000
+  customers with 50 items each, half with terms.
+- Other refusals: days that do not ascend 400
+  `request.invalid_parameter` (`aging_days`); a page size out of range
+  400 `request.invalid_page_size`; a company the caller may not act in
+  422 `request.reference_not_found` (`legal_entity_id`).
+- Walkthrough `step_ar_aging` (step 51): Ruth reads Maple's aging on the
+  day Northwind's invoice and credit memo of step 50 are due (not due,
+  CAD 1,680.00 in two items) and fifteen days later (1 to 30 days
+  overdue); the rows and the buckets add up to the totals, which are the
+  open items of account 1200 as `GET /v1/open-items` ages them; a key date
+  in the year 3000 is refused. The key dates are counted from the
+  invoice's date, never from the day the step runs.
+- **Decided by default:** (1) the permission is `receivables.invoice.read`,
+  as for T75c's reads: the plan names none and a new one needs a
+  migration; (2) the buckets' parameter is `aging_days`, the name and
+  limits `GET /v1/open-items` uses; (3) every bucket is given, empty ones
+  too, so a consumer has the same columns for every customer; (4)
+  customers are ordered by id, not by number or name: the order is stable
+  across pages and needs no read of every customer's name; (5) the key
+  date's bound above; (6) the budget's volume and figure above, 01 naming
+  none for receivables; (7) a customer with open items that net to zero
+  still has a row.
+- Not built, by the plan: aging as at a past date, by document date, by
+  profit center or segment, in group currency, export, analytics metrics,
+  an allowance for expected credit losses.
 
 ### T75c Incoming payment applied to a customer's invoices (migration 000268)
 - **The receipt.** A statement credit matched `incoming: true` posts Dr

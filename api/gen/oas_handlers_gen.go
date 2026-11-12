@@ -35366,6 +35366,230 @@ func (s *Server) handleGetPurchaseOrderDocumentRequest(args [1]string, argsEscap
 	}
 }
 
+// handleGetReceivablesAgingRequest handles getReceivablesAging operation.
+//
+// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+// `totals` are those of every customer the request selects, on every page, and equal the open items of
+// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+// naming `key_date`).
+//
+// GET /v1/receivables-aging
+func (s *Server) handleGetReceivablesAgingRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getReceivablesAging"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/receivables-aging"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetReceivablesAgingOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetReceivablesAgingOperation,
+			ID:   "getReceivablesAging",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetReceivablesAgingOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetReceivablesAgingParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetReceivablesAgingRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetReceivablesAgingOperation,
+			OperationSummary: "Read the aging of a company's customer open items",
+			OperationID:      "getReceivablesAging",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "key_date",
+					In:   "query",
+				}: params.KeyDate,
+				{
+					Name: "aging_days",
+					In:   "query",
+				}: params.AgingDays,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetReceivablesAgingParams
+			Response = GetReceivablesAgingRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetReceivablesAgingParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetReceivablesAging(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetReceivablesAging(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetReceivablesAgingResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleGetRecommendationRequest handles getRecommendation operation.
 //
 // Returns one recommendation.
