@@ -27,7 +27,20 @@ func TestDatabaseFailures(t *testing.T) {
 				PriceUnit: gen.NewOptInt32(1), AccountID: e.other, TaxCode: gen.NewOptString("A1")}}}
 	quotation := uuid.MustParse(e.accepted(t, e.customer, e.item(line{code: "A1"})))
 	order, draft := uuid.MustParse(e.ordered(t)), uuid.MustParse(e.ordered(t))
+	delivered, _ := e.confirmed(t, e.item(line{quantity: "3"}), e.item(line{quantity: "2", unit: "KG"}))
+	deliveredOrder := uuid.MustParse(delivered)
+	e.Must(201, "POST", deliveries(delivered), `{"delivery_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
 	calls := map[string]func(ctx context.Context) error{
+		"confirm a delivery": func(ctx context.Context) error {
+			_, err := h.ConfirmSalesDelivery(ctx, &gen.SalesDeliveryCreate{DeliveryDate: instant(t, "2026-01-03T00:00:00Z"), Items: []gen.SalesDeliveryItemCreate{
+				{ItemNo: 1, Quantity: gen.Quantity{Value: "2", Unit: "EA"}}, {ItemNo: 2, Quantity: gen.Quantity{Value: "0.5", Unit: "KG"}}}},
+				gen.ConfirmSalesDeliveryParams{ID: deliveredOrder})
+			return err
+		},
+		"list deliveries": func(ctx context.Context) error {
+			_, err := h.ListSalesDeliveries(ctx, gen.ListSalesDeliveriesParams{ID: deliveredOrder})
+			return err
+		},
 		"order from a quotation": func(ctx context.Context) error {
 			_, err := h.CreateSalesOrder(ctx, &gen.SalesOrderCreate{QuotationID: gen.NewOptUUID(quotation)}, gen.CreateSalesOrderParams{})
 			return err
@@ -81,6 +94,15 @@ func TestDatabaseFailures(t *testing.T) {
 	t.Run("list orders' page size", func(t *testing.T) {
 		err := e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ListSalesOrders(ctx, gen.ListSalesOrdersParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
+	t.Run("list deliveries' page size", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ListSalesDeliveries(ctx, gen.ListSalesDeliveriesParams{ID: deliveredOrder, PageSize: gen.NewOptInt32(0)})
 			return err
 		})
 		if p := problem.From(err); p.Code != "request.invalid_page_size" {

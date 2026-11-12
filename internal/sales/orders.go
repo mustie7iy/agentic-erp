@@ -41,10 +41,13 @@ func quotationOrdered() *problem.Problem {
 
 // OrderItem is an item of a sales order: a sales item with the quantities
 // delivered and billed of it so far, decimal strings in the item's unit.
+// Deliveries are the item's deliveries by date (T78c); Orders.Order reads
+// them, the API's reads of an order do not and leave them nil.
 type OrderItem struct {
 	Item
-	Delivered string `json:"delivered_quantity"`
-	Billed    string `json:"billed_quantity"`
+	Delivered  string         `json:"delivered_quantity"`
+	Billed     string         `json:"billed_quantity"`
+	Deliveries []ItemDelivery `json:"deliveries"`
 }
 
 // Order is a row of sales.sales_order with its items. Amounts are minor
@@ -84,16 +87,24 @@ type OrderInput struct {
 	Items           []ItemInput
 }
 
-// orderSelect names the quotation by a subquery, not a join: the keyset
-// of the list orders by an unqualified id, which a second table with an
-// id would make ambiguous.
-var orderSelect = `SELECT o.id, o.document_number, o.legal_entity_id, o.customer_id, o.quotation_id,
+// orderQuery reads orders with their items; extra is further key and
+// value pairs of each item, led by a comma. It names the quotation by a
+// subquery, not a join: the keyset of the list orders by an unqualified
+// id, which a second table with an id would make ambiguous.
+func orderQuery(extra string) string {
+	return `SELECT o.id, o.document_number, o.legal_entity_id, o.customer_id, o.quotation_id,
 		(SELECT q.document_number FROM sales.quotation q WHERE q.tenant_id = o.tenant_id AND q.id = o.quotation_id), o.order_date, o.currency,
 		c.exponent, o.payment_term_code, o.net_amount, o.status, ` +
-	itemsJSON("sales_order_item", "sales_order_id", "o",
-		`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text`) + `,
+		itemsJSON("sales_order_item", "sales_order_id", "o",
+			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text`+extra) + `,
 		o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
 	FROM sales.sales_order o JOIN ref.currency c ON c.code = o.currency`
+}
+
+// orderSelect is what the API's reads of an order take; publishedSelect
+// adds what the other contexts read through Orders: each item's
+// deliveries (T78c).
+var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries)
 
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
@@ -148,15 +159,15 @@ func GetOrder(ctx context.Context, id uuid.UUID) (Order, error) {
 // payables: what revenue recognition reads (T81a).
 type Orders struct{}
 
-// Order returns the sales order with its items, or ok = false when there
-// is none. Company access is not applied: callers apply it where it
-// matters.
+// Order returns the sales order with its items, each with its deliveries
+// by date (T78c), or ok = false when there is none. Company access is not
+// applied: callers apply it where it matters.
 func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return Order{}, false, err
 	}
-	o, err := scanOrder(tx.QueryRow(ctx, orderSelect+` WHERE o.id = $1`, id))
+	o, err := scanOrder(tx.QueryRow(ctx, publishedSelect+` WHERE o.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, false, nil
 	}

@@ -157,6 +157,10 @@ type CompleteYearCloseTaskRes interface {
 	completeYearCloseTaskRes()
 }
 
+type ConfirmSalesDeliveryRes interface {
+	confirmSalesDeliveryRes()
+}
+
 type ConfirmSalesOrderRes interface {
 	confirmSalesOrderRes()
 }
@@ -1243,6 +1247,10 @@ type ListRolePermissionsRes interface {
 
 type ListRolesRes interface {
 	listRolesRes()
+}
+
+type ListSalesDeliveriesRes interface {
+	listSalesDeliveriesRes()
 }
 
 type ListSalesOrdersRes interface {

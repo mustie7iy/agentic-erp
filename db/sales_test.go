@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -10,7 +11,7 @@ import (
 )
 
 // TestSalesPermissions (T78a, migration 000276; T78b, migration 000277;
-// ADR-0067 §7): the sales
+// T78c, migration 000278; ADR-0067 §7): the sales
 // permissions are seeded and are no approval permissions.
 func TestSalesPermissions(t *testing.T) {
 	need(t)
@@ -22,7 +23,7 @@ func TestSalesPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "sales.order.confirm sales.order.read sales.order.write sales.quotation.read sales.quotation.write"; got != want {
+	if got, want := strings.Join(codes, " "), "sales.delivery.confirm sales.order.confirm sales.order.read sales.order.write sales.quotation.read sales.quotation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -299,6 +300,133 @@ func TestSalesOrderRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), company: id(), customer: id(), doc: id(), quotation: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestDeliveryRules (T78c, migration 000278; ADR-0067 §8): only a
+// confirmed order takes a delivery, numbered once within it; an item is a
+// quantity above zero of an item of the delivery's own order, once per
+// delivery; each item adds its quantity to the order item's delivered
+// quantity, never above what was ordered, and each delivery moves the
+// order's version once; a delivery is never changed or deleted, and the
+// application still changes neither a confirmed order nor its items
+// itself.
+func TestDeliveryRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date,
+		currency, payment_term_code, net_amount, status, created_by, updated_by)
+		VALUES ($1, $2, $3, gen_random_uuid(), gen_random_uuid(), '2026-03-12', 'EUR', 'NT30', 100, 'draft', $1, $1)`
+	const item = `INSERT INTO sales.sales_order_item (tenant_id, sales_order_id, item_no, description, quantity, uom_code, unit_price, price_unit,
+		net_amount, account_id) VALUES ($1, $2, $3, 'Bracket', $4, 'EA', 100, 1, 100, gen_random_uuid())`
+	const confirm = `UPDATE sales.sales_order SET status = 'confirmed', version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const delivery = `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, created_by)
+		VALUES ($1, $2, $3, $4, '2026-03-14', $5)`
+	const line = `INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity) VALUES ($1, $2, $3, $4, $5)`
+	type scene struct{ tenant, actor, order, other, delivery uuid.UUID }
+	// ordered is a confirmed order of 5 and 2 EA, and another, a draft, of 5 EA.
+	ordered := func(s scene) []stmt {
+		return []stmt{step(header, s.tenant, s.order, "SO1"), step(item, s.tenant, s.order, 1, "5"), step(item, s.tenant, s.order, 2, "2"),
+			step(confirm, s.order), step(header, s.tenant, s.other, "SO2"), step(item, s.tenant, s.other, 1, "5")}
+	}
+	made := func(s scene) stmt { return step(delivery, s.tenant, s.delivery, s.order, 1, s.actor) }
+	with := func(s scene, more ...stmt) []stmt { return append(append(ordered(s), made(s)), more...) }
+	// shows fails unless the order's version, the actor who changed it last and its items' delivered quantities are these.
+	shows := func(tx pgx.Tx, s scene, version int, by uuid.UUID, delivered string) error {
+		var got, want string
+		want = fmt.Sprintf("version %d by %s, delivered %s", version, by, delivered)
+		err := tx.QueryRow(context.Background(), `SELECT format('version %s by %s, delivered %s', o.version, o.updated_by,
+				(SELECT string_agg(trim_scale(i.delivered_quantity)::text, ' ' ORDER BY i.item_no) FROM sales.sales_order_item i WHERE i.sales_order_id = o.id))
+			FROM sales.sales_order o WHERE o.id = $1`, s.order).Scan(&got)
+		if err == nil && got != want {
+			err = fmt.Errorf("the order: got %s, want %s", got, want)
+		}
+		return err
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a delivery adds to what is delivered and moves the order's version once", func(tx pgx.Tx, s scene) error {
+			if err := all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "1.5"), step(line, s.tenant, s.delivery, s.order, 2, "2"))...); err != nil {
+				return err
+			}
+			return shows(tx, s, 3, s.actor, "1.5 2")
+		}, ""},
+		{"a second delivery adds to the first", func(tx pgx.Tx, s scene) error {
+			second := id()
+			if err := all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "1.5"), step(delivery, s.tenant, second, s.order, 2, s.actor),
+				step(line, s.tenant, second, s.order, 1, "3.5"))...); err != nil {
+				return err
+			}
+			return shows(tx, s, 4, s.actor, "5 0")
+		}, ""},
+		{"more than was ordered", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "5.000001"))...)
+		}, "sales_order_item_quantities"},
+		{"more than is open after an earlier delivery", func(tx pgx.Tx, s scene) error {
+			second := id()
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "4"), step(delivery, s.tenant, second, s.order, 2, s.actor),
+				step(line, s.tenant, second, s.order, 1, "1.5"))...)
+		}, "sales_order_item_quantities"},
+		{"a delivery of a draft order", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), step(delivery, s.tenant, s.delivery, s.other, 1, s.actor))...)
+		}, "its sales order is not confirmed"},
+		{"a delivery of no order", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(delivery, s.tenant, s.delivery, s.order, 1, s.actor))
+		}, "delivery_sales_order_fkey"},
+		{"a number used twice in the order", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(delivery, s.tenant, id(), s.order, 1, s.actor))...)
+		}, "delivery_no_once"},
+		{"a number of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), step(delivery, s.tenant, s.delivery, s.order, 0, s.actor))...)
+		}, "delivery_no_positive"},
+		{"a quantity of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "0"))...)
+		}, "delivery_item_quantity_positive"},
+		{"an order item twice in a delivery", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "1"), step(line, s.tenant, s.delivery, s.order, 1, "1"))...)
+		}, "delivery_item_pkey"},
+		{"an item the order does not have", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 3, "1"))...)
+		}, "delivery_item_order_item_fkey"},
+		{"an item of another order than the delivery's", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.other, 1, "1"))...)
+		}, "delivery_item_delivery_fkey"},
+		{"an item of no delivery", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), step(line, s.tenant, s.delivery, s.order, 1, "1"))...)
+		}, "delivery_item_delivery_fkey"},
+		{"a delivery changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`UPDATE sales.delivery SET delivery_date = '2026-03-15'`))...)
+		}, "permission denied"},
+		{"a delivery deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`DELETE FROM sales.delivery`))...)
+		}, "permission denied"},
+		{"a delivery's item changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "1"), step(`UPDATE sales.delivery_item SET quantity = 2`))...)
+		}, "permission denied"},
+		{"a delivery's item deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.delivery, s.order, 1, "1"), step(`DELETE FROM sales.delivery_item`))...)
+		}, "permission denied"},
+		{"what is delivered set by the application itself", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), step(`UPDATE sales.sales_order_item SET delivered_quantity = 1`))...)
+		}, "permission denied"},
+		{"a confirmed order's version moved by the application itself", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), step(`UPDATE sales.sales_order SET version = version + 1 WHERE id = $1`, s.order))...)
+		}, "only a draft changes"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), order: id(), other: id(), delivery: id()}
 			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
 			if c.want != "" {
 				failsWith(t, err, c.want)

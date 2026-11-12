@@ -475,6 +475,28 @@ type Handler interface {
 	//
 	// POST /v1/year-closes/{id}/tasks/{code}:complete
 	CompleteYearCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error)
+	// ConfirmSalesDelivery implements confirmSalesDelivery operation.
+	//
+	// Records that quantities of a `confirmed` sales order's items were delivered, or a service made
+	// available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
+	// context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
+	// read under a row lock, so two confirmations of one order wait for one another. An order that is not
+	// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
+	// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
+	// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
+	// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
+	// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
+	// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
+	// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
+	// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
+	// written once; it is not changed or reversed in the first version. Each order item's
+	// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
+	// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
+	// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
+	// `listSalesDeliveries`. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}/deliveries
+	ConfirmSalesDelivery(ctx context.Context, req *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error)
 	// ConfirmSalesOrder implements confirmSalesOrder operation.
 	//
 	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
@@ -3661,6 +3683,16 @@ type Handler interface {
 	//
 	// GET /v1/roles
 	ListRoles(ctx context.Context, params ListRolesParams) (ListRolesRes, error)
+	// ListSalesDeliveries implements listSalesDeliveries operation.
+	//
+	// The delivery confirmations of a sales order (ADR-0067 §8, T78c), each as `confirmSalesDelivery`
+	// answered it: its number within the order, its date and its items, each naming the order's item by
+	// number, item key and description with the quantity delivered in the item's unit. The order's own
+	// items show the sum (`delivered_quantity`, `getSalesOrder`). An order of a company the caller may not
+	// act in is not found (404), as one that does not exist. Sortable by: `delivery_date`.
+	//
+	// GET /v1/sales-orders/{id}/deliveries
+	ListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (ListSalesDeliveriesRes, error)
 	// ListSalesOrders implements listSalesOrders operation.
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as

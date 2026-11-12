@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's and T78b's are there now. The defaults
+records what it built under "As built"; T78a's, T78b's and T78c's are there now. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -156,6 +156,17 @@ A delivery is a confirmation by a person, kept in the sales context
 (plan default 5): quantities of a confirmed order's items were delivered,
 or a service made available, on a date. It moves no stock and posts
 nothing; billing and revenue recognition read it.
+
+Only a confirmed order takes one. The order is read under its row lock
+(ADR-0008), as a goods receipt reads its purchase order's items, so two
+confirmations of one order wait for one another; an item's quantity is
+at most what is open of it, what was ordered less what earlier
+deliveries confirmed, with no tolerance. The date is not after the
+company's date today in its time zone. A delivery is written once,
+numbered within its order, and is not changed or reversed in the first
+version. The order item's delivered quantity is the sum of its
+deliveries, kept by the database, and each delivery moves the order's
+version, since the order's representation shows what is delivered.
 
 ### 9. Billing (T79a, T79b)
 A billing document bills an order's delivered quantities not yet billed,
@@ -355,3 +366,78 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   cancelling an order, sales areas, partner functions, order types,
   schedule lines, incompletion checks, approval, the order confirmation
   as a document.
+
+### T78c Delivery confirmed against the order (migration 000278)
+- `internal/sales/deliveries.go`, `delivery_api.go`; nothing new is
+  wired.
+- Migration 000278: `sales.delivery` (numbered once within its order,
+  `delivery_no_once`; only of a confirmed order,
+  `delivery_order_confirmed`; insert-only) and `sales.delivery_item` (a
+  quantity above zero of an item of the delivery's own order, an order
+  item once per delivery; insert-only); the permission
+  `sales.delivery.confirm`. Two triggers that run as the tables' owner,
+  as procurement's `check_receipt` does, keep what the application may
+  not change itself: each delivery item adds its quantity to the order
+  item's `delivered_quantity`, which `sales_order_item_quantities`
+  (000277) holds to what was ordered, and each delivery moves the
+  order's `version` once and sets its `updated_by`. The order's change
+  rule (`sales.check_sales_order_change`) admits a confirmed order's
+  version moved from a trigger alone; for the application, confirming
+  stays the order's one update. Schema tests in `db/sales_test.go`.
+- `POST /v1/sales-orders/{id}/deliveries` (201, idempotent by
+  `Idempotency-Key`, human-only; `delivery_date` and `items`, each the
+  order item's number and a quantity in its unit) and
+  `GET /v1/sales-orders/{id}/deliveries` (by `delivery_date`, cursor
+  paging; `sales.order.read`). A delivery names its order by id and
+  number and each item by the order item's number, key and description.
+  It has no `Location`: there is no read of one delivery, the response
+  is the delivery and the list gives it again.
+- The order's items show `delivered_quantity` (in the representation
+  since T78b); what is open is `quantity` less it. The order's `version`
+  and `ETag` move with each delivery.
+- Refusals: an order that is not confirmed 409
+  `sales.order_not_confirmed`; a date after the company's today 422
+  `sales.delivery_date_in_future` (`delivery_date`, naming the company's
+  date and zone); an item the order does not have
+  `sales.unknown_order_item` (`items[i].item_no`); an order item named
+  twice `sales.item_repeated`; a quantity that is not a plain decimal
+  above zero `sales.invalid_quantity` (`items[i].quantity.value`);
+  another unit than the order item's `sales.unit_mismatch`
+  (`items[i].quantity.unit`); more than is open
+  `sales.exceeds_open_quantity` (`items[i].quantity.value`, the message
+  naming the item, what is open, ordered and delivered). An order of
+  another company is not found (404). `sales.items_required` guards the
+  port.
+- `SalesOrderDelivered` (`x-webhook`; subject the order's id): the
+  delivery's id, number and date, the items delivered with what is
+  delivered of each order item after it, the customer by id and number,
+  the order's version after it. The audit record
+  `sales.delivery.confirm` is on the delivery (`sales.delivery`), in the
+  change's transaction.
+- `sales.Orders.Order` gives each item's deliveries (`ItemDelivery`: date
+  and quantity, by date and then in the order they were confirmed), for
+  T81c; the API's own reads of an order do not read them.
+- Walkthrough `step_sales_order` (step 55) extended: Sally confirms 100
+  of the 120 brackets as delivered and the order shows 100 delivered at a
+  new version; 21 more and a date after today are refused naming their
+  fields; a second delivery brings the last 20 and the installation's
+  2.5 hours; the order reads as fully delivered and lists its two
+  deliveries; a further delivery is refused; nothing is posted.
+- **Decided by default:** a delivery has no document number and no
+  number range (the plan names none): it is numbered within its order;
+  it is read with the order's permission (`sales.order.read`), the plan
+  adding `sales.delivery.confirm` alone; the delivery date is required
+  and may be any day up to the company's today, also one before the
+  order's date (nothing says an order is entered before its delivery);
+  an order item is named once per delivery; the quantity's unit is the
+  order item's and is checked, as a goods receipt's is; there is no
+  over-delivery tolerance; the order's version moves with a delivery and
+  no `SalesOrderChanged` is published for it (its status did not
+  change; `SalesOrderDelivered` carries the version); the delivered
+  quantity and the version are moved by the database's triggers rather
+  than by an update granted to the application, so the quantity cannot
+  differ from the sum of the deliveries. Not built, by the plan: the
+  outbound delivery document, picking, packing and goods issue with
+  stock and cost of goods sold, availability check, delivery blocks,
+  tolerances, reversing a confirmation, proof of delivery, delivery
+  notes.

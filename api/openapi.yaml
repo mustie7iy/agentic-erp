@@ -60,7 +60,7 @@ tags:
   - name: collections
     description: "Dunning and collections (ADR-0065): dunning runs and their notices."
   - name: sales
-    description: "Sales (ADR-0067): quotations and sales orders."
+    description: "Sales (ADR-0067): quotations, sales orders and the confirmations of their deliveries."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -16285,6 +16285,104 @@ paths:
           $ref: "#/components/responses/Conflict"
         "412":
           $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}/deliveries":
+    get:
+      operationId: listSalesDeliveries
+      tags:
+        - sales
+      summary: List a sales order's deliveries
+      description: "The delivery confirmations of a sales order (ADR-0067 §8, T78c), each as `confirmSalesDelivery` answered it: its number within the order, its date and its items, each naming the order's item by number, item key and description with the quantity delivered in the item's unit. The order's own items show the sum (`delivered_quantity`, `getSalesOrder`). An order of a company the caller may not act in is not found (404), as one that does not exist. Sortable by: `delivery_date`."
+      x-permission: sales.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the order's deliveries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: confirmSalesDelivery
+      tags:
+        - sales
+      summary: Confirm a delivery against a sales order
+      description: "Records that quantities of a `confirmed` sales order's items were delivered, or a service made available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is read under a row lock, so two confirmations of one order wait for one another. An order that is not confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations racing for an item's last quantity, one is recorded. The delivery is numbered within its order and written once; it is not changed or reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only (`x-agent: false`)."
+      x-permission: sales.delivery.confirm
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - sales.delivery_date_in_future
+        - sales.exceeds_open_quantity
+        - sales.invalid_quantity
+        - sales.item_repeated
+        - sales.items_required
+        - sales.order_not_confirmed
+        - sales.unit_mismatch
+        - sales.unknown_order_item
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The delivery to confirm.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDeliveryCreate"
+            examples:
+              in_full:
+                summary: An item delivered in full
+                value:
+                  delivery_date: "2026-11-20"
+                  items:
+                    - item_no: 1
+                      quantity:
+                        value: "120"
+                        unit: EA
+      responses:
+        "201":
+          description: "Created; the delivery confirmation."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
         "429":
@@ -44717,10 +44815,10 @@ components:
         - type: object
           required: [delivered_quantity, billed_quantity]
           properties:
-            delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far, in the item's unit; at most `quantity`, the quantity ordered."}
+            delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far, in the item's unit; at most `delivered_quantity`."}
     SalesOrder:
-      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net."
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed and with each delivery confirmed against it (`confirmSalesDelivery`), which changes what its items show as delivered."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -44794,6 +44892,76 @@ components:
           type: array
           items: {$ref: "#/components/schemas/SalesOrder"}
           description: The sales orders on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    SalesDeliveryCreate:
+      type: object
+      description: "Confirm a delivery against a sales order: the date and the quantities delivered of the order's items."
+      required: [delivery_date, items]
+      additionalProperties: false
+      properties:
+        delivery_date: {type: string, format: date, description: "The day the quantities were delivered, or the service made available; not after the company's date today."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/SalesDeliveryItemCreate"}
+          description: "The order's items delivered, each at most once."
+    SalesDeliveryItemCreate:
+      type: object
+      description: "A quantity delivered of one item of the order."
+      required: [item_no, quantity]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The order item's number."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity delivered: more than zero, in the order item's unit, at most the item's open quantity (ordered less delivered)."}
+    SalesDeliveryItem:
+      type: object
+      description: "An item of a delivery confirmation: the quantity delivered of one item of the order."
+      required: [item_no, description, quantity]
+      properties:
+        item_no: {type: integer, format: int32, description: "The order item's number.", readOnly: true}
+        item_key: {type: string, description: "The order item's item key; absent when it has none.", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity delivered, in the order item's unit."}
+    SalesDelivery:
+      type: object
+      description: "A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person confirmed as delivered on a date. It moves no stock and posts nothing. It is written once and never changed."
+      required: [id, delivery_no, sales_order_id, sales_order_number, delivery_date, items, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        delivery_no: {type: integer, format: int32, description: "The delivery's number within its order, from 1 in the order they were confirmed.", readOnly: true}
+        sales_order_id: {type: string, format: uuid, description: "The sales order (`GET /v1/sales-orders/{id}`).", readOnly: true}
+        sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
+        delivery_date: {type: string, format: date, description: "The day the quantities were delivered.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesDeliveryItem"}
+          description: "The items delivered, by the order's item number."
+          readOnly: true
+        created_at: {type: string, format: date-time, description: "When the delivery was confirmed.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The principal who confirmed it.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          delivery_no: 1
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100001
+          delivery_date: "2026-11-20"
+          items:
+            - item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "120", unit: EA}
+          created_at: "2026-11-20T15:42:07Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    SalesDeliveryPage:
+      type: object
+      description: One page of a sales order's deliveries.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesDelivery"}
+          description: The deliveries on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object

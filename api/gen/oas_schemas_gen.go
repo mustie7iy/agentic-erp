@@ -21729,6 +21729,26 @@ func (s *ConfigVersionPage) SetTotalEstimate(val OptInt64) {
 
 func (*ConfigVersionPage) listConfigVersionsRes() {}
 
+type ConfirmSalesDeliveryBadRequest Problem
+
+func (*ConfirmSalesDeliveryBadRequest) confirmSalesDeliveryRes() {}
+
+type ConfirmSalesDeliveryForbidden Problem
+
+func (*ConfirmSalesDeliveryForbidden) confirmSalesDeliveryRes() {}
+
+type ConfirmSalesDeliveryNotFound Problem
+
+func (*ConfirmSalesDeliveryNotFound) confirmSalesDeliveryRes() {}
+
+type ConfirmSalesDeliveryPreconditionRequired Problem
+
+func (*ConfirmSalesDeliveryPreconditionRequired) confirmSalesDeliveryRes() {}
+
+type ConfirmSalesDeliveryUnprocessableEntity Problem
+
+func (*ConfirmSalesDeliveryUnprocessableEntity) confirmSalesDeliveryRes() {}
+
 type ConfirmSalesOrderBadRequest Problem
 
 func (*ConfirmSalesOrderBadRequest) confirmSalesOrderRes() {}
@@ -21853,6 +21873,7 @@ func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
+func (*ConflictHeaders) confirmSalesDeliveryRes()                  {}
 func (*ConflictHeaders) confirmSalesOrderRes()                     {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
@@ -47706,6 +47727,18 @@ type ListRolesForbidden Problem
 
 func (*ListRolesForbidden) listRolesRes() {}
 
+type ListSalesDeliveriesBadRequest Problem
+
+func (*ListSalesDeliveriesBadRequest) listSalesDeliveriesRes() {}
+
+type ListSalesDeliveriesForbidden Problem
+
+func (*ListSalesDeliveriesForbidden) listSalesDeliveriesRes() {}
+
+type ListSalesDeliveriesNotFound Problem
+
+func (*ListSalesDeliveriesNotFound) listSalesDeliveriesRes() {}
+
 type ListSalesOrdersBadRequest Problem
 
 func (*ListSalesOrdersBadRequest) listSalesOrdersRes() {}
@@ -70150,6 +70183,282 @@ type RunBalanceCarryForwardUnprocessableEntity Problem
 
 func (*RunBalanceCarryForwardUnprocessableEntity) runBalanceCarryForwardRes() {}
 
+// A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person
+// confirmed as delivered on a date. It moves no stock and posts nothing. It is written once and never
+// changed.
+// Ref: #/components/schemas/SalesDelivery
+type SalesDelivery struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// The delivery's number within its order, from 1 in the order they were confirmed.
+	DeliveryNo int32 `json:"delivery_no"`
+	// The sales order (`GET /v1/sales-orders/{id}`).
+	SalesOrderID uuid.UUID `json:"sales_order_id"`
+	// The sales order's document number.
+	SalesOrderNumber string `json:"sales_order_number"`
+	// The day the quantities were delivered.
+	DeliveryDate time.Time `json:"delivery_date"`
+	// The items delivered, by the order's item number.
+	Items []SalesDeliveryItem `json:"items"`
+	// When the delivery was confirmed.
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who confirmed it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *SalesDelivery) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDeliveryNo returns the value of DeliveryNo.
+func (s *SalesDelivery) GetDeliveryNo() int32 {
+	return s.DeliveryNo
+}
+
+// GetSalesOrderID returns the value of SalesOrderID.
+func (s *SalesDelivery) GetSalesOrderID() uuid.UUID {
+	return s.SalesOrderID
+}
+
+// GetSalesOrderNumber returns the value of SalesOrderNumber.
+func (s *SalesDelivery) GetSalesOrderNumber() string {
+	return s.SalesOrderNumber
+}
+
+// GetDeliveryDate returns the value of DeliveryDate.
+func (s *SalesDelivery) GetDeliveryDate() time.Time {
+	return s.DeliveryDate
+}
+
+// GetItems returns the value of Items.
+func (s *SalesDelivery) GetItems() []SalesDeliveryItem {
+	return s.Items
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SalesDelivery) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *SalesDelivery) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *SalesDelivery) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDeliveryNo sets the value of DeliveryNo.
+func (s *SalesDelivery) SetDeliveryNo(val int32) {
+	s.DeliveryNo = val
+}
+
+// SetSalesOrderID sets the value of SalesOrderID.
+func (s *SalesDelivery) SetSalesOrderID(val uuid.UUID) {
+	s.SalesOrderID = val
+}
+
+// SetSalesOrderNumber sets the value of SalesOrderNumber.
+func (s *SalesDelivery) SetSalesOrderNumber(val string) {
+	s.SalesOrderNumber = val
+}
+
+// SetDeliveryDate sets the value of DeliveryDate.
+func (s *SalesDelivery) SetDeliveryDate(val time.Time) {
+	s.DeliveryDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *SalesDelivery) SetItems(val []SalesDeliveryItem) {
+	s.Items = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SalesDelivery) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *SalesDelivery) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// Confirm a delivery against a sales order: the date and the quantities delivered of the order's
+// items.
+// Ref: #/components/schemas/SalesDeliveryCreate
+type SalesDeliveryCreate struct {
+	// The day the quantities were delivered, or the service made available; not after the company's date
+	// today.
+	DeliveryDate time.Time `json:"delivery_date"`
+	// The order's items delivered, each at most once.
+	Items []SalesDeliveryItemCreate `json:"items"`
+}
+
+// GetDeliveryDate returns the value of DeliveryDate.
+func (s *SalesDeliveryCreate) GetDeliveryDate() time.Time {
+	return s.DeliveryDate
+}
+
+// GetItems returns the value of Items.
+func (s *SalesDeliveryCreate) GetItems() []SalesDeliveryItemCreate {
+	return s.Items
+}
+
+// SetDeliveryDate sets the value of DeliveryDate.
+func (s *SalesDeliveryCreate) SetDeliveryDate(val time.Time) {
+	s.DeliveryDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *SalesDeliveryCreate) SetItems(val []SalesDeliveryItemCreate) {
+	s.Items = val
+}
+
+// SalesDeliveryHeaders wraps SalesDelivery with response headers.
+type SalesDeliveryHeaders struct {
+	IdempotentReplayed OptBool
+	Response           SalesDelivery
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *SalesDeliveryHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *SalesDeliveryHeaders) GetResponse() SalesDelivery {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *SalesDeliveryHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SalesDeliveryHeaders) SetResponse(val SalesDelivery) {
+	s.Response = val
+}
+
+func (*SalesDeliveryHeaders) confirmSalesDeliveryRes() {}
+
+// An item of a delivery confirmation: the quantity delivered of one item of the order.
+// Ref: #/components/schemas/SalesDeliveryItem
+type SalesDeliveryItem struct {
+	// The order item's number.
+	ItemNo int32 `json:"item_no"`
+	// The order item's item key; absent when it has none.
+	ItemKey OptString `json:"item_key"`
+	// The order item's description.
+	Description string `json:"description"`
+	// The quantity delivered, in the order item's unit.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *SalesDeliveryItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *SalesDeliveryItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *SalesDeliveryItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *SalesDeliveryItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *SalesDeliveryItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *SalesDeliveryItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SalesDeliveryItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *SalesDeliveryItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// A quantity delivered of one item of the order.
+// Ref: #/components/schemas/SalesDeliveryItemCreate
+type SalesDeliveryItemCreate struct {
+	// The order item's number.
+	ItemNo int32 `json:"item_no"`
+	// The quantity delivered: more than zero, in the order item's unit, at most the item's open quantity
+	// (ordered less delivered).
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *SalesDeliveryItemCreate) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *SalesDeliveryItemCreate) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *SalesDeliveryItemCreate) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *SalesDeliveryItemCreate) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// One page of a sales order's deliveries.
+// Ref: #/components/schemas/SalesDeliveryPage
+type SalesDeliveryPage struct {
+	// The deliveries on this page.
+	Items []SalesDelivery `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *SalesDeliveryPage) GetItems() []SalesDelivery {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SalesDeliveryPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *SalesDeliveryPage) SetItems(val []SalesDelivery) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SalesDeliveryPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*SalesDeliveryPage) listSalesDeliveriesRes() {}
+
 // An item of a quotation (ADR-0067 §3), with its net value.
 // Ref: #/components/schemas/SalesItem
 type SalesItem struct {
@@ -70798,8 +71107,8 @@ type SalesOrderItem struct {
 	AccountName string `json:"account_name"`
 	// The item's output tax code; absent: it bears no tax.
 	TaxCode OptString `json:"tax_code"`
-	// The quantity confirmed as delivered so far, in the item's unit; at most `quantity`, the quantity
-	// ordered.
+	// The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most
+	// `quantity`, the quantity ordered, and what is open for delivery is the difference.
 	DeliveredQuantity Quantity `json:"delivered_quantity"`
 	// The quantity billed so far, in the item's unit; at most `delivered_quantity`.
 	BilledQuantity Quantity `json:"billed_quantity"`
@@ -75818,6 +76127,7 @@ func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
+func (*TooManyRequestsHeaders) confirmSalesDeliveryRes()                  {}
 func (*TooManyRequestsHeaders) confirmSalesOrderRes()                     {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
@@ -76090,6 +76400,7 @@ func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
+func (*TooManyRequestsHeaders) listSalesDeliveriesRes()                   {}
 func (*TooManyRequestsHeaders) listSalesOrdersRes()                       {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
@@ -76562,6 +76873,7 @@ func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
+func (*UnauthorizedHeaders) confirmSalesDeliveryRes()                  {}
 func (*UnauthorizedHeaders) confirmSalesOrderRes()                     {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
@@ -76834,6 +77146,7 @@ func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
+func (*UnauthorizedHeaders) listSalesDeliveriesRes()                   {}
 func (*UnauthorizedHeaders) listSalesOrdersRes()                       {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}

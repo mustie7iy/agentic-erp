@@ -4238,7 +4238,9 @@ foreign key out of its schema (02 §2.1) and posts nothing itself (billing
 posts through receivables, §3.26). T78a (migration 000276) builds the
 schema with its outbox and inbox and the quotation: what the company
 offers a customer, valid until a date, net of tax. T78b (migration
-000277) adds the sales order. There is no material
+000277) adds the sales order and T78c (migration 000278) the delivery
+confirmation, which moves no stock (stock is outside the required
+scope). There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
 `item_key`.
@@ -4289,6 +4291,19 @@ erDiagram
     numeric delivered_quantity "at most quantity"
     numeric billed_quantity "at most delivered_quantity"
   }
+  sales_order ||--o{ delivery : "is delivered by"
+  delivery ||--|{ delivery_item : "has"
+  sales_order_item ||--o{ delivery_item : "is delivered by"
+  delivery { uuid id PK
+    uuid sales_order_id "a confirmed order"
+    int delivery_no "unique per order"
+    date delivery_date
+  }
+  delivery_item { uuid delivery_id PK
+    int order_item_no PK
+    uuid sales_order_id "the delivery's order"
+    numeric quantity "above zero"
+  }
 ```
 
 - `sales.quotation`: numbered once per company
@@ -4326,8 +4341,29 @@ erDiagram
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
   (`sales_order_item_quantities`). The application may not change or
-  delete an item until T78c and T79a are granted what they set.
+  delete an item: `delivered_quantity` is moved by the delivery's
+  trigger alone (T78c), and `billed_quantity` by nothing until T79a.
+- `sales.delivery` (T78c, migration 000278): a confirmation that
+  quantities of an order's items were delivered on `delivery_date`,
+  numbered within its order (`delivery_no_positive`, `delivery_no_once`).
+  Only a confirmed order takes one (`delivery_order_confirmed`, a trigger
+  that also moves the order's `version` once per delivery and sets its
+  `updated_by`, running as the table's owner: the application itself
+  still changes a confirmed order in nothing, and
+  `sales.check_sales_order_change` admits a confirmed order's version
+  moved from a trigger alone). Insert-only (`platform.forbid_mutation`);
+  the list reads an order's deliveries by date (`delivery_by_date`).
+- `sales.delivery_item`: a quantity above zero
+  (`delivery_item_quantity_positive`) of an item of the delivery's own
+  order (`delivery_item_delivery_fkey`, `delivery_item_order_item_fkey`),
+  an order item at most once per delivery (the primary key). Each insert
+  adds its quantity to the order item's `delivered_quantity`
+  (`delivery_item_delivered`, a trigger running as the table's owner),
+  so that quantity is the sum of the item's deliveries and never above
+  what was ordered (`sales_order_item_quantities`). Insert-only;
+  `delivery_item_by_order_item` serves an order item's deliveries
+  (`sales.Orders`).
 - `sales.outbox`, `sales.inbox`: the context's events
-  (`QuotationChanged`, `SalesOrderChanged`).
+  (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
-  `.write` and `.confirm`.
+  `.write` and `.confirm`; `sales.delivery.confirm`.

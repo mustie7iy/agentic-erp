@@ -6243,11 +6243,14 @@ step_quotation() {
 # step_sales_order is T78b (ADR-0067 §5): Sally creates a sales order from
 # the accepted quotation of step_quotation, which copies its customer,
 # currency and items and takes Northwind's payment term; a second order
-# from the quotation is refused; she confirms the order, once. Nothing is
-# posted. SALES_ORDER is the confirmed order for later steps.
+# from the quotation is refused; she confirms the order, once. T78c
+# (ADR-0067 §8): she confirms its items as delivered in two deliveries; a
+# quantity above what is open is refused naming the item, and the order
+# reads as fully delivered. Nothing is posted and no stock moves.
+# SALES_ORDER is the confirmed, fully delivered order for later steps.
 step_sales_order() {
-  heading "Step 55 — Sales orders: an order created from the accepted quotation with its customer, currency and items, on the customer's payment term; one order per quotation; confirmed once; nothing posted"
-  local customer=$CUSTOMER quotation=$QUOTATION before order number open
+  heading "Step 55 — Sales orders: an order created from the accepted quotation with its customer, currency and items, on the customer's payment term; one order per quotation; confirmed once; its items confirmed as delivered; nothing posted"
+  local customer=$CUSTOMER quotation=$QUOTATION before order number open day
   [ -n "$quotation" ] || fail "step 54's quotation is not there"
   as sally
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
@@ -6281,7 +6284,42 @@ step_sales_order() {
   QUIET=1 api 200 '' listSalesOrders -p "customer_id=$customer" -p status=confirmed
   expect "the customer's confirmed orders" "$(field '[.items[].document_number] | join(" ")')" "$number"
   SALES_ORDER=$order
-  say "An order posts nothing: Northwind's open items are as they were."
+  say "The brackets leave in two shipments. There is no stock in the ERP yet, so a delivery is a confirmation by a"
+  say "person: Sally records what was delivered and when (ADR-0067 §8). A draft order takes none; a confirmed one does."
+  say "The first shipment is 100 of the 120 brackets:"
+  day=$(company_day)
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  expect "the first delivery" "$(field '"\(.delivery_no) \(.sales_order_id) \(.sales_order_number) \(.delivery_date)"')" "1 $order $number $day"
+  say "The order shows what is delivered and, against what was ordered, what is open; its version moved:"
+  api 200 '"sales order \(.document_number), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "the order after the first delivery" "$(field '"\(.version) " + ([.items[] | "\(.quantity.value)/\(.delivered_quantity.value)"] | join(" "))')" "3 120/100 2.5/0"
+  say "Twenty brackets are open. A delivery of more is refused, naming the item and what is open of it; so is a date"
+  say "after Maple's today:"
+  refused 422 sales.exceeds_open_quantity confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"21\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.value"
+  refused 422 sales.delivery_date_in_future confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"2099-12-31\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  say "The second shipment brings the last twenty, and the installation is done: 2.5 hours, confirmed as made available."
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}, {\"item_no\": 2, \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}}]}"
+  expect "the second delivery" "$(field '"\(.delivery_no) " + ([.items[] | "\(.item_no):\(.quantity.value) \(.quantity.unit)"] | join(", "))')" "2 1:20 EA, 2:2.5 H"
+  say "The order reads as fully delivered, nothing billed yet, and lists its two deliveries:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value)"] | join(", ")')" "120 120 0, 2.5 2.5 0"
+  expect "the order's status and version" "$(field '"\(.status) \(.version)"')" "confirmed 4"
+  api 200 '.items[] | "  delivery \(.delivery_no) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    listSalesDeliveries -p "id=$order"
+  expect "the order's deliveries" "$(field '[.items[] | "\(.delivery_no):" + ([.items[] | "\(.item_no)=\(.quantity.value)"] | join("+"))] | join(" ")')" "1:1=100 2:1=20+2=2.5"
+  say "Nothing more is open: another delivery is refused."
+  refused 422 sales.exceeds_open_quantity confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"0.5\", \"unit\": \"H\"}}]}"
+  say "An order and its deliveries post nothing: Northwind's open items are as they were."
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
   passed

@@ -26,7 +26,8 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.order.read", "sales.order.write", "sales.order.confirm"}
+var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.order.read", "sales.order.write", "sales.order.confirm",
+	"sales.delivery.confirm"}
 
 // far is a validity no run of the tests reaches.
 const far = "2099-12-31"
