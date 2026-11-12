@@ -25,6 +25,7 @@ const (
 	BlockLegalEntityOperation                      OperationName = "BlockLegalEntity"
 	BlockOrgUnitOperation                          OperationName = "BlockOrgUnit"
 	BlockPrincipalOperation                        OperationName = "BlockPrincipal"
+	CallOffScheduleLineOperation                   OperationName = "CallOffScheduleLine"
 	CancelApprovalRequestOperation                 OperationName = "CancelApprovalRequest"
 	CancelAssetOperation                           OperationName = "CancelAsset"
 	CancelContractOperation                        OperationName = "CancelContract"

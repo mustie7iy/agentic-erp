@@ -3,8 +3,8 @@
 **Status:** accepted (T83a, 2026-11-12; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on T83a's last commit). It decides
 the slices T83a and T83b (`docs/design/plan-breadth-week2.md`, Lane C).
-Each slice records what it built under "As built". The defaults taken are
-listed at the end for the product owner's digest.
+Each slice records what it built under "As built"; both are there now.
+The defaults taken are listed at the end for the product owner's digest.
 
 ## Context
 
@@ -165,6 +165,26 @@ first version.
 8. `createScheduleLine` is an agent tool like the contract's other
    operations (no `x-agent: false`, no `x-autonomy`: it changes the
    schedule, so an agent needs autonomy level 2).
+9. `callOffScheduleLine` is an agent tool too, as `createPurchaseOrder`
+   is, but not marked `x-autonomy: propose`: beside creating a draft it
+   reserves the line, so an agent needs autonomy level 2, as it does to
+   order a requisition (ADR-0036). The order's release is where a person
+   or the release strategy's approval commits the company.
+10. A call-off takes `If-Match` with the line's version, as every custom
+    method on a resource does (04 §4.7), beside the state guard.
+    The method is spelled `:callOff`: the contract's rule for a custom
+    verb is camel case (`:signOff`, `:acceptProposal`), where the plan
+    wrote `:call-off`.
+11. The call-off order is dated the company's date today, takes the
+    supplier's payment terms and carries no tax code, cost center or
+    purchasing organization; the buyer adds them on the draft.
+12. An agreement not valid on the company's date today refuses the
+    call-off with 409 `procurement.agreement_not_valid`, checked before
+    the order is created, so the refusal names the agreement's validity
+    and not a field of an order the caller did not send. The delivery
+    date itself may lie after today, and after a call-off made late.
+13. A line's `status` is derived: `called_off` once it names its order.
+    What became of the order is the order's own status.
 
 ## As built
 
@@ -208,3 +228,38 @@ first version.
   agreement with one item is created and released, a line refused on a
   contract of the kind `contract` and on a date outside the validity, and
   two lines entered for the coming two months.
+
+### T83b Schedule line called off (migration 000280)
+
+- **Schema.** `procurement.schedule_line.purchase_order_id` (a foreign
+  key to `purchase_order`; one order calls off one line,
+  `schedule_line_order_once`). Trigger `schedule_line_call_off`: a line
+  is entered not called off (`schedule_line_starts_scheduled`), is called
+  off once (`schedule_line_called_off_once`) and to a purchase order
+  against its own scheduling agreement
+  (`schedule_line_order_of_agreement`). The application role may update
+  `purchase_order_id`, `version` and `updated_by` alone. Schema tests in
+  `db/schedule_line_call_off_test.go`.
+- **API.** `POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff`
+  (`procurement.order.create`, `If-Match` with the line's version,
+  idempotent by its key) answers the line with `status` `called_off`,
+  `purchase_order_id` and `purchase_order_document_number`. 409
+  `procurement.schedule_line_called_off` for a line already called off,
+  naming its order; 409 `procurement.not_a_scheduling_agreement`, 409
+  `procurement.invalid_status` unless the agreement is active, 409
+  `procurement.agreement_not_valid` unless it is valid on the company's
+  date today; 404 for a line number it lacks; what the order's own
+  checks refuse as `POST /v1/purchase-orders` refuses it. The list
+  filters by `status` (`scheduled`, `called_off`).
+- **Code.** `internal/procurement/schedule_calloff.go` (`callOff`, which
+  calls `createOrder` with the agreement as the order's contract, the
+  item's `ContractItemNo` and `DeliveryDate`) and `schedule_api.go`.
+  `purchase_orders.go`, receipts, GR/IR and invoices are unchanged: the
+  order's release checks and consumes the agreement through
+  `coveringContract` and `consumeContract` as for any contract.
+- **Events.** `ScheduleLineCalledOff` and `ScheduleLineChanged`
+  (`called_off`, with `status` and the order) in `api/asyncapi.yaml`.
+- **Walkthrough.** `step_scheduling_agreement` (step 56) extended: the
+  first line is called off; the draft order has the agreement's price
+  and the line's date and quantity; it is released, and the agreement's
+  consumed value rises by the order's value.

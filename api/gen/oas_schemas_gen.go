@@ -14212,6 +14212,69 @@ func (s *CalculatedTax) SetCodes(val []CodeTax) {
 	s.Codes = val
 }
 
+type CallOffScheduleLineBadRequest Problem
+
+func (*CallOffScheduleLineBadRequest) callOffScheduleLineRes() {}
+
+type CallOffScheduleLineForbidden Problem
+
+func (*CallOffScheduleLineForbidden) callOffScheduleLineRes() {}
+
+type CallOffScheduleLineNotFound Problem
+
+func (*CallOffScheduleLineNotFound) callOffScheduleLineRes() {}
+
+// CallOffScheduleLineOKHeaders wraps ScheduleLine with response headers.
+type CallOffScheduleLineOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           ScheduleLine
+}
+
+// GetETag returns the value of ETag.
+func (s *CallOffScheduleLineOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CallOffScheduleLineOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CallOffScheduleLineOKHeaders) GetResponse() ScheduleLine {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CallOffScheduleLineOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CallOffScheduleLineOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CallOffScheduleLineOKHeaders) SetResponse(val ScheduleLine) {
+	s.Response = val
+}
+
+func (*CallOffScheduleLineOKHeaders) callOffScheduleLineRes() {}
+
+type CallOffScheduleLinePreconditionFailed Problem
+
+func (*CallOffScheduleLinePreconditionFailed) callOffScheduleLineRes() {}
+
+type CallOffScheduleLinePreconditionRequired Problem
+
+func (*CallOffScheduleLinePreconditionRequired) callOffScheduleLineRes() {}
+
+type CallOffScheduleLineUnprocessableEntity Problem
+
+func (*CallOffScheduleLineUnprocessableEntity) callOffScheduleLineRes() {}
+
 type CancelApprovalRequestBadRequest Problem
 
 func (*CancelApprovalRequestBadRequest) cancelApprovalRequestRes() {}
@@ -21774,6 +21837,7 @@ func (*ConflictHeaders) blockBusinessPartnerRes()                  {}
 func (*ConflictHeaders) blockLegalEntityRes()                      {}
 func (*ConflictHeaders) blockOrgUnitRes()                          {}
 func (*ConflictHeaders) blockPrincipalRes()                        {}
+func (*ConflictHeaders) callOffScheduleLineRes()                   {}
 func (*ConflictHeaders) cancelApprovalRequestRes()                 {}
 func (*ConflictHeaders) cancelAssetRes()                           {}
 func (*ConflictHeaders) cancelContractRes()                        {}
@@ -70917,6 +70981,15 @@ type ScheduleLine struct {
 	// The line's value: quantity × unit price ÷ price unit, rounded half away from zero to the
 	// currency's minor unit.
 	Amount Money `json:"amount"`
+	// `scheduled` until the line is called off, then `called_off` (`schedule-lines/{line_no}:callOff`); a
+	// line is called off once. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	Status string `json:"status"`
+	// The purchase order the line was called off as; absent while the line is `scheduled`. What became of
+	// it (released, received, cancelled) is the order's own status.
+	PurchaseOrderID OptUUID `json:"purchase_order_id"`
+	// That purchase order's document number; absent when `purchase_order_id` is.
+	PurchaseOrderDocumentNumber OptString `json:"purchase_order_document_number"`
 }
 
 // GetID returns the value of ID.
@@ -71004,6 +71077,21 @@ func (s *ScheduleLine) GetAmount() Money {
 	return s.Amount
 }
 
+// GetStatus returns the value of Status.
+func (s *ScheduleLine) GetStatus() string {
+	return s.Status
+}
+
+// GetPurchaseOrderID returns the value of PurchaseOrderID.
+func (s *ScheduleLine) GetPurchaseOrderID() OptUUID {
+	return s.PurchaseOrderID
+}
+
+// GetPurchaseOrderDocumentNumber returns the value of PurchaseOrderDocumentNumber.
+func (s *ScheduleLine) GetPurchaseOrderDocumentNumber() OptString {
+	return s.PurchaseOrderDocumentNumber
+}
+
 // SetID sets the value of ID.
 func (s *ScheduleLine) SetID(val uuid.UUID) {
 	s.ID = val
@@ -71087,6 +71175,21 @@ func (s *ScheduleLine) SetPriceUnit(val int32) {
 // SetAmount sets the value of Amount.
 func (s *ScheduleLine) SetAmount(val Money) {
 	s.Amount = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ScheduleLine) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetPurchaseOrderID sets the value of PurchaseOrderID.
+func (s *ScheduleLine) SetPurchaseOrderID(val OptUUID) {
+	s.PurchaseOrderID = val
+}
+
+// SetPurchaseOrderDocumentNumber sets the value of PurchaseOrderDocumentNumber.
+func (s *ScheduleLine) SetPurchaseOrderDocumentNumber(val OptString) {
+	s.PurchaseOrderDocumentNumber = val
 }
 
 // Enter a schedule line of a scheduling agreement.
@@ -71545,6 +71648,7 @@ func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()                  {}
 func (*ServiceUnavailableHeaders) blockLegalEntityRes()                      {}
 func (*ServiceUnavailableHeaders) blockOrgUnitRes()                          {}
 func (*ServiceUnavailableHeaders) blockPrincipalRes()                        {}
+func (*ServiceUnavailableHeaders) callOffScheduleLineRes()                   {}
 func (*ServiceUnavailableHeaders) cancelApprovalRequestRes()                 {}
 func (*ServiceUnavailableHeaders) cancelAssetRes()                           {}
 func (*ServiceUnavailableHeaders) cancelContractRes()                        {}
@@ -76562,6 +76666,7 @@ func (*TooManyRequestsHeaders) blockBusinessPartnerRes()                  {}
 func (*TooManyRequestsHeaders) blockLegalEntityRes()                      {}
 func (*TooManyRequestsHeaders) blockOrgUnitRes()                          {}
 func (*TooManyRequestsHeaders) blockPrincipalRes()                        {}
+func (*TooManyRequestsHeaders) callOffScheduleLineRes()                   {}
 func (*TooManyRequestsHeaders) cancelApprovalRequestRes()                 {}
 func (*TooManyRequestsHeaders) cancelAssetRes()                           {}
 func (*TooManyRequestsHeaders) cancelContractRes()                        {}
@@ -77307,6 +77412,7 @@ func (*UnauthorizedHeaders) blockBusinessPartnerRes()                  {}
 func (*UnauthorizedHeaders) blockLegalEntityRes()                      {}
 func (*UnauthorizedHeaders) blockOrgUnitRes()                          {}
 func (*UnauthorizedHeaders) blockPrincipalRes()                        {}
+func (*UnauthorizedHeaders) callOffScheduleLineRes()                   {}
 func (*UnauthorizedHeaders) cancelApprovalRequestRes()                 {}
 func (*UnauthorizedHeaders) cancelAssetRes()                           {}
 func (*UnauthorizedHeaders) cancelContractRes()                        {}

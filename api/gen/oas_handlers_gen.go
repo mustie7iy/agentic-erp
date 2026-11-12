@@ -4117,6 +4117,228 @@ func (s *Server) handleBlockPrincipalRequest(args [1]string, argsEscaped bool, w
 	}
 }
 
+// handleCallOffScheduleLineRequest handles callOffScheduleLine operation.
+//
+// Calls off one line of a scheduling agreement's delivery schedule (ADR-0070 §4), at the version of
+// the line the caller read (`If-Match`), once: it creates a draft purchase order against the agreement
+// through the purchase order's own path, as `POST /v1/purchase-orders` would with its checks,
+// validation rules, number and audit record, and the line then names that order (`purchase_order_id`,
+// `purchase_order_document_number`, `status` `called_off`). The order is of the agreement's legal
+// entity, supplier and currency, dated the legal entity's date today in its company's time zone, with
+// the supplier's payment terms, the agreement as its contract and one item: the agreement's item (its
+// description, unit, account and price) in the line's quantity, due on the line's delivery date. The
+// contract and the line are read under their row locks, so of two call-offs of one line one creates
+// the order and the other finds the line called off (409 `procurement.schedule_line_called_off`,
+// naming the order), while the same request with its `Idempotency-Key` again answers the same line and
+// order. The contract must be a scheduling agreement (409 `procurement.not_a_scheduling_agreement`)
+// that is `active` (409 `procurement.invalid_status`) and valid on the legal entity's date today (409
+// `procurement.agreement_not_valid`, naming the validity, that date and the zone); a line number the
+// agreement lacks is answered as missing (404). What the order's own checks refuse is refused as
+// there, naming the order's field: the agreement's supplier no longer one an order can be placed with
+// (422 `procurement.supplier_not_usable`, `supplier_id`), the item's account no longer postable (422
+// `procurement.account_not_postable`, `items[0].account_id`), a validation rule of the tenant (422
+// `request.rule_refused`). The order is a draft and from there any purchase order: it is changed,
+// released (the release strategy and its approvals apply, and the release consumes the agreement's
+// target value, refused with 409 `procurement.contract_exceeded` when the order exceeds what remains),
+// received and invoiced as one created directly; a line whose order is cancelled stays called off. An
+// agent needs autonomy level 2: a call-off reserves the line. Audited, and published as
+// ScheduleLineCalledOff, which names the supplier by id and number, and ScheduleLineChanged.
+//
+// POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff
+func (s *Server) handleCallOffScheduleLineRequest(args [2]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("callOffScheduleLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/contracts/{id}/schedule-lines/{line_no}:callOff"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CallOffScheduleLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CallOffScheduleLineOperation,
+			ID:   "callOffScheduleLine",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CallOffScheduleLineOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCallOffScheduleLineParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response CallOffScheduleLineRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CallOffScheduleLineOperation,
+			OperationSummary: "Call off a schedule line as a purchase order",
+			OperationID:      "callOffScheduleLine",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "line_no",
+					In:   "path",
+				}: params.LineNo,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = CallOffScheduleLineParams
+			Response = CallOffScheduleLineRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCallOffScheduleLineParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CallOffScheduleLine(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CallOffScheduleLine(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCallOffScheduleLineResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCancelApprovalRequestRequest handles cancelApprovalRequest operation.
 //
 // Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may
@@ -16778,10 +17000,11 @@ func (s *Server) handleCreateRoleAssignmentRequest(args [0]string, argsEscaped b
 // `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit,
 // rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422
 // `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered
-// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is not
-// changed or deleted in the first version. The line has no address of its own: `Location` is the
-// agreement's schedule filtered to it. Audited, and published as ScheduleLineChanged, which names the
-// supplier by id and number.
+// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is
+// `scheduled` until it is called off as a purchase order (`schedule-lines/{line_no}:callOff`), and is
+// not otherwise changed or deleted in the first version. The line has no address of its own:
+// `Location` is the agreement's schedule filtered to it. Audited, and published as
+// ScheduleLineChanged, which names the supplier by id and number.
 //
 // POST /v1/contracts/{id}/schedule-lines
 func (s *Server) handleCreateScheduleLineRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -64231,8 +64454,10 @@ func (s *Server) handleListRolesRequest(args [0]string, argsEscaped bool, w http
 // The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one
 // date in the order entered: each line with the agreement's number, the agreement item it asks for
 // (its material key and description), its quantity in that item's unit, the item's price and the
-// line's value. A contract of the kind `contract` has none and answers an empty page. A contract of a
-// legal entity the caller cannot act in is answered as missing (404). Sortable by: `delivery_date`.
+// line's value, its `status` and, once it is called off (`schedule-lines/{line_no}:callOff`), the
+// purchase order by id and number. A contract of the kind `contract` has none and answers an empty
+// page. A contract of a legal entity the caller cannot act in is answered as missing (404). Sortable
+// by: `delivery_date`.
 //
 // GET /v1/contracts/{id}/schedule-lines
 func (s *Server) handleListScheduleLinesRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -64385,6 +64610,10 @@ func (s *Server) handleListScheduleLinesRequest(args [1]string, argsEscaped bool
 					Name: "line_no",
 					In:   "query",
 				}: params.LineNo,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
 				{
 					Name: "page_size",
 					In:   "query",

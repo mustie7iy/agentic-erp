@@ -6308,16 +6308,19 @@ schedule_line_body() {
   echo "{\"contract_item_no\": 1, \"delivery_date\": \"$1\", \"quantity\": {\"value\": \"$2\", \"unit\": \"$3\"}}"
 }
 
-# step_scheduling_agreement is T83a (ADR-0070 §1-§3): Ben creates a
+# step_scheduling_agreement is T83a and T83b (ADR-0070): Ben creates a
 # scheduling agreement with Tyrell, a contract of its own kind, for one
 # item, releases it as any contract and enters its delivery schedule: two
 # lines for the coming two months, in the agreement's unit and within its
-# validity, a year from the company's date today. It keeps the agreement
-# (AGREEMENT).
+# validity, a year from the company's date today. He then calls the first
+# line off (T83b): a draft purchase order against the agreement at its
+# price, for the line's quantity and date, which he releases as any
+# order; the release consumes the agreement's target value. It keeps the
+# agreement (AGREEMENT).
 step_scheduling_agreement() {
-  heading "Step 56 — Scheduling agreements: a scheduling agreement with one item is created and released, and two schedule lines are entered for the coming two months"
+  heading "Step 56 — Scheduling agreements: a scheduling agreement with one item is created and released, and two schedule lines are entered for the coming two months; the first is called off as a purchase order, whose release consumes the agreement"
   as ben
-  local today until first second expense body plain tag shown
+  local today until first second expense body plain tag shown po
   today=$(company_day)
   until=$(date_add "$today" 364)
   first=$(date_add "$today" 30)
@@ -6334,7 +6337,7 @@ step_scheduling_agreement() {
   expect "the new agreement" "$(field '"\(.kind) \(.status) \(.supplier_id) \(.target_value.amount) \(.target_value.currency)"')" \
     "scheduling_agreement draft $SUPPLIER 50000.00 CAD"
   say "Its schedule is entered once it is released; a draft takes no line. Ben releases it:"
-  refused 409 procurement.invalid_status createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 120 EA)"
+  refused 409 procurement.invalid_status createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 60 EA)"
   api 200 '"\(.kind) \(.document_number): \(.status)"' releaseContract -p "id=$AGREEMENT" -if-match "$tag"
   expect "the released agreement" "$(field '"\(.kind) \(.status)"')" "scheduling_agreement active"
   say "It is Maple's only scheduling agreement; the contract the RFQ's award created in step 55 is a contract,"
@@ -6344,26 +6347,61 @@ step_scheduling_agreement() {
   QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p kind=contract -p "supplier_id=$DP_SUPPLIER" -p status=active
   plain=$(field '.items[0].id')
   expect "the contract of step 55 is of the kind contract" "$(field '.items[0] | "\(.kind) \(.rfq_id)"')" "contract $RFQ"
-  refused 409 procurement.not_a_scheduling_agreement createScheduleLine -p "id=$plain" -body "$(schedule_line_body "$first" 120 EA)"
-  say "Ben enters the delivery schedule: 120 cartridges in a month, 80 in two. Each line names the agreement's"
+  refused 409 procurement.not_a_scheduling_agreement createScheduleLine -p "id=$plain" -body "$(schedule_line_body "$first" 60 EA)"
+  say "Ben enters the delivery schedule: 60 cartridges in a month, 40 in two. Each line names the agreement's"
   say "item, in its unit, on a date within the agreement's validity; its value is its quantity at the agreement's"
   say "price, exact to the cent:"
   shown='"line \(.line_no) of \(.contract_document_number): \(.quantity.value) \(.quantity.unit) of \(.material_key) due \(.delivery_date), at \(.unit_price.amount) per \(.price_unit) = \(.amount.amount) \(.amount.currency)"'
-  api 201 "$shown" createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 120 EA)"
+  api 201 "$shown" createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 60 EA)"
   expect "the first line" "$(field '"\(.line_no) \(.material_key) \(.delivery_date) \(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.amount.currency)"')" \
-    "1 TONER-XL $first 120 EA 10200.00 CAD"
-  api 201 "$shown" createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$second" 80 EA)"
+    "1 TONER-XL $first 60 EA 5100.00 CAD"
+  api 201 "$shown" createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$second" 40 EA)"
   expect "the second line" "$(field '"\(.line_no) \(.delivery_date) \(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.amount.currency)"')" \
-    "2 $second 80 EA 6800.00 CAD"
+    "2 $second 40 EA 3400.00 CAD"
   say "A date after the agreement ends is refused, naming its validity, and so is another unit than the item's:"
-  refused 422 procurement.schedule_line_outside_validity createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$(date_add "$until" 1)" 120 EA)"
+  refused 422 procurement.schedule_line_outside_validity createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$(date_add "$until" 1)" 60 EA)"
   expect "the field refused" "$(field '.errors[0].field')" "delivery_date"
-  refused 422 procurement.invalid_contract_item createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 120 BOX)"
+  refused 422 procurement.invalid_contract_item createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 60 BOX)"
   say "The agreement's schedule, by delivery date:"
   api 200 '.items[] | "  line \(.line_no): \(.quantity.value) \(.quantity.unit) of \(.material_key) due \(.delivery_date), \(.amount.amount) \(.amount.currency)"' \
     listScheduleLines -p "id=$AGREEMENT"
-  expect "the schedule" "$(field '[.items[] | "\(.line_no) \(.delivery_date) \(.quantity.value) \(.amount.amount) \(.amount.currency)"] | join(", ")')" \
-    "1 $first 120 10200.00 CAD, 2 $second 80 6800.00 CAD"
+  expect "the schedule" "$(field '[.items[] | "\(.line_no) \(.status) \(.delivery_date) \(.quantity.value) \(.amount.amount) \(.amount.currency)"] | join(", ")')" \
+    "1 scheduled $first 60 5100.00 CAD, 2 scheduled $second 40 3400.00 CAD"
+  tag="\"$(field '.items[0].version')\""
+  say "The first delivery is to be ordered. Ben calls its line off (ADR-0070 §4), at the version he read: a purchase"
+  say "order is created against the agreement, as if he had entered it, and the line names it:"
+  api 200 '"line \(.line_no) of \(.contract_document_number): \(.status) as purchase order \(.purchase_order_document_number), version \(.version)"' \
+    callOffScheduleLine -p "id=$AGREEMENT" -p line_no=1 -if-match "$tag"
+  po=$(field .purchase_order_id)
+  expect "the line called off" "$(field '"\(.status) \(.version) \(.purchase_order_document_number | startswith("PO"))"')" "called_off 2 true"
+  say "A line is called off once:"
+  refused 409 procurement.schedule_line_called_off callOffScheduleLine -p "id=$AGREEMENT" -p line_no=1 -if-match "$ETAG"
+  say "The order is a draft of Maple's with Tyrell, dated today: the agreement's item at the agreement's price, in"
+  say "the line's quantity, due on the line's date:"
+  api 200 '"purchase order \(.document_number): \(.status), dated \(.order_date), \(.total_amount.amount) \(.total_amount.currency), terms \(.payment_term_code)", (.items[] | "  item \(.item_no) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit), delivery \(.delivery_date), agreement item \(.contract_item_no)")' \
+    getPurchaseOrder -p "id=$po"
+  expect "the draft order" "$(field '"\(.status) \(.legal_entity_id) \(.supplier_id) \(.contract_id) \(.order_date) \(.total_amount.amount) \(.total_amount.currency)"')" \
+    "draft $LE $SUPPLIER $AGREEMENT $today 5100.00 CAD"
+  expect "its item" "$(field '[.items[] | "\(.quantity.value) \(.quantity.unit) \(.unit_price.amount)/\(.price_unit) \(.account_id) \(.contract_item_no) \(.delivery_date)"] | join(", ")')" \
+    "60 EA 85.00/1 $expense 1 $first"
+  say "From here it is an order like any other. Ben releases it; an order of this value without a requisition is"
+  say "released by the release strategy, so it may wait for an approval first:"
+  api 200 '"\(.status)\(if .release_request_id then ": release request \(.release_request_id)" else "" end)"' releasePurchaseOrder -p "id=$po" -if-match "$ETAG"
+  if [ "$(field .status)" = pending_approval ]; then
+    approve priya "$(field .release_request_id)" "Toner as scheduled"
+    as ben
+    QUIET=1 api 200 '' getPurchaseOrder -p "id=$po"
+  fi
+  expect "order status" "$(field .status)" released
+  say "The release consumed the agreement's target value by the order's value, exactly; the second line is still"
+  say "to call off:"
+  api 200 '"\(.kind) \(.document_number): consumed \(.consumed_value.amount) of \(.target_value.amount) \(.target_value.currency)"' getContract -p "id=$AGREEMENT"
+  expect "the agreement's consumed value" "$(field '"\(.consumed_value.amount) \(.consumed_value.currency) \(.target_value.amount)"')" "5100.00 CAD 50000.00"
+  api 200 '.items[] | "  line \(.line_no): \(.status)\(if .purchase_order_document_number then " as purchase order \(.purchase_order_document_number)" else "" end), \(.quantity.value) \(.quantity.unit) due \(.delivery_date)"' \
+    listScheduleLines -p "id=$AGREEMENT"
+  expect "the schedule after the call-off" "$(field '[.items[] | "\(.line_no) \(.status) \(.purchase_order_id // "-")"] | join(", ")')" "1 called_off $po, 2 scheduled -"
+  QUIET=1 api 200 '' listScheduleLines -p "id=$AGREEMENT" -p status=scheduled
+  expect "the lines still to call off" "$(field '[.items[].line_no] | join(" ")')" "2"
   passed
 }
 

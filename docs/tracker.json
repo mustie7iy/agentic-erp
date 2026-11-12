@@ -3815,9 +3815,9 @@
         "c": []
        },
        {
-        "s": "T",
-        "t": "The buyer calls off a schedule line: a purchase order for its quantity is created against the agreement at the agreement's price, due on the line's date, then released, received and invoiced as any order (POST /v1/contracts/{id}/schedule-lines/{line_no}:call-off)",
-        "r": "T83b · docs/design/plan-breadth-week2.md §T83b",
+        "s": "D",
+        "t": "The buyer calls off a schedule line: a purchase order for its quantity is created against the agreement at the agreement's price, due on the line's date, then released, received and invoiced as any order (POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff)",
+        "r": "T83b · docs/design/plan-breadth-week2.md §T83b · migration 000280 · internal/procurement/schedule_calloff.go, schedule_api.go · ADR-0070 §4 · scripts/walkthrough.sh step_scheduling_agreement",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

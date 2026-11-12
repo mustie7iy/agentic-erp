@@ -26,7 +26,8 @@ func scheduleLineToAPI(c Contract, l ScheduleLine) gen.ScheduleLine {
 		UpdatedBy: gen.NewOptUUID(l.UpdatedBy), ContractID: c.ID, ContractDocumentNumber: c.DocumentNumber, LineNo: l.No, ContractItemNo: l.ItemNo,
 		MaterialKey: it.MaterialKey, Description: it.Description, DeliveryDate: l.DeliveryDate, Quantity: gen.Quantity{Value: l.Quantity, Unit: it.Unit},
 		UnitPrice: apitypes.Money(it.UnitPrice, c.Currency, c.Exponent), PriceUnit: it.PriceUnit,
-		Amount: apitypes.Money(total([]Item{it}), c.Currency, c.Exponent)}
+		Amount: apitypes.Money(total([]Item{it}), c.Currency, c.Exponent), Status: l.Status(), PurchaseOrderID: apitypes.OptUUID(l.OrderID),
+		PurchaseOrderDocumentNumber: apitypes.OptString(l.OrderNumber)}
 }
 
 // schedulePath is where the schedule of contract id is listed.
@@ -62,13 +63,15 @@ func (e *Endpoints) ListScheduleLines(ctx context.Context, params gen.ListSchedu
 		return nil, err
 	}
 	item, no := apitypes.Ptr[int32](params.ContractItemNo), apitypes.Ptr[int32](params.LineNo)
-	ks, err := e.Pages.Keyset(scheduleSort, fmt.Sprintf("listScheduleLines|%s|%v|%v", c.ID, params.ContractItemNo, params.LineNo),
+	ks, err := e.Pages.Keyset(scheduleSort, fmt.Sprintf("listScheduleLines|%s|%v|%v|%s", c.ID, params.ContractItemNo, params.LineNo, params.Status.Value),
 		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
 	}
-	q, args := ks.SQL(scheduleLineSelect+` WHERE l.contract_id = $1 AND ($2::int IS NULL OR l.contract_item_no = $2) AND ($3::int IS NULL OR l.line_no = $3)`,
-		[]any{c.ID, item, no})
+	// A line's status is derived: called off once it names its order.
+	q, args := ks.SQL(scheduleLineSelect+` WHERE l.contract_id = $1 AND ($2::int IS NULL OR l.contract_item_no = $2) AND ($3::int IS NULL OR l.line_no = $3)
+		AND ($4 = '' OR $4 = CASE WHEN l.purchase_order_id IS NULL THEN $5::text ELSE $6::text END)`,
+		[]any{c.ID, item, no, params.Status.Value, LineScheduled, LineCalledOff})
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ScheduleLine, error) { return scanScheduleLine(row) })
 	if err != nil {
@@ -77,4 +80,14 @@ func (e *Endpoints) ListScheduleLines(ctx context.Context, params gen.ListSchedu
 	items, next := apitypes.PageOf(ks, list, func(l ScheduleLine) (string, uuid.UUID) { return l.DeliveryDate.Format(time.DateOnly), l.ID },
 		func(l ScheduleLine) gen.ScheduleLine { return scheduleLineToAPI(c, l) })
 	return &gen.ScheduleLinePage{Items: items, NextPageToken: next}, nil
+}
+
+// CallOffScheduleLine implements POST
+// /v1/contracts/{id}/schedule-lines/{line_no}:callOff.
+func (e *Endpoints) CallOffScheduleLine(ctx context.Context, params gen.CallOffScheduleLineParams) (gen.CallOffScheduleLineRes, error) {
+	c, l, err := e.callOff(ctx, params.ID, params.LineNo, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	return &gen.CallOffScheduleLineOKHeaders{ETag: gen.NewOptString(etag.Format(l.Version)), Response: scheduleLineToAPI(c, l)}, nil
 }

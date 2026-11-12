@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
@@ -47,21 +48,26 @@ type ScheduleLine struct {
 	ItemNo         int32
 	DeliveryDate   time.Time
 	Quantity       string
-	Version        int32
-	CreatedAt      time.Time
-	CreatedBy      uuid.UUID
-	UpdatedAt      time.Time
-	UpdatedBy      uuid.UUID
+	// The purchase order the line was called off as and its number
+	// (T83b); nil while the line is scheduled.
+	OrderID     *uuid.UUID
+	OrderNumber *string
+	Version     int32
+	CreatedAt   time.Time
+	CreatedBy   uuid.UUID
+	UpdatedAt   time.Time
+	UpdatedBy   uuid.UUID
 }
 
 const scheduleLineSelect = `SELECT l.id, l.contract_id, l.line_no, l.contract_item_no, l.delivery_date, trim_scale(l.quantity)::text, l.version,
-		l.created_at, l.created_by, l.updated_at, l.updated_by
+		l.created_at, l.created_by, l.updated_at, l.updated_by, l.purchase_order_id,
+		(SELECT o.document_number FROM procurement.purchase_order o WHERE o.tenant_id = l.tenant_id AND o.id = l.purchase_order_id)
 	FROM procurement.schedule_line l`
 
 func scanScheduleLine(row pgx.Row) (ScheduleLine, error) {
 	var l ScheduleLine
 	if err := row.Scan(&l.ID, &l.ContractID, &l.No, &l.ItemNo, &l.DeliveryDate, &l.Quantity, &l.Version, &l.CreatedAt, &l.CreatedBy, &l.UpdatedAt,
-		&l.UpdatedBy); err != nil {
+		&l.UpdatedBy, &l.OrderID, &l.OrderNumber); err != nil {
 		return ScheduleLine{}, fmt.Errorf("scan schedule line: %w", err)
 	}
 	return l, nil
@@ -157,8 +163,10 @@ func (e *Endpoints) createScheduleLine(ctx context.Context, contract uuid.UUID, 
 // scheduleChanged audits a change of line l of agreement c and publishes
 // ScheduleLineChanged, naming the agreement's company by its code and
 // its supplier by id and number, never by name (product owner
-// 2026-11-05).
-func (e *Endpoints) scheduleChanged(ctx context.Context, c Contract, l ScheduleLine, action, change string) error {
+// 2026-11-05); a line called off names its order. more gives the events
+// published beside it, each from the line's payload (a call-off's
+// ScheduleLineCalledOff).
+func (e *Endpoints) scheduleChanged(ctx context.Context, c Contract, l ScheduleLine, action, change string, more ...func(payload map[string]any) outbox.Event) error {
 	le, err := e.legalEntity(ctx, c.LegalEntityID)
 	if err != nil {
 		return err
@@ -169,12 +177,23 @@ func (e *Endpoints) scheduleChanged(ctx context.Context, c Contract, l ScheduleL
 	}
 	it := c.scheduled(l)
 	value := money.EventAmount(total([]Item{it}), c.Currency, c.Exponent)
-	changed := map[string]any{"schedule_line_id": l.ID, "contract_id": c.ID, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID,
-		"legal_entity_code": le.Code, "supplier_id": c.SupplierID, "supplier_number": named[c.SupplierID].Number, "line_no": l.No,
-		"contract_item_no": l.ItemNo, "material_key": it.MaterialKey, "delivery_date": l.DeliveryDate.Format(time.DateOnly),
-		"quantity": map[string]string{"value": l.Quantity, "unit": it.Unit}, "amount": value, "change": change}
+	payload := func() map[string]any {
+		line := map[string]any{"schedule_line_id": l.ID, "contract_id": c.ID, "document_number": c.DocumentNumber, "legal_entity_id": c.LegalEntityID,
+			"legal_entity_code": le.Code, "supplier_id": c.SupplierID, "supplier_number": named[c.SupplierID].Number, "line_no": l.No,
+			"contract_item_no": l.ItemNo, "material_key": it.MaterialKey, "delivery_date": l.DeliveryDate.Format(time.DateOnly),
+			"quantity": map[string]string{"value": l.Quantity, "unit": it.Unit}, "amount": value}
+		if l.OrderID != nil {
+			line["purchase_order_id"], line["purchase_order_document_number"] = *l.OrderID, *l.OrderNumber
+		}
+		return line
+	}
+	changed := payload()
+	changed["status"], changed["change"] = l.Status(), change
+	events := []outbox.Event{event("schedule_line_changed", "schedule_line", l.ID, changed)}
+	for _, m := range more {
+		events = append(events, m(payload()))
+	}
 	detail := map[string]any{"contract_id": c.ID, "line_no": l.No, "contract_item_no": l.ItemNo, "delivery_date": l.DeliveryDate.Format(time.DateOnly),
-		"quantity": l.Quantity, "unit": it.Unit, "amount": value}
-	return audit.Record(ctx, "procurement.schedule_line."+action, "procurement.schedule_line", l.ID, detail,
-		event("schedule_line_changed", "schedule_line", l.ID, changed))
+		"quantity": l.Quantity, "unit": it.Unit, "amount": value, "purchase_order_id": l.OrderID}
+	return audit.Record(ctx, "procurement.schedule_line."+action, "procurement.schedule_line", l.ID, detail, events...)
 }

@@ -77,6 +77,10 @@ type BlockPrincipalRes interface {
 	blockPrincipalRes()
 }
 
+type CallOffScheduleLineRes interface {
+	callOffScheduleLineRes()
+}
+
 type CancelApprovalRequestRes interface {
 	cancelApprovalRequestRes()
 }

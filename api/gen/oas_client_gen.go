@@ -286,6 +286,35 @@ type Invoker interface {
 	//
 	// POST /v1/principals/{id}:block
 	BlockPrincipal(ctx context.Context, request *ReasonInput, params BlockPrincipalParams) (BlockPrincipalRes, error)
+	// CallOffScheduleLine invokes callOffScheduleLine operation.
+	//
+	// Calls off one line of a scheduling agreement's delivery schedule (ADR-0070 §4), at the version of
+	// the line the caller read (`If-Match`), once: it creates a draft purchase order against the agreement
+	// through the purchase order's own path, as `POST /v1/purchase-orders` would with its checks,
+	// validation rules, number and audit record, and the line then names that order (`purchase_order_id`,
+	// `purchase_order_document_number`, `status` `called_off`). The order is of the agreement's legal
+	// entity, supplier and currency, dated the legal entity's date today in its company's time zone, with
+	// the supplier's payment terms, the agreement as its contract and one item: the agreement's item (its
+	// description, unit, account and price) in the line's quantity, due on the line's delivery date. The
+	// contract and the line are read under their row locks, so of two call-offs of one line one creates
+	// the order and the other finds the line called off (409 `procurement.schedule_line_called_off`,
+	// naming the order), while the same request with its `Idempotency-Key` again answers the same line and
+	// order. The contract must be a scheduling agreement (409 `procurement.not_a_scheduling_agreement`)
+	// that is `active` (409 `procurement.invalid_status`) and valid on the legal entity's date today (409
+	// `procurement.agreement_not_valid`, naming the validity, that date and the zone); a line number the
+	// agreement lacks is answered as missing (404). What the order's own checks refuse is refused as
+	// there, naming the order's field: the agreement's supplier no longer one an order can be placed with
+	// (422 `procurement.supplier_not_usable`, `supplier_id`), the item's account no longer postable (422
+	// `procurement.account_not_postable`, `items[0].account_id`), a validation rule of the tenant (422
+	// `request.rule_refused`). The order is a draft and from there any purchase order: it is changed,
+	// released (the release strategy and its approvals apply, and the release consumes the agreement's
+	// target value, refused with 409 `procurement.contract_exceeded` when the order exceeds what remains),
+	// received and invoiced as one created directly; a line whose order is cancelled stays called off. An
+	// agent needs autonomy level 2: a call-off reserves the line. Audited, and published as
+	// ScheduleLineCalledOff, which names the supplier by id and number, and ScheduleLineChanged.
+	//
+	// POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff
+	CallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (CallOffScheduleLineRes, error)
 	// CancelApprovalRequest invokes cancelApprovalRequest operation.
 	//
 	// Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may
@@ -1153,10 +1182,11 @@ type Invoker interface {
 	// `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit,
 	// rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422
 	// `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered
-	// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is not
-	// changed or deleted in the first version. The line has no address of its own: `Location` is the
-	// agreement's schedule filtered to it. Audited, and published as ScheduleLineChanged, which names the
-	// supplier by id and number.
+	// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is
+	// `scheduled` until it is called off as a purchase order (`schedule-lines/{line_no}:callOff`), and is
+	// not otherwise changed or deleted in the first version. The line has no address of its own:
+	// `Location` is the agreement's schedule filtered to it. Audited, and published as
+	// ScheduleLineChanged, which names the supplier by id and number.
 	//
 	// POST /v1/contracts/{id}/schedule-lines
 	CreateScheduleLine(ctx context.Context, request *ScheduleLineCreate, params CreateScheduleLineParams) (CreateScheduleLineRes, error)
@@ -3695,8 +3725,10 @@ type Invoker interface {
 	// The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one
 	// date in the order entered: each line with the agreement's number, the agreement item it asks for
 	// (its material key and description), its quantity in that item's unit, the item's price and the
-	// line's value. A contract of the kind `contract` has none and answers an empty page. A contract of a
-	// legal entity the caller cannot act in is answered as missing (404). Sortable by: `delivery_date`.
+	// line's value, its `status` and, once it is called off (`schedule-lines/{line_no}:callOff`), the
+	// purchase order by id and number. A contract of the kind `contract` has none and answers an empty
+	// page. A contract of a legal entity the caller cannot act in is answered as missing (404). Sortable
+	// by: `delivery_date`.
 	//
 	// GET /v1/contracts/{id}/schedule-lines
 	ListScheduleLines(ctx context.Context, params ListScheduleLinesParams) (ListScheduleLinesRes, error)
@@ -8707,6 +8739,205 @@ func (c *Client) sendBlockPrincipal(ctx context.Context, request *ReasonInput, p
 
 	stage = "DecodeResponse"
 	result, err := decodeBlockPrincipalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CallOffScheduleLine invokes callOffScheduleLine operation.
+//
+// Calls off one line of a scheduling agreement's delivery schedule (ADR-0070 §4), at the version of
+// the line the caller read (`If-Match`), once: it creates a draft purchase order against the agreement
+// through the purchase order's own path, as `POST /v1/purchase-orders` would with its checks,
+// validation rules, number and audit record, and the line then names that order (`purchase_order_id`,
+// `purchase_order_document_number`, `status` `called_off`). The order is of the agreement's legal
+// entity, supplier and currency, dated the legal entity's date today in its company's time zone, with
+// the supplier's payment terms, the agreement as its contract and one item: the agreement's item (its
+// description, unit, account and price) in the line's quantity, due on the line's delivery date. The
+// contract and the line are read under their row locks, so of two call-offs of one line one creates
+// the order and the other finds the line called off (409 `procurement.schedule_line_called_off`,
+// naming the order), while the same request with its `Idempotency-Key` again answers the same line and
+// order. The contract must be a scheduling agreement (409 `procurement.not_a_scheduling_agreement`)
+// that is `active` (409 `procurement.invalid_status`) and valid on the legal entity's date today (409
+// `procurement.agreement_not_valid`, naming the validity, that date and the zone); a line number the
+// agreement lacks is answered as missing (404). What the order's own checks refuse is refused as
+// there, naming the order's field: the agreement's supplier no longer one an order can be placed with
+// (422 `procurement.supplier_not_usable`, `supplier_id`), the item's account no longer postable (422
+// `procurement.account_not_postable`, `items[0].account_id`), a validation rule of the tenant (422
+// `request.rule_refused`). The order is a draft and from there any purchase order: it is changed,
+// released (the release strategy and its approvals apply, and the release consumes the agreement's
+// target value, refused with 409 `procurement.contract_exceeded` when the order exceeds what remains),
+// received and invoiced as one created directly; a line whose order is cancelled stays called off. An
+// agent needs autonomy level 2: a call-off reserves the line. Audited, and published as
+// ScheduleLineCalledOff, which names the supplier by id and number, and ScheduleLineChanged.
+//
+// POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff
+func (c *Client) CallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (CallOffScheduleLineRes, error) {
+	res, err := c.sendCallOffScheduleLine(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (res CallOffScheduleLineRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("callOffScheduleLine"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/contracts/{id}/schedule-lines/{line_no}:callOff"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CallOffScheduleLineOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [5]string
+	pathParts[0] = "/v1/contracts/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/schedule-lines/"
+	{
+		// Encode "line_no" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "line_no",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.Int32ToString(params.LineNo))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[3] = encoded
+	}
+	pathParts[4] = ":callOff"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CallOffScheduleLineOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCallOffScheduleLineResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -17713,10 +17944,11 @@ func (c *Client) sendCreateRoleAssignment(ctx context.Context, request *RoleAssi
 // `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit,
 // rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422
 // `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered
-// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is not
-// changed or deleted in the first version. The line has no address of its own: `Location` is the
-// agreement's schedule filtered to it. Audited, and published as ScheduleLineChanged, which names the
-// supplier by id and number.
+// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is
+// `scheduled` until it is called off as a purchase order (`schedule-lines/{line_no}:callOff`), and is
+// not otherwise changed or deleted in the first version. The line has no address of its own:
+// `Location` is the agreement's schedule filtered to it. Audited, and published as
+// ScheduleLineChanged, which names the supplier by id and number.
 //
 // POST /v1/contracts/{id}/schedule-lines
 func (c *Client) CreateScheduleLine(ctx context.Context, request *ScheduleLineCreate, params CreateScheduleLineParams) (CreateScheduleLineRes, error) {
@@ -61274,8 +61506,10 @@ func (c *Client) sendListRoles(ctx context.Context, params ListRolesParams) (res
 // The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one
 // date in the order entered: each line with the agreement's number, the agreement item it asks for
 // (its material key and description), its quantity in that item's unit, the item's price and the
-// line's value. A contract of the kind `contract` has none and answers an empty page. A contract of a
-// legal entity the caller cannot act in is answered as missing (404). Sortable by: `delivery_date`.
+// line's value, its `status` and, once it is called off (`schedule-lines/{line_no}:callOff`), the
+// purchase order by id and number. A contract of the kind `contract` has none and answers an empty
+// page. A contract of a legal entity the caller cannot act in is answered as missing (404). Sortable
+// by: `delivery_date`.
 //
 // GET /v1/contracts/{id}/schedule-lines
 func (c *Client) ListScheduleLines(ctx context.Context, params ListScheduleLinesParams) (ListScheduleLinesRes, error) {
@@ -61373,6 +61607,23 @@ func (c *Client) sendListScheduleLines(ctx context.Context, params ListScheduleL
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.LineNo.Get(); ok {
 				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {

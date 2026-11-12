@@ -31979,6 +31979,234 @@ func (s *CalculatedTax) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes CallOffScheduleLineBadRequest as json.
+func (s *CallOffScheduleLineBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CallOffScheduleLineBadRequest from json.
+func (s *CallOffScheduleLineBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CallOffScheduleLineBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CallOffScheduleLineBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CallOffScheduleLineBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CallOffScheduleLineBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CallOffScheduleLineForbidden as json.
+func (s *CallOffScheduleLineForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CallOffScheduleLineForbidden from json.
+func (s *CallOffScheduleLineForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CallOffScheduleLineForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CallOffScheduleLineForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CallOffScheduleLineForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CallOffScheduleLineForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CallOffScheduleLineNotFound as json.
+func (s *CallOffScheduleLineNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CallOffScheduleLineNotFound from json.
+func (s *CallOffScheduleLineNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CallOffScheduleLineNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CallOffScheduleLineNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CallOffScheduleLineNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CallOffScheduleLineNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CallOffScheduleLinePreconditionFailed as json.
+func (s *CallOffScheduleLinePreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CallOffScheduleLinePreconditionFailed from json.
+func (s *CallOffScheduleLinePreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CallOffScheduleLinePreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CallOffScheduleLinePreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CallOffScheduleLinePreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CallOffScheduleLinePreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CallOffScheduleLinePreconditionRequired as json.
+func (s *CallOffScheduleLinePreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CallOffScheduleLinePreconditionRequired from json.
+func (s *CallOffScheduleLinePreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CallOffScheduleLinePreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CallOffScheduleLinePreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CallOffScheduleLinePreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CallOffScheduleLinePreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes CallOffScheduleLineUnprocessableEntity as json.
+func (s *CallOffScheduleLineUnprocessableEntity) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes CallOffScheduleLineUnprocessableEntity from json.
+func (s *CallOffScheduleLineUnprocessableEntity) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CallOffScheduleLineUnprocessableEntity to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = CallOffScheduleLineUnprocessableEntity(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CallOffScheduleLineUnprocessableEntity) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CallOffScheduleLineUnprocessableEntity) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes CancelApprovalRequestBadRequest as json.
 func (s *CancelApprovalRequestBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -177552,9 +177780,25 @@ func (s *ScheduleLine) encodeFields(e *jx.Encoder) {
 		e.FieldStart("amount")
 		s.Amount.Encode(e)
 	}
+	{
+		e.FieldStart("status")
+		e.Str(s.Status)
+	}
+	{
+		if s.PurchaseOrderID.Set {
+			e.FieldStart("purchase_order_id")
+			s.PurchaseOrderID.Encode(e)
+		}
+	}
+	{
+		if s.PurchaseOrderDocumentNumber.Set {
+			e.FieldStart("purchase_order_document_number")
+			s.PurchaseOrderDocumentNumber.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfScheduleLine = [17]string{
+var jsonFieldsNameOfScheduleLine = [20]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -177572,6 +177816,9 @@ var jsonFieldsNameOfScheduleLine = [17]string{
 	14: "unit_price",
 	15: "price_unit",
 	16: "amount",
+	17: "status",
+	18: "purchase_order_id",
+	19: "purchase_order_document_number",
 }
 
 // Decode decodes ScheduleLine from json.
@@ -177779,6 +178026,38 @@ func (s *ScheduleLine) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
+		case "status":
+			requiredBitSet[2] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Status = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"status\"")
+			}
+		case "purchase_order_id":
+			if err := func() error {
+				s.PurchaseOrderID.Reset()
+				if err := s.PurchaseOrderID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"purchase_order_id\"")
+			}
+		case "purchase_order_document_number":
+			if err := func() error {
+				s.PurchaseOrderDocumentNumber.Reset()
+				if err := s.PurchaseOrderDocumentNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"purchase_order_document_number\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -177791,7 +178070,7 @@ func (s *ScheduleLine) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11111111,
-		0b00000001,
+		0b00000011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
