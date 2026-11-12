@@ -361,6 +361,7 @@ channels:
       PlanCategoryChanged: {$ref: '#/components/messages/PlanCategoryChanged'}
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
       InternalOrderChanged: {$ref: '#/components/messages/InternalOrderChanged'}
+      InternalOrderBudgetChanged: {$ref: '#/components/messages/InternalOrderBudgetChanged'}
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
@@ -640,6 +641,7 @@ operations:
       - $ref: '#/channels/controlling/messages/PlanCategoryChanged'
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
       - $ref: '#/channels/controlling/messages/InternalOrderChanged'
+      - $ref: '#/channels/controlling/messages/InternalOrderBudgetChanged'
   publishAssetsEvents:
     action: send
     title: Asset accounting publishes
@@ -3278,6 +3280,27 @@ components:
         - name: released
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000603, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, responsible_cost_center_id: 0192a000-0000-7000-8000-000000000201, responsible_cost_center_code: CC-1100, status: released, change: released}
+    InternalOrderBudgetChanged:
+      name: InternalOrderBudgetChanged
+      title: Internal order budget changed
+      summary: An internal order's budget was set or replaced.
+      description: |
+        Emitted by `internal-orders/{id}/budget` (PATCH), ADR-0064 §3: the
+        order's budget, one overall amount in its legal entity's local
+        currency, with the amount it replaced. Nothing is refused for a
+        budget; `GET /v1/internal-orders/{id}/budget` compares it with the
+        order's actual costs. Subject is the internal order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_budget_changed.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderBudgetChangedV1'}
+      examples:
+        - name: replaced
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000604, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_budget_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, previous_budget: {amount: '15000.00', currency: EUR}, version: 2}
     TaxReturnPrepared:
       name: TaxReturnPrepared
       x-webhook: true
@@ -4758,6 +4781,17 @@ components:
         responsible_cost_center_code: {type: string}
         status: {type: string, description: 'The status after the change. Open enum: created, released.'}
         change: {type: string, description: 'Open enum: created, released.'}
+    InternalOrderBudgetChangedV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, budget, version]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        budget: {$ref: '#/components/schemas/Money', description: The budget after the change, in the legal entity's local currency.}
+        previous_budget: {$ref: '#/components/schemas/Money', description: The budget before the change. Absent when the order had none.}
+        version: {type: integer, description: 'The budget''s version after the change: 1 when first set.'}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]

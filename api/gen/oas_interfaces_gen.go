@@ -621,8 +621,16 @@ type GetIncomingPaymentRes interface {
 	getIncomingPaymentRes()
 }
 
+type GetInternalOrderBudgetRes interface {
+	getInternalOrderBudgetRes()
+}
+
 type GetInternalOrderRes interface {
 	getInternalOrderRes()
+}
+
+type GetInternalOrderSettlementRuleRes interface {
+	getInternalOrderSettlementRuleRes()
 }
 
 type GetJournalEntryRes interface {
@@ -1635,6 +1643,14 @@ type UpdateCostCenterRes interface {
 
 type UpdateEntryTemplateRes interface {
 	updateEntryTemplateRes()
+}
+
+type UpdateInternalOrderBudgetRes interface {
+	updateInternalOrderBudgetRes()
+}
+
+type UpdateInternalOrderSettlementRuleRes interface {
+	updateInternalOrderSettlementRuleRes()
 }
 
 type UpdateLegalEntityRes interface {

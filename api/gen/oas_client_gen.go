@@ -2046,6 +2046,31 @@ type Invoker interface {
 	//
 	// GET /v1/internal-orders/{id}
 	GetInternalOrder(ctx context.Context, params GetInternalOrderParams) (GetInternalOrderRes, error)
+	// GetInternalOrderBudget invokes getInternalOrderBudget operation.
+	//
+	// The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal
+	// entity's local currency: the budget, one overall amount for the order; the actual, the balance of
+	// the leading ledger's journal lines that name the order over every fiscal year, exact at the moment
+	// of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the
+	// budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so.
+	// An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a
+	// budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH`
+	// takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual
+	// is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for
+	// the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/internal-orders/{id}/budget
+	GetInternalOrderBudget(ctx context.Context, params GetInternalOrderBudgetParams) (GetInternalOrderBudgetRes, error)
+	// GetInternalOrderSettlementRule invokes getInternalOrderSettlementRule operation.
+	//
+	// The settlement rule of one internal order (ADR-0064 §3): its one receiver, a cost center of the
+	// order's legal entity, which takes the whole of what the order is settled for, with the receiver's
+	// code. An order that has no rule yet is answered without a receiver. The `ETag` is the order's
+	// version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as
+	// missing (404).
+	//
+	// GET /v1/internal-orders/{id}/settlement-rule
+	GetInternalOrderSettlementRule(ctx context.Context, params GetInternalOrderSettlementRuleParams) (GetInternalOrderSettlementRuleRes, error)
 	// GetJournalEntry invokes getJournalEntry operation.
 	//
 	// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
@@ -5124,6 +5149,36 @@ type Invoker interface {
 	//
 	// PATCH /v1/entry-templates/{id}
 	UpdateEntryTemplate(ctx context.Context, request *EntryTemplateUpdate, params UpdateEntryTemplateParams) (UpdateEntryTemplateRes, error)
+	// UpdateInternalOrderBudget invokes updateInternalOrderBudget operation.
+	//
+	// Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more,
+	// in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field
+	// error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's
+	// budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET`
+	// gave it, `"0"` for an order whose budget was never set; the order is read under a row lock, so of
+	// two changes at one version the second is refused (412). The budget may be set on an order in any
+	// status and may be below the order's actual costs: nothing is refused for it. Set directly by
+	// permission, with no approval request. Audited with the amounts before and after, and published as
+	// InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so
+	// the caller also needs `ledger.entry.read`. Agents may not set a budget.
+	//
+	// PATCH /v1/internal-orders/{id}/budget
+	UpdateInternalOrderBudget(ctx context.Context, request *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (UpdateInternalOrderBudgetRes, error)
+	// UpdateInternalOrderSettlementRule invokes updateInternalOrderSettlementRule operation.
+	//
+	// Sets or replaces the settlement rule of an internal order (ADR-0064 §3): one receiver, taking the
+	// whole. JSON Merge Patch (RFC 7396) of the rule, whose one field, `receiver_cost_center_id`, is
+	// replaced. The receiver must be an active cost center of the order's legal entity that is valid
+	// today, the legal entity's date in its time zone (422 `controlling.settlement_rule_receiver_invalid`,
+	// whose field error's code says why: `unknown`, `not_in_company`, `not_active`, `not_valid_today`).
+	// `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or this rule's `GET` gave it;
+	// the order is read under a row lock and its version moves with the rule, so of two changes at one
+	// version the second is refused (412). The rule may be set on an order in any status. Set directly by
+	// permission, with no approval request. Audited with the receivers before and after. Agents may not
+	// set a rule.
+	//
+	// PATCH /v1/internal-orders/{id}/settlement-rule
+	UpdateInternalOrderSettlementRule(ctx context.Context, request *InternalOrderSettlementRuleUpdate, params UpdateInternalOrderSettlementRuleParams) (UpdateInternalOrderSettlementRuleRes, error)
 	// UpdateLegalEntity invokes updateLegalEntity operation.
 	//
 	// Changes master data of a legal entity. JSON Merge Patch (RFC 7396): absent fields are unchanged,
@@ -28903,6 +28958,283 @@ func (c *Client) sendGetInternalOrder(ctx context.Context, params GetInternalOrd
 
 	stage = "DecodeResponse"
 	result, err := decodeGetInternalOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetInternalOrderBudget invokes getInternalOrderBudget operation.
+//
+// The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal
+// entity's local currency: the budget, one overall amount for the order; the actual, the balance of
+// the leading ledger's journal lines that name the order over every fiscal year, exact at the moment
+// of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the
+// budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so.
+// An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a
+// budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH`
+// takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual
+// is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for
+// the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-orders/{id}/budget
+func (c *Client) GetInternalOrderBudget(ctx context.Context, params GetInternalOrderBudgetParams) (GetInternalOrderBudgetRes, error) {
+	res, err := c.sendGetInternalOrderBudget(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetInternalOrderBudget(ctx context.Context, params GetInternalOrderBudgetParams) (res GetInternalOrderBudgetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getInternalOrderBudget"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}/budget"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetInternalOrderBudgetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/budget"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetInternalOrderBudgetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetInternalOrderBudgetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetInternalOrderSettlementRule invokes getInternalOrderSettlementRule operation.
+//
+// The settlement rule of one internal order (ADR-0064 §3): its one receiver, a cost center of the
+// order's legal entity, which takes the whole of what the order is settled for, with the receiver's
+// code. An order that has no rule yet is answered without a receiver. The `ETag` is the order's
+// version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as
+// missing (404).
+//
+// GET /v1/internal-orders/{id}/settlement-rule
+func (c *Client) GetInternalOrderSettlementRule(ctx context.Context, params GetInternalOrderSettlementRuleParams) (GetInternalOrderSettlementRuleRes, error) {
+	res, err := c.sendGetInternalOrderSettlementRule(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetInternalOrderSettlementRule(ctx context.Context, params GetInternalOrderSettlementRuleParams) (res GetInternalOrderSettlementRuleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getInternalOrderSettlementRule"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}/settlement-rule"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetInternalOrderSettlementRuleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/settlement-rule"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetInternalOrderSettlementRuleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetInternalOrderSettlementRuleResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -78259,6 +78591,344 @@ func (c *Client) sendUpdateEntryTemplate(ctx context.Context, request *EntryTemp
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateEntryTemplateResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateInternalOrderBudget invokes updateInternalOrderBudget operation.
+//
+// Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more,
+// in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field
+// error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's
+// budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET`
+// gave it, `"0"` for an order whose budget was never set; the order is read under a row lock, so of
+// two changes at one version the second is refused (412). The budget may be set on an order in any
+// status and may be below the order's actual costs: nothing is refused for it. Set directly by
+// permission, with no approval request. Audited with the amounts before and after, and published as
+// InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so
+// the caller also needs `ledger.entry.read`. Agents may not set a budget.
+//
+// PATCH /v1/internal-orders/{id}/budget
+func (c *Client) UpdateInternalOrderBudget(ctx context.Context, request *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (UpdateInternalOrderBudgetRes, error) {
+	res, err := c.sendUpdateInternalOrderBudget(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateInternalOrderBudget(ctx context.Context, request *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (res UpdateInternalOrderBudgetRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateInternalOrderBudget"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}/budget"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateInternalOrderBudgetOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/budget"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateInternalOrderBudgetRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateInternalOrderBudgetOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateInternalOrderBudgetResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateInternalOrderSettlementRule invokes updateInternalOrderSettlementRule operation.
+//
+// Sets or replaces the settlement rule of an internal order (ADR-0064 §3): one receiver, taking the
+// whole. JSON Merge Patch (RFC 7396) of the rule, whose one field, `receiver_cost_center_id`, is
+// replaced. The receiver must be an active cost center of the order's legal entity that is valid
+// today, the legal entity's date in its time zone (422 `controlling.settlement_rule_receiver_invalid`,
+// whose field error's code says why: `unknown`, `not_in_company`, `not_active`, `not_valid_today`).
+// `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or this rule's `GET` gave it;
+// the order is read under a row lock and its version moves with the rule, so of two changes at one
+// version the second is refused (412). The rule may be set on an order in any status. Set directly by
+// permission, with no approval request. Audited with the receivers before and after. Agents may not
+// set a rule.
+//
+// PATCH /v1/internal-orders/{id}/settlement-rule
+func (c *Client) UpdateInternalOrderSettlementRule(ctx context.Context, request *InternalOrderSettlementRuleUpdate, params UpdateInternalOrderSettlementRuleParams) (UpdateInternalOrderSettlementRuleRes, error) {
+	res, err := c.sendUpdateInternalOrderSettlementRule(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateInternalOrderSettlementRule(ctx context.Context, request *InternalOrderSettlementRuleUpdate, params UpdateInternalOrderSettlementRuleParams) (res UpdateInternalOrderSettlementRuleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateInternalOrderSettlementRule"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}/settlement-rule"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateInternalOrderSettlementRuleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/settlement-rule"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateInternalOrderSettlementRuleRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateInternalOrderSettlementRuleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateInternalOrderSettlementRuleResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -31,14 +31,32 @@
 // this context about the orders through its port ledger.CostObjects
 // (CostObjects), and the order's actual costs by account and period are
 // the ledger's lines naming it, read through the ledger's port.
+//
+// An order's budget (ADR-0064 §3, T60c) is one overall amount in the
+// company's currency, set by a person holding controlling.order.budget
+// with the version the budget's reader saw, the order held FOR UPDATE;
+// each change is audited with the amounts before and after and
+// published. The read compares it with the order's actual costs over
+// every year; nothing is refused for a budget.
+//
+// An order's settlement rule (ADR-0064 §3, T60d) names its one receiver,
+// a cost center the ledger's port checks (an active one of the order's
+// company, valid on the company's date today), which takes the whole.
+// It is replaced with the order's version, the order held FOR UPDATE
+// and its version moved with the rule, by a person holding
+// controlling.order.write; each change is audited with the receivers
+// before and after.
 package controlling
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -72,6 +90,8 @@ type Ledger interface {
 	ProfitCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
 	CostCenterRefs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CostCenterRef, error)
 	OrderActuals(ctx context.Context, q ledger.OrderActualsQuery) (ledger.OrderActuals, error)
+	OrderBalance(ctx context.Context, le, order uuid.UUID) (money.Minor, error)
+	CostCenterValidOn(ctx context.Context, id uuid.UUID, day time.Time) (bool, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).
@@ -79,11 +99,19 @@ type LegalEntities interface {
 	Entity(ctx context.Context, id uuid.UUID) (tenancy.Entity, bool, error)
 }
 
+// Settings reads the active configuration (configuration context): the
+// time zone a company's date is judged in (companies[].time_zone).
+type Settings interface {
+	Document(ctx context.Context) (*config.Config, int32, error)
+}
+
 // Endpoints implements the controlling part of the generated API.
 type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
 	Ledger        Ledger
+	Settings      Settings
+	Now           func() time.Time // nil: the wall clock
 }
 
 func categoryLocked() *problem.Problem {

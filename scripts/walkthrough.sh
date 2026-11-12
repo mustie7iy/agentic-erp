@@ -5929,6 +5929,71 @@ step_internal_order() {
   passed
 }
 
+# step_order_budget: an order's budget against its actual costs (ADR-0064
+# §3, T60c): Carla gives the trade fair's order a budget, one overall
+# amount in Maple's currency, and reads what remains of it after the
+# expense step_internal_order posted. A budget below the actual costs is
+# shown as exceeded; nothing is refused for it.
+step_order_budget() {
+  heading "Step 50 — An order's budget: the trade fair's order is given a budget; what remains is the budget less the costs posted to the order, and a budget below them is shown as exceeded"
+  as carla
+  local order line tag
+  line='"order \(.internal_order_code) \(.internal_order_name): budget \(.budget.amount // "none"), actual \(.actual.amount), remaining \(.remaining.amount // "none") \(.actual.currency)\(if .exceeded then ", exceeded" else "" end) (version \(.version))"'
+  QUIET=1 api 200 '' listInternalOrders -p "legal_entity_id=$LE" -p "code=FAIR-$YEAR"
+  order=$(field '.items[0].id')
+  say "The trade fair's order has no budget yet. Its actual costs are the CAD 1,500.00 Alex posted to it, over every"
+  say "fiscal year (ADR-0064 §3):"
+  api 200 "$line" getInternalOrderBudget -p "id=$order"
+  expect "the order before a budget" "$(field '"\(.version) \(.budget.amount // "none") \(.actual.amount) \(.actual.currency) \(.exceeded)"')" "0 none 1500.00 CAD false"
+  say "Carla sets the budget, one overall amount in Maple's currency, at the version she read. She first enters"
+  say "CAD 1,000.00, below what the fair has already cost: the budget is taken and shown as exceeded. A budget"
+  say "refuses nothing; it is compared with the actual costs when it is read."
+  api 200 "$line" updateInternalOrderBudget -p "id=$order" -if-match "$ETAG" -body '{"budget": {"amount": "1000.00", "currency": "CAD"}}'
+  tag=$ETAG
+  expect "a budget below the actual costs" "$(field '"\(.budget.amount) \(.actual.amount) \(.remaining.amount) \(.remaining.currency) \(.exceeded)"')" "1000.00 1500.00 -500.00 CAD true"
+  say "A change at a version already replaced is refused, as is a budget in another currency than the company's:"
+  refused 412 request.version_mismatch updateInternalOrderBudget -p "id=$order" -if-match '"0"' -body '{"budget": {"amount": "5000.00", "currency": "CAD"}}'
+  refused 422 controlling.order_budget_invalid updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"budget": {"amount": "5000.00", "currency": "USD"}}'
+  expect "why the budget is refused" "$(field '.errors[0].field')" "budget.currency"
+  say "She corrects it to CAD 5,000.00. What remains is the budget less the actual costs:"
+  api 200 "$line" updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"budget": {"amount": "5000.00", "currency": "CAD"}}'
+  api 200 "$line" getInternalOrderBudget -p "id=$order"
+  expect "budget, actual and what remains" "$(field '"\(.version) \(.budget.amount) \(.actual.amount) \(.remaining.amount) \(.remaining.currency) \(.exceeded)"')" "2 5000.00 1500.00 3500.00 CAD false"
+  passed
+}
+
+# step_order_settlement: an order's settlement rule (ADR-0064 §3, T60d):
+# Carla names the cost center that will receive the trade fair's costs
+# when the order is settled, one receiver taking the whole. The rule is
+# replaced with the order's version.
+step_order_settlement() {
+  heading "Step 51 — An order's settlement rule: the trade fair's order names the cost center that receives its costs, one receiver taking the whole"
+  as carla
+  local order cc line tag
+  line='"order \(.internal_order_code) \(.internal_order_name): receiver \(.receiver_cost_center_code // "none") (order version \(.version))"'
+  QUIET=1 api 200 '' listInternalOrders -p "legal_entity_id=$LE" -p "code=FAIR-$YEAR"
+  order=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "The trade fair's order has no settlement rule yet:"
+  api 200 "$line" getInternalOrderSettlementRule -p "id=$order"
+  expect "the order before a rule" "$(field '.receiver_cost_center_code // "none"')" none
+  tag=$ETAG
+  say "A receiver is an active cost center of the order's company that is valid today; another is refused:"
+  refused 422 controlling.settlement_rule_receiver_invalid updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" \
+    -body "{\"receiver_cost_center_id\": \"$order\"}"
+  expect "why the receiver is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "receiver_cost_center_id unknown"
+  say "Carla names the finance office's cost center CC-1100 as the receiver, at the order's version she read. It takes"
+  say "the whole of what the order is settled for (ADR-0064 §3); the order's version moves with its rule."
+  api 200 "$line" updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" -body "{\"receiver_cost_center_id\": \"$cc\"}"
+  expect "the order's receiver" "$(field '"\(.receiver_cost_center_code) \(.receiver_cost_center_id)"')" "CC-1100 $cc"
+  say "A change at the version the rule replaced is refused:"
+  refused 412 request.version_mismatch updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" -body "{\"receiver_cost_center_id\": \"$cc\"}"
+  api 200 "$line" getInternalOrderSettlementRule -p "id=$order"
+  expect "the rule read again" "$(field .receiver_cost_center_code)" CC-1100
+  passed
+}
+
 # step_incoming_payment is T75c (ADR-0063 §6, ADR-0047): Northwind pays
 # the invoice of step 48. RBC's third statement of the day shows the
 # credit; Tom matches it as an incoming payment and posts it, so it waits
@@ -5937,7 +6002,7 @@ step_internal_order() {
 # invoice, in full and exactly: one entry clears the receipt and the
 # invoice, the customer has no open item left and nothing waits on 1015.
 step_incoming_payment() {
-  heading "Step 50 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
+  heading "Step 52 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
   local customer=$CUSTOMER invoice=$CUSTOMER_INVOICE item st receipt payment clearing body number reference
   [ -n "$customer" ] && [ -n "$invoice" ] && [ -n "$CUSTOMER_INVOICE_ENTRY" ] || fail "step 48's customer invoice is not there"
   as tom
@@ -6041,7 +6106,7 @@ rbc_incoming() {
 # depends on today's date. The step duns its own invoice, so it holds
 # whether or not the invoice of step 48 is still open.
 step_dunning() {
-  heading "Step 51 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items"
+  heading "Step 53 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items"
   local customer=$CUSTOMER entry due key base cr request run before
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
@@ -8134,7 +8199,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_incoming_payment step_dunning step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_close'
 
 main() {
   stop_unseen
