@@ -2829,14 +2829,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Dunning",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller starts a dunning run for a company at a key date and reads its proposal: per customer, the overdue items and the dunning level each would reach; the collections context, its ADR and the company's dunning levels in configuration",
-        "r": "T76a · docs/design/plan-breadth-week1.md §T76a",
+        "r": "T76a · docs/design/plan-breadth-week1.md §T76a · db/migrations/000268 · collections.dunning_run, dunning_notice, dunning_notice_item · companies[].dunning.levels (tier 2) · POST /v1/dunning-runs · GET /v1/dunning-runs · GET /v1/dunning-runs/{id} · GET /v1/dunning-runs/{id}/notices · DunningRunChanged · collections.dunning.read, .run · walkthrough step_dunning · ADR-0065 §1-§7 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

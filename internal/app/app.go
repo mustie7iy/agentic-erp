@@ -33,6 +33,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/closing"
+	"github.com/mustie7iy/agentic-erp/internal/collections"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/consolidation"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
@@ -81,6 +82,7 @@ type (
 	procurementAPI = procurement.Endpoints
 	payablesAPI    = payables.Endpoints
 	receivablesAPI = receivables.Endpoints
+	collectionsAPI = collections.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -108,6 +110,7 @@ type handler struct {
 	*procurementAPI
 	*payablesAPI
 	*receivablesAPI
+	*collectionsAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -232,6 +235,7 @@ func New(cfg Config) (http.Handler, error) {
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		receivablesAPI: Receivables(cfg),
+		collectionsAPI: Collections(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -411,6 +415,14 @@ func Receivables(cfg Config) *receivables.Endpoints {
 		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
 		Postings: postings(), Entries: ledger.OpenItems{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Now: cfg.Now}
+}
+
+// Collections is the collections context as the API wires it (ADR-0065
+// §1): a leaf that reads the ledger's customer open items, the partner
+// context's names, tenancy and the configuration through its ports.
+func Collections(cfg Config) *collections.Endpoints {
+	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
+		Settings: configuration.Settings{}}
 }
 
 // uploads is the API's direct-upload service (ADR-0020).

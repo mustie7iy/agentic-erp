@@ -213,6 +213,10 @@ type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
 
+type CreateDunningRunRes interface {
+	createDunningRunRes()
+}
+
 type CreateEntryTemplateRes interface {
 	createEntryTemplateRes()
 }
@@ -555,6 +559,10 @@ type GetDepreciationRunRes interface {
 
 type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
+}
+
+type GetDunningRunRes interface {
+	getDunningRunRes()
 }
 
 type GetEInvoiceContentRes interface {
@@ -955,6 +963,14 @@ type ListDepreciationRunsRes interface {
 
 type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
+}
+
+type ListDunningNoticesRes interface {
+	listDunningNoticesRes()
+}
+
+type ListDunningRunsRes interface {
+	listDunningRunsRes()
 }
 
 type ListEInvoicesRes interface {

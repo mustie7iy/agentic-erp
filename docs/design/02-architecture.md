@@ -44,6 +44,7 @@ pointing its schema at a separate database. Callers do not change.
 | **procurement** | Requisitions, purchase orders, contracts, goods receipts | `PurchaseOrderReleased`, `GoodsReceived` |
 | **payables** | Supplier invoices, matching results, invoice holds | `SupplierInvoicePosted`, `InvoiceHeld` |
 | **receivables** (ADR-0063) | Customer invoices entered without a sales order, with their items and the output tax calculated for them (T75a), and posted as the customer's open items with their payment terms (T75b); incoming payments applied, credit memos and the aging read planned (T75c-T75e) | `CustomerInvoiceChanged`, `CustomerInvoicePosted` |
+| **collections** (ADR-0065, a leaf) | Dunning runs: per company and key date, one notice per customer proposing the open customer items overdue and the dunning level each would reach, from the ledger's customer open items (`ledger.OpenItems.Receivable`) and the company's dunning levels in the configuration, through the ports `OpenItems`, `Partners`, `LegalEntities` and `Settings`; nothing changes on the items (T76a); confirming a run and the collection worklist planned (T76b, T76c) | `DunningRunChanged` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |
 | **workflow** | Approval requests, steps, decisions | `ApprovalCompleted` |
 | **audit** | Audit events (hash-chained) | — (consumes everything) |
@@ -57,7 +58,7 @@ pointing its schema at a separate database. Callers do not change.
 
 Later phases add `sales`, `inventory`, `manufacturing`, `maintenance`,
 `projects` and `hr` with the same rules; `receivables` is built from T75a
-(ADR-0063).
+(ADR-0063) and `collections` from T76a (ADR-0065).
 
 Dependencies between contexts point one way (no cycles):
 
@@ -74,6 +75,8 @@ flowchart LR
   procurement --> payables
   ledger --> receivables
   partner --> receivables
+  ledger --> collections
+  partner --> collections
   payables --> payments
   partner --> payments
   ledger --> payments

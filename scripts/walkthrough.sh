@@ -5808,6 +5808,85 @@ step_customer_invoice() {
   passed
 }
 
+# step_dunning is T76a (ADR-0065 §2-§5): Ruth posts a second invoice to
+# Northwind; Ada gives Maple its dunning levels
+# through a tier 2 change, a run before them refused; Ruth starts a
+# dunning run at a key date ten days past the invoice's due date and reads
+# its proposal, one notice for Northwind with the invoice's open item at
+# level 1; a run at the due date itself proposes nothing; the customer's
+# open items are unchanged. The key dates are the requests': nothing here
+# depends on today's date. The step duns its own invoice, so it holds
+# whether or not the invoice of step 48 is still open.
+step_dunning() {
+  heading "Step 49 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items"
+  local customer=$CUSTOMER entry due key base cr request run before
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  as ruth
+  say "Ruth enters and posts another invoice to Northwind Traders, for a spare part, on Northwind's terms, NT30:"
+  QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
+    \"items\": [{\"description\": \"Spindle bearing\", \"account_id\": \"$(account 4000)\", \"net_amount\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}}]}"
+  api 200 '"customer invoice \(.document_number) to \(.customer_name): \(.status), \(.gross_amount.amount) \(.gross_amount.currency), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$(field .id)" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the invoice's due date" "$(field .net_due_date)" "$due"
+  entry=$(field .journal_entry_id)
+  say "It is due on $due. Ruth, who also chases Maple's customers, wants to see what a dunning run would propose"
+  say "ten days later, on $key. Maple has no dunning levels yet, so it has no dunning:"
+  refused 422 collections.no_dunning_levels createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  as ada
+  say "Dunning levels are the tenant's own configuration (ADR-0065 §2); no country pack ships any. Ada proposes"
+  say "Maple's: level 1 from 5 days overdue, level 2 from 20, level 3 from 40. They post nothing, so the change is"
+  say "tier 2, approved by the process owner:"
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Dunning levels\", rationale: \"Maple's dunning (T76a)\", base_version: $base,
+    proposed: (.items[0].document | .companies |= map(if .code == \"$CC\" then .dunning = {levels: [
+      {level: 1, days_overdue: 5}, {level: 2, days_overdue: 20}, {level: 3, days_overdue: 40}]} else . end))}" "$WORK/last.json" >"$WORK/dunning.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @dunning.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the levels among the changes" "$(field '[.items[] | select(.path | startswith("companies['"$CC"'].dunning.levels["))] | length')" 3
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The dunning levels, as agreed with the controller"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  before=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.net_due_date)"] | join(", ")')
+  say "Ruth starts the run at the key date $key. It is a proposal: per customer, the open items overdue on the key"
+  say "date and the dunning level each would reach. Nothing is sent and nothing changes on the items:"
+  api 201 '"dunning run of \(.company_code) \(.company_name) at \(.key_date): \(.status), \(.notice_count) notice, \(.item_count) item(s), \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  run=$(field .id)
+  expect "the run" "$(field '"\(.status) \(.key_date) \(.notice_count) \(.overdue_amount.currency)"')" "proposed $key 1 CAD"
+  say "Its one notice is Northwind's. The new invoice's open item, ten days overdue, has reached the first level's"
+  say "five days. An item never dunned reaches level 1 however long it is overdue; it rises one level per confirmed run:"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level), \(.item_count) item(s), \(.overdue_amount.amount) \(.overdue_amount.currency)", (.items[] | "  item \(.item_no): entry \(.document_number) (\(.reference)), due \(.net_due_date), \(.days_overdue) days overdue, \(.amount.amount) \(.amount.currency), level \(.previous_level) -> \(.level)")' \
+    listDunningNotices -p "id=$run"
+  expect "the notices" "$(field '[.items[] | "\(.customer_id) \(.customer_name) \(.level) \(.item_count == (.items | length)) \(.overdue_amount.currency)"] | join(", ")')" \
+    "$customer Northwind Traders 1 true CAD"
+  expect "the invoice's item in the notice" \
+    "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\") | \"\(.net_due_date) \(.days_overdue) \(.amount.amount) \(.amount.currency) \(.local_amount.amount) \(.previous_level) \(.level)\"] | join(\", \")")" \
+    "$due 10 400.00 CAD 400.00 0 1"
+  expect "every item at level 1" "$(field '[.items[].items[].level] | unique | join(" ")')" 1
+  say "Read back, the run is the same, and it is among Maple's runs:"
+  api 200 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice"' getDunningRun -p "id=$run"
+  expect "read back" "$(field '"\(.id) \(.status) \(.notice_count)"')" "$run proposed 1"
+  QUIET=1 api 200 '' listDunningRuns -p "legal_entity_id=$LE" -p "key_date_from=$key" -p "key_date_to=$key"
+  expect "Maple's runs at the key date" "$(field '[.items[].id] | join(" ")')" "$run"
+  say "On the due date itself the invoice is not overdue, so a run at $due proposes nothing:"
+  api 201 '"dunning run at \(.key_date): \(.status), \(.notice_count) notices"' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$due\"}"
+  expect "the run at the due date" "$(field '"\(.notice_count) \(.item_count) \(.overdue_amount.amount)"')" "0 0 0.00"
+  say "The customer's open items are as they were before the runs:"
+  api 200 '.items[] | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.net_due_date)"] | join(", ")')" "$before"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7832,7 +7911,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_dunning step_close'
 
 main() {
   stop_unseen
