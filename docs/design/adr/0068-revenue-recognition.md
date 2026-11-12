@@ -55,7 +55,9 @@ The product owner decided on 2026-11-12:
   the contract where the order is not that simple. The plan's
   `POST /v1/revenue-contracts` stays as the explicit way to create the
   contract of a confirmed order that has none yet.
-- The delivery confirmation is the default evidence that control passed.
+- The delivery confirmation is the default evidence that control passed:
+  a planning default until the accounting specialist answers the plan's
+  question 2, not a confirmed reading of the standard.
 
 ## Decision
 
@@ -232,8 +234,9 @@ Computed on read from the active contract's obligations: a
 point-in-time obligation's allocated amount falls in the fiscal periods
 of its order item's delivery confirmations, in proportion to the
 quantity delivered, the last delivery taking the remainder (the delivery
-confirmation is the default evidence that control passed, product owner
-2026-11-12; statement 1); an over-time obligation's amount is spread on
+confirmation is the default evidence that control passed, a planning
+default of the product owner, 2026-11-12, until the accounting
+specialist answers question 2; statement 1); an over-time obligation's amount is spread on
 a straight line by days over its service period, each fiscal period
 taking its days' share (statement 5). T81c records the detail when it
 builds it.
@@ -268,8 +271,12 @@ liability when it is negative, never both (statement 6), posted through
 
 - A confirmed order's contract appears a moment after the confirmation,
   not in its transaction. Without an event bus (`ERP_NATS_URL` unset)
-  events stay in the outbox and no contract is created until a relay
-  runs; the explicit request works meanwhile.
+  events stay in the outbox and no contract is created; the explicit
+  request works meanwhile. `erp-server` creates the durable consumer
+  before it starts the relay, so the events still in the outbox when
+  the consumer first exists are delivered to it. Events relayed before
+  the consumer first existed (by a server without this slice) are not:
+  a new durable consumer starts at the events published after it.
 - Orders confirmed before this slice was deployed have no contract until
   a person asks for one; nothing lists them yet (see "Gaps").
 - The revenue context depends on the shape of `SalesOrderChanged`
@@ -330,7 +337,11 @@ is answered by the product owner: yes.
   The sales context is untouched.
 - **The automatic contract** (§4). `revenue.Consumer.Handle` on the
   durable consumer `revenue-contracts` over the sales stream, started by
-  `erp-server` beside the webhook fan-out. It acts on
+  `erp-server` beside the webhook fan-out, both before the relay
+  (review round 1: a new durable consumer is given only what is
+  published after it, so the relay must not publish the outbox's backlog
+  first; the ordering has no test of its own, since the test database's
+  outboxes are relayed by other packages' tests too). It acts on
   `com.example.erp.sales.sales_order_changed.v1` with `status`
   `confirmed`; it records the event in `revenue.inbox` (consumer
   `revenue-contracts`) and creates the contract in one transaction

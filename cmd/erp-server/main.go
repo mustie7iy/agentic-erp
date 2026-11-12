@@ -941,8 +941,8 @@ func (s *server) connectBus() (*natsbus.Bus, error) {
 	return natsbus.Connect(s.cfg.NATSURL, natsbus.TLS(s.tls)...)
 }
 
-// startRelay makes sure the cell's streams exist and starts the outbox
-// relay on bus, when there is one.
+// startRelay makes sure the cell's streams exist and starts the bus's
+// consumers and then the outbox relay on bus, when there is one.
 func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error {
 	if bus == nil {
 		return nil
@@ -950,17 +950,12 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 	if err := bus.EnsureStreams(ctx, s.cfg.Cell); err != nil {
 		return err
 	}
-	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log, Counter: s.metrics}
-	if s.store != nil {
-		// A published batch marks its tenants due an extract, once per
-		// batch and never in the posting transactions (ADR-0044).
-		relay.Relayed = extract.MarkChanged
-	}
-	s.spawn("relay", func() { relay.Run(runCtx) })
 	// Events offered to webhooks become deliveries (ADR-0041), and a
 	// confirmed sales order's event its revenue contract (ADR-0068 §4),
 	// each in its tenant's transaction, so neither consumer needs a role
-	// beyond the app's.
+	// beyond the app's. The durable consumers are created before the relay
+	// starts: a new one is given only the events published after it, so
+	// what the outbox still holds must not reach the bus before them.
 	fanout := &integration.Fanout{Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
 	contracts := &revenue.Consumer{Endpoints: app.Revenue(s.apiCfg), Pool: s.pool, AppRole: s.cfg.AppRole, Log: s.log}
 	for _, c := range []struct {
@@ -978,6 +973,13 @@ func (s *server) startRelay(ctx, runCtx context.Context, bus *natsbus.Bus) error
 		consumer.Log = s.log
 		s.spawn(c.name, func() { consumer.Run(runCtx) })
 	}
+	relay := &outbox.Relay{Pool: s.pool, Role: s.cfg.RelayRole, Publisher: bus, Cell: s.cfg.Cell, Log: s.log, Counter: s.metrics}
+	if s.store != nil {
+		// A published batch marks its tenants due an extract, once per
+		// batch and never in the posting transactions (ADR-0044).
+		relay.Relayed = extract.MarkChanged
+	}
+	s.spawn("relay", func() { relay.Run(runCtx) })
 	return nil
 }
 
