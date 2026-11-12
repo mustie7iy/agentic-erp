@@ -194,6 +194,35 @@ func TestSecondaryAccountPostings(t *testing.T) {
 			t.Errorf("refusal: got %v, want lines[1].cost_center_id locked_for_costs", p.Errors)
 		}
 	})
+	t.Run("no account another context may be given to post to", func(t *testing.T) {
+		// What procurement, payables, receivables, accruals and assets ask
+		// before they take an account on an item (Accounts.IsPostable's rule).
+		for _, c := range []struct {
+			name    string
+			account uuid.UUID
+			want    bool
+		}{{"the secondary cost element", account, false}, {"a primary cost account", a.office, true}} {
+			var postable, closePostable, offset bool
+			if err := apitest.InRequest(t, a.ten, a.ten.Human, func(ctx context.Context) (err error) {
+				if postable, err = (ledger.Accounts{}).IsPostable(ctx, a.de, c.account); err != nil {
+					return err
+				}
+				if _, offset, err = (ledger.AssetReads{}).OffsetAccount(ctx, a.de, c.account); err != nil {
+					return err
+				}
+				accounts, err := ledger.CloseAccounts{}.Accounts(ctx, a.de, []uuid.UUID{c.account}, nil)
+				if err == nil && len(accounts) == 1 {
+					closePostable = accounts[0].Postable
+				}
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if got := fmt.Sprint(postable, " ", offset, " ", closePostable); got != fmt.Sprint(c.want, " ", c.want, " ", c.want) {
+				t.Errorf("%s postable, an asset's offset, an accrual's: got %s, want %v for each", c.name, got, c.want)
+			}
+		}
+	})
 	for constraint, want := range map[string]string{"journal_line_secondary_account": "422 ledger.secondary_account",
 		"gl_account_secondary_kept": "409 ledger.secondary_account_not_new"} {
 		p := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: constraint})

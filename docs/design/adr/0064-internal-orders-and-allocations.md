@@ -779,11 +779,16 @@ adding up to 100, all active and of one company.
      T60g, so an order never carries an assessment's line and a
      settlement, which moves an order's balance per account, never moves
      one.
-  8. *Other contexts*: an invoice, a goods receipt, an asset posting or
-     a statement posting on it is refused by the ledger when it posts
-     (422 `ledger.secondary_account`). An order item or an invoice item
-     naming such an account is not refused earlier; that is a gap for
-     the product owner (below).
+  8. *Other contexts*: the ledger's reads of an account another context
+     may be given to post to answer no for it, as they do for a
+     reconciliation account and the GR/IR account
+     (`ledger.Accounts.IsPostable`, `CloseAccounts.Accounts`,
+     `AssetReads.OffsetAccount`; files `ports.go`, `closeparked.go`,
+     `assetreads.go`; review round 1), so a requisition, order, supplier
+     or customer invoice item, an accrual proposal and an asset's offset
+     on it are refused when they are entered, by each context's own
+     problem. Whatever still reaches a posting is refused by the ledger
+     (422 `ledger.secondary_account`).
 - **Decided by default:**
   1. A secondary cost element is an expense account (the chart's types
      have no "secondary costs"), new when it becomes one, and stays one.
@@ -806,10 +811,11 @@ adding up to 100, all active and of one company.
      defined; several cycles may name the same account.
 - **Gaps for the product owner** (not in the plan's lists, not built):
   the accounts API does not show an account's cost element, so a client
-  finds the assessment account in the configuration document; an order
-  item or invoice item on a secondary cost element is refused only when
-  it posts; the SAP configuration draft does not take over SAP's
-  secondary cost elements or cycles.
+  finds the assessment account in the configuration document; a run and
+  its event name the cycle's kind but not the assessment account, which
+  the cycle and the run's entry show (review round 1, a nit); the SAP
+  configuration draft does not take over SAP's secondary cost elements
+  or cycles.
 - **Walkthrough**: `step_assessment` (Step 53): Ada adds account 6990, a
   secondary cost element, through a governed change; Sam sets up CC-1400
   (facilities), Alex posts CAD 1,000.01 of rent to it, and a manual entry
