@@ -202,25 +202,33 @@ func TestSecondaryAccountPostings(t *testing.T) {
 			account uuid.UUID
 			want    bool
 		}{{"the secondary cost element", account, false}, {"a primary cost account", a.office, true}} {
-			var postable, closePostable, offset bool
-			if err := apitest.InRequest(t, a.ten, a.ten.Human, func(ctx context.Context) (err error) {
-				if postable, err = (ledger.Accounts{}).IsPostable(ctx, a.de, c.account); err != nil {
+			t.Run(c.name, func(t *testing.T) {
+				var postable, closePostable, offset bool
+				if err := apitest.InRequest(t, a.ten, a.ten.Human, func(ctx context.Context) (err error) {
+					if postable, err = (ledger.Accounts{}).IsPostable(ctx, a.de, c.account); err != nil {
+						return err
+					}
+					if _, offset, err = (ledger.AssetReads{}).OffsetAccount(ctx, a.de, c.account); err != nil {
+						return err
+					}
+					accounts, err := ledger.CloseAccounts{}.Accounts(ctx, a.de, []uuid.UUID{c.account}, nil)
+					if err == nil && len(accounts) == 1 {
+						closePostable = accounts[0].Postable
+					}
 					return err
+				}); err != nil {
+					t.Fatal(err)
 				}
-				if _, offset, err = (ledger.AssetReads{}).OffsetAccount(ctx, a.de, c.account); err != nil {
-					return err
+				if postable != c.want {
+					t.Errorf("postable for another context's item: got %v, want %v", postable, c.want)
 				}
-				accounts, err := ledger.CloseAccounts{}.Accounts(ctx, a.de, []uuid.UUID{c.account}, nil)
-				if err == nil && len(accounts) == 1 {
-					closePostable = accounts[0].Postable
+				if offset != c.want {
+					t.Errorf("an asset acquisition's offset: got %v, want %v", offset, c.want)
 				}
-				return err
-			}); err != nil {
-				t.Fatal(err)
-			}
-			if got := fmt.Sprint(postable, " ", offset, " ", closePostable); got != fmt.Sprint(c.want, " ", c.want, " ", c.want) {
-				t.Errorf("%s postable, an asset's offset, an accrual's: got %s, want %v for each", c.name, got, c.want)
-			}
+				if closePostable != c.want {
+					t.Errorf("postable for an accrual: got %v, want %v", closePostable, c.want)
+				}
+			})
 		}
 	})
 	for constraint, want := range map[string]string{"journal_line_secondary_account": "422 ledger.secondary_account",

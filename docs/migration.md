@@ -486,8 +486,8 @@ account, and `none` for an account that is not a cost element in SAP (no
 CSKB row), so its lines take no cost object (ADR-0050 §4). A category the
 account's type cannot take, a secondary or statistical one (which the
 draft does not take over: the platform's secondary cost elements are new
-accounts for its own assessment cycles, ADR-0064 §4) or areas that disagree
-leave the type's
+accounts for its own assessment cycles, ADR-0064 §4) or areas that
+disagree leave the type's
 default, with a note for the reviewer, as does a company whose area has
 no cost elements or whose area the extract does not tell. A company code's
 controlling area is the one TKA02 assigns it to (BUKRS to KOKRS; the SAP
