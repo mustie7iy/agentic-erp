@@ -436,10 +436,13 @@ func TestRevaluation(t *testing.T) {
 	})
 	holds(t, "French", b.get(posted.location(), "Accept-Language", "fr-CA").page(t).mainText(), "Réévaluation", "Comptabilisée", "-10,00 EUR")
 	// The open item's supplier and entry named, the entry linked (T73i2).
+	// The company keeps two ledgers, so the supplier's USD item is posted as
+	// an entry in each, under the one number: the run is the leading
+	// ledger's, and the entry it values is that ledger's.
 	var invoice uuid.UUID
 	var number string
-	pgtest.Scan(t, `SELECT id, document_number FROM ledger.journal_entry WHERE tenant_id = $1 AND legal_entity_id = $2 AND currency_tc = 'USD'`,
-		[]any{d.f.Tenant.ID, d.f.DE}, &invoice, &number)
+	pgtest.Scan(t, `SELECT id, document_number FROM ledger.journal_entry WHERE tenant_id = $1 AND legal_entity_id = $2 AND ledger_id = $3 AND currency_tc = 'USD'`,
+		[]any{d.f.Tenant.ID, d.f.DE, d.leading}, &invoice, &number)
 	holds(t, "the run's item", rp.mainText(), number+" line 2 BP90000001 BP90000001")
 	entries := map[string]bool{}
 	for _, a := range rp.all("a", "") {

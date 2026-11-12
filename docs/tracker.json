@@ -10712,6 +10712,13 @@
      },
      {
       "s": "D",
+      "t": "Two tests that each failed one race shard once and passed on the re-run fail no more: the server's tests that register a test identity provider (TestProvisionWithAProvider, TestProvisionClaimsInTheDirectory, TestRegisteredProviderEndToEnd) give it an audience of its own, as TestRegisterProviderCommand did, since an earlier run's registration stays active in the package's database and the OS hands its 127.0.0.1 port out again (pull request 116); TestRevaluation reads the leading ledger's entry of the supplier's USD item, which the company's second ledger holds too under the same number, instead of whichever of the two the database returns first (pull request 118)",
+      "r": "cmd/erp-server/main_test.go · internal/web/close_test.go",
+      "src": "ci:batch66 · ci:batch68",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "Resilience suite: database connections killed, JetStream node lost, workers killed mid-work, shutdown under load; exactly-once and audit chain checked after each",
       "r": "internal/nfr/resilience_test.go · make resilience",
       "src": "baseline",

@@ -97,6 +97,15 @@ func environment(t *testing.T, is *authntest.Issuer, natsURL string) map[string]
 	}
 }
 
+// ownAudience is an audience no other test and no earlier run registers.
+// An active (issuer, audience) pair is unique across tenants
+// (identity_provider_issuer_audience, ADR-0031), the package's database
+// keeps every registration of the runs before (-count), and a test issuer
+// listens on a 127.0.0.1 port the OS hands out again once its test has
+// ended: with the one audience authntest mints for, a provider registered
+// on a port an earlier provider had is refused as a duplicate.
+func ownAudience() string { return authntest.Audience + "-" + uuid.NewString() }
+
 func load(t *testing.T, env map[string]string) config.Config {
 	t.Helper()
 	cfg, err := config.Load(func(k string) string { return env[k] })
@@ -1603,7 +1612,7 @@ func TestProvisionWithAProvider(t *testing.T) {
 	delete(env, "ERP_OIDC_ISSUERS")
 	file := configFile(t)
 	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada",
-		"-config", file, "-idp-issuer", idp.URL, "-idp-audience", authntest.Audience}
+		"-config", file, "-idp-issuer", idp.URL, "-idp-audience", ownAudience()}
 	var stdout, stderr bytes.Buffer
 	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code != 0 {
 		t.Fatalf("provision: %d %s", code, stderr.String())
@@ -1655,8 +1664,9 @@ func TestRegisteredProviderEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	audience := ownAudience()
 	body := `{"name": "Registered", "region": "eu-west", "group_currency": "EUR", "administrator": {"subject": "ada", "display_name": "Ada"},
-		"identity_provider": {"issuer": "` + idp.URL + `", "audience": "` + authntest.Audience + `"}, "configuration": ` + string(doc) + `}`
+		"identity_provider": {"issuer": "` + idp.URL + `", "audience": "` + audience + `"}, "configuration": ` + string(doc) + `}`
 	req := request(t, "POST", "http://"+a[1]+"/control/v1/tenants", body)
 	req.Header.Set("Authorization", "Bearer "+ops.Token(t, uuid.Nil, "ops|e2e", map[string]any{"tenant_id": nil}))
 	req.Header.Set("Idempotency-Key", "key-"+uuid.NewString())
@@ -1680,7 +1690,7 @@ func TestRegisteredProviderEndToEnd(t *testing.T) {
 		_ = resp.Body.Close() // the status is what is asserted
 		return resp.StatusCode
 	}
-	admin := idp.Token(t, uuid.Nil, "ada", map[string]any{"tenant_id": nil, "sid": "e2e", "auth_time": time.Now().Unix()})
+	admin := idp.Token(t, uuid.Nil, "ada", map[string]any{"aud": audience, "tenant_id": nil, "sid": "e2e", "auth_time": time.Now().Unix()})
 	if code := get(admin); code != 200 {
 		t.Fatalf("the administrator through the registered provider: got %d, want 200\n%s", code, logs.String())
 	}
@@ -1689,7 +1699,8 @@ func TestRegisteredProviderEndToEnd(t *testing.T) {
 	if sessions != 1 {
 		t.Errorf("sessions: got %d, want the administrator's", sessions)
 	}
-	if code := get(ops.Token(t, uuid.MustParse(tenant), "ada", nil)); code != 401 {
+	// The registered audience, so that the issuer alone is what is refused.
+	if code := get(ops.Token(t, uuid.MustParse(tenant), "ada", map[string]any{"aud": audience})); code != 401 {
 		t.Errorf("an issuer the tenant did not register: got %d, want 401", code)
 	}
 }
@@ -1703,8 +1714,9 @@ func TestProvisionClaimsInTheDirectory(t *testing.T) {
 	delete(env, "ERP_OIDC_ISSUERS")
 	directoryURL := pgtest.EmptyDatabase(t)
 	env["ERP_DIRECTORY_URL"], env["ERP_CELL_API_URL"], env["ERP_CELL_CONTROL_URL"], env["ERP_CELL_REGION"] = cellLogin(t, directoryURL), "https://test.api.example.com", "http://test-admin.internal:9090", "eu-west"
+	audience := ownAudience()
 	args := []string{"provision", "-name", "Acme", "-region", "eu-west", "-currency", "EUR", "-admin-subject", "ada", "-admin-name", "Ada",
-		"-config", configFile(t), "-idp-issuer", idp.URL, "-idp-audience", authntest.Audience}
+		"-config", configFile(t), "-idp-issuer", idp.URL, "-idp-audience", audience}
 	var stdout, stderr bytes.Buffer
 	if code := cli(context.Background(), args, func(k string) string { return env[k] }, &stdout, &stderr, nil); code != 0 {
 		t.Fatalf("provision: %d %s", code, stderr.String())
@@ -1714,7 +1726,7 @@ func TestProvisionClaimsInTheDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dir.Close()
-	claims, err := dir.LookupIssuer(context.Background(), idp.URL, []string{authntest.Audience})
+	claims, err := dir.LookupIssuer(context.Background(), idp.URL, []string{audience})
 	if err != nil || len(claims) != 1 || claims[0].Cell != "test" {
 		t.Errorf("claims: got %v, %v, want the provider's, by this cell", claims, err)
 	}
@@ -1902,11 +1914,7 @@ func TestRegisterProviderCommand(t *testing.T) {
 	env := environment(t, authntest.New(t), "")
 	getenv := func(k string) string { return env[k] }
 	ten := pgtest.NewTenant(t)
-	// An active (issuer, audience) pair is unique across tenants and the test
-	// issuers listen on 127.0.0.1 ports the OS reuses, so a repeated run could
-	// meet an issuer an earlier run registered: a per-run audience keeps each
-	// run's registrations its own.
-	audience := authntest.Audience + "-" + uuid.NewString()
+	audience := ownAudience()
 	var stdout, stderr bytes.Buffer
 	args := []string{"register-provider", "-tenant", ten.ID.String(), "-issuer", idp.URL, "-audience", audience, "-amr", "mfa,otp", "-certificate-bound"}
 	if code := cli(context.Background(), args, getenv, &stdout, &stderr, nil); code != 0 {
