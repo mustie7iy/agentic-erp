@@ -157,6 +157,10 @@ type CompleteYearCloseTaskRes interface {
 	completeYearCloseTaskRes()
 }
 
+type ConfirmSalesOrderRes interface {
+	confirmSalesOrderRes()
+}
+
 type CreateAssetAcquisitionRes interface {
 	createAssetAcquisitionRes()
 }
@@ -315,6 +319,10 @@ type CreateRoleAssignmentRes interface {
 
 type CreateRoleRes interface {
 	createRoleRes()
+}
+
+type CreateSalesOrderRes interface {
+	createSalesOrderRes()
 }
 
 type CreateSegmentRes interface {
@@ -759,6 +767,10 @@ type GetRolePermissionRes interface {
 
 type GetRoleRes interface {
 	getRoleRes()
+}
+
+type GetSalesOrderRes interface {
+	getSalesOrderRes()
 }
 
 type GetSchemaRes interface {
@@ -1231,6 +1243,10 @@ type ListRolePermissionsRes interface {
 
 type ListRolesRes interface {
 	listRolesRes()
+}
+
+type ListSalesOrdersRes interface {
+	listSalesOrdersRes()
 }
 
 type ListSegmentsRes interface {

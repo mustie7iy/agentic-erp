@@ -424,9 +424,11 @@ func Receivables(cfg Config) *receivables.Endpoints {
 
 // Sales is the sales context as the API wires it (ADR-0067 §1): the
 // ledger, the partner context, tenancy and the configuration through its
-// ports, as receivables reads them.
+// ports, as receivables reads them. The payment terms are the tenant's,
+// for customers as for suppliers: partner.Suppliers is their one reader.
 func Sales(cfg Config) *sales.Endpoints {
-	return &sales.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, Partners: partner.Payees{},
+	return &sales.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
+		Terms: partner.Suppliers{}, Partners: partner.Payees{},
 		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Now: cfg.Now}
 }

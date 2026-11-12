@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's is there now. The defaults
+records what it built under "As built"; T78a's and T78b's are there now. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -130,7 +130,10 @@ else the customer's in the company. Its statuses are `draft` and
 `confirmed`; confirming is by permission, without approval, once, under
 the order's row lock. An order is not changed or cancelled in the first
 version (plan default 4). Each item shows its ordered, delivered and
-billed quantities. `sales.Orders` is the context's published read of an
+billed quantities. The quotation's items are copied as they were offered,
+prices included; items given directly are checked and priced as a
+quotation's (§3). The order needs the customer's data in the company
+(§4). `sales.Orders` is the context's published read of an
 order with its items, as `procurement.Orders` is for payables.
 
 ### 6. Events and audit
@@ -282,3 +285,73 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   plan: changing a quotation and its versions, the quotation as a
   document, the tax shown on it, alternative items, follow-up, CRM and CPQ
   connectors, approval below a margin.
+
+### T78b Sales order confirmed (migration 000277)
+- `internal/sales/orders.go`, `order_api.go`; `app.Sales` wires
+  `partner.Customers` (the customer's company data) and
+  `partner.Suppliers` (the tenant's payment terms, for customers as for
+  suppliers) beside T78a's ports; the fixture's number ranges include
+  `sales_order`.
+- Migration 000277: `sales.sales_order` (`sales_order_number_once` per
+  company; `sales_order_net_positive`; a payment term; statuses `draft`
+  and `confirmed`; from a quotation only an accepted one of its company,
+  customer and currency, `sales_order_quotation_accepted`, and one order
+  per quotation, `sales_order_one_per_quotation`; confirming its one
+  update, once, by `sales_order_confirmed_once` and a column grant of
+  `status`, `version` and `updated_by`; no delete) and
+  `sales.sales_order_item` (a quotation item's shape with
+  `delivered_quantity` and `billed_quantity`, 0 when created and never
+  above what was ordered and delivered, `sales_order_item_quantities`; no
+  update or delete for the application until T78c and T79a are granted
+  theirs); the permissions `sales.order.read`, `.write` and `.confirm`.
+  Schema tests in `db/sales_test.go`.
+- `POST /v1/sales-orders` (201 with `Location` and `ETag`, idempotent,
+  human-only; `quotation_id` alone or `legal_entity_id`, `customer_id`,
+  `currency` and `items`; `payment_term_code` with either),
+  `GET /v1/sales-orders` (the companies the caller may act in; filters
+  `legal_entity_id`, `customer_id`, `status`, `document_number`,
+  `quotation_id`; sortable by `order_date` and `document_number`; cursor
+  paging), `GET /v1/sales-orders/{id}` (404 for another company's),
+  `POST /v1/sales-orders/{id}:confirm` (`If-Match`, idempotent,
+  human-only). The order names its quotation by id and number and each
+  item its ordered, delivered and billed quantities.
+- From a quotation the order is created under the quotation's row lock:
+  two requests wait for one another and the second is refused, 409
+  `sales.quotation_ordered`; the unique index answers the same. The
+  quotation's items are copied as they were offered, prices included:
+  they are not priced or checked again (the offer stands; billing checks
+  the account and the tax code when it posts). Items given directly go
+  through T78a's checks and its one pricing function, on the order's
+  date.
+- Refusals: a quotation the caller cannot read 422
+  `request.reference_not_found` (`quotation_id`); one not accepted 409
+  `sales.quotation_not_accepted`; a mix of a quotation and the request's
+  own company, customer, currency or items, or none of the two, 422
+  `sales.quotation_or_items` naming the field given or missing; a
+  customer without data in the company, not active, without the role or
+  blocked for posting 422 `sales.customer_not_usable` naming
+  `customer_id` or, for a quotation's customer, `quotation_id`; a payment
+  term that is not configured 422 `sales.unknown_payment_term`; T78a's
+  item refusals; confirming an order that is not a draft 409
+  `sales.invalid_status`.
+- `SalesOrderChanged` (`x-webhook`; created, confirmed; `quotation_id`
+  null for an order created directly) and the audit records
+  `sales.sales_order.create` and `.confirm`, in the change's transaction.
+- `sales.Orders.Order` is the published read (an order with its items,
+  company access left to the caller), for T81a.
+- Walkthrough `step_sales_order` (step 55): Sally creates the order from
+  the quotation of step 54, on Northwind's term NT30, with its items'
+  ordered, delivered and billed quantities; a second order from the
+  quotation is refused; she confirms it, once; nothing is posted. The
+  pilot's settings (step 2) add the `sales_order` number range.
+- **Decided by default:** the payment term is resolved and stored when
+  the order is created (the customer's then, if none is given), so the
+  order shows the term it will be billed with; a quotation's items are
+  copied, not priced again; confirming checks nothing but the status (the
+  credit check joins it with T77b); `delivered_quantity <= quantity` and
+  `billed_quantity <= delivered_quantity` are database rules now, since
+  T78c refuses a delivery above the open quantity and T79a bills
+  delivered quantities only. Not built, by the plan: changing or
+  cancelling an order, sales areas, partner functions, order types,
+  schedule lines, incompletion checks, approval, the order confirmation
+  as a document.

@@ -25,15 +25,16 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"sales.quotation.read", "sales.quotation.write"}
+var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.order.read", "sales.order.write", "sales.order.confirm"}
 
 // far is a validity no run of the tests reaches.
 const far = "2099-12-31"
 
 // env is a configured tenant whose company 2000 (EUR, dated in Toronto's
 // time zone) has the output tax codes A1 (19%) and AJ (levying its lines'
-// subdivision) on account 230000 beside the fixture's input code V1, and
-// a customer.
+// subdivision) on account 230000 beside the fixture's input code V1, the
+// customer reconciliation account 120000, and a customer set up in the
+// company on it with the payment term NT30.
 type env struct {
 	fixture.Env
 	revenue, other uuid.UUID // accounts 400000 and 530000 of company 2000
@@ -45,7 +46,8 @@ type env struct {
 func outputCodes(doc *config.Config) {
 	de := doc.Company("2000")
 	de.TimeZone = "America/Toronto"
-	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "230000", Name: "Output tax", Type: config.Liability})
+	de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "230000", Name: "Output tax", Type: config.Liability},
+		config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true})
 	output := func(code string, onLine bool) config.TaxCode {
 		c := config.TaxComponent{Key: "vat", AccountKey: config.KeyOutput, Account: "230000",
 			Rates: []config.TaxRate{{RatePercent: "19", ValidFrom: "2026-01-01"}}}
@@ -62,7 +64,17 @@ func setup(t *testing.T) env {
 	f := fixture.NewWith(t, nil, outputCodes, perms...)
 	e := env{Env: f, revenue: f.Account(t, "2000", "400000"), other: f.Account(t, "2000", "530000")}
 	e.customer = e.partner(t, "BP70000001", "Northwind Traders", "active", "customer")
+	e.companyData(t, e.customer, e.DE, "NT30")
 	return e
+}
+
+// companyData sets the customer up in the company on the receivables
+// account 120000 of company 2000 with the payment term, as an approved
+// partner change would (T74a).
+func (e env) companyData(t *testing.T, customer, company uuid.UUID, term string) {
+	t.Helper()
+	pgtest.Exec(t, `INSERT INTO partner.customer_company (tenant_id, partner_id, legal_entity_id, reconciliation_account_id, payment_term_code, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)`, e.Tenant.ID, customer, company, e.Account(t, "2000", "120000"), term, e.Tenant.Human.ID)
 }
 
 // partner inserts a business partner in the status with the roles.

@@ -1546,7 +1546,8 @@ migrated_down_payment() {
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
 # a number range for the customer invoices of step 48 (T75a; the packs
-# number none yet) and one for the quotations of step 54 (T78a),
+# number none yet), one for the quotations of step 54 (T78a) and one for
+# the sales orders of step 55 (T78b),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1601,7 +1602,8 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
-    {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -6238,6 +6240,52 @@ step_quotation() {
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
   passed
 }
+# step_sales_order is T78b (ADR-0067 §5): Sally creates a sales order from
+# the accepted quotation of step_quotation, which copies its customer,
+# currency and items and takes Northwind's payment term; a second order
+# from the quotation is refused; she confirms the order, once. Nothing is
+# posted. SALES_ORDER is the confirmed order for later steps.
+step_sales_order() {
+  heading "Step 55 — Sales orders: an order created from the accepted quotation with its customer, currency and items, on the customer's payment term; one order per quotation; confirmed once; nothing posted"
+  local customer=$CUSTOMER quotation=$QUOTATION before order number open
+  [ -n "$quotation" ] || fail "step 54's quotation is not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  say "Northwind accepted the quotation of step 54, so Sally creates the sales order from it. The order copies the"
+  say "quotation's customer, currency and items as they were offered; its payment term is Northwind's in Maple,"
+  say "NT30, since the request names none (ADR-0067 §5). Each item shows what is ordered, delivered and billed:"
+  before=$(company_day)
+  api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), from quotation \(.quotation_number), dated \(.order_date), terms \(.payment_term_code), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): ordered \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    createSalesOrder -body "{\"quotation_id\": \"$quotation\"}"
+  order=$(field .id)
+  number=$(field .document_number)
+  expect "the order's status" "$(field .status)" draft
+  expect_today "the order's date, Maple's today" "$(field .order_date)" "$before"
+  expect "the order's customer, currency, term and net value" "$(field '"\(.customer_id) \(.currency) \(.payment_term_code) \(.net_amount.amount)"')" "$customer CAD NT30 1737.53"
+  expect "the order's quotation" "$(field .quotation_id)" "$quotation"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.quantity.unit) \(.delivered_quantity.value) \(.billed_quantity.value) \(.net_amount.amount)"] | join(", ")')" \
+    "120 EA 0 0 1500.00, 2.5 H 0 0 237.53"
+  say "A quotation gives one order: a second is refused."
+  refused 409 sales.quotation_ordered createSalesOrder -body "{\"quotation_id\": \"$quotation\"}"
+  say "Sally confirms the order at the version she read; it is confirmed once:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  expect "the confirmed order" "$(field '"\(.status) \(.version) \(.net_amount.amount)"')" "confirmed 2 1737.53"
+  refused 409 sales.invalid_status confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  say "Read back, it is the quotation's order, among Northwind's confirmed ones:"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), from \(.quotation_number), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listSalesOrders -p "quotation_id=$quotation"
+  expect "the quotation's order" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number confirmed"
+  QUIET=1 api 200 '' listSalesOrders -p "customer_id=$customer" -p status=confirmed
+  expect "the customer's confirmed orders" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  SALES_ORDER=$order
+  say "An order posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8262,7 +8310,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_quotation step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_quotation step_sales_order step_close'
 
 main() {
   stop_unseen

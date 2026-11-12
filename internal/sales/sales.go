@@ -1,8 +1,10 @@
 // Package sales is the sales context (ADR-0067; 02-architecture §2.2,
-// 03-data-model §3.16 and §3.28): quotations to customers, as a header
-// and its items, each a quantity of something described at a unit price
-// with the revenue account and output tax code its billing will post
-// with.
+// 03-data-model §3.16 and §3.28): quotations to customers and sales
+// orders, each a header and its items, an item a quantity of something
+// described at a unit price with the revenue account and output tax code
+// its billing will post with. A sales order is created from an accepted
+// quotation or directly and confirmed once (orders.go); Orders is the
+// context's published read of one.
 //
 // A sales document carries net amounts and posts nothing: tax is
 // calculated when the order is billed, and billing posts through
@@ -12,7 +14,8 @@
 // of the document's currency (ADR-0005).
 //
 // The context reads the ledger (accounts, tax codes), the partner context
-// (the customer by role), tenancy and the configuration through the ports
+// (the customer by role, its company data and the payment terms), tenancy
+// and the configuration through the ports
 // below, as receivables does.
 package sales
 
@@ -46,6 +49,17 @@ type LegalEntities interface {
 // (partner context): the check by role receivables makes of one at entry.
 type Customers interface {
 	PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UUID, kind string) (string, error)
+}
+
+// CustomerData reads a customer's data in a company: what a sales order
+// requires and its payment term defaults from (partner context, T74a).
+type CustomerData interface {
+	Customer(ctx context.Context, partnerID, legalEntity uuid.UUID) (partner.Customer, bool, error)
+}
+
+// Terms reads a configured payment term (partner context).
+type Terms interface {
+	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
 }
 
 // Partners names business partners by number and name (partner context).
@@ -87,6 +101,8 @@ type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
 	Customers     Customers
+	CustomerData  CustomerData
+	Terms         Terms
 	Partners      Partners
 	Accounts      Accounts
 	References    References

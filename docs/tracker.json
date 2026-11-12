@@ -4502,14 +4502,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Sales orders",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative creates a sales order, from an accepted quotation or directly, and confirms it; the order shows each item's ordered, delivered and billed quantities (POST /v1/sales-orders, :confirm)",
-        "r": "T78b · docs/design/plan-breadth-week2.md §T78b",
+        "r": "T78b · docs/design/plan-breadth-week2.md §T78b · db/migrations/000277 · sales.sales_order, sales_order_item · POST /v1/sales-orders · GET /v1/sales-orders · GET /v1/sales-orders/{id} · POST /v1/sales-orders/{id}:confirm · SalesOrderChanged · sales.order.read, .write, .confirm · number range sales_order · sales.Orders · walkthrough step_sales_order · ADR-0067 §5 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

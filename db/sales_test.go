@@ -9,7 +9,8 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestSalesPermissions (T78a, migration 000276; ADR-0067 §7): the sales
+// TestSalesPermissions (T78a, migration 000276; T78b, migration 000277;
+// ADR-0067 §7): the sales
 // permissions are seeded and are no approval permissions.
 func TestSalesPermissions(t *testing.T) {
 	need(t)
@@ -21,7 +22,7 @@ func TestSalesPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "sales.quotation.read sales.quotation.write"; got != want {
+	if got, want := strings.Join(codes, " "), "sales.order.confirm sales.order.read sales.order.write sales.quotation.read sales.quotation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -133,6 +134,171 @@ func TestQuotationRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), actor: id(), company: id(), doc: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestSalesOrderRules (T78b, migration 000277; ADR-0067 §5): a sales
+// order is created as a draft, numbered once per company, with a payment
+// term and a net value above zero; from a quotation only an accepted one
+// of its company, customer and currency, and one order per quotation;
+// confirming is its one change, once; an item is a quotation item's
+// shape with delivered and billed quantities that never exceed what was
+// ordered and delivered, and the application changes none.
+func TestSalesOrderRules(t *testing.T) {
+	need(t)
+	const quotation = `INSERT INTO sales.quotation (tenant_id, id, document_number, legal_entity_id, customer_id, quotation_date, valid_until,
+		currency, net_amount, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, '2026-03-10', '2026-04-10', 'EUR', 100, 'open', $1, $1)`
+	const accept = `UPDATE sales.quotation SET status = $2, version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const header = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, quotation_id, order_date,
+		currency, payment_term_code, net_amount, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, '2026-03-12', $7, $8, $9, $10, $1, $1)`
+	const item = `INSERT INTO sales.sales_order_item (tenant_id, sales_order_id, item_no, description, quantity, uom_code, unit_price, price_unit,
+		net_amount, account_id, delivered_quantity, billed_quantity) VALUES ($1, $2, $3, 'Bracket', $4, $5, $6, $7, $8, gen_random_uuid(), $9, $10)`
+	const confirm = `UPDATE sales.sales_order SET status = $1, version = version + 1, updated_by = tenant_id`
+	type scene struct{ tenant, company, customer, doc, quotation uuid.UUID }
+	var direct *uuid.UUID
+	order := func(s scene, doc uuid.UUID, number string, from *uuid.UUID, currency, term string, net int64, status string) stmt {
+		return step(header, s.tenant, doc, number, s.company, s.customer, from, currency, term, net, status)
+	}
+	made := func(s scene) stmt { return order(s, s.doc, "SO1", direct, "EUR", "NT30", 100, "draft") }
+	quoted := func(s scene, status string) []stmt {
+		out := []stmt{step(quotation, s.tenant, s.quotation, "QT1", s.company, s.customer)}
+		if status != "open" {
+			out = append(out, step(accept, s.quotation, status))
+		}
+		return out
+	}
+	line := func(s scene, no int, quantity, unit string, price int64, priceUnit int, net int64, delivered, billed string) stmt {
+		return step(item, s.tenant, s.doc, no, quantity, unit, price, priceUnit, net, delivered, billed)
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a draft with its items", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "2.5", "KG", 1001, 1, 2503, "0", "0"), line(s, 2, "3", "EA", 9999, 100, 300, "3", "2"))
+		}, ""},
+		{"from an accepted quotation", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(quoted(s, "accepted"), order(s, s.doc, "SO1", &s.quotation, "EUR", "NT30", 100, "draft"))...)
+		}, ""},
+		{"from an open quotation", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(quoted(s, "open"), order(s, s.doc, "SO1", &s.quotation, "EUR", "NT30", 100, "draft"))...)
+		}, "its quotation is not an accepted one"},
+		{"from a rejected quotation", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(quoted(s, "rejected"), order(s, s.doc, "SO1", &s.quotation, "EUR", "NT30", 100, "draft"))...)
+		}, "its quotation is not an accepted one"},
+		{"from a quotation in another currency", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(quoted(s, "accepted"), order(s, s.doc, "SO1", &s.quotation, "USD", "NT30", 100, "draft"))...)
+		}, "its quotation is not an accepted one"},
+		{"from a quotation to another customer", func(tx pgx.Tx, s scene) error {
+			other := s
+			other.customer = id()
+			return all(tx, append(quoted(s, "accepted"), order(other, s.doc, "SO1", &s.quotation, "EUR", "NT30", 100, "draft"))...)
+		}, "its quotation is not an accepted one"},
+		{"from a quotation of another company", func(tx pgx.Tx, s scene) error {
+			other := s
+			other.company = id()
+			return all(tx, append(quoted(s, "accepted"), order(other, s.doc, "SO1", &s.quotation, "EUR", "NT30", 100, "draft"))...)
+		}, "its quotation is not an accepted one"},
+		{"from a quotation that does not exist", func(tx pgx.Tx, s scene) error {
+			return all(tx, order(s, s.doc, "SO1", &s.quotation, "EUR", "NT30", 100, "draft"))
+		}, "its quotation is not an accepted one"},
+		{"a second order of a quotation", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(quoted(s, "accepted"), order(s, s.doc, "SO1", &s.quotation, "EUR", "NT30", 100, "draft"),
+				order(s, id(), "SO2", &s.quotation, "EUR", "NT30", 100, "draft"))...)
+		}, "sales_order_one_per_quotation"},
+		{"two orders created directly", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), order(s, id(), "SO2", direct, "EUR", "NT30", 100, "draft"))
+		}, ""},
+		{"created in an unknown status", func(tx pgx.Tx, s scene) error {
+			return all(tx, order(s, s.doc, "SO1", direct, "EUR", "NT30", 100, "cancelled"))
+		}, "sales_order_status_check"},
+		{"a net value of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, order(s, s.doc, "SO1", direct, "EUR", "NT30", 0, "draft"))
+		}, "sales_order_net_positive"},
+		{"an empty payment term", func(tx pgx.Tx, s scene) error {
+			return all(tx, order(s, s.doc, "SO1", direct, "EUR", "", 100, "draft"))
+		}, "sales_order_payment_term_code_check"},
+		{"a number issued twice in the company", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), order(s, id(), "SO1", direct, "EUR", "NT30", 100, "draft"))
+		}, "sales_order_number_once"},
+		{"the same number in another company", func(tx pgx.Tx, s scene) error {
+			other := s
+			other.company = id()
+			return all(tx, made(s), order(other, id(), "SO1", direct, "EUR", "NT30", 100, "draft"))
+		}, ""},
+		{"an unknown currency", func(tx pgx.Tx, s scene) error {
+			return all(tx, order(s, s.doc, "SO1", direct, "XXA", "NT30", 100, "draft"))
+		}, "sales_order_currency_fkey"},
+		{"confirmed", func(tx pgx.Tx, s scene) error { return all(tx, made(s), step(confirm, "confirmed")) }, ""},
+		{"confirmed twice", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), step(confirm, "confirmed"), step(confirm, "confirmed"))
+		}, "only a draft changes"},
+		{"a draft changed without being confirmed", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), step(confirm, "draft"))
+		}, "only a draft changes"},
+		{"what was ordered changed with the confirmation", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), step(`UPDATE sales.sales_order SET status = 'confirmed', net_amount = 1, payment_term_code = 'NT14'`))
+		}, "permission denied"},
+		{"an order deleted", func(tx pgx.Tx, s scene) error { return all(tx, made(s), step(`DELETE FROM sales.sales_order`)) }, "permission denied"},
+		{"a quantity of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "0", "EA", 100, 1, 100, "0", "0"))
+		}, "sales_order_item_quantity_positive"},
+		{"an unknown unit", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "XX", 100, 1, 100, "0", "0"))
+		}, "sales_order_item_uom_code_fkey"},
+		{"a price of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "EA", 0, 1, 100, "0", "0"))
+		}, "sales_order_item_price_positive"},
+		{"a price unit of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "EA", 100, 0, 100, "0", "0"))
+		}, "sales_order_item_price_unit_positive"},
+		{"an item's value of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "EA", 100, 1, 0, "0", "0"))
+		}, "sales_order_item_net_positive"},
+		{"a description of white space", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), step(strings.Replace(item, "'Bracket'", "'  '", 1), s.tenant, s.doc, 1, "1", "EA", 100, 1, 100, "0", "0"))
+		}, "sales_order_item_description_check"},
+		{"an item key of white space", func(tx pgx.Tx, s scene) error {
+			keyed := strings.Replace(strings.Replace(item, "description,", "description, item_key,", 1), "'Bracket',", "'Bracket', ' ',", 1)
+			return all(tx, made(s), step(keyed, s.tenant, s.doc, 1, "1", "EA", 100, 1, 100, "0", "0"))
+		}, "sales_order_item_item_key_check"},
+		{"more delivered than ordered", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "EA", 100, 1, 100, "1.000001", "0"))
+		}, "sales_order_item_quantities"},
+		{"more billed than delivered", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "2", "EA", 100, 1, 200, "1", "1.5"))
+		}, "sales_order_item_quantities"},
+		{"a negative billed quantity", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "2", "EA", 100, 1, 200, "1", "-1"))
+		}, "sales_order_item_quantities"},
+		{"an item numbered twice", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "EA", 100, 1, 100, "0", "0"), line(s, 1, "1", "EA", 100, 1, 100, "0", "0"))
+		}, "sales_order_item_pkey"},
+		{"an item of no order", func(tx pgx.Tx, s scene) error {
+			return all(tx, line(s, 1, "1", "EA", 100, 1, 100, "0", "0"))
+		}, "sales_order_item_tenant_id_sales_order_id_fkey"},
+		{"an item changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "EA", 100, 1, 100, "0", "0"), step(`UPDATE sales.sales_order_item SET delivered_quantity = 1`))
+		}, "permission denied"},
+		{"an item deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, made(s), line(s, 1, "1", "EA", 100, 1, 100, "0", "0"), step(`DELETE FROM sales.sales_order_item`))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), company: id(), customer: id(), doc: id(), quotation: id()}
 			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
 			if c.want != "" {
 				failsWith(t, err, c.want)

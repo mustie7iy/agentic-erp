@@ -4237,7 +4237,8 @@ partner context, tenancy and the configuration through its ports, keeps no
 foreign key out of its schema (02 §2.1) and posts nothing itself (billing
 posts through receivables, §3.26). T78a (migration 000276) builds the
 schema with its outbox and inbox and the quotation: what the company
-offers a customer, valid until a date, net of tax. There is no material
+offers a customer, valid until a date, net of tax. T78b (migration
+000277) adds the sales order. There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
 `item_key`.
@@ -4268,6 +4269,26 @@ erDiagram
     uuid account_id "ledger, revenue as a rule"
     text tax_code "optional output tax code"
   }
+  quotation ||--o| sales_order : "gives one"
+  sales_order ||--|{ sales_order_item : "has"
+  sales_order { uuid id PK
+    text document_number "sales_order range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, with company data"
+    uuid quotation_id "optional, unique"
+    date order_date "the company's date when created"
+    char currency
+    text payment_term_code "the order's, else the customer's"
+    bigint net_amount "sum of the items'"
+    text status "draft, confirmed"
+    int version
+  }
+  sales_order_item { uuid sales_order_id PK
+    int item_no PK
+    numeric quantity "ordered; with the quotation item's other columns"
+    numeric delivered_quantity "at most quantity"
+    numeric billed_quantity "at most delivered_quantity"
+  }
 ```
 
 - `sales.quotation`: numbered once per company
@@ -4289,6 +4310,24 @@ erDiagram
   (`quotation_item_price_positive`, `quotation_item_price_unit_positive`)
   and a net value above zero (`quotation_item_net_positive`);
   insert-only (`platform.forbid_mutation`).
+- `sales.sales_order` (T78b, migration 000277): numbered once per
+  company (`sales_order_number_once`), with a payment term and a net
+  value above zero (`sales_order_net_positive`); the status is `draft` or
+  `confirmed` (`sales_order_status_check`). `quotation_id` names the
+  quotation it was created from, null for an order created directly: an
+  accepted quotation of its company, customer and currency
+  (`sales_order_quotation_accepted`), and one order per quotation
+  (`sales_order_one_per_quotation`). Confirming is its one change, once
+  (`sales_order_confirmed_once`); the application may update `status`,
+  `version` and `updated_by` alone and delete nothing. The list reads a
+  company's orders by date and a customer's (`sales_order_by_date`,
+  `sales_order_by_customer`).
+- `sales.sales_order_item`: a quotation item's columns and rules, with
+  `delivered_quantity` and `billed_quantity`, 0 when created:
+  `0 <= billed_quantity <= delivered_quantity <= quantity`
+  (`sales_order_item_quantities`). The application may not change or
+  delete an item until T78c and T79a are granted what they set.
 - `sales.outbox`, `sales.inbox`: the context's events
-  (`QuotationChanged`).
-- Permissions `sales.quotation.read` and `.write`.
+  (`QuotationChanged`, `SalesOrderChanged`).
+- Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
+  `.write` and `.confirm`.

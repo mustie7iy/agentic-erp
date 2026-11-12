@@ -430,11 +430,12 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations (ADR-0067 §6).
+    description: Quotations and sales orders (ADR-0067 §6).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       QuotationChanged: {$ref: '#/components/messages/QuotationChanged'}
+      SalesOrderChanged: {$ref: '#/components/messages/SalesOrderChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -709,6 +710,7 @@ operations:
     channel: {$ref: '#/channels/sales'}
     messages:
       - $ref: '#/channels/sales/messages/QuotationChanged'
+      - $ref: '#/channels/sales/messages/SalesOrderChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3780,6 +3782,34 @@ components:
         - name: accepted
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001002, source: /erp/eu-1/sales, type: com.example.erp.sales.quotation_changed.v1, subject: 0192a000-0000-7000-8000-000000001011, time: '2026-11-19T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {quotation_id: 0192a000-0000-7000-8000-000000001011, document_number: QT100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_date: '2026-11-18', valid_until: '2026-12-18', net_amount: {amount: '1500.00', currency: CAD}, status: accepted, status_before: open, version: 2}
+    SalesOrderChanged:
+      name: SalesOrderChanged
+      x-webhook: true
+      title: Sales order changed
+      summary: A sales order was created or confirmed.
+      description: |
+        Emitted at each change of a sales order's status (ADR-0067 §6,
+        T78b): when it is created (`draft`, status_before null) and when it
+        is confirmed (`confirmed`, status_before `draft`). It carries the
+        order's net value, not its items, names the customer by id and
+        number, never by name, and the quotation the order was created
+        from (null for an order created directly).
+        `GET /v1/sales-orders/{id}` returns the order at `version` or
+        later. Subject is the sales order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.sales_order_changed.v1}
+      payload: {$ref: '#/components/schemas/SalesOrderChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001101, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: draft, status_before: null, version: 1}
+        - name: confirmed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: confirmed, status_before: draft, version: 2}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4486,6 +4516,23 @@ components:
         status: {type: string, description: "The quotation's status after the change. Open enum: open, accepted, rejected."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         version: {type: integer, description: "The quotation's version after the change."}
+    SalesOrderChangedV1:
+      type: object
+      required: [sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_id, order_date, payment_term_code, net_amount, status, status_before, version]
+      properties:
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.sales_order.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that took the order.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        quotation_id: {type: [string, 'null'], format: uuid, description: 'The quotation the order was created from (`sales.quotation.id`); null for an order created directly.'}
+        order_date: {$ref: '#/components/schemas/Date', description: "The day it was created, the company's date."}
+        payment_term_code: {type: string, description: 'The payment term the order is billed with.'}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net values."}
+        status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The order's version after the change."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

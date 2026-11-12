@@ -597,6 +597,20 @@ func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCl
 	return r, ht.ErrNotImplemented
 }
 
+// ConfirmSalesOrder implements confirmSalesOrder operation.
+//
+// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
+// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
+// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
+// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
+// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:confirm
+func (UnimplementedHandler) ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (r ConfirmSalesOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateAsset implements createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -1349,6 +1363,32 @@ func (UnimplementedHandler) CreateRole(ctx context.Context, req *RoleCreate, par
 //
 // POST /v1/role-assignments
 func (UnimplementedHandler) CreateRoleAssignment(ctx context.Context, req *RoleAssignmentCreate, params CreateRoleAssignmentParams) (r CreateRoleAssignmentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateSalesOrder implements createSalesOrder operation.
+//
+// Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With
+// `quotation_id`, the order copies the quotation's company, customer, currency and items as they were
+// offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the
+// field given). The quotation is one of a company the caller may act in (422
+// `request.reference_not_found` naming `quotation_id`) that the customer accepted (409
+// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
+// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
+// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
+// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date.
+// Either way the order needs the customer's data in the company, as a receivables document does: a
+// customer that is not active, has no customer role, has no data in the company or is blocked for
+// posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`).
+// The order's payment term is `payment_term_code`, a configured term (422
+// `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the
+// company's date today in its time zone, with a document number from the company's `sales_order`
+// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
+// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders
+func (UnimplementedHandler) CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (r CreateSalesOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3004,6 +3044,19 @@ func (UnimplementedHandler) GetRolePermission(ctx context.Context, params GetRol
 	return r, ht.ErrNotImplemented
 }
 
+// GetSalesOrder implements getSalesOrder operation.
+//
+// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
+// name, the quotation it was created from by id and number, its payment term, its net value and its
+// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
+// revenue account's number and name. One of a company the caller may not act in is not found (404), as
+// one that does not exist.
+//
+// GET /v1/sales-orders/{id}
+func (UnimplementedHandler) GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (r GetSalesOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSchema implements getSchema operation.
 //
 // The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the
@@ -4543,6 +4596,19 @@ func (UnimplementedHandler) ListRolePermissions(ctx context.Context, params List
 //
 // GET /v1/roles
 func (UnimplementedHandler) ListRoles(ctx context.Context, params ListRolesParams) (r ListRolesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListSalesOrders implements listSalesOrders operation.
+//
+// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
+// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
+// quotation it came from, its net value and its items with their ordered, delivered and billed
+// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
+// `order_date`, `document_number`.
+//
+// GET /v1/sales-orders
+func (UnimplementedHandler) ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (r ListSalesOrdersRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

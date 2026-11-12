@@ -65,7 +65,7 @@ type QuotationInput struct {
 }
 
 var quotationSelect = `SELECT q.id, q.document_number, q.legal_entity_id, q.customer_id, q.quotation_date, q.valid_until, q.currency, c.exponent,
-		q.net_amount, q.status, ` + itemsJSON("quotation_item", "quotation_id", "q") + `,
+		q.net_amount, q.status, ` + itemsJSON("quotation_item", "quotation_id", "q", "") + `,
 		q.version, q.created_at, q.created_by, q.updated_at, q.updated_by
 	FROM sales.quotation q JOIN ref.currency c ON c.code = q.currency`
 

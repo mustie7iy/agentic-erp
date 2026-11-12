@@ -240,11 +240,12 @@ func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, d
 
 // itemsJSON is the SQL that reads a document's items by item number, so
 // every read lists them in the order they were entered; table is an item
-// table of the sales schema, column its document's id and doc the alias
-// of the document's row.
-func itemsJSON(table, column, doc string) string {
+// table of the sales schema, column its document's id, doc the alias of
+// the document's row and extra further key and value pairs of the item
+// (an order item's delivered and billed quantities), led by a comma.
+func itemsJSON(table, column, doc, extra string) string {
 	return `coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'item_key', t.item_key, 'description', t.description,
 			'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
-			'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code) ORDER BY t.item_no)
+			'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code` + extra + `) ORDER BY t.item_no)
 		 FROM ` + pgx.Identifier{"sales", table}.Sanitize() + ` t WHERE t.tenant_id = ` + doc + `.tenant_id AND t.` + pgx.Identifier{column}.Sanitize() + ` = ` + doc + `.id), '[]')`
 }
