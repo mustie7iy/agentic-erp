@@ -605,6 +605,10 @@ type GetHierarchyRes interface {
 	getHierarchyRes()
 }
 
+type GetInternalOrderBudgetRes interface {
+	getInternalOrderBudgetRes()
+}
+
 type GetInternalOrderRes interface {
 	getInternalOrderRes()
 }
@@ -1599,6 +1603,10 @@ type UpdateCostCenterRes interface {
 
 type UpdateEntryTemplateRes interface {
 	updateEntryTemplateRes()
+}
+
+type UpdateInternalOrderBudgetRes interface {
+	updateInternalOrderBudgetRes()
 }
 
 type UpdateLegalEntityRes interface {

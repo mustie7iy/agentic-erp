@@ -2410,6 +2410,24 @@ func (UnimplementedHandler) GetInternalOrder(ctx context.Context, params GetInte
 	return r, ht.ErrNotImplemented
 }
 
+// GetInternalOrderBudget implements getInternalOrderBudget operation.
+//
+// The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal
+// entity's local currency: the budget, one overall amount for the order; the actual, the balance of
+// the leading ledger's journal lines that name the order over every fiscal year, exact at the moment
+// of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the
+// budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so.
+// An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a
+// budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH`
+// takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual
+// is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for
+// the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-orders/{id}/budget
+func (UnimplementedHandler) GetInternalOrderBudget(ctx context.Context, params GetInternalOrderBudgetParams) (r GetInternalOrderBudgetRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetJournalEntry implements getJournalEntry operation.
 //
 // Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
@@ -6156,6 +6174,24 @@ func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTex
 //
 // PATCH /v1/entry-templates/{id}
 func (UnimplementedHandler) UpdateEntryTemplate(ctx context.Context, req *EntryTemplateUpdate, params UpdateEntryTemplateParams) (r UpdateEntryTemplateRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateInternalOrderBudget implements updateInternalOrderBudget operation.
+//
+// Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more,
+// in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field
+// error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's
+// budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET`
+// gave it, `"0"` for an order whose budget was never set; the order is read under a row lock, so of
+// two changes at one version the second is refused (412). The budget may be set on an order in any
+// status and may be below the order's actual costs: nothing is refused for it. Set directly by
+// permission, with no approval request. Audited with the amounts before and after, and published as
+// InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so
+// the caller also needs `ledger.entry.read`. Agents may not set a budget.
+//
+// PATCH /v1/internal-orders/{id}/budget
+func (UnimplementedHandler) UpdateInternalOrderBudget(ctx context.Context, req *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (r UpdateInternalOrderBudgetRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

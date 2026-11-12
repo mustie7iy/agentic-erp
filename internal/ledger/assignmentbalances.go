@@ -324,3 +324,24 @@ func (AssignmentBalances) OrderActuals(ctx context.Context, q OrderActualsQuery)
 	}
 	return out, nil
 }
+
+// OrderBalance is the leading ledger's balance of an internal order over
+// every fiscal year (ADR-0064 §3, T60c): the debits less the credits of
+// the journal lines that name the order, in local currency, read from
+// the lines themselves through the order's index (000270), so it is
+// exact at the read and is the total of OrderActuals over the years. A
+// tenant without a leading ledger has none.
+func (AssignmentBalances) OrderBalance(ctx context.Context, le, order uuid.UUID) (money.Minor, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return 0, err
+	}
+	leading, ok, err := ledgerOrLeading(ctx, tx, nil)
+	if err != nil || !ok {
+		return 0, err
+	}
+	var balance money.Minor
+	err = tx.QueryRow(ctx, `SELECT coalesce(sum(l.amount_lc), 0)::bigint FROM ledger.journal_line l
+		WHERE l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.internal_order_id = $3`, le, leading, order).Scan(&balance)
+	return balance, errs.Wrapf(err, "ledger: balance of internal order %s", order)
+}

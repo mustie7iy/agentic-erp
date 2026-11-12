@@ -31,6 +31,13 @@
 // this context about the orders through its port ledger.CostObjects
 // (CostObjects), and the order's actual costs by account and period are
 // the ledger's lines naming it, read through the ledger's port.
+//
+// An order's budget (ADR-0064 §3, T60c) is one overall amount in the
+// company's currency, set by a person holding controlling.order.budget
+// with the version the budget's reader saw, the order held FOR UPDATE;
+// each change is audited with the amounts before and after and
+// published. The read compares it with the order's actual costs over
+// every year; nothing is refused for a budget.
 package controlling
 
 import (
@@ -39,6 +46,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -72,6 +80,7 @@ type Ledger interface {
 	ProfitCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
 	CostCenterRefs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CostCenterRef, error)
 	OrderActuals(ctx context.Context, q ledger.OrderActualsQuery) (ledger.OrderActuals, error)
+	OrderBalance(ctx context.Context, le, order uuid.UUID) (money.Minor, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).

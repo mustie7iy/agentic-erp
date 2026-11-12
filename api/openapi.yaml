@@ -8251,6 +8251,94 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}/budget":
+    get:
+      operationId: getInternalOrderBudget
+      x-slo-class: report
+      tags:
+        - controlling
+      summary: Get an internal order's budget against its actual costs
+      description: "The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal entity's local currency: the budget, one overall amount for the order; the actual, the balance of the leading ledger's journal lines that name the order over every fiscal year, exact at the moment of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so. An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.order.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The order's budget, actual costs and what remains.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderBudget"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateInternalOrderBudget
+      tags:
+        - controlling
+      summary: Set an internal order's budget
+      description: "Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more, in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET` gave it, `\"0\"` for an order whose budget was never set; the order is read under a row lock, so of two changes at one version the second is refused (412). The budget may be set on an order in any status and may be below the order's actual costs: nothing is refused for it. Set directly by permission, with no approval request. Audited with the amounts before and after, and published as InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so the caller also needs `ledger.entry.read`. Agents may not set a budget."
+      x-permission: controlling.order.budget
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - controlling.order_budget_invalid
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the order's budget.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderBudgetUpdate"
+      responses:
+        "200":
+          description: "The order's budget, as set, against its actual costs."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderBudget"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/internal-order-balances:
     get:
       operationId: listInternalOrderBalances
@@ -34228,6 +34316,99 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    InternalOrderBudget:
+      type: object
+      description: "The budget of an internal order against its actual costs (ADR-0064 §3), in the legal entity's local currency."
+      required:
+        - internal_order_id
+        - internal_order_code
+        - internal_order_name
+        - legal_entity_id
+        - version
+        - actual
+        - exceeded
+      properties:
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        internal_order_code:
+          type: string
+          description: The order's code.
+          readOnly: true
+        internal_order_name:
+          type: string
+          description: The order's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The order's legal entity (company code).
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          minimum: 0
+          description: "The budget's version, the `ETag`: 0 while the budget was never set, then 1 and one more with every change."
+          readOnly: true
+        budget:
+          $ref: "#/components/schemas/Money"
+          description: "The budget: one overall amount for the order, zero or more. Absent while it was never set."
+        actual:
+          $ref: "#/components/schemas/Money"
+          description: "The order's actual costs: the debits less the credits of the leading ledger's journal lines that name the order, over every fiscal year. Negative when the credits exceed the debits."
+          readOnly: true
+        remaining:
+          $ref: "#/components/schemas/Money"
+          description: "The budget less the actual; negative once the actual exceeds the budget. Absent while the budget was never set."
+          readOnly: true
+        exceeded:
+          type: boolean
+          description: "Whether the actual exceeds the budget. False while the budget was never set."
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: "When the budget was last set (UTC). Absent while it was never set."
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: "The principal who last set the budget. Absent while it was never set."
+          readOnly: true
+      examples:
+        - internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          internal_order_code: TRADEFAIR-26
+          internal_order_name: Trade fair 2026
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          version: 2
+          budget:
+            amount: "20000.00"
+            currency: EUR
+          actual:
+            amount: "1500.00"
+            currency: EUR
+          remaining:
+            amount: "18500.00"
+            currency: EUR
+          exceeded: false
+          updated_at: "2026-11-12T10:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderBudgetUpdate:
+      type: object
+      description: "The budget an internal order is given (a merge patch of its budget: `budget` is replaced whole)."
+      required:
+        - budget
+      properties:
+        budget:
+          $ref: "#/components/schemas/Money"
+          description: "One overall amount for the order, zero or more, in the legal entity's local currency."
+      additionalProperties: false
+      examples:
+        - budget:
+            amount: "20000.00"
+            currency: EUR
     InternalOrderBalance:
       type: object
       description: "The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the legal entity's local currency."

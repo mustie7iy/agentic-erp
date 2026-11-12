@@ -5892,6 +5892,39 @@ step_internal_order() {
   passed
 }
 
+# step_order_budget: an order's budget against its actual costs (ADR-0064
+# §3, T60c): Carla gives the trade fair's order a budget, one overall
+# amount in Maple's currency, and reads what remains of it after the
+# expense step_internal_order posted. A budget below the actual costs is
+# shown as exceeded; nothing is refused for it.
+step_order_budget() {
+  heading "Step 50 — An order's budget: the trade fair's order is given a budget; what remains is the budget less the costs posted to the order, and a budget below them is shown as exceeded"
+  as carla
+  local order line tag
+  line='"order \(.internal_order_code) \(.internal_order_name): budget \(.budget.amount // "none"), actual \(.actual.amount), remaining \(.remaining.amount // "none") \(.actual.currency)\(if .exceeded then ", exceeded" else "" end) (version \(.version))"'
+  QUIET=1 api 200 '' listInternalOrders -p "legal_entity_id=$LE" -p "code=FAIR-$YEAR"
+  order=$(field '.items[0].id')
+  say "The trade fair's order has no budget yet. Its actual costs are the CAD 1,500.00 Alex posted to it, over every"
+  say "fiscal year (ADR-0064 §3):"
+  api 200 "$line" getInternalOrderBudget -p "id=$order"
+  expect "the order before a budget" "$(field '"\(.version) \(.budget.amount // "none") \(.actual.amount) \(.actual.currency) \(.exceeded)"')" "0 none 1500.00 CAD false"
+  say "Carla sets the budget, one overall amount in Maple's currency, at the version she read. She first enters"
+  say "CAD 1,000.00, below what the fair has already cost: the budget is taken and shown as exceeded. A budget"
+  say "refuses nothing; it is compared with the actual costs when it is read."
+  api 200 "$line" updateInternalOrderBudget -p "id=$order" -if-match "$ETAG" -body '{"budget": {"amount": "1000.00", "currency": "CAD"}}'
+  tag=$ETAG
+  expect "a budget below the actual costs" "$(field '"\(.budget.amount) \(.actual.amount) \(.remaining.amount) \(.remaining.currency) \(.exceeded)"')" "1000.00 1500.00 -500.00 CAD true"
+  say "A change at a version already replaced is refused, as is a budget in another currency than the company's:"
+  refused 412 request.version_mismatch updateInternalOrderBudget -p "id=$order" -if-match '"0"' -body '{"budget": {"amount": "5000.00", "currency": "CAD"}}'
+  refused 422 controlling.order_budget_invalid updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"budget": {"amount": "5000.00", "currency": "USD"}}'
+  expect "why the budget is refused" "$(field '.errors[0].field')" "budget.currency"
+  say "She corrects it to CAD 5,000.00. What remains is the budget less the actual costs:"
+  api 200 "$line" updateInternalOrderBudget -p "id=$order" -if-match "$tag" -body '{"budget": {"amount": "5000.00", "currency": "CAD"}}'
+  api 200 "$line" getInternalOrderBudget -p "id=$order"
+  expect "budget, actual and what remains" "$(field '"\(.version) \(.budget.amount) \(.actual.amount) \(.remaining.amount) \(.remaining.currency) \(.exceeded)"')" "2 5000.00 1500.00 3500.00 CAD false"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7916,7 +7949,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_close'
 
 main() {
   stop_unseen

@@ -35497,6 +35497,18 @@ type GetInternalOrderBadRequest Problem
 
 func (*GetInternalOrderBadRequest) getInternalOrderRes() {}
 
+type GetInternalOrderBudgetBadRequest Problem
+
+func (*GetInternalOrderBudgetBadRequest) getInternalOrderBudgetRes() {}
+
+type GetInternalOrderBudgetForbidden Problem
+
+func (*GetInternalOrderBudgetForbidden) getInternalOrderBudgetRes() {}
+
+type GetInternalOrderBudgetNotFound Problem
+
+func (*GetInternalOrderBudgetNotFound) getInternalOrderBudgetRes() {}
+
 type GetInternalOrderForbidden Problem
 
 func (*GetInternalOrderForbidden) getInternalOrderRes() {}
@@ -40446,6 +40458,192 @@ func (s *InternalOrderBalanceTotals) SetCredit(val Money) {
 // SetBalance sets the value of Balance.
 func (s *InternalOrderBalanceTotals) SetBalance(val Money) {
 	s.Balance = val
+}
+
+// The budget of an internal order against its actual costs (ADR-0064 §3), in the legal entity's local
+// currency.
+// Ref: #/components/schemas/InternalOrderBudget
+type InternalOrderBudget struct {
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The budget's version, the `ETag`: 0 while the budget was never set, then 1 and one more with every
+	// change.
+	Version int32 `json:"version"`
+	// The budget: one overall amount for the order, zero or more. Absent while it was never set.
+	Budget OptMoney `json:"budget"`
+	// The order's actual costs: the debits less the credits of the leading ledger's journal lines that
+	// name the order, over every fiscal year. Negative when the credits exceed the debits.
+	Actual Money `json:"actual"`
+	// The budget less the actual; negative once the actual exceeds the budget. Absent while the budget was
+	// never set.
+	Remaining OptMoney `json:"remaining"`
+	// Whether the actual exceeds the budget. False while the budget was never set.
+	Exceeded bool `json:"exceeded"`
+	// When the budget was last set (UTC). Absent while it was never set.
+	UpdatedAt OptDateTime `json:"updated_at"`
+	// The principal who last set the budget. Absent while it was never set.
+	UpdatedBy OptUUID `json:"updated_by"`
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderBudget) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderBudget) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderBudget) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderBudget) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetVersion returns the value of Version.
+func (s *InternalOrderBudget) GetVersion() int32 {
+	return s.Version
+}
+
+// GetBudget returns the value of Budget.
+func (s *InternalOrderBudget) GetBudget() OptMoney {
+	return s.Budget
+}
+
+// GetActual returns the value of Actual.
+func (s *InternalOrderBudget) GetActual() Money {
+	return s.Actual
+}
+
+// GetRemaining returns the value of Remaining.
+func (s *InternalOrderBudget) GetRemaining() OptMoney {
+	return s.Remaining
+}
+
+// GetExceeded returns the value of Exceeded.
+func (s *InternalOrderBudget) GetExceeded() bool {
+	return s.Exceeded
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *InternalOrderBudget) GetUpdatedAt() OptDateTime {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *InternalOrderBudget) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderBudget) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderBudget) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderBudget) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderBudget) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *InternalOrderBudget) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetBudget sets the value of Budget.
+func (s *InternalOrderBudget) SetBudget(val OptMoney) {
+	s.Budget = val
+}
+
+// SetActual sets the value of Actual.
+func (s *InternalOrderBudget) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetRemaining sets the value of Remaining.
+func (s *InternalOrderBudget) SetRemaining(val OptMoney) {
+	s.Remaining = val
+}
+
+// SetExceeded sets the value of Exceeded.
+func (s *InternalOrderBudget) SetExceeded(val bool) {
+	s.Exceeded = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *InternalOrderBudget) SetUpdatedAt(val OptDateTime) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *InternalOrderBudget) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// InternalOrderBudgetHeaders wraps InternalOrderBudget with response headers.
+type InternalOrderBudgetHeaders struct {
+	ETag     OptString
+	Response InternalOrderBudget
+}
+
+// GetETag returns the value of ETag.
+func (s *InternalOrderBudgetHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderBudgetHeaders) GetResponse() InternalOrderBudget {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *InternalOrderBudgetHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderBudgetHeaders) SetResponse(val InternalOrderBudget) {
+	s.Response = val
+}
+
+func (*InternalOrderBudgetHeaders) getInternalOrderBudgetRes() {}
+
+// The budget an internal order is given (a merge patch of its budget: `budget` is replaced whole).
+// Ref: #/components/schemas/InternalOrderBudgetUpdate
+type InternalOrderBudgetUpdate struct {
+	// One overall amount for the order, zero or more, in the legal entity's local currency.
+	Budget Money `json:"budget"`
+}
+
+// GetBudget returns the value of Budget.
+func (s *InternalOrderBudgetUpdate) GetBudget() Money {
+	return s.Budget
+}
+
+// SetBudget sets the value of Budget.
+func (s *InternalOrderBudgetUpdate) SetBudget(val Money) {
+	s.Budget = val
 }
 
 // A new internal order.
@@ -68051,6 +68249,7 @@ func (*ServiceUnavailableHeaders) updateConnectorRes()                       {}
 func (*ServiceUnavailableHeaders) updateContractRes()                        {}
 func (*ServiceUnavailableHeaders) updateCostCenterRes()                      {}
 func (*ServiceUnavailableHeaders) updateEntryTemplateRes()                   {}
+func (*ServiceUnavailableHeaders) updateInternalOrderBudgetRes()             {}
 func (*ServiceUnavailableHeaders) updateLegalEntityRes()                     {}
 func (*ServiceUnavailableHeaders) updateMemoRecordRes()                      {}
 func (*ServiceUnavailableHeaders) updateOrgUnitRes()                         {}
@@ -72520,6 +72719,7 @@ func (*TooManyRequestsHeaders) getGrIrClearingRes()                       {}
 func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()             {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                          {}
+func (*TooManyRequestsHeaders) getInternalOrderBudgetRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
@@ -72769,6 +72969,7 @@ func (*TooManyRequestsHeaders) updateConnectorRes()                       {}
 func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
+func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) updateMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()                         {}
@@ -73034,6 +73235,7 @@ func (*UnauthorizedHeaders) getGrIrClearingRes()                       {}
 func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()             {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) getHierarchyRes()                          {}
+func (*UnauthorizedHeaders) getInternalOrderBudgetRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
@@ -73283,6 +73485,7 @@ func (*UnauthorizedHeaders) updateConnectorRes()                       {}
 func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
+func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) updateMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()                         {}
@@ -73888,6 +74091,69 @@ func (*UpdateEntryTemplatePreconditionRequired) updateEntryTemplateRes() {}
 type UpdateEntryTemplateUnprocessableEntity Problem
 
 func (*UpdateEntryTemplateUnprocessableEntity) updateEntryTemplateRes() {}
+
+type UpdateInternalOrderBudgetBadRequest Problem
+
+func (*UpdateInternalOrderBudgetBadRequest) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetForbidden Problem
+
+func (*UpdateInternalOrderBudgetForbidden) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetNotFound Problem
+
+func (*UpdateInternalOrderBudgetNotFound) updateInternalOrderBudgetRes() {}
+
+// UpdateInternalOrderBudgetOKHeaders wraps InternalOrderBudget with response headers.
+type UpdateInternalOrderBudgetOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrderBudget
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateInternalOrderBudgetOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateInternalOrderBudgetOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateInternalOrderBudgetOKHeaders) GetResponse() InternalOrderBudget {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateInternalOrderBudgetOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateInternalOrderBudgetOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateInternalOrderBudgetOKHeaders) SetResponse(val InternalOrderBudget) {
+	s.Response = val
+}
+
+func (*UpdateInternalOrderBudgetOKHeaders) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetPreconditionFailed Problem
+
+func (*UpdateInternalOrderBudgetPreconditionFailed) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetPreconditionRequired Problem
+
+func (*UpdateInternalOrderBudgetPreconditionRequired) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetUnprocessableEntity Problem
+
+func (*UpdateInternalOrderBudgetUnprocessableEntity) updateInternalOrderBudgetRes() {}
 
 type UpdateLegalEntityBadRequest Problem
 

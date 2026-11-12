@@ -55,6 +55,35 @@ func TestInternalOrderBalancesBudget(t *testing.T) {
 	}
 }
 
+// TestInternalOrderBudgetReadBudget holds the read of an order's budget
+// against its actual costs to the same report budget (p95 1 s): the
+// actual is the order's 20,001 lines added up, among the 400,002 of its
+// company's year, found by the order's own lines
+// (journal_line_by_internal_order, 000270) as its balances are.
+func TestInternalOrderBudgetReadBudget(t *testing.T) {
+	nfr.Measure(t)
+	p := setup(t)
+	order := p.releasedOrder(t, "FAIR-26")
+	orderBudgetData(t, p, order)
+	path := "/v1/internal-orders/" + order + "/budget"
+	p.Must(200, "PATCH", path, budgetBody("250000.00", "EUR"), `"0"`)
+	var times []time.Duration
+	for range 20 {
+		start := time.Now()
+		got, _ := p.Must(200, "GET", path, "", "")
+		times = append(times, time.Since(start))
+		if line := budgetLine(got); line != "v1 budget 250000.00 EUR actual 200010.00 EUR remaining 49990.00 EUR exceeded false" {
+			t.Fatalf("got %s, want v1 budget 250000.00 EUR actual 200010.00 EUR remaining 49990.00 EUR exceeded false", line)
+		}
+	}
+	slices.Sort(times)
+	p95 := times[len(times)*95/100]
+	t.Logf("an order's budget against 20,001 lines among 400,002: median %v, p95 %v", times[len(times)/2], p95)
+	if budget := nfr.Budget(time.Second); p95 > budget {
+		t.Fatalf("p95 %v exceeds the %v budget (1 s scaled by ERP_BUDGET_SCALE)", p95, budget)
+	}
+}
+
 // orderBudgetData loads the budget's year: an entry posted to the order,
 // copied 20,000 times on 50 further cost accounts over the twelve periods,
 // and 180,000 copies of it that name no order.

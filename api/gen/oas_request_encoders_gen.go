@@ -2323,6 +2323,20 @@ func encodeUpdateEntryTemplateRequest(
 	return nil
 }
 
+func encodeUpdateInternalOrderBudgetRequest(
+	req *InternalOrderBudgetUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeUpdateLegalEntityRequest(
 	req *LegalEntityUpdate,
 	r *http.Request,

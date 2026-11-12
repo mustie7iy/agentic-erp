@@ -90,6 +90,51 @@ func (f orderFixture) try(t *testing.T, sql string, args ...any) error {
 	return asApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, sql, args...) })
 }
 
+// An order's budget (T60c, migration 000271; ADR-0064 §3): one amount per
+// order, zero or more, changed version by version and never deleted.
+
+const orderBudgetSQL = `INSERT INTO controlling.order_budget (tenant_id, internal_order_id, amount, created_by, updated_by) VALUES ($1, $2, $3, $4, $4)`
+
+func TestOrderBudgetRules(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, orderBudgetSQL, f.tenant, f.released, 100_000, f.actor) })
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"a negative budget":           {orderBudgetSQL, []any{f.tenant, f.created, -1, f.actor}, "order_budget_not_negative"},
+		"a budget of no order":        {orderBudgetSQL, []any{f.tenant, id(), 100, f.actor}, "order_budget_order"},
+		"a second budget of an order": {orderBudgetSQL, []any{f.tenant, f.released, 100, f.actor}, "order_budget_pkey"},
+		"a budget changed to a negative": {`UPDATE controlling.order_budget SET amount = -1, version = version + 1 WHERE internal_order_id = $1`, []any{f.released},
+			"order_budget_not_negative"},
+		"a budget changed without its version": {`UPDATE controlling.order_budget SET amount = 5 WHERE internal_order_id = $1`, []any{f.released}, "optimistic lock"},
+		"a budget deleted":                     {`DELETE FROM controlling.order_budget WHERE internal_order_id = $1`, []any{f.released}, "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, c.sql, c.args...), c.want)
+		})
+	}
+	t.Run("a budget of zero, and one replaced at its version", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			if err := exec(tx, orderBudgetSQL, f.tenant, f.created, 0, f.actor); err != nil {
+				return err
+			}
+			return exec(tx, `UPDATE controlling.order_budget SET amount = 5, version = version + 1 WHERE internal_order_id = $1`, f.released)
+		})
+	})
+	t.Run("another tenant sees none", func(t *testing.T) {
+		var n int
+		mustApp(t, id(), func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), `SELECT count(*) FROM controlling.order_budget`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("budgets another tenant sees: got %d, want 0", n)
+		}
+	})
+}
+
 // The internal order on journal lines (T60b, migrations 000268-000270;
 // ADR-0064 §2): a line carries a cost center or an order, never both; the
 // check holds on every partition, and the order's lines are indexed.
