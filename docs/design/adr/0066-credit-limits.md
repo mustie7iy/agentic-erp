@@ -370,10 +370,16 @@ The check that blocked nothing now blocks a sales order
   lock with `apitest.Serialized`, the release, currencies, tax);
   walkthrough `step_credit_block` (step 68), which also raises step 59's
   last limit so that step 63's order of 1824.41 CAD gross is within it.
-- **When T79b lands** (posting a billing document as a customer
-  invoice): `sales.openOrders` (`internal/sales/credit.go`) subtracts the
-  items of billing documents whose `status` is `posted`, the status the
-  plan gives T79b. If T79b names it otherwise, that one literal changes.
+- **With T79b** (posting a billing document as a customer invoice;
+  batch 70): `sales.openOrders` (`internal/sales/credit.go`) subtracts
+  the items of billing documents whose `status` is `posted`, which is the
+  status T79b writes (`sales.Posted`). `TestOpenOrdersAndBilling` posts
+  the document: the open orders fall by its gross, the open items rise by
+  the invoice's gross and the exposure stays; an order billed and posted
+  in full no longer counts. In the walkthrough step 63's order has left
+  the exposure by step 68, its billing document posted and paid in step
+  64, and step 67's order, confirmed and not billed, counts at its gross
+  value, 2756.25 CAD.
   `TestOpenOrdersAndBilling` (`internal/sales/credit_test.go`) asserts
   today's half, a created document changing nothing, and says where the
   posted half is added: after the post, `open_orders` falls by the

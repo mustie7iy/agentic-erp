@@ -405,13 +405,11 @@ func TestCreditCheckInAnotherCurrency(t *testing.T) {
 // TestOpenOrdersAndBilling: what a confirmed order counts in the
 // exposure is its part not yet posted as a customer invoice. Deliveries
 // and a created billing document post nothing, so the order counts in
-// full.
-//
-// T79b (posting a billing document as a customer invoice) extends this
-// test: post the billing document here; open_orders then falls by the
-// document's gross (its items leave sales.openOrders once the document's
-// status is `posted`), open_items rises by the invoice's gross, and the
-// exposure stays 238.00 EUR, the invoice's tax being the order date's.
+// full. Posting the billing document (T79b) moves its part from the open
+// orders to the open items: the open orders fall by the document's gross
+// (its items leave sales.openOrders once the document is `posted`), the
+// open items rise by the invoice's gross, and the exposure stays as it
+// was, the invoice's tax being the order date's. Nothing counts twice.
 func TestOpenOrdersAndBilling(t *testing.T) {
 	e := setup(t)
 	customer := e.buyer(t, "BP70000070", "1000.00")
@@ -422,20 +420,37 @@ func TestOpenOrdersAndBilling(t *testing.T) {
 	if x := e.exposed(t, customer); x != want {
 		t.Errorf("exposure after a delivery: got %s, want %s", x, want)
 	}
-	e.Must(201, "POST", billings, bill(id, ""), "")
+	doc, _ := e.Must(201, "POST", billings, bill(id, ""), "")
 	if x := e.exposed(t, customer); x != want {
 		t.Errorf("exposure after a billing document that is not posted: got %s, want %s", x, want)
 	}
+	// 5 of 20 EA at 10.00 are billed: 50.00 net and 19% tax, 59.50, become
+	// the customer's open item; 150.00 net with its tax, 178.50, stay open
+	// on the order.
+	const posted = "59.50 EUR + 1 order(s) 178.50 EUR = 238.00 EUR, within true"
+	e.Must(200, "POST", posting(doc["id"].(string)), "", `"1"`)
+	if x := e.exposed(t, customer); x != posted {
+		t.Errorf("exposure after the billing document is posted: got %s, want %s", x, posted)
+	}
 	t.Run("a draft does not count", func(t *testing.T) {
 		e.drafted(t, customer, "EUR", e.item(line{price: "500.00"}))
-		if x := e.exposed(t, customer); x != want {
-			t.Errorf("exposure with a draft order: got %s, want %s", x, want)
+		if x := e.exposed(t, customer); x != posted {
+			t.Errorf("exposure with a draft order: got %s, want %s", x, posted)
 		}
 	})
 	t.Run("another company's orders do not count", func(t *testing.T) {
 		x, _ := e.In(t).Must(200, "GET", "/v1/credit-exposure?legal_entity_id="+e.US.String()+"&customer_id="+customer.String(), "", "")
 		if got := fmt.Sprintf("%v %s", x["open_order_count"], amount(t, x, "open_orders")); got != "0 0.00 USD" {
 			t.Errorf("open orders in company 1000: got %s, want 0 0.00 USD", got)
+		}
+	})
+	t.Run("an order billed and posted in full no longer counts", func(t *testing.T) {
+		const want = "238.00 EUR + 0 order(s) 0.00 EUR = 238.00 EUR, within true"
+		e.Must(201, "POST", deliveries(id), delivered(today, "1 15 EA"), "")
+		rest, _ := e.Must(201, "POST", billings, bill(id, ""), "")
+		e.Must(200, "POST", posting(rest["id"].(string)), "", `"1"`)
+		if x := e.exposed(t, customer); x != want {
+			t.Errorf("exposure after the whole order is posted: got %s, want %s", x, want)
 		}
 	})
 }

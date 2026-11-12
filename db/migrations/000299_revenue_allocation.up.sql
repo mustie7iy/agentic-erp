@@ -1,4 +1,4 @@
--- Price allocation (T81b; ADR-0068 §7; 03-data-model §3.29): while a
+-- Price allocation (T81b; ADR-0068 §7; 03-data-model §3.30): while a
 -- revenue contract is a draft, the revenue accountant sets per obligation
 -- whether it is satisfied at a point in time or over time, an over-time
 -- obligation's service period and its stand-alone selling price;

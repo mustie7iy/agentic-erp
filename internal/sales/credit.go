@@ -88,11 +88,12 @@ type openOrder struct {
 
 // openOrders reads a customer's confirmed orders of a company that are
 // not blocked for credit, each with what is open of its items: an item's
-// net value less what posted billing documents billed of it. No billing
-// document is posted before T79b, which moves one from `created` to
-// `posted`; from then on the part posted is the customer's open item and
-// is no longer counted here, so nothing counts twice. Orders with nothing
-// open are left out. By order date, then id.
+// net value less what posted billing documents billed of it. Posting a
+// billing document (T79b, PostBilling) moves it from `created` to
+// `posted` and enters its customer invoice in the same transaction: from
+// then on the part posted is the customer's open item and is no longer
+// counted here, so nothing counts twice. Orders with nothing open are
+// left out. By order date, then id.
 const openOrders = `SELECT o.document_number, o.order_date, o.currency, x.lines
 	FROM sales.sales_order o CROSS JOIN LATERAL (
 		SELECT json_agg(json_build_object('item_no', t.item_no, 'net_amount', t.net_amount - p.posted, 'tax_code', t.tax_code) ORDER BY t.item_no) AS lines

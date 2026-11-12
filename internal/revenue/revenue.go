@@ -1,5 +1,5 @@
 // Package revenue is the revenue recognition context (ADR-0068;
-// 02-architecture §2.2, 03-data-model §3.29): the revenue contract of a
+// 02-architecture §2.2, 03-data-model §3.30): the revenue contract of a
 // confirmed sales order, with one performance obligation per order item.
 // A contract's transaction price is the order's net value, without tax,
 // in the company's local currency; activating the contract allocates it

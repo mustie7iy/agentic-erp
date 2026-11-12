@@ -3172,7 +3172,7 @@ line or reservation. An agent's budget is identity's
 
 ## 3.16 Later contexts
 
-`sales`, `receivables`, `revenue` (§3.29), `inventory`, `manufacturing`, `maintenance`,
+`sales`, `receivables`, `revenue` (§3.30), `inventory`, `manufacturing`, `maintenance`,
 `projects`, `hr`, `controlling` (plan values from T56g, §3.19), `assets` (the asset master from T57b, §3.21) follow the same patterns:
 
 - documents as header + items with `document_number` from number ranges;
@@ -4786,9 +4786,9 @@ erDiagram
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
   `.write`.
 
-## 3.29 Revenue recognition (`revenue`)
+## 3.30 Revenue recognition (`revenue`)
 
-ADR-0068, T81a-T81d. A leaf: it reads the sales context's orders (§3.28,
+ADR-0068, T81a-T81d. A leaf: it reads the sales context's orders (§3.29,
 `sales.Orders`), the partner context's names and tenancy through its
 ports and keeps no foreign key out of its schema (02 §2.1). T81a
 (migration 000298) builds the schema with its outbox and inbox and the

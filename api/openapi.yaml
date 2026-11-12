@@ -18633,6 +18633,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -18654,6 +18655,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -18676,14 +18678,21 @@ paths:
         - receivables.account_not_postable
         - receivables.amount_not_positive
         - receivables.amount_too_large
+        # receivables.credit_exceeds_invoice, .invalid_reference_invoice, .reference_not_allowed and .unknown_kind are a credit
+        # memo's refusals (T75d), which TestProblemCodes lists for every operation that enters a customer invoice; posting a
+        # billing document cannot reach them, its invoice being of the kind invoice and naming no invoice it credits.
+        - receivables.credit_exceeds_invoice
         - receivables.currency_mismatch
         - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
         - receivables.invalid_status
         - receivables.items_required
         - receivables.no_tax_account
+        - receivables.reference_not_allowed
         - receivables.tax_changed
         - receivables.tax_jurisdiction_not_supported
         - receivables.unknown_currency
+        - receivables.unknown_kind
         - receivables.unknown_payment_term
         - receivables.unknown_tax_code
         - request.invalid_amount

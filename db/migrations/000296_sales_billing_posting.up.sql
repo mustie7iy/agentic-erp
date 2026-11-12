@@ -1,5 +1,5 @@
 -- A billing document posted through receivables (T79b; ADR-0067 §9;
--- ADR-0063 §2; 03-data-model §3.26, §3.28): posting it enters and posts
+-- ADR-0063 §2; 03-data-model §3.26, §3.29): posting it enters and posts
 -- one customer invoice in the same transaction. The billing document
 -- moves from created to posted once and names the customer invoice, by
 -- id and number, the date it posted on and the journal entry the invoice

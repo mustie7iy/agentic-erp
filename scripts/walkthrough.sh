@@ -7278,7 +7278,9 @@ step_price_list() {
 # step_revenue_contract is T81a (ADR-0068 §3-§4): Sally confirms a second
 # sales order, of two items, goods and a support service for the fiscal
 # year; the revenue context reads the order's event and creates its
-# revenue contract by itself. Nora, the revenue accountant, reads it: a
+# revenue contract by itself. The brackets carry Northwind's discount of
+# step_price_list (T80b), which applies to an entered price too, so the
+# order's net value is after it. Nora, the revenue accountant, reads it: a
 # draft with the order's net value, without tax, as its transaction price
 # and one performance obligation per order item, each satisfied at a
 # point in time with the item's net value as its stand-alone selling
@@ -7305,14 +7307,17 @@ step_revenue_contract() {
   open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
   sales=$(account 4000)
   say "Northwind orders 120 more brackets and a year of support for them. Sally creates the order directly and"
-  say "confirms it. The order's amounts are net: the GST is calculated when it is billed (ADR-0067 §3)."
+  say "confirms it. The order's amounts are net: the GST is calculated when it is billed (ADR-0067 §3). Since step 65"
+  say "Northwind has five percent off the bracket, which applies to the price Sally enters as to a recorded one"
+  say "(ADR-0067 §11): 120 at 12.50 are 1500.00, less 75.00, 1425.00; with the support, 2625.00."
   item1="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.50\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
   item2="{\"item_key\": \"SUPPORT-1Y\", \"description\": \"Support for the fiscal year\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
   api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name): \(.status), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount)")' \
     createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [$item1, $item2]}"
   order=$(field .id)
   number=$(field .document_number)
-  expect "the order's net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "2700.00 CAD"
+  expect "the order's net value, after the discount" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "2625.00 CAD"
+  expect "each item's net value" "$(field '[.items[].net_amount.amount] | join(" ")')" "1425.00 1200.00"
   api 200 '"sales order \(.document_number): \(.status), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
   expect "the confirmed order" "$(field .status)" confirmed
   as nora
@@ -7334,14 +7339,14 @@ step_revenue_contract() {
   say "performance obligation per order item, each starting as satisfied at a point in time with the item's net"
   say "value as its stand-alone selling price. What is a distinct obligation, when it is satisfied and what its"
   say "stand-alone selling price is are Nora's judgement, not the system's (ADR-0068 §2):"
-  expect "the transaction price, the order's net value" "$(field '.items[0].transaction_price | "\(.amount) \(.currency)"')" "2700.00 CAD"
+  expect "the transaction price, the order's net value" "$(field '.items[0].transaction_price | "\(.amount) \(.currency)"')" "2625.00 CAD"
   expect "each obligation's order item, timing, order value and stand-alone selling price" \
     "$(field '[.items[0].obligations[] | "\(.obligation_no)=\(.order_item_no) \(.timing) \(.net_amount.amount) \(.standalone_selling_price.amount)"] | join(", ")')" \
-    "1=1 point_in_time 1500.00 1500.00, 2=2 point_in_time 1200.00 1200.00"
+    "1=1 point_in_time 1425.00 1425.00, 2=2 point_in_time 1200.00 1200.00"
   say "Read back by its id, it is the same contract; the system created it, not a person:"
   api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), version \(.version), transaction price \(.transaction_price.amount) \(.transaction_price.currency), \(.obligations | length) obligations"' \
     getRevenueContract -p "id=$contract"
-  expect "the contract read back" "$(field '"\(.id) \(.status) \(.version) \(.transaction_price.amount) \(.obligations | length)"')" "$contract draft 1 2700.00 2"
+  expect "the contract read back" "$(field '"\(.id) \(.status) \(.version) \(.transaction_price.amount) \(.obligations | length)"')" "$contract draft 1 2625.00 2"
   if cut -f1 "$WORK/names" | grep -qx "$(field .created_by)"; then fail "the contract was created by a person, not by the system"; fi
   say "A person can ask for the contract of a confirmed order that has none yet (one confirmed before contracts were"
   say "created by themselves). This order has its contract, and an order has one, so Nora's request is refused:"
@@ -7367,25 +7372,25 @@ step_revenue_contract() {
     -body "{\"obligations\": [{\"obligation_no\": 2, \"timing\": \"over_time\", \"service_from\": \"$year-01-01\", \"service_to\": \"$year-12-31\", \"standalone_selling_price\": {\"amount\": \"1300.00\", \"currency\": \"CAD\"}}]}"
   expect "the obligations after the change" \
     "$(field '[.obligations[] | "\(.timing) \(.service_from // "-") \(.service_to // "-") \(.standalone_selling_price.amount)"] | join(", ")')" \
-    "point_in_time - - 1500.00, over_time $year-01-01 $year-12-31 1300.00"
+    "point_in_time - - 1425.00, over_time $year-01-01 $year-12-31 1300.00"
   expect "the draft's version and allocated amounts" "$(field '"\(.status) \(.version) " + ([.obligations[] | .allocated_amount.amount // "-"] | join(" "))')" "draft 2 - -"
   say "An over-time obligation needs its service period: setting the brackets to over time without one is refused."
   refused 422 revenue.service_period_required updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
     -body '{"obligations": [{"obligation_no": 1, "timing": "over_time"}]}'
   expect "the field refused" "$(field '.errors[0].field')" "obligations[0].service_from"
   say "Nora activates the contract. The system allocates the transaction price to the obligations in proportion to"
-  say "their stand-alone selling prices, 1500.00 and 1300.00: 2700.00 x 1500 / 2800 is 1446.428..., 2700.00 x 1300 / 2800"
-  say "is 1253.571...; the whole cents leave one cent over, which goes to the larger remainder, the brackets'. That"
+  say "their stand-alone selling prices, 1425.00 and 1300.00: 2625.00 x 1425 / 2725 is 1372.706..., 2625.00 x 1300 / 2725"
+  say "is 1252.293...; the whole cents leave one cent over, which goes to the larger remainder, the brackets'. That"
   say "arithmetic is all the system does:"
   QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
   api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), version \(.version), transaction price \(.transaction_price.amount) \(.transaction_price.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description): order value \(.net_amount.amount), stand-alone selling price \(.standalone_selling_price.amount), allocated \(.allocated_amount.amount) \(.allocated_amount.currency)")' \
     activateRevenueContract -p "id=$contract" -if-match "$ETAG"
   expect "the active contract" "$(field '"\(.status) \(.version)"')" "active 3"
-  expect "the allocated amounts" "$(field '[.obligations[] | .allocated_amount.amount] | join(" ")')" "1446.43 1253.57"
+  expect "the allocated amounts" "$(field '[.obligations[] | .allocated_amount.amount] | join(" ")')" "1372.71 1252.29"
   expect "the allocated amounts' sum in cents, the transaction price's" \
     "$(field '[.obligations[] | .allocated_amount.amount | sub("\\."; "") | tonumber] | add')" "$(field '.transaction_price.amount | sub("\\."; "") | tonumber')"
-  say "The two amounts add up to the transaction price, 2700.00, to the cent, and differ from the order's item values,"
-  say "1500.00 and 1200.00, as the proportion gives. An active contract is fixed: a change is refused, and so is a"
+  say "The two amounts add up to the transaction price, 2625.00, to the cent, and differ from the order's item values,"
+  say "1425.00 and 1200.00, as the proportion gives. An active contract is fixed: a change is refused, and so is a"
   say "second activation."
   refused 409 revenue.invalid_status updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
     -body '{"obligations": [{"obligation_no": 1, "standalone_selling_price": {"amount": "1.00", "currency": "CAD"}}]}'
@@ -7418,12 +7423,15 @@ step_revenue_contract() {
 # is confirmed. Throughout, the exposure shows Northwind's confirmed
 # orders not yet billed, gross, beside its open items; a blocked order
 # counts only once it is released. The amounts follow from the exposure
-# read, so the step holds whatever earlier steps left: step 63's order
-# counts for as long as its billing document is not posted.
+# read, so the step holds whatever earlier steps left open. Of the earlier
+# orders, step 63's no longer counts, since step 64 posted its billing
+# document as a customer invoice (T79b), which Northwind paid; step 67's
+# (REVENUE_ORDER), confirmed and not billed, counts at its gross value.
 step_credit_block() {
   heading "Step 68 — Order credit blocks: a sales order's gross value checked against the customer's credit limit when it is confirmed; an order within the limit confirmed without a block, a larger one blocked and refused a delivery; the block released by the credit manager, once; confirmed orders not yet billed in the exposure beside the open items"
-  local customer=$CUSTOMER sales role ruth items orders count exposure limit available billing earlier small large number day tag
+  local customer=$CUSTOMER sales role ruth items orders count exposure limit available small large number day tag
   [ -n "$customer" ] || fail "step 47's customer is not there"
+  [ -n "$SALES_ORDER" ] && [ -n "$REVENUE_ORDER" ] || fail "the sales orders of steps 63 and 67 are not there"
   as ada
   say "Releasing a credit block is a credit manager's decision, not day-to-day work: finance_staff does not hold"
   say "sales.order.credit_release. Ada creates the role and gives it to Ruth, who looks after Maple's credit:"
@@ -7435,21 +7443,22 @@ step_credit_block() {
   QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$ruth\", \"role_id\": \"$role\"}"
   as ruth
   sales=$(account 4000)
-  say "Since step 59 Northwind has ordered (step 63). Its exposure now has two parts (ADR-0066, As built T77b): its"
-  say "open items, and its confirmed sales orders not yet billed at their gross value, net plus GST. An order counts"
-  say "until its billing document is posted as a customer invoice, which is then the open item:"
+  say "Since step 59 Northwind has ordered twice (steps 63 and 67). Its exposure now has two parts (ADR-0066, As built"
+  say "T77b): its open items, and its confirmed sales orders not yet billed at their gross value, net plus GST. An"
+  say "order counts until its billing document is posted as a customer invoice, which is then the open item:"
   api 200 '"\(.customer_number) \(.customer_name): open items \(.open_items.amount) (\(.open_item_count)) + open orders \(.open_orders.amount) (\(.open_order_count)) = exposure \(.exposure.amount) \(.exposure.currency); limit \(.limit.amount), available \(.available.amount)"' \
     getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
   items=$(field .open_items.amount) orders=$(field .open_orders.amount) count=$(field .open_order_count)
   exposure=$(field .exposure.amount) limit=$(field .limit.amount) available=$(field .available.amount)
   expect "the exposure, its two parts together" "$exposure" "$(awk -v a="$items" -v b="$orders" 'BEGIN { printf "%.2f", a + b }')"
   expect "what is available, the limit less the exposure" "$available" "$(awk -v a="$limit" -v b="$exposure" 'BEGIN { printf "%.2f", a - b }')"
+  say "Step 63's order no longer counts: step 64 posted its billing document as a customer invoice, the open item"
+  say "Northwind then paid. Step 67's order is confirmed and not billed: 2625.00 net with 5% GST, 131.25, counts in full."
   QUIET=1 api 200 '' listBillingDocuments -p "sales_order_id=$SALES_ORDER"
-  billing=$(field '.items[0].status')
-  # Step 63's order is 1737.53 net with 5% GST, 86.88: it counts in full while step 64's billing document is not posted.
-  earlier="1 1824.41"
-  [ "$billing" = created ] || earlier="0 0.00"
-  expect "Northwind's open orders: step 63's while its billing document is $billing" "$count $orders" "$earlier"
+  expect "step 63's order, billed in full by a posted document" "$(field '[.items[].status] | join(" ")')" posted
+  QUIET=1 api 200 '' listBillingDocuments -p "sales_order_id=$REVENUE_ORDER"
+  expect "step 67's order, not billed" "$(field '.items | length')" 0
+  expect "Northwind's open orders: step 67's alone, at its gross value" "$count $orders" "1 2756.25"
   as sally
   say "Sally takes an order for 100 brackets M10 at 10.00: 1000.00 net, 1050.00 with 5% GST, within what is"
   say "available. Confirming it checks the gross value against the limit less the exposure; it is confirmed without a"

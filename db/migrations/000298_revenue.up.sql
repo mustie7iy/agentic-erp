@@ -1,5 +1,5 @@
 -- Revenue recognition (T81a; ADR-0068 §1-§5; 02 §2.2, 03-data-model
--- §3.29): the revenue context's schema with its outbox and inbox, and the
+-- §3.30): the revenue context's schema with its outbox and inbox, and the
 -- revenue contract of a confirmed sales order with one performance
 -- obligation per order item. The inbox is used: the context reads the
 -- sales context's SalesOrderChanged from the event bus and creates the
