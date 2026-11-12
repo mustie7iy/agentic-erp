@@ -7,7 +7,10 @@
 // context's published read of one. An item's price is the one entered
 // with it, or the price record of its item key valid on the document's
 // date (ADR-0067 §10; prices.go the records, pricing.go the one function
-// that prices an item for both documents).
+// that prices an item for both documents). A tenant whose configuration
+// has a pricing procedure has the discounts recorded for the item's key
+// taken off in the procedure's order, and the item keeps the conditions
+// applied (ADR-0067 §11).
 //
 // A sales document carries net amounts and posts nothing: tax is
 // calculated when the order is billed, and billing posts through

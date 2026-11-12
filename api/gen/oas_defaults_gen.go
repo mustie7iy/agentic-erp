@@ -131,14 +131,6 @@ func (s *SalesItemCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
-func (s *SalesPriceCreate) setDefaults() {
-	{
-		val := int32(1)
-		s.PriceUnit.SetTo(val)
-	}
-}
-
-// setDefaults set default value of fields.
 func (s *SupplierInvoiceCreate) setDefaults() {
 	{
 		val := string("invoice")

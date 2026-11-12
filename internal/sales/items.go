@@ -48,22 +48,27 @@ type Item struct {
 	UnitPrice   money.Minor `json:"unit_price"`
 	PriceUnit   int32       `json:"price_unit"`
 	PriceSource string      `json:"price_source"`
-	Net         money.Minor `json:"net_amount"`
-	AccountID   uuid.UUID   `json:"account_id"`
-	TaxCode     *string     `json:"tax_code"`
+	// Conditions are what the pricing procedure applied, in its order;
+	// none for an item priced without one (ADR-0067 §11).
+	Conditions []Condition `json:"conditions"`
+	Net        money.Minor `json:"net_amount"`
+	AccountID  uuid.UUID   `json:"account_id"`
+	TaxCode    *string     `json:"tax_code"`
 }
 
 // document is what a sales document's items are checked and priced
 // against: its company, its customer, whose prices its items take, its
-// currency with its minor-unit digits, and its date, the company's today
-// in the time zone it is told in.
+// currency with its minor-unit digits, its date, the company's today in
+// the time zone it is told in, and the tenant's pricing procedure, its
+// condition types in the order they apply, none for a tenant without one.
 type document struct {
-	le       tenancy.Entity
-	customer uuid.UUID
-	currency string
-	exp      int
-	date     time.Time
-	zone     *time.Location
+	le        tenancy.Entity
+	customer  uuid.UUID
+	procedure []config.ConditionType
+	currency  string
+	exp       int
+	date      time.Time
+	zone      *time.Location
 }
 
 // errTooLarge refuses a document whose amounts are out of range.
@@ -156,7 +161,7 @@ func (c itemCheck) item(ctx context.Context, i int, it ItemInput) (Item, error) 
 		}
 	}
 	return Item{ItemNo: int32(i + 1), ItemKey: it.ItemKey, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, PriceSource: p.Source, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode}, nil
+		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, PriceSource: p.Source, Conditions: p.Conditions, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode}, nil
 }
 
 // namesWhatIsSold refuses an item whose description, or whose item key
@@ -225,23 +230,25 @@ func (c itemCheck) outputCode(ctx context.Context, i int, code string) error {
 }
 
 // insertItems writes a new document's items; table is an item table of
-// the sales schema and column its document's id.
+// the sales schema and column its document's id. The items' conditions go
+// as one JSON array of arrays, each item's picked by its place; an item
+// priced without a procedure has none and is stored with an empty array.
 func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, doc uuid.UUID, items []Item) error {
 	n := len(items)
 	nos, keys, descriptions, quantities, units := make([]int32, n), make([]*string, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, nets, accounts, codes := make([]money.Minor, n), make([]int32, n), make([]money.Minor, n), make([]uuid.UUID, n), make([]*string, n)
-	sources := make([]string, n)
+	sources, conditions := make([]string, n), make([][]Condition, n)
 	for i, it := range items {
 		nos[i], keys[i], descriptions[i], quantities[i], units[i] = it.ItemNo, it.ItemKey, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], nets[i], accounts[i], codes[i] = it.UnitPrice, it.PriceUnit, it.Net, it.AccountID, it.TaxCode
-		sources[i] = it.PriceSource
+		sources[i], conditions[i] = it.PriceSource, it.Conditions
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO `+pgx.Identifier{"sales", table}.Sanitize()+` (tenant_id, `+pgx.Identifier{column}.Sanitize()+`, item_no, item_key,
-			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code, price_source)
-		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc, ps
+			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code, price_source, conditions)
+		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc, ps, coalesce(nullif($14::jsonb -> (ord::int - 1), 'null'), '[]')
 		FROM unnest($3::int[], $4::text[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::bigint[], $11::uuid[], $12::text[],
-			$13::text[]) AS x(n, k, d, q, u, p, pu, na, ac, tc, ps)`,
-		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes, sources); err != nil {
+			$13::text[]) WITH ORDINALITY AS x(n, k, d, q, u, p, pu, na, ac, tc, ps, ord)`,
+		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes, sources, conditions); err != nil {
 		return fmt.Errorf("sales: write items of sales.%s %s: %w", table, doc, err)
 	}
 	return nil
@@ -255,6 +262,6 @@ func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, d
 func itemsJSON(table, column, doc, extra string) string {
 	return `coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'item_key', t.item_key, 'description', t.description,
 			'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
-			'price_source', t.price_source, 'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code` + extra + `) ORDER BY t.item_no)
+			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code` + extra + `) ORDER BY t.item_no)
 		 FROM ` + pgx.Identifier{"sales", table}.Sanitize() + ` t WHERE t.tenant_id = ` + doc + `.tenant_id AND t.` + pgx.Identifier{column}.Sanitize() + ` = ` + doc + `.id), '[]')`
 }

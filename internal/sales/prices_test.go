@@ -18,9 +18,11 @@ import (
 )
 
 // rec is a price record as a test names it; the zero value's fields take
-// the defaults of priceBody.
+// the defaults of priceBody. With a percent it is a discount of the
+// condition type.
 type rec struct {
 	key, unit, amount, currency, from, to string
+	condition, percent                    string
 	priceUnit                             int
 	customer, company                     uuid.UUID
 }
@@ -50,6 +52,12 @@ func (e env) priceBody(r rec) string {
 	}
 	if r.to != "" {
 		extra += fmt.Sprintf(`, "valid_to": %q`, r.to)
+	}
+	if r.condition != "" {
+		extra += fmt.Sprintf(`, "condition_type": %q`, r.condition)
+	}
+	if r.percent != "" {
+		return fmt.Sprintf(`{"legal_entity_id": %q, "item_key": %q, "percent": %q, "valid_from": %q%s}`, r.company, r.key, r.percent, r.from, extra)
 	}
 	return fmt.Sprintf(`{"legal_entity_id": %q, "item_key": %q, "unit": %q, "unit_price": {"amount": %q, "currency": %q}, "valid_from": %q%s}`,
 		r.company, r.key, r.unit, r.amount, r.currency, r.from, extra)
@@ -107,8 +115,8 @@ func TestPriceRecordedAndReadBack(t *testing.T) {
 		t.Errorf("ETag: got %s, want \"1\"", tag)
 	}
 	fields(t, general, map[string]any{"version": float64(1), "legal_entity_id": e.DE.String(), "company_code": "2000", "company_name": "Acme GmbH",
-		"item_key": "BRACKET-M8", "customer_id": nil, "customer_number": nil, "customer_name": nil, "unit": "EA", "price_unit": float64(1),
-		"valid_from": "2020-01-01", "valid_to": nil})
+		"item_key": "BRACKET-M8", "customer_id": nil, "customer_number": nil, "customer_name": nil, "kind": "price", "condition_type": nil,
+		"unit": "EA", "price_unit": float64(1), "percent": nil, "valid_from": "2020-01-01", "valid_to": nil})
 	if a := amount(t, general, "unit_price"); a != "12.50 EUR" {
 		t.Errorf("unit price: got %s, want 12.50 EUR", a)
 	}
@@ -135,15 +143,16 @@ func TestPriceRecordedAndReadBack(t *testing.T) {
 		})
 	}
 	wantGeneral := map[string]any{"price_id": general["id"], "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "item_key": "BRACKET-M8",
-		"customer_id": nil, "customer_number": nil, "unit": "EA", "unit_price": map[string]any{"amount": "12.50", "currency": "EUR"},
-		"price_unit": float64(1), "valid_from": "2020-01-01", "valid_to": nil}
+		"customer_id": nil, "customer_number": nil, "kind": "price", "condition_type": nil, "unit": "EA",
+		"unit_price": map[string]any{"amount": "12.50", "currency": "EUR"}, "price_unit": float64(1), "percent": nil, "valid_from": "2020-01-01",
+		"valid_to": nil}
 	if a, b := mustJSON(t, e.events(t, "sales_price_changed", "price_id", general["id"].(string))), mustJSON(t, []map[string]any{wantGeneral}); a != b {
 		t.Errorf("SalesPriceChanged of the general price: got %s, want %s", a, b)
 	}
 	wantOwn := map[string]any{"price_id": own["id"], "legal_entity_id": e.DE.String(), "legal_entity_code": "2000", "item_key": "BRACKET-M8",
-		"customer_id": e.customer.String(), "customer_number": "BP70000001", "unit": "EA",
-		"unit_price": map[string]any{"amount": "1175.00", "currency": "EUR"}, "price_unit": float64(100), "valid_from": "2026-01-01",
-		"valid_to": "2026-12-31"}
+		"customer_id": e.customer.String(), "customer_number": "BP70000001", "kind": "price", "condition_type": nil, "unit": "EA",
+		"unit_price": map[string]any{"amount": "1175.00", "currency": "EUR"}, "price_unit": float64(100), "percent": nil,
+		"valid_from": "2026-01-01", "valid_to": "2026-12-31"}
 	if a, b := mustJSON(t, e.events(t, "sales_price_changed", "price_id", own["id"].(string))), mustJSON(t, []map[string]any{wantOwn}); a != b {
 		t.Errorf("SalesPriceChanged of the customer's price: got %s, want %s", a, b)
 	}
@@ -478,7 +487,7 @@ func TestPriceDatabaseFailures(t *testing.T) {
 	calls := map[string]func(ctx context.Context) error{
 		"record": func(ctx context.Context) error {
 			_, err := h.CreateSalesPrice(ctx, &gen.SalesPriceCreate{LegalEntityID: e.DE, ItemKey: "BRACKET-M8", CustomerID: gen.NewOptUUID(e.customer),
-				Unit: "EA", UnitPrice: gen.Money{Amount: "10.00", Currency: "EUR"}, ValidFrom: instant(t, "2026-01-01T00:00:00Z"),
+				Unit: gen.NewOptString("EA"), UnitPrice: gen.NewOptMoney(gen.Money{Amount: "10.00", Currency: "EUR"}), ValidFrom: instant(t, "2026-01-01T00:00:00Z"),
 				ValidTo: gen.NewOptDate(instant(t, "2026-12-31T00:00:00Z"))}, gen.CreateSalesPriceParams{})
 			return err
 		},

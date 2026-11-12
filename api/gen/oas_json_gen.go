@@ -175894,6 +175894,202 @@ func (s *RunBalanceCarryForwardUnprocessableEntity) UnmarshalJSON(data []byte) e
 }
 
 // Encode implements json.Marshaler.
+func (s *SalesCondition) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SalesCondition) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("condition_type")
+		e.Str(s.ConditionType)
+	}
+	{
+		e.FieldStart("name")
+		e.Str(s.Name)
+	}
+	{
+		e.FieldStart("kind")
+		e.Str(s.Kind)
+	}
+	{
+		if s.UnitPrice.Set {
+			e.FieldStart("unit_price")
+			s.UnitPrice.Encode(e)
+		}
+	}
+	{
+		if s.PriceUnit.Set {
+			e.FieldStart("price_unit")
+			s.PriceUnit.Encode(e)
+		}
+	}
+	{
+		if s.Percent.Set {
+			e.FieldStart("percent")
+			s.Percent.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("amount")
+		s.Amount.Encode(e)
+	}
+}
+
+var jsonFieldsNameOfSalesCondition = [7]string{
+	0: "condition_type",
+	1: "name",
+	2: "kind",
+	3: "unit_price",
+	4: "price_unit",
+	5: "percent",
+	6: "amount",
+}
+
+// Decode decodes SalesCondition from json.
+func (s *SalesCondition) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SalesCondition to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "condition_type":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.ConditionType = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"condition_type\"")
+			}
+		case "name":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Name = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"name\"")
+			}
+		case "kind":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.Kind = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "unit_price":
+			if err := func() error {
+				s.UnitPrice.Reset()
+				if err := s.UnitPrice.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"unit_price\"")
+			}
+		case "price_unit":
+			if err := func() error {
+				s.PriceUnit.Reset()
+				if err := s.PriceUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"price_unit\"")
+			}
+		case "percent":
+			if err := func() error {
+				s.Percent.Reset()
+				if err := s.Percent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"percent\"")
+			}
+		case "amount":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				if err := s.Amount.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"amount\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SalesCondition")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b01000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSalesCondition) {
+					name = jsonFieldsNameOfSalesCondition[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SalesCondition) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SalesCondition) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *SalesItem) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -175933,6 +176129,14 @@ func (s *SalesItem) encodeFields(e *jx.Encoder) {
 		e.Str(s.PriceSource)
 	}
 	{
+		e.FieldStart("conditions")
+		e.ArrStart()
+		for _, elem := range s.Conditions {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("net_amount")
 		s.NetAmount.Encode(e)
 	}
@@ -175956,7 +176160,7 @@ func (s *SalesItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesItem = [12]string{
+var jsonFieldsNameOfSalesItem = [13]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "description",
@@ -175964,11 +176168,12 @@ var jsonFieldsNameOfSalesItem = [12]string{
 	4:  "unit_price",
 	5:  "price_unit",
 	6:  "price_source",
-	7:  "net_amount",
-	8:  "account_id",
-	9:  "account_number",
-	10: "account_name",
-	11: "tax_code",
+	7:  "conditions",
+	8:  "net_amount",
+	9:  "account_id",
+	10: "account_number",
+	11: "account_name",
+	12: "tax_code",
 }
 
 // Decode decodes SalesItem from json.
@@ -176058,8 +176263,26 @@ func (s *SalesItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"price_source\"")
 			}
-		case "net_amount":
+		case "conditions":
 			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				s.Conditions = make([]SalesCondition, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SalesCondition
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Conditions = append(s.Conditions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"conditions\"")
+			}
+		case "net_amount":
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.NetAmount.Decode(d); err != nil {
 					return err
@@ -176069,7 +176292,7 @@ func (s *SalesItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"net_amount\"")
 			}
 		case "account_id":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -176081,7 +176304,7 @@ func (s *SalesItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
 		case "account_number":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountNumber = string(v)
@@ -176093,7 +176316,7 @@ func (s *SalesItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_number\"")
 			}
 		case "account_name":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountName = string(v)
@@ -176125,7 +176348,7 @@ func (s *SalesItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111101,
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -177013,6 +177236,14 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 		e.Str(s.PriceSource)
 	}
 	{
+		e.FieldStart("conditions")
+		e.ArrStart()
+		for _, elem := range s.Conditions {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("net_amount")
 		s.NetAmount.Encode(e)
 	}
@@ -177044,7 +177275,7 @@ func (s *SalesOrderItem) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrderItem = [14]string{
+var jsonFieldsNameOfSalesOrderItem = [15]string{
 	0:  "item_no",
 	1:  "item_key",
 	2:  "description",
@@ -177052,13 +177283,14 @@ var jsonFieldsNameOfSalesOrderItem = [14]string{
 	4:  "unit_price",
 	5:  "price_unit",
 	6:  "price_source",
-	7:  "net_amount",
-	8:  "account_id",
-	9:  "account_number",
-	10: "account_name",
-	11: "tax_code",
-	12: "delivered_quantity",
-	13: "billed_quantity",
+	7:  "conditions",
+	8:  "net_amount",
+	9:  "account_id",
+	10: "account_number",
+	11: "account_name",
+	12: "tax_code",
+	13: "delivered_quantity",
+	14: "billed_quantity",
 }
 
 // Decode decodes SalesOrderItem from json.
@@ -177148,8 +177380,26 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"price_source\"")
 			}
-		case "net_amount":
+		case "conditions":
 			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				s.Conditions = make([]SalesCondition, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SalesCondition
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Conditions = append(s.Conditions, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"conditions\"")
+			}
+		case "net_amount":
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				if err := s.NetAmount.Decode(d); err != nil {
 					return err
@@ -177159,7 +177409,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"net_amount\"")
 			}
 		case "account_id":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.AccountID = v
@@ -177171,7 +177421,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_id\"")
 			}
 		case "account_number":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 2
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountNumber = string(v)
@@ -177183,7 +177433,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"account_number\"")
 			}
 		case "account_name":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.AccountName = string(v)
@@ -177205,7 +177455,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_code\"")
 			}
 		case "delivered_quantity":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				if err := s.DeliveredQuantity.Decode(d); err != nil {
 					return err
@@ -177215,7 +177465,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"delivered_quantity\"")
 			}
 		case "billed_quantity":
-			requiredBitSet[1] |= 1 << 5
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				if err := s.BilledQuantity.Decode(d); err != nil {
 					return err
@@ -177235,7 +177485,7 @@ func (s *SalesOrderItem) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11111101,
-		0b00110111,
+		0b01101111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -177474,16 +177724,38 @@ func (s *SalesPrice) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		e.FieldStart("unit")
-		e.Str(s.Unit)
+		e.FieldStart("kind")
+		e.Str(s.Kind)
 	}
 	{
-		e.FieldStart("unit_price")
-		s.UnitPrice.Encode(e)
+		if s.ConditionType.Set {
+			e.FieldStart("condition_type")
+			s.ConditionType.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("price_unit")
-		e.Int32(s.PriceUnit)
+		if s.Unit.Set {
+			e.FieldStart("unit")
+			s.Unit.Encode(e)
+		}
+	}
+	{
+		if s.UnitPrice.Set {
+			e.FieldStart("unit_price")
+			s.UnitPrice.Encode(e)
+		}
+	}
+	{
+		if s.PriceUnit.Set {
+			e.FieldStart("price_unit")
+			s.PriceUnit.Encode(e)
+		}
+	}
+	{
+		if s.Percent.Set {
+			e.FieldStart("percent")
+			s.Percent.Encode(e)
+		}
 	}
 	{
 		e.FieldStart("valid_from")
@@ -177497,7 +177769,7 @@ func (s *SalesPrice) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesPrice = [18]string{
+var jsonFieldsNameOfSalesPrice = [21]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -177511,11 +177783,14 @@ var jsonFieldsNameOfSalesPrice = [18]string{
 	10: "customer_id",
 	11: "customer_number",
 	12: "customer_name",
-	13: "unit",
-	14: "unit_price",
-	15: "price_unit",
-	16: "valid_from",
-	17: "valid_to",
+	13: "kind",
+	14: "condition_type",
+	15: "unit",
+	16: "unit_price",
+	17: "price_unit",
+	18: "percent",
+	19: "valid_from",
+	20: "valid_to",
 }
 
 // Decode decodes SalesPrice from json.
@@ -177675,12 +177950,32 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"customer_name\"")
 			}
-		case "unit":
+		case "kind":
 			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
-				s.Unit = string(v)
+				s.Kind = string(v)
 				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"kind\"")
+			}
+		case "condition_type":
+			if err := func() error {
+				s.ConditionType.Reset()
+				if err := s.ConditionType.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"condition_type\"")
+			}
+		case "unit":
+			if err := func() error {
+				s.Unit.Reset()
+				if err := s.Unit.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -177688,8 +177983,8 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit\"")
 			}
 		case "unit_price":
-			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
+				s.UnitPrice.Reset()
 				if err := s.UnitPrice.Decode(d); err != nil {
 					return err
 				}
@@ -177698,19 +177993,27 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit_price\"")
 			}
 		case "price_unit":
-			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
-				v, err := d.Int32()
-				s.PriceUnit = int32(v)
-				if err != nil {
+				s.PriceUnit.Reset()
+				if err := s.PriceUnit.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"price_unit\"")
 			}
+		case "percent":
+			if err := func() error {
+				s.Percent.Reset()
+				if err := s.Percent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"percent\"")
+			}
 		case "valid_from":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 3
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ValidFrom = v
@@ -177742,8 +178045,8 @@ func (s *SalesPrice) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [3]uint8{
 		0b11011111,
-		0b11100011,
-		0b00000001,
+		0b00100011,
+		0b00001000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -177813,17 +178116,33 @@ func (s *SalesPriceCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		e.FieldStart("unit")
-		e.Str(s.Unit)
+		if s.ConditionType.Set {
+			e.FieldStart("condition_type")
+			s.ConditionType.Encode(e)
+		}
 	}
 	{
-		e.FieldStart("unit_price")
-		s.UnitPrice.Encode(e)
+		if s.Unit.Set {
+			e.FieldStart("unit")
+			s.Unit.Encode(e)
+		}
+	}
+	{
+		if s.UnitPrice.Set {
+			e.FieldStart("unit_price")
+			s.UnitPrice.Encode(e)
+		}
 	}
 	{
 		if s.PriceUnit.Set {
 			e.FieldStart("price_unit")
 			s.PriceUnit.Encode(e)
+		}
+	}
+	{
+		if s.Percent.Set {
+			e.FieldStart("percent")
+			s.Percent.Encode(e)
 		}
 	}
 	{
@@ -177838,15 +178157,17 @@ func (s *SalesPriceCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesPriceCreate = [8]string{
+var jsonFieldsNameOfSalesPriceCreate = [10]string{
 	0: "legal_entity_id",
 	1: "item_key",
 	2: "customer_id",
-	3: "unit",
-	4: "unit_price",
-	5: "price_unit",
-	6: "valid_from",
-	7: "valid_to",
+	3: "condition_type",
+	4: "unit",
+	5: "unit_price",
+	6: "price_unit",
+	7: "percent",
+	8: "valid_from",
+	9: "valid_to",
 }
 
 // Decode decodes SalesPriceCreate from json.
@@ -177854,8 +178175,7 @@ func (s *SalesPriceCreate) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SalesPriceCreate to nil")
 	}
-	var requiredBitSet [1]uint8
-	s.setDefaults()
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -177893,12 +178213,20 @@ func (s *SalesPriceCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"customer_id\"")
 			}
-		case "unit":
-			requiredBitSet[0] |= 1 << 3
+		case "condition_type":
 			if err := func() error {
-				v, err := d.Str()
-				s.Unit = string(v)
-				if err != nil {
+				s.ConditionType.Reset()
+				if err := s.ConditionType.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"condition_type\"")
+			}
+		case "unit":
+			if err := func() error {
+				s.Unit.Reset()
+				if err := s.Unit.Decode(d); err != nil {
 					return err
 				}
 				return nil
@@ -177906,8 +178234,8 @@ func (s *SalesPriceCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"unit\"")
 			}
 		case "unit_price":
-			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
+				s.UnitPrice.Reset()
 				if err := s.UnitPrice.Decode(d); err != nil {
 					return err
 				}
@@ -177925,8 +178253,18 @@ func (s *SalesPriceCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"price_unit\"")
 			}
+		case "percent":
+			if err := func() error {
+				s.Percent.Reset()
+				if err := s.Percent.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"percent\"")
+			}
 		case "valid_from":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := json.DecodeDate(d)
 				s.ValidFrom = v
@@ -177956,8 +178294,9 @@ func (s *SalesPriceCreate) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b01011011,
+	for i, mask := range [2]uint8{
+		0b00000011,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

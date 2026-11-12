@@ -74789,6 +74789,8 @@ type ListSalesPricesParams struct {
 	ItemKey OptString `json:",omitempty,omitzero"`
 	// Only the prices recorded for this customer (business partner id).
 	CustomerID OptUUID `json:",omitempty,omitzero"`
+	// Only the records of this condition type.
+	ConditionType OptString `json:",omitempty,omitzero"`
 	// Only the records valid on this day: `valid_from` is not after it and `valid_to`, when there is one,
 	// not before it.
 	ValidOn OptDate `json:",omitempty,omitzero"`
@@ -74828,6 +74830,15 @@ func unpackListSalesPricesParams(packed middleware.Parameters) (params ListSales
 		}
 		if v, ok := packed[key]; ok {
 			params.CustomerID = v.(OptUUID)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "condition_type",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ConditionType = v.(OptString)
 		}
 	}
 	{
@@ -75017,6 +75028,74 @@ func decodeListSalesPricesParams(args [0]string, argsEscaped bool, r *http.Reque
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "customer_id",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: condition_type.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "condition_type",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotConditionTypeVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotConditionTypeVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ConditionType.SetTo(paramsDotConditionTypeVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.ConditionType.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     10,
+							MaxLengthSet:  true,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "condition_type",
 			In:   "query",
 			Err:  err,
 		}

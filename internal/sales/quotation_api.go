@@ -87,13 +87,28 @@ func itemInputs(items []gen.SalesItemCreate) []ItemInput {
 	return out
 }
 
+// conditionAPI is a condition applied to an item as the API gives it, its
+// amounts in the document's currency.
+func conditionAPI(c Condition, currency string, exp int) gen.SalesCondition {
+	out := gen.SalesCondition{ConditionType: c.Type, Name: c.Name, Kind: c.Kind, PriceUnit: apitypes.OptInt32(c.PriceUnit),
+		Percent: apitypes.OptString(c.Percent), Amount: apitypes.Money(c.Amount, currency, exp)}
+	if c.UnitPrice != nil {
+		out.UnitPrice = gen.NewOptMoney(apitypes.Money(*c.UnitPrice, currency, exp))
+	}
+	return out
+}
+
 // itemAPI is an item as the API gives it, in the document's currency,
-// with its account's number and name.
+// with its account's number and name and the conditions applied to it.
 func itemAPI(it Item, currency string, exp int, refs references) gen.SalesItem {
 	account := refs.accounts[it.AccountID]
+	conditions := make([]gen.SalesCondition, len(it.Conditions))
+	for i, c := range it.Conditions {
+		conditions[i] = conditionAPI(c, currency, exp)
+	}
 	return gen.SalesItem{ItemNo: it.ItemNo, ItemKey: apitypes.OptString(it.ItemKey), Description: it.Description,
 		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp), PriceUnit: it.PriceUnit,
-		PriceSource: it.PriceSource, NetAmount: apitypes.Money(it.Net, currency, exp), AccountID: it.AccountID, AccountNumber: account.Number, AccountName: account.Name,
+		PriceSource: it.PriceSource, Conditions: conditions, NetAmount: apitypes.Money(it.Net, currency, exp), AccountID: it.AccountID, AccountNumber: account.Number, AccountName: account.Name,
 		TaxCode: apitypes.OptString(it.TaxCode)}
 }
 

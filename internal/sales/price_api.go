@@ -21,7 +21,7 @@ import (
 const priceVersion = 1
 
 // priceRefs reads what the price records name by id: their companies
-// and, for a customer's price, the customer.
+// and, for a customer's record, the customer.
 func (e *Endpoints) priceRefs(ctx context.Context, prices []Price) (references, error) {
 	docs := make([]named, len(prices))
 	for i, p := range prices {
@@ -39,8 +39,12 @@ func priceAPI(p Price, refs references) gen.SalesPrice {
 	le := refs.companies[p.LegalEntityID]
 	out := gen.SalesPrice{ID: p.ID, Version: priceVersion, CreatedAt: p.CreatedAt, CreatedBy: p.CreatedBy, UpdatedAt: p.CreatedAt,
 		UpdatedBy: gen.NewOptUUID(p.CreatedBy), LegalEntityID: p.LegalEntityID, CompanyCode: le.Code, CompanyName: le.Name, ItemKey: p.ItemKey,
-		CustomerID: apitypes.OptUUID(p.CustomerID), Unit: p.Unit, UnitPrice: apitypes.Money(p.UnitPrice, p.Currency, p.Exponent),
-		PriceUnit: p.PriceUnit, ValidFrom: p.ValidFrom, ValidTo: apitypes.OptDate(p.ValidTo)}
+		CustomerID: apitypes.OptUUID(p.CustomerID), Kind: p.Kind(), ConditionType: apitypes.OptString(p.ConditionType),
+		Unit: apitypes.OptString(p.Unit), PriceUnit: apitypes.OptInt32(p.PriceUnit), Percent: apitypes.OptString(p.Percent),
+		ValidFrom: p.ValidFrom, ValidTo: apitypes.OptDate(p.ValidTo)}
+	if p.UnitPrice != nil { // a price: its currency came with it
+		out.UnitPrice = gen.NewOptMoney(apitypes.Money(*p.UnitPrice, *p.Currency, *p.Exponent))
+	}
 	if p.CustomerID != nil {
 		customer := refs.partners[*p.CustomerID]
 		out.CustomerNumber, out.CustomerName = gen.NewOptString(customer.Number), gen.NewOptString(customer.Name)
@@ -59,9 +63,13 @@ func (e *Endpoints) priceAnswer(ctx context.Context, p Price) (gen.SalesPrice, e
 
 // CreateSalesPrice implements POST /v1/sales-prices.
 func (e *Endpoints) CreateSalesPrice(ctx context.Context, req *gen.SalesPriceCreate, _ gen.CreateSalesPriceParams) (gen.CreateSalesPriceRes, error) {
-	p, err := e.RecordPrice(ctx, PriceInput{LegalEntityID: req.LegalEntityID, ItemKey: req.ItemKey, CustomerID: apitypes.Ptr[uuid.UUID](req.CustomerID),
-		Unit: req.Unit, UnitPrice: Amount{Value: req.UnitPrice.Amount, Currency: req.UnitPrice.Currency}, PriceUnit: req.PriceUnit.Or(1),
-		ValidFrom: req.ValidFrom, ValidTo: apitypes.Ptr[time.Time](req.ValidTo)})
+	in := PriceInput{LegalEntityID: req.LegalEntityID, ItemKey: req.ItemKey, CustomerID: apitypes.Ptr[uuid.UUID](req.CustomerID),
+		ConditionType: apitypes.Ptr[string](req.ConditionType), Unit: apitypes.Ptr[string](req.Unit), PriceUnit: apitypes.Ptr[int32](req.PriceUnit),
+		Percent: apitypes.Ptr[string](req.Percent), ValidFrom: req.ValidFrom, ValidTo: apitypes.Ptr[time.Time](req.ValidTo)}
+	if price, ok := req.UnitPrice.Get(); ok {
+		in.UnitPrice = &Amount{Value: price.Amount, Currency: price.Currency}
+	}
+	p, err := e.RecordPrice(ctx, in)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +110,7 @@ func (e *Endpoints) ListSalesPrices(ctx context.Context, params gen.ListSalesPri
 	if validOn != nil {
 		on = validOn.Format(time.DateOnly)
 	}
-	scope := fmt.Sprintf("listSalesPrices|%s|%q|%s|%s", le, params.ItemKey.Value, customer, on)
+	scope := fmt.Sprintf("listSalesPrices|%s|%q|%s|%s|%s", le, params.ItemKey.Value, customer, on, params.ConditionType.Value)
 	ks, err := e.Pages.Keyset(priceSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("sales: page of prices: %w", err)
@@ -113,8 +121,9 @@ func (e *Endpoints) ListSalesPrices(ctx context.Context, params gen.ListSalesPri
 	}
 	query, args := ks.SQL(priceSelect+` WHERE ($1 OR p.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR p.legal_entity_id = $3)
 		AND ($4 = '' OR p.item_key = $4) AND ($5::uuid IS NULL OR p.customer_id = $5)
-		AND ($6::date IS NULL OR (p.valid_from <= $6 AND (p.valid_to IS NULL OR p.valid_to >= $6)))`,
-		[]any{access.All, access.IDs, le, params.ItemKey.Value, customer, validOn})
+		AND ($6::date IS NULL OR (p.valid_from <= $6 AND (p.valid_to IS NULL OR p.valid_to >= $6)))
+		AND ($7 = '' OR p.condition_type = $7)`,
+		[]any{access.All, access.IDs, le, params.ItemKey.Value, customer, validOn, params.ConditionType.Value})
 	rows, _ := tx.Query(ctx, query, args...)
 	prices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Price, error) { return scanPrice(r) })
 	if err != nil {

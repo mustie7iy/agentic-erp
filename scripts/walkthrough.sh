@@ -6292,10 +6292,13 @@ step_sales_order() {
 # Northwind's price, another customer's takes the general one, and a
 # price entered with an item stays; an item with neither is refused
 # naming its price; a later record does not change an item priced
-# before.
+# before. T80b (ADR-0067 §11): Ada activates a pricing procedure, a price
+# and a customer discount, through a governed change; Paula records
+# Northwind's discount of five percent; a new quotation item shows the
+# price, the discount and the net value after it.
 step_price_list() {
-  heading "Step 56 — Sales prices: a general price and a customer's price recorded for an item key; a quotation item without a price takes the customer's, another customer's the general one; an entered price stays; the price is fixed on the item"
-  local customer=$CUSTOMER sales ar until from item manual quotation contoso
+  heading "Step 56 — Sales prices: a general price and a customer's price recorded for an item key; a quotation item without a price takes the customer's, another customer's the general one; an entered price stays; the price is fixed on the item; a pricing procedure through a governed change, a customer's discount, and an item's conditions with its net value after them"
+  local customer=$CUSTOMER sales ar until from item manual quotation contoso base cr request
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ada
   say "Ada adds Paula, the pricing analyst, to the team:"
@@ -6359,6 +6362,46 @@ step_price_list() {
   api 200 '"quotation \(.document_number): item 1 at \(.items[0].unit_price.amount) per \(.items[0].price_unit) = \(.items[0].net_amount.amount), net \(.net_amount.amount) \(.net_amount.currency)"' \
     getQuotation -p "id=$quotation"
   expect "the item priced before" "$(field '.items[0] | "\(.unit_price.amount) \(.net_amount.amount)"')" "12.50 3125.00"
+  say "Maple now gives Northwind a discount. Discounts need a pricing procedure (ADR-0067 §11): the condition types"
+  say "and the order they apply in are the tenant's configuration, and none is shipped. Ada proposes a price, PR00,"
+  say "and a customer discount, K007, a percentage of the value before it. They post nothing, so the change is"
+  say "tier 2, approved by the process owner:"
+  as ada
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Pricing procedure\", rationale: \"Maple's condition types and their order (T80b)\", base_version: $base,
+    proposed: (.items[0].document | .pricing = {condition_types: [{code: \"PR00\", name: \"Price\", kind: \"price\"},
+      {code: \"K007\", name: \"Customer discount\", kind: \"discount_percent\"}], procedure: [{condition_type: \"PR00\"}, {condition_type: \"K007\"}]})}" \
+    "$WORK/last.json" >"$WORK/pricing.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @pricing.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the pricing settings among the changes" "$(field '[.items[] | select(.path | startswith("pricing."))] | length')" 4
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The pricing procedure, as agreed with sales"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as paula
+  say "Paula records Northwind's discount on the bracket, five percent. A record of a condition type the"
+  say "configuration does not have is refused:"
+  api 201 '"\(.kind) \(.condition_type) on \(.item_key) for \(.customer_number) \(.customer_name): \(.percent) percent, valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"condition_type\": \"K007\", \"percent\": \"5\", \"valid_from\": \"$from\"}"
+  expect "the discount" "$(field '"\(.kind) \(.condition_type) \(.percent) \(.customer_name)"')" "discount_percent K007 5 Northwind Traders"
+  refused 422 sales.unknown_condition_type createSalesPrice \
+    -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"condition_type\": \"ZZ00\", \"percent\": \"5\", \"valid_from\": \"$from\"}"
+  expect "the field refused" "$(field '.errors[0].field')" "condition_type"
+  as sally
+  say "A new quotation to Northwind shows each condition applied to the item and the net value after it: the price,"
+  say "2937.48, less five percent of it, 146.874: 146.87 rounded half away from zero, leaves 2790.61:"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)), net \(.net_amount.amount)", (.conditions[] | "    \(.condition_type) \(.name): \(if .kind == "price" then "\(.unit_price.amount) per \(.price_unit)" else "\(.percent) percent" end) = \(.amount.amount) \(.amount.currency)"))' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item]}"
+  expect "the conditions applied" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.kind) \(.amount.amount)"] | join(", ")')" \
+    "PR00 price 2937.48, K007 discount_percent -146.87"
+  expect "the discount's rate" "$(field '.items[0].conditions[1].percent')" 5
+  expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
   passed
 }
 # step_close is the financial close (ADR-0058), the story's last step: it

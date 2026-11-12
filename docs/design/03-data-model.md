@@ -4238,8 +4238,10 @@ foreign key out of its schema (02 §2.1) and posts nothing itself (billing
 posts through receivables, §3.26). T78a (migration 000276) builds the
 schema with its outbox and inbox and the quotation: what the company
 offers a customer, valid until a date, net of tax. T78b (migration
-000277) adds the sales order and T80a (migration 000278) the price
-records an item without a price is priced from. There is no material
+000277) adds the sales order, T80a (migration 000278) the price
+records an item without a price is priced from, and T80b (migration
+000279) discounts among them and the conditions applied to an item.
+There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
 `item_key`.
@@ -4267,7 +4269,8 @@ erDiagram
     bigint unit_price "per price_unit, above zero"
     int price_unit
     text price_source "manual or price_list"
-    bigint net_amount "quantity x unit_price / price_unit, rounded"
+    jsonb conditions "the price and discounts applied, in order"
+    bigint net_amount "the value less the discounts"
     uuid account_id "ledger, revenue as a rule"
     text tax_code "optional output tax code"
   }
@@ -4295,10 +4298,12 @@ erDiagram
     uuid legal_entity_id "tenancy"
     text item_key "as sales items give it"
     uuid customer_id "optional: partner; null for every customer"
-    text uom_code "ref.unit_of_measure"
-    char currency
-    bigint unit_price "per price_unit, above zero"
-    int price_unit
+    text condition_type "optional: configuration, pricing.condition_types"
+    text uom_code "a price's: ref.unit_of_measure"
+    char currency "a price's"
+    bigint unit_price "a price's: per price_unit, above zero"
+    int price_unit "a price's"
+    numeric percent "a discount's: (9,6), above 0 and below 100"
     date valid_from
     date valid_to "optional, not before valid_from"
   }
@@ -4358,6 +4363,23 @@ erDiagram
   the latest `created_at` and `id`. The determination and the list read a
   company's records of a key (`price_by_item_key`) and a customer's
   (`price_by_customer`).
+  From T80b (migration 000279; ADR-0067 §11) a record may name a
+  `condition_type` of the configuration (`price_condition_type_check`,
+  a short code; the configuration is another context's, so there is no
+  foreign key, and a type is never removed once activated), and a record
+  is a price or a discount, never a mix (`price_or_percent`): a price
+  has its unit, currency, price and price unit and no percent; a
+  discount has a condition type and a `percent` above 0 and below 100
+  (`price_percent_range`) and none of a price's columns. The discounts
+  of a key are read by their type (`price_by_condition`).
+- `conditions` on `sales.quotation_item` and `sales.sales_order_item`
+  (T80b): a JSON array (`quotation_item_conditions_array`,
+  `sales_order_item_conditions_array`), empty by default, of the
+  conditions the pricing procedure applied when the item was created, in
+  its order. Each has `condition_type`, `name`, `kind` and `amount`
+  (minor units of the document's currency, a discount's negative); a
+  price its `unit_price` and `price_unit`, a discount its `percent`. The
+  amounts add up to the item's `net_amount`.
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesPriceChanged`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,

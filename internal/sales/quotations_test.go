@@ -63,7 +63,13 @@ func outputCodes(doc *config.Config) {
 
 func setup(t *testing.T) env {
 	t.Helper()
-	f := fixture.NewWith(t, nil, outputCodes, perms...)
+	return setupWith(t, outputCodes)
+}
+
+// setupWith is setup with the configuration document changed by extend.
+func setupWith(t *testing.T, extend func(*config.Config)) env {
+	t.Helper()
+	f := fixture.NewWith(t, nil, extend, perms...)
 	e := env{Env: f, revenue: f.Account(t, "2000", "400000"), other: f.Account(t, "2000", "530000")}
 	e.customer = e.partner(t, "BP70000001", "Northwind Traders", "active", "customer")
 	e.companyData(t, e.customer, e.DE, "NT30")
