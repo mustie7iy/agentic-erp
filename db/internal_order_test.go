@@ -90,7 +90,7 @@ func (f orderFixture) try(t *testing.T, sql string, args ...any) error {
 	return asApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, sql, args...) })
 }
 
-// An order's budget (T60c, migration 000271; ADR-0064 §3): one amount per
+// An order's budget (T60c, migration 000274; ADR-0064 §3): one amount per
 // order, zero or more, changed version by version and never deleted.
 
 const orderBudgetSQL = `INSERT INTO controlling.order_budget (tenant_id, internal_order_id, amount, created_by, updated_by) VALUES ($1, $2, $3, $4, $4)`
@@ -135,7 +135,7 @@ func TestOrderBudgetRules(t *testing.T) {
 	})
 }
 
-// An order's settlement rule (T60d, migration 000272; ADR-0064 §3): one
+// An order's settlement rule (T60d, migration 000275; ADR-0064 §3): one
 // receiver per order, replaced in place and never deleted.
 
 const settlementRuleSQL = `INSERT INTO controlling.settlement_rule (tenant_id, internal_order_id, receiver_cost_center_id, created_by, updated_by)

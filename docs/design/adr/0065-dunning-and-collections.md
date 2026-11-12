@@ -249,7 +249,7 @@ is a report read and gets a budget test.
 
 ## As built
 
-### T76a Dunning run proposed (migration 000268)
+### T76a Dunning run proposed (migration 000273)
 
 - **Context.** `internal/collections` with the ports `LegalEntities`,
   `OpenItems`, `Partners` and `Settings`, wired by `app.Collections`;
@@ -288,7 +288,7 @@ is a report read and gets a budget test.
   items in one query, not a computed report (07 §7.7 item 7); starting a
   run is bounded by §5. T76c's worklist, computed on read, gets the
   budget.
-- **Walkthrough.** `step_dunning` (step 49): Ruth posts an invoice to
+- **Walkthrough.** `step_dunning` (step 53): Ruth posts an invoice to
   Northwind on NT30; a run before Maple has dunning levels is refused;
   Ada gives Maple its levels through a tier 2 change; a run at a key date
   40 days after the invoice date, ten days past its due date, proposes

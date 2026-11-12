@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestCollectionsPermissions (T76a, migration 000268; ADR-0065 §7): the
+// TestCollectionsPermissions (T76a, migration 000273; ADR-0065 §7): the
 // dunning permissions are seeded and are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
@@ -26,7 +26,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	}
 }
 
-// TestDunningRunRules (T76a, migration 000268; ADR-0065 §3-§4): a dunning
+// TestDunningRunRules (T76a, migration 000273; ADR-0065 §3-§4): a dunning
 // run is stored proposed with its totals; a notice is one customer's in
 // its run, at a level from 1 to 9, with at least one item; an item is a
 // positive amount more than zero days overdue, proposed once in its run,
@@ -200,7 +200,7 @@ func TestDunningRunRules(t *testing.T) {
 	}
 }
 
-// TestDunningRowsAreFixedForTheOwner (T76a, migration 000268): a notice
+// TestDunningRowsAreFixedForTheOwner (T76a, migration 000273): a notice
 // and an item are insert-only for every role, the tables' owner included:
 // what a run proposed is not rewritten by a later migration's statement
 // or a repair either.

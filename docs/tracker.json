@@ -71,7 +71,7 @@
       "c": []
      },
      {
-      "s": "D",
+      "s": "P",
       "t": "Vendor open-item management",
       "r": "internal/ledger · /v1/open-items",
       "c": [
@@ -80,6 +80,13 @@
         "t": "Clearing reference on each line",
         "r": "JournalLine.ClearedBy",
         "src": "baseline",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "No clearing path checks the clearing date against the cleared items' posting dates, so a receipt can be applied, and items cleared or settled, on a date before they were posted: manual clearing, settlement and applying a receipt (found in T75c's review)",
+        "r": "internal/ledger clearing.go createClearing · settle.go Postings.Settle, clearWithEntry · receipt.go Postings.ApplyReceipt",
+        "src": "review:T75c",
         "c": []
        },
        {
@@ -1109,7 +1116,7 @@
        {
         "s": "D",
         "t": "An AR accountant posts the customer invoice: it is the customer's open item with its payment terms and net due date in GET /v1/open-items; the ledger's reader of customer open items",
-        "r": "T75b · docs/design/plan-breadth-week1.md §T75b · db/migrations/000267 · POST /v1/customer-invoices/{id}:post · CustomerInvoicePosted · ledger.OpenItems.Receivable (internal/ledger/receivable.go), terms kept for customer open items (keepTerms) · walkthrough step_customer_invoice · ADR-0063 §3, §5, §9 and As built",
+        "r": "T75b · docs/design/plan-breadth-week1.md §T75b · db/migrations/000271 · POST /v1/customer-invoices/{id}:post · CustomerInvoicePosted · ledger.OpenItems.Receivable (internal/ledger/receivable.go), terms kept for customer open items (keepTerms) · walkthrough step_customer_invoice · ADR-0063 §3, §5, §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -1130,7 +1137,7 @@
        {
         "s": "D",
         "t": "An AR accountant applies an incoming payment on a house bank's incoming payments clearing account to a customer's open items in full: one entry clears the payment and the items",
-        "r": "T75c · docs/design/plan-breadth-week1.md §T75c · clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047) · db/migrations/000268 · POST /v1/incoming-payments, GET /v1/incoming-payments, GET /v1/incoming-payments/{id}, GET /v1/unapplied-receipts · IncomingPaymentApplied · ledger.Postings.ApplyReceipt, ledger.OpenItems.Receipts (internal/ledger/receipt.go) · walkthrough step_incoming_payment · ADR-0063 §6 and As built",
+        "r": "T75c · docs/design/plan-breadth-week1.md §T75c · clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047) · db/migrations/000272 · POST /v1/incoming-payments, GET /v1/incoming-payments, GET /v1/incoming-payments/{id}, GET /v1/unapplied-receipts · IncomingPaymentApplied · ledger.Postings.ApplyReceipt, ledger.OpenItems.Receipts (internal/ledger/receipt.go) · walkthrough step_incoming_payment · ADR-0063 §6 and As built",
         "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
         "c": []
        },
@@ -2836,7 +2843,7 @@
        {
         "s": "D",
         "t": "A credit controller starts a dunning run for a company at a key date and reads its proposal: per customer, the overdue items and the dunning level each would reach; the collections context, its ADR and the company's dunning levels in configuration",
-        "r": "T76a · docs/design/plan-breadth-week1.md §T76a · db/migrations/000268 · collections.dunning_run, dunning_notice, dunning_notice_item · companies[].dunning.levels (tier 2) · POST /v1/dunning-runs · GET /v1/dunning-runs · GET /v1/dunning-runs/{id} · GET /v1/dunning-runs/{id}/notices · DunningRunChanged · collections.dunning.read, .run · walkthrough step_dunning · ADR-0065 §1-§7 and As built",
+        "r": "T76a · docs/design/plan-breadth-week1.md §T76a · db/migrations/000273 · collections.dunning_run, dunning_notice, dunning_notice_item · companies[].dunning.levels (tier 2) · POST /v1/dunning-runs · GET /v1/dunning-runs · GET /v1/dunning-runs/{id} · GET /v1/dunning-runs/{id}/notices · DunningRunChanged · collections.dunning.read, .run · walkthrough step_dunning · ADR-0065 §1-§7 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -3272,7 +3279,7 @@
        {
         "s": "D",
         "t": "A controller sets an internal order's budget, one overall amount in the company's currency, and reads budget, actual and what remains; exceeding it is shown, not refused",
-        "r": "T60c · docs/design/plan-breadth-week1.md §T60c · migration 000271 · internal/controlling/orderbudget.go · ADR-0064 §3 · scripts/walkthrough.sh step_order_budget",
+        "r": "T60c · docs/design/plan-breadth-week1.md §T60c · migration 000274 · internal/controlling/orderbudget.go · ADR-0064 §3 · scripts/walkthrough.sh step_order_budget",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -3349,7 +3356,7 @@
        {
         "s": "D",
         "t": "A controller gives an internal order its settlement rule: one receiver, a cost center of the order's company, taking the whole",
-        "r": "T60d · docs/design/plan-breadth-week1.md §T60d · migration 000272 · internal/controlling/settlementrule.go · ADR-0064 §3 · scripts/walkthrough.sh step_order_settlement",
+        "r": "T60d · docs/design/plan-breadth-week1.md §T60d · migration 000275 · internal/controlling/settlementrule.go · ADR-0064 §3 · scripts/walkthrough.sh step_order_settlement",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },

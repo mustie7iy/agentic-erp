@@ -296,7 +296,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   posting, changing or cancelling a draft, payment terms on the invoice
   (T75b reads them), a tax date of its own, attachments and custom fields.
 
-### T75b Customer invoice posted: the customer's open item (migration 000267)
+### T75b Customer invoice posted: the customer's open item (migration 000271)
 - `internal/receivables/post.go`: `POST /v1/customer-invoices/{id}:post`
   (`receivables.invoice.post`, `If-Match`, idempotent by
   `Idempotency-Key`, human-only) posts a draft once through
@@ -314,7 +314,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   another version (412). The entry, the invoice's status, the audit
   record `receivables.customer_invoice.post` and `CustomerInvoicePosted`
   (`x-webhook`) are written in one transaction.
-- Migration 000267: `payment_term_code` (optional at entry),
+- Migration 000271: `payment_term_code` (optional at entry),
   `net_due_date`, `journal_entry_year`, `journal_entry_id` on
   `receivables.customer_invoice`; the status `posted`;
   `customer_invoice_posted` (a posted invoice names its entry, posting
@@ -375,7 +375,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   whose components share one account is refused at posting, 422
   `ledger.output_tax_mismatch`, as a manual entry with it is.
 
-### T75c Incoming payment applied to a customer's invoices (migration 000268)
+### T75c Incoming payment applied to a customer's invoices (migration 000272)
 - **The receipt.** A statement credit matched `incoming: true` posts Dr
   the house bank's main account, Cr its `incoming_gl_account`, with
   `source_context` `payments` (T49h). That open credit line is the
@@ -466,7 +466,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   number, the incoming account by number and name, and each item with
   its entry's number, its reference (a customer invoice's number) and its
   amount with the currency.
-- Migration 000268: `receivables.incoming_payment`
+- Migration 000272: `receivables.incoming_payment`
   (`incoming_payment_number_once` per company;
   `incoming_payment_amount_positive`; `incoming_payment_receipt_once`, a
   receipt is applied once; `incoming_payment_entry_once`) and
@@ -479,7 +479,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   items) and the audit record `receivables.incoming_payment.apply`, in
   the application's transaction, beside the ledger's two
   (`ledger.journal_entry.post`, `ledger.clearing.create`).
-- Walkthrough `step_incoming_payment` (step 49): RBC's third statement of
+- Walkthrough `step_incoming_payment` (step 52): RBC's third statement of
   the day carries Northwind's CAD 1,595.05; Tom matches the line as
   incoming and posts it; Ruth finds it among the unapplied receipts and
   applies it to the invoice of step 48; the DZ entry debits 1015 and

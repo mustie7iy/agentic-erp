@@ -10,7 +10,7 @@ import (
 )
 
 // TestReceivablesPermissions (T75a, migration 000265; T75c, migration
-// 000268; ADR-0063 §8): the customer invoice permissions and the one to
+// 000272; ADR-0063 §8): the customer invoice permissions and the one to
 // apply incoming payments are seeded and are no approval permissions.
 func TestReceivablesPermissions(t *testing.T) {
 	need(t)
@@ -133,7 +133,7 @@ func TestCustomerInvoiceRules(t *testing.T) {
 	}
 }
 
-// TestCustomerInvoicePosting (T75b, migration 000267; ADR-0063 §5): a
+// TestCustomerInvoicePosting (T75b, migration 000271; ADR-0063 §5): a
 // draft moves to posted once, naming its journal entry, posting date,
 // payment term and net due date together; nothing else changes it, a
 // posted invoice is not changed again, and a journal entry is one
@@ -278,7 +278,7 @@ func TestCustomerInvoiceIsTheTenants(t *testing.T) {
 	failsWith(t, err, "row-level security")
 }
 
-// TestIncomingPaymentRules (T75c, migration 000268; ADR-0063 §6): an
+// TestIncomingPaymentRules (T75c, migration 000272; ADR-0063 §6): an
 // incoming payment applied is written once with its items: numbered once
 // per company, a positive amount, one application per receipt and per
 // clearing entry, each item a non-zero amount and applied once; nothing

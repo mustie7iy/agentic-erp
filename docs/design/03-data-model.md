@@ -3361,8 +3361,8 @@ its outbox and the permissions `controlling.plan.read`,
 permission, which agents cannot hold). Migration 000267 adds the order
 master and the permissions `controlling.order.read`,
 `controlling.order.write` and `controlling.order.release` (an approval
-permission). Migration 000271 adds the order's budget and the permission
-`controlling.order.budget`; migration 000272 the order's settlement rule.
+permission). Migration 000274 adds the order's budget and the permission
+`controlling.order.budget`; migration 000275 the order's settlement rule.
 
 ```mermaid
 erDiagram
@@ -4046,10 +4046,10 @@ partner context, tenancy and the configuration through its ports, posts
 only through the ledger (§3.16) and keeps no foreign key out of its schema
 (02 §2.1). T75a (migration 000265) builds the schema with its outbox and
 inbox and the customer invoice, the accounting record of an invoice the
-company issued, entered as a draft. T75b (migration 000267) posts it,
+company issued, entered as a draft. T75b (migration 000271) posts it,
 once: the invoice names its journal entry, whose debit line on the
 customer's reconciliation account is the customer's open item (§3.7).
-T75c (migration 000268) applies an incoming payment waiting on a house
+T75c (migration 000272) applies an incoming payment waiting on a house
 bank's incoming payments clearing account (ADR-0047) to a customer's open
 items, in full and exactly: a document written once, naming the receipt's
 entry and the ledger's clearing entry that cleared receipt and items.
@@ -4156,7 +4156,7 @@ erDiagram
 ADR-0065, T76a-T76c. A leaf: it reads the ledger's customer open items
 (§3.7, `ledger.OpenItems.Receivable`), the partner context's names,
 tenancy and the configuration through its ports, posts nothing and keeps
-no foreign key out of its schema (02 §2.1). T76a (migration 000268)
+no foreign key out of its schema (02 §2.1). T76a (migration 000273)
 builds the schema with its outbox and inbox and the dunning run: a
 proposal of the customer items of a company overdue on a key date, one
 notice per customer. Nothing changes on the items, which stay the

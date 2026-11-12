@@ -15269,6 +15269,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -15630,6 +15631,7 @@ paths:
         - ledger.cost_center_required
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active

@@ -283,7 +283,7 @@ adding up to 100, all active and of one company.
   to the order, a line with an order and a cost center is refused, and
   Carla reads the order's actuals.
 
-### T60c: an order's budget against its actual costs (migration 000271)
+### T60c: an order's budget against its actual costs (migration 000274)
 - **Table** `controlling.order_budget`: at most one row per order (the
   primary key; `order_budget_order`, a foreign key to the order), `amount`
   in minor units of the company's currency (`order_budget_not_negative`),
@@ -337,7 +337,7 @@ adding up to 100, all active and of one company.
   corrects it to CAD 5,000.00 and reads CAD 3,500.00 remaining after the
   CAD 1,500.00 posted in `step_internal_order`.
 
-### T60d: an order's settlement rule (migration 000272)
+### T60d: an order's settlement rule (migration 000275)
 - **Table** `controlling.settlement_rule`: at most one row per order (the
   primary key; `settlement_rule_order`, a foreign key to the order),
   `receiver_cost_center_id` (the ledger's, no foreign key), the audit
