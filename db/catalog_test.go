@@ -166,3 +166,53 @@ func TestCatalogSearchText(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// TestRequisitionItemCatalogItem (T84b, migrations 000277-000278;
+// ADR-0071 §6): a requisition item names no catalog item or one that
+// exists in its tenant, and the foreign key is validated.
+func TestRequisitionItemCatalogItem(t *testing.T) {
+	need(t)
+	const requisition = `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, currency, requisition_date,
+		status, created_by, updated_by) VALUES ($1, $2, 'PR1', $3, $1, 'EUR', '2026-06-15', 'draft', $1, $1)`
+	const catalogItem = `INSERT INTO procurement.catalog_item (tenant_id, id, legal_entity_id, supplier_id, item_key, description, uom_code, currency,
+		unit_price, created_by, updated_by) VALUES ($1, $2, $3, gen_random_uuid(), 'CHAIR-01', 'Office chair', 'EA', 'EUR', 45000, $1, $1)`
+	const item = `INSERT INTO procurement.requisition_item (tenant_id, requisition_id, item_no, description, quantity, uom_code, unit_price, account_id,
+		catalog_item_id) VALUES ($1, $2, 1, 'Office chair', 2, 'EA', 45000, gen_random_uuid(), $3)`
+	type scene struct{ tenant, requisition, entity, catalogItem uuid.UUID }
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"an item the requester described", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(requisition, s.tenant, s.requisition, s.entity), step(item, s.tenant, s.requisition, nil))
+		}, ""},
+		{"an item from a catalog item", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(requisition, s.tenant, s.requisition, s.entity), step(catalogItem, s.tenant, s.catalogItem, s.entity),
+				step(item, s.tenant, s.requisition, s.catalogItem))
+		}, ""},
+		{"an item from a catalog item that does not exist", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(requisition, s.tenant, s.requisition, s.entity), step(item, s.tenant, s.requisition, s.catalogItem))
+		}, "requisition_item_catalog_item_fkey"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), requisition: id(), entity: id(), catalogItem: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+	var validated bool
+	if err := testDB.QueryRow(context.Background(), `SELECT convalidated FROM pg_constraint WHERE conname = 'requisition_item_catalog_item_fkey'`).Scan(&validated); err != nil {
+		t.Fatal(err)
+	}
+	if !validated {
+		t.Error("requisition_item_catalog_item_fkey: got not validated, want validated (000278)")
+	}
+}

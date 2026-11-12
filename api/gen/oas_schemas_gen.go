@@ -67511,8 +67511,8 @@ type RequisitionCreate struct {
 	Currency string `json:"currency"`
 	// Date needed.
 	NeededBy OptDate `json:"needed_by"`
-	// Items.
-	Items []RequisitionItem `json:"items"`
+	// Items, each described by the requester or taken from the catalog.
+	Items []RequisitionItemInput `json:"items"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
 }
@@ -67543,7 +67543,7 @@ func (s *RequisitionCreate) GetNeededBy() OptDate {
 }
 
 // GetItems returns the value of Items.
-func (s *RequisitionCreate) GetItems() []RequisitionItem {
+func (s *RequisitionCreate) GetItems() []RequisitionItemInput {
 	return s.Items
 }
 
@@ -67578,7 +67578,7 @@ func (s *RequisitionCreate) SetNeededBy(val OptDate) {
 }
 
 // SetItems sets the value of Items.
-func (s *RequisitionCreate) SetItems(val []RequisitionItem) {
+func (s *RequisitionCreate) SetItems(val []RequisitionItemInput) {
 	s.Items = val
 }
 
@@ -67666,6 +67666,11 @@ type RequisitionItem struct {
 	AccountAssignment OptString `json:"account_assignment"`
 	// Cost center the item is charged to, with `account_assignment` `cost_center`.
 	CostCenterID OptUUID `json:"cost_center_id"`
+	// The catalog item the item was taken from (`GET /v1/catalog-items/{id}`), whose description, unit and
+	// price it took (ADR-0071 §6); absent for an item the requester described.
+	CatalogItemID OptUUID `json:"catalog_item_id"`
+	// That catalog item's key; absent for an item the requester described.
+	ItemKey OptString `json:"item_key"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -67713,6 +67718,16 @@ func (s *RequisitionItem) GetCostCenterID() OptUUID {
 	return s.CostCenterID
 }
 
+// GetCatalogItemID returns the value of CatalogItemID.
+func (s *RequisitionItem) GetCatalogItemID() OptUUID {
+	return s.CatalogItemID
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *RequisitionItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *RequisitionItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -67755,6 +67770,155 @@ func (s *RequisitionItem) SetAccountAssignment(val OptString) {
 
 // SetCostCenterID sets the value of CostCenterID.
 func (s *RequisitionItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCatalogItemID sets the value of CatalogItemID.
+func (s *RequisitionItem) SetCatalogItemID(val OptUUID) {
+	s.CatalogItemID = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *RequisitionItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// A requisition item as it is sent: described and priced by the requester, or taken from the company's
+// catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in
+// the catalog item's unit, and its account; its description, price and price unit are the catalog
+// item's and may not be sent (422 `procurement.catalog_item_override`). An item that names no catalog
+// item sends its `description` and `unit_price` (422 `request.validation_failed` without).
+// Ref: #/components/schemas/RequisitionItemInput
+type RequisitionItemInput struct {
+	// Item number; assigned by the server when omitted.
+	ItemNo OptInt32 `json:"item_no"`
+	// The catalog item the item is taken from (`GET /v1/catalog-items`): an `active` one of the
+	// requisition's legal entity, priced in the requisition's currency (422
+	// `procurement.invalid_catalog_item` naming the item otherwise). The requisition's supplier is the
+	// catalog item's, and its contract the one the catalog item names, if it names one: what the
+	// requisition does not name it takes from the catalog item, and another is refused (422
+	// `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`). The requester needs
+	// `procurement.catalog.read`.
+	CatalogItemID OptUUID `json:"catalog_item_id"`
+	// Material (product context, later phases).
+	MaterialID OptUUID `json:"material_id"`
+	// What is needed. Required unless the item names a catalog item, whose description it then takes.
+	Description OptString `json:"description"`
+	// Quantity; positive. For an item from the catalog, in the catalog item's unit.
+	Quantity Quantity `json:"quantity"`
+	// Estimated price per `price_unit`, in the requisition currency. Required unless the item names a
+	// catalog item, whose price it then takes.
+	UnitPrice OptMoney `json:"unit_price"`
+	// Quantity the unit price refers to; 1 when absent. Not sent for an item from the catalog, which takes
+	// the catalog item's.
+	PriceUnit OptInt32 `json:"price_unit"`
+	// General ledger account to charge.
+	AccountID uuid.UUID `json:"account_id"`
+	// Account assignment, as `RequisitionItem.account_assignment` describes it: `cost_center` with
+	// `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent:
+	// `cost_center` when a cost center is given, else `none`.
+	AccountAssignment OptString `json:"account_assignment"`
+	// Cost center the item is charged to, with `account_assignment` `cost_center`.
+	CostCenterID OptUUID `json:"cost_center_id"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *RequisitionItemInput) GetItemNo() OptInt32 {
+	return s.ItemNo
+}
+
+// GetCatalogItemID returns the value of CatalogItemID.
+func (s *RequisitionItemInput) GetCatalogItemID() OptUUID {
+	return s.CatalogItemID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *RequisitionItemInput) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
+// GetDescription returns the value of Description.
+func (s *RequisitionItemInput) GetDescription() OptString {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *RequisitionItemInput) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *RequisitionItemInput) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *RequisitionItemInput) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RequisitionItemInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountAssignment returns the value of AccountAssignment.
+func (s *RequisitionItemInput) GetAccountAssignment() OptString {
+	return s.AccountAssignment
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *RequisitionItemInput) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *RequisitionItemInput) SetItemNo(val OptInt32) {
+	s.ItemNo = val
+}
+
+// SetCatalogItemID sets the value of CatalogItemID.
+func (s *RequisitionItemInput) SetCatalogItemID(val OptUUID) {
+	s.CatalogItemID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *RequisitionItemInput) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RequisitionItemInput) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *RequisitionItemInput) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *RequisitionItemInput) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *RequisitionItemInput) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RequisitionItemInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountAssignment sets the value of AccountAssignment.
+func (s *RequisitionItemInput) SetAccountAssignment(val OptString) {
+	s.AccountAssignment = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *RequisitionItemInput) SetCostCenterID(val OptUUID) {
 	s.CostCenterID = val
 }
 
@@ -67813,8 +67977,8 @@ type RequisitionUpdate struct {
 	Currency OptString `json:"currency"`
 	// Date needed. Send null to clear.
 	NeededBy OptNilDate `json:"needed_by"`
-	// Complete list of items.
-	Items []RequisitionItem `json:"items"`
+	// Complete list of items, each described by the requester or taken from the catalog.
+	Items []RequisitionItemInput `json:"items"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
 }
@@ -67840,7 +68004,7 @@ func (s *RequisitionUpdate) GetNeededBy() OptNilDate {
 }
 
 // GetItems returns the value of Items.
-func (s *RequisitionUpdate) GetItems() []RequisitionItem {
+func (s *RequisitionUpdate) GetItems() []RequisitionItemInput {
 	return s.Items
 }
 
@@ -67870,7 +68034,7 @@ func (s *RequisitionUpdate) SetNeededBy(val OptNilDate) {
 }
 
 // SetItems sets the value of Items.
-func (s *RequisitionUpdate) SetItems(val []RequisitionItem) {
+func (s *RequisitionUpdate) SetItems(val []RequisitionItemInput) {
 	s.Items = val
 }
 

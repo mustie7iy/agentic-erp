@@ -4350,14 +4350,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Requisitions from catalogs",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md · not in the first pilot (PO 2026-10-21); moved from phase 1 Sourcing and procurement / Purchase requisitions and approvals",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A requester adds a catalog item to a requisition with a quantity: description, unit, price and supplier come from the catalog, and the requisition goes through approval to a purchase order as any other (catalog_item_id on the requisition item)",
-        "r": "T84b · docs/design/plan-breadth-week2.md §T84b",
+        "r": "T84b · docs/design/plan-breadth-week2.md §T84b · db/migrations/000277-000278 · procurement.requisition_item.catalog_item_id · RequisitionItemInput.catalog_item_id, RequisitionItem.catalog_item_id and item_key · POST /v1/requisitions · PATCH /v1/requisitions/{id} · walkthrough step_catalog · ADR-0071 §6 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

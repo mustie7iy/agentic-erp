@@ -9527,7 +9527,7 @@ paths:
       tags:
         - procurement
       summary: Create a requisition
-      description: Creates a draft requisition.
+      description: "Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id` with a quantity (ADR-0071 §6, T84b): it takes the catalog item's description, unit, price and price unit, and the requisition its supplier and, if the catalog item names one, its contract. The requisition is then submitted, approved and ordered as any other."
       x-permission: procurement.requisition.create
       x-autonomy: propose
       x-problem-codes:
@@ -9537,9 +9537,13 @@ paths:
         - ledger.no_fiscal_period
         - procurement.account_not_postable
         - procurement.amount_too_large
+        - procurement.catalog_item_contract
+        - procurement.catalog_item_override
+        - procurement.catalog_item_supplier
         - procurement.currency_mismatch
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
+        - procurement.invalid_catalog_item
         - procurement.invalid_contract
         - procurement.invalid_item_no
         - procurement.invalid_quantity
@@ -9626,15 +9630,19 @@ paths:
       tags:
         - procurement
       summary: Update a draft requisition
-      description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole."
+      description: "Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged, `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without description or price) and checked again against the catalog; while the requisition has such items its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`)."
       x-permission: procurement.requisition.create
       x-autonomy: propose
       x-problem-codes:
         - procurement.account_not_postable
         - procurement.amount_too_large
+        - procurement.catalog_item_contract
+        - procurement.catalog_item_override
+        - procurement.catalog_item_supplier
         - procurement.currency_mismatch
         - procurement.invalid_account_assignment
         - procurement.invalid_amount
+        - procurement.invalid_catalog_item
         - procurement.invalid_contract
         - procurement.invalid_item_no
         - procurement.invalid_quantity
@@ -36668,6 +36676,15 @@ components:
           type: string
           format: uuid
           description: "Cost center the item is charged to, with `account_assignment` `cost_center`."
+        catalog_item_id:
+          type: string
+          format: uuid
+          description: "The catalog item the item was taken from (`GET /v1/catalog-items/{id}`), whose description, unit and price it took (ADR-0071 §6); absent for an item the requester described."
+          readOnly: true
+        item_key:
+          type: string
+          description: "That catalog item's key; absent for an item the requester described."
+          readOnly: true
       examples:
         - description: Office chairs, ergonomic
           quantity:
@@ -36676,6 +36693,70 @@ components:
           unit_price:
             amount: "1080.00"
             currency: EUR
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+    RequisitionItemInput:
+      type: object
+      description: "A requisition item as it is sent: described and priced by the requester, or taken from the company's catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in the catalog item's unit, and its account; its description, price and price unit are the catalog item's and may not be sent (422 `procurement.catalog_item_override`). An item that names no catalog item sends its `description` and `unit_price` (422 `request.validation_failed` without)."
+      required:
+        - quantity
+        - account_id
+      properties:
+        item_no:
+          type: integer
+          format: int32
+          description: "Item number; assigned by the server when omitted."
+          minimum: 1
+        catalog_item_id:
+          type: string
+          format: uuid
+          description: "The catalog item the item is taken from (`GET /v1/catalog-items`): an `active` one of the requisition's legal entity, priced in the requisition's currency (422 `procurement.invalid_catalog_item` naming the item otherwise). The requisition's supplier is the catalog item's, and its contract the one the catalog item names, if it names one: what the requisition does not name it takes from the catalog item, and another is refused (422 `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`). The requester needs `procurement.catalog.read`."
+        material_id:
+          type: string
+          format: uuid
+          description: Material (product context, later phases).
+        description:
+          type: string
+          description: "What is needed. Required unless the item names a catalog item, whose description it then takes."
+          minLength: 1
+          maxLength: 200
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: "Quantity; positive. For an item from the catalog, in the catalog item's unit."
+        unit_price:
+          $ref: "#/components/schemas/Money"
+          description: "Estimated price per `price_unit`, in the requisition currency. Required unless the item names a catalog item, whose price it then takes."
+        price_unit:
+          type: integer
+          format: int32
+          description: "Quantity the unit price refers to; 1 when absent. Not sent for an item from the catalog, which takes the catalog item's."
+          minimum: 1
+        account_id:
+          type: string
+          format: uuid
+          description: General ledger account to charge.
+        account_assignment:
+          type: string
+          x-extensible-enum:
+            - none
+            - cost_center
+          description: "Account assignment, as `RequisitionItem.account_assignment` describes it: `cost_center` with `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent: `cost_center` when a cost center is given, else `none`."
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "Cost center the item is charged to, with `account_assignment` `cost_center`."
+      examples:
+        - description: Office chairs, ergonomic
+          quantity:
+            value: "12.5"
+            unit: KG
+          unit_price:
+            amount: "1080.00"
+            currency: EUR
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+        - catalog_item_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          quantity:
+            value: "2"
+            unit: EA
           account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
     Requisition:
       description: A purchase requisition.
@@ -36820,8 +36901,8 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/RequisitionItem"
-          description: Items.
+            $ref: "#/components/schemas/RequisitionItemInput"
+          description: "Items, each described by the requester or taken from the catalog."
           minItems: 1
           maxItems: 10000
         extensions:
@@ -36870,8 +36951,8 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/RequisitionItem"
-          description: Complete list of items.
+            $ref: "#/components/schemas/RequisitionItemInput"
+          description: "Complete list of items, each described by the requester or taken from the catalog."
           minItems: 1
           maxItems: 10000
         extensions:

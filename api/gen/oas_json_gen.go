@@ -168530,9 +168530,9 @@ func (s *RequisitionCreate) Decode(d *jx.Decoder) error {
 		case "items":
 			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
-				s.Items = make([]RequisitionItem, 0)
+				s.Items = make([]RequisitionItemInput, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
-					var elem RequisitionItem
+					var elem RequisitionItemInput
 					if err := elem.Decode(d); err != nil {
 						return err
 					}
@@ -168666,18 +168666,32 @@ func (s *RequisitionItem) encodeFields(e *jx.Encoder) {
 			s.CostCenterID.Encode(e)
 		}
 	}
+	{
+		if s.CatalogItemID.Set {
+			e.FieldStart("catalog_item_id")
+			s.CatalogItemID.Encode(e)
+		}
+	}
+	{
+		if s.ItemKey.Set {
+			e.FieldStart("item_key")
+			s.ItemKey.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfRequisitionItem = [9]string{
-	0: "item_no",
-	1: "material_id",
-	2: "description",
-	3: "quantity",
-	4: "unit_price",
-	5: "price_unit",
-	6: "account_id",
-	7: "account_assignment",
-	8: "cost_center_id",
+var jsonFieldsNameOfRequisitionItem = [11]string{
+	0:  "item_no",
+	1:  "material_id",
+	2:  "description",
+	3:  "quantity",
+	4:  "unit_price",
+	5:  "price_unit",
+	6:  "account_id",
+	7:  "account_assignment",
+	8:  "cost_center_id",
+	9:  "catalog_item_id",
+	10: "item_key",
 }
 
 // Decode decodes RequisitionItem from json.
@@ -168784,6 +168798,26 @@ func (s *RequisitionItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"cost_center_id\"")
 			}
+		case "catalog_item_id":
+			if err := func() error {
+				s.CatalogItemID.Reset()
+				if err := s.CatalogItemID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"catalog_item_id\"")
+			}
+		case "item_key":
+			if err := func() error {
+				s.ItemKey.Reset()
+				if err := s.ItemKey.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"item_key\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -168837,6 +168871,254 @@ func (s *RequisitionItem) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *RequisitionItem) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *RequisitionItemInput) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *RequisitionItemInput) encodeFields(e *jx.Encoder) {
+	{
+		if s.ItemNo.Set {
+			e.FieldStart("item_no")
+			s.ItemNo.Encode(e)
+		}
+	}
+	{
+		if s.CatalogItemID.Set {
+			e.FieldStart("catalog_item_id")
+			s.CatalogItemID.Encode(e)
+		}
+	}
+	{
+		if s.MaterialID.Set {
+			e.FieldStart("material_id")
+			s.MaterialID.Encode(e)
+		}
+	}
+	{
+		if s.Description.Set {
+			e.FieldStart("description")
+			s.Description.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("quantity")
+		s.Quantity.Encode(e)
+	}
+	{
+		if s.UnitPrice.Set {
+			e.FieldStart("unit_price")
+			s.UnitPrice.Encode(e)
+		}
+	}
+	{
+		if s.PriceUnit.Set {
+			e.FieldStart("price_unit")
+			s.PriceUnit.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("account_id")
+		json.EncodeUUID(e, s.AccountID)
+	}
+	{
+		if s.AccountAssignment.Set {
+			e.FieldStart("account_assignment")
+			s.AccountAssignment.Encode(e)
+		}
+	}
+	{
+		if s.CostCenterID.Set {
+			e.FieldStart("cost_center_id")
+			s.CostCenterID.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfRequisitionItemInput = [10]string{
+	0: "item_no",
+	1: "catalog_item_id",
+	2: "material_id",
+	3: "description",
+	4: "quantity",
+	5: "unit_price",
+	6: "price_unit",
+	7: "account_id",
+	8: "account_assignment",
+	9: "cost_center_id",
+}
+
+// Decode decodes RequisitionItemInput from json.
+func (s *RequisitionItemInput) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode RequisitionItemInput to nil")
+	}
+	var requiredBitSet [2]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "item_no":
+			if err := func() error {
+				s.ItemNo.Reset()
+				if err := s.ItemNo.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"item_no\"")
+			}
+		case "catalog_item_id":
+			if err := func() error {
+				s.CatalogItemID.Reset()
+				if err := s.CatalogItemID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"catalog_item_id\"")
+			}
+		case "material_id":
+			if err := func() error {
+				s.MaterialID.Reset()
+				if err := s.MaterialID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"material_id\"")
+			}
+		case "description":
+			if err := func() error {
+				s.Description.Reset()
+				if err := s.Description.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description\"")
+			}
+		case "quantity":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				if err := s.Quantity.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"quantity\"")
+			}
+		case "unit_price":
+			if err := func() error {
+				s.UnitPrice.Reset()
+				if err := s.UnitPrice.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"unit_price\"")
+			}
+		case "price_unit":
+			if err := func() error {
+				s.PriceUnit.Reset()
+				if err := s.PriceUnit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"price_unit\"")
+			}
+		case "account_id":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.AccountID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_id\"")
+			}
+		case "account_assignment":
+			if err := func() error {
+				s.AccountAssignment.Reset()
+				if err := s.AccountAssignment.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"account_assignment\"")
+			}
+		case "cost_center_id":
+			if err := func() error {
+				s.CostCenterID.Reset()
+				if err := s.CostCenterID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cost_center_id\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode RequisitionItemInput")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [2]uint8{
+		0b10010000,
+		0b00000000,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfRequisitionItemInput) {
+					name = jsonFieldsNameOfRequisitionItemInput[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *RequisitionItemInput) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *RequisitionItemInput) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -169091,9 +169373,9 @@ func (s *RequisitionUpdate) Decode(d *jx.Decoder) error {
 			}
 		case "items":
 			if err := func() error {
-				s.Items = make([]RequisitionItem, 0)
+				s.Items = make([]RequisitionItemInput, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
-					var elem RequisitionItem
+					var elem RequisitionItemInput
 					if err := elem.Decode(d); err != nil {
 						return err
 					}

@@ -136,15 +136,46 @@ other.
 
 ### 6. A requisition item from the catalog (T84b)
 
-A requisition item may name a catalog item (`catalog_item_id`). It then
-takes the catalog item's description, unit and price, shows its item
-key, and may not send a price of its own; the requisition's supplier,
-and its contract when the catalog item names one, are the catalog
-item's. A retired item, or one in another currency than the
-requisition's, is refused naming the item. The account and the cost
-center stay the requester's to give. The requisition is submitted,
-approved and ordered as any other. T84b records the details under "As
-built".
+A requisition item may name a catalog item (`catalog_item_id`), sent
+with a quantity and the account to charge:
+
+- It takes the catalog item's description, price and price unit and
+  shows its item key. It may send none of the three itself (422
+  `procurement.catalog_item_override`, the plan's "a price sent with it
+  is refused"), and its quantity is in the catalog item's unit: the
+  shared `Quantity` keeps its unit, and another unit is refused by the
+  same code rather than converted or silently replaced.
+- The catalog item is an `active` one of the requisition's legal entity
+  that the caller may act in, priced in the requisition's currency (422
+  `procurement.invalid_catalog_item` on `items[i].catalog_item_id`, the
+  detail naming the item by its key and saying why).
+- The requisition's supplier is the catalog item's, and its contract the
+  one the catalog item names, if it names one. What the requisition does
+  not name it takes from the catalog item; another supplier or contract
+  is refused naming the item (422 `procurement.catalog_item_supplier`,
+  `procurement.catalog_item_contract`), so catalog items of two
+  suppliers, or priced by two contracts, do not share a requisition (a
+  cart split by supplier is the "later" leaf). A catalog item that names
+  no contract leaves the contract the requester's. The contract is then
+  checked as any requisition's (`checkRequisitionContract`) and the
+  supplier as any (`e.supplier`).
+- The rule holds while the requisition is a draft: a change that sends
+  items resolves them again from the catalog (a catalog item retired
+  since is refused); a change of the supplier or the contract that leaves
+  the items is held to the stored items' catalog items, retired or not,
+  and clearing one takes it from them again.
+- The requester needs `procurement.catalog.read` besides the
+  requisition's permission: taking an item reads the catalog (its
+  description and price), and no permission is crossed (04 §4.4).
+- The account, the account assignment and the cost center stay the
+  requester's to give. An item that names no catalog item sends its
+  description and price as before (422 `request.validation_failed`
+  without).
+
+The item stores `catalog_item_id` and a copy of what it took: a catalog
+item retired later stays on the requisitions that took it, at the price
+they took. The requisition is submitted, approved and ordered as any
+other; the order's items are the buyer's, as today.
 
 ## Consequences
 
@@ -173,6 +204,14 @@ built".
    not excluded, as from a contract's creation.
 7. `CatalogItemChanged` names the supplier by id and number and carries
    no description.
+8. An item from the catalog sends no description, price or price unit
+   and is in the catalog item's unit; another unit is refused, not
+   converted.
+9. A requisition has catalog items of one supplier and at most one
+   contract; what it does not name it takes from them.
+10. Taking an item from the catalog needs `procurement.catalog.read`.
+11. Submission does not check the catalog again: an item retired after
+    the requisition took it stays at the price taken.
 
 ## Questions
 
@@ -215,3 +254,32 @@ built".
   refused, she retires one; Ben finds the other two by a word of their
   description, one by text and supplier, and the retired one only with
   `status=retired`.
+
+### T84b Requisition from the catalog (migrations 000277, 000278)
+
+- **Schema.** `procurement.requisition_item.catalog_item_id` (nullable)
+  with `requisition_item_catalog_item_fkey`, added `NOT VALID` by 000277
+  and validated by 000278; `db/catalog_test.go`.
+- **Contract.** The requisition's create and update requests take
+  `RequisitionItemInput` (quantity and account required; description and
+  price required unless `catalog_item_id` is given), a schema of its own
+  so that the item read back, `RequisitionItem`, keeps its required
+  fields: no breaking change. `RequisitionItem` gains the read-only
+  `catalog_item_id` and `item_key`. No new operation.
+- **Code.** `internal/procurement/catalog_requisition.go`: `fromCatalog`
+  (the items resolved), `catalogParties` (the supplier and contract),
+  `storedCatalogUse` (a change that leaves the items) and
+  `requisitionParties`, which `createRequisition` and
+  `updateRequisition` call in place of their contract and supplier
+  checks. `requisitions.go`: `Item` and `ItemInput` carry
+  `CatalogItemID`, `requisitionSelect` reads it with the catalog item's
+  key, `writeRequisitionItems` writes it. `api.go`: `requisitionInputs`
+  converts the new input and `requisitionToAPI` shows the two fields.
+  Submission, approval and ordering are unchanged.
+- **Budget.** No budget test reads a requisition (`scripts/budgets.sh`
+  finds none behind its endpoints), so none was measured; the read adds
+  one lookup by primary key per item taken from the catalog.
+- **Walkthrough.** `step_catalog` extended: Ben raises a requisition for
+  two chairs from the catalog item; a price of his own and the retired
+  arm are refused; read back it has the catalog's price, CAD 450.00, and
+  Tyrell as its supplier; he submits it and Priya approves it.

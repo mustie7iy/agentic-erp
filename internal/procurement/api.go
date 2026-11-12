@@ -19,12 +19,16 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-func requisitionInputs(items []gen.RequisitionItem) []ItemInput {
+// requisitionInputs are a requisition's items as sent: an item that
+// names a catalog item sends no description or price (T84b, ADR-0071 §6),
+// which are then empty here and filled from the catalog.
+func requisitionInputs(items []gen.RequisitionItemInput) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
-		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description, Quantity: it.Quantity.Value,
-			Unit: it.Quantity.Unit, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID,
-			AccountAssignment: apitypes.Ptr[string](it.AccountAssignment), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID)}
+		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialID: apitypes.Ptr[uuid.UUID](it.MaterialID), Description: it.Description.Value,
+			Quantity: it.Quantity.Value, Unit: it.Quantity.Unit, Price: it.UnitPrice.Value.Amount, Currency: it.UnitPrice.Value.Currency,
+			PriceUnit: it.PriceUnit.Value, AccountID: it.AccountID, AccountAssignment: apitypes.Ptr[string](it.AccountAssignment),
+			CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID), CatalogItemID: apitypes.Ptr[uuid.UUID](it.CatalogItemID)}
 	}
 	return out
 }
@@ -95,7 +99,7 @@ func requisitionToAPI(r Requisition) gen.Requisition {
 			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, r.Currency, r.Exponent),
 			PriceUnit: gen.NewOptInt32(it.PriceUnit), AccountID: it.AccountID,
 			AccountAssignment: gen.NewOptString(it.assignment()),
-			CostCenterID:      apitypes.OptUUID(it.CostCenterID)}
+			CostCenterID:      apitypes.OptUUID(it.CostCenterID), CatalogItemID: apitypes.OptUUID(it.CatalogItemID), ItemKey: apitypes.OptText(it.MaterialKey)}
 	}
 	return out
 }

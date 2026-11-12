@@ -1599,6 +1599,7 @@ erDiagram
   contract |o--o{ purchase_order : "priced by"
   goods_movement ||--|{ goods_movement_item : contains
   contract_item |o--o{ catalog_item : "prices orders of"
+  catalog_item |o--o{ requisition_item : "taken by"
   purchase_order_item ||--o{ goods_movement_item : received_by
   requisition { uuid id PK
     text document_number
@@ -1619,7 +1620,8 @@ erDiagram
     bigint unit_price
     uuid account_id
     text account_assignment "none | cost_center (T56e)"
-    uuid cost_center_id "T56e" }
+    uuid cost_center_id "T56e"
+    uuid catalog_item_id "T84b" }
   contract { uuid id PK
     uuid supplier_id
     date valid_from
@@ -1911,6 +1913,12 @@ foreign key across schemas. The application inserts an item and
 afterwards updates its `status`, `version`, `updated_by` and `updated_at`
 alone (column privileges): what an item offers is not changed, and an
 item is never deleted.
+
+A requisition item taken from the catalog names its catalog item
+(`requisition_item.catalog_item_id`, nullable; migrations 000277-000278,
+T84b, ADR-0071 §6; `requisition_item_catalog_item_fkey`, added `NOT VALID`
+and validated by 000278) and holds a copy of the description, unit and
+price it took, so a catalog item retired later changes nothing on it.
 
 ## 3.9 Accounts payable (`payables`)
 

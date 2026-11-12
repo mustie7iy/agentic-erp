@@ -104,21 +104,22 @@ func TestLists(t *testing.T) {
 // failureFixture is the documents TestDatabaseFailures calls the handlers
 // on: one in each status a handler acts on.
 type failureFixture struct {
-	ok                                            []gen.RequisitionItem
+	ok                                            []gen.RequisitionItemInput
 	poItems                                       []gen.PurchaseOrderItem
 	cItems                                        []gen.ContractItem
 	plant, org                                    string
-	draftReq, pendingReq, approvedReq             map[string]any
+	draftReq, pendingReq, approvedReq, catalogReq map[string]any
 	contract, active, draftPO, released, closable map[string]any
 	gr, catalogItem                               map[string]any
+	fromCatalog                                   []gen.RequisitionItemInput // f.ok and an item from a catalog item no call retires
 	sup                                           gen.OptUUID
 }
 
 func newFailureFixture(t *testing.T, e env) failureFixture {
 	t.Helper()
 	f := failureFixture{sup: gen.NewOptUUID(e.Supplier)}
-	f.ok = []gen.RequisitionItem{{Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"},
-		AccountID: uuid.MustParse(e.office)}}
+	f.ok = []gen.RequisitionItemInput{{Description: gen.NewOptString("P"), Quantity: gen.Quantity{Value: "1", Unit: "EA"},
+		UnitPrice: gen.NewOptMoney(gen.Money{Amount: "1.00", Currency: "EUR"}), AccountID: uuid.MustParse(e.office)}}
 	f.poItems = []gen.PurchaseOrderItem{{Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"},
 		AccountID: uuid.MustParse(e.office), TaxCode: gen.NewOptString("V1"), ContractItemNo: gen.NewOptInt32(1),
 		OverDeliveryPct: gen.NewOptDecimal("5")}}
@@ -141,6 +142,10 @@ func newFailureFixture(t *testing.T, e env) failureFixture {
 	f.closable = e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
 	e.act(t, "/v1/purchase-orders/"+id(f.closable), "release", "")
 	f.catalogItem = e.catalogItem(t, e.Supplier, "FAIL-1", "P", "1.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(f.active)))
+	kept := e.catalogItem(t, e.Supplier, "FAIL-2", "P", "1.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(f.active)))
+	f.fromCatalog = []gen.RequisitionItemInput{f.ok[0], {CatalogItemID: gen.NewOptUUID(uuid.MustParse(id(kept))),
+		Quantity: gen.Quantity{Value: "1", Unit: "EA"}, AccountID: uuid.MustParse(e.office)}}
+	f.catalogReq = e.requisition(t, items(e.fromCatalog(id(kept), "1", "")), "")
 	return f
 }
 
@@ -158,7 +163,7 @@ func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]
 			return err
 		},
 		"create requisition": func(ctx context.Context) error {
-			_, err := h.CreateRequisition(ctx, &gen.RequisitionCreate{LegalEntityID: e.DE, Currency: "EUR", Items: f.ok, SupplierID: f.sup,
+			_, err := h.CreateRequisition(ctx, &gen.RequisitionCreate{LegalEntityID: e.DE, Currency: "EUR", Items: f.fromCatalog, SupplierID: f.sup,
 				ContractID: gen.NewOptUUID(u(f.active))}, gen.CreateRequisitionParams{})
 			return err
 		},
@@ -170,8 +175,13 @@ func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]
 			_, err := h.ListRequisitions(ctx, gen.ListRequisitionsParams{Expand: []string{"supplier"}})
 			return err
 		},
+		"update requisition header": func(ctx context.Context) error {
+			_, err := h.UpdateRequisition(ctx, &gen.RequisitionUpdate{SupplierID: gen.NewOptNilUUID(e.Supplier)},
+				gen.UpdateRequisitionParams{ID: u(f.catalogReq), IfMatch: "*"})
+			return err
+		},
 		"update requisition": func(ctx context.Context) error {
-			_, err := h.UpdateRequisition(ctx, &gen.RequisitionUpdate{Items: f.ok, SupplierID: gen.NewOptNilUUID(e.Supplier), ContractID: gen.NewOptNilUUID(u(f.active))},
+			_, err := h.UpdateRequisition(ctx, &gen.RequisitionUpdate{Items: f.fromCatalog, SupplierID: gen.NewOptNilUUID(e.Supplier), ContractID: gen.NewOptNilUUID(u(f.active))},
 				gen.UpdateRequisitionParams{ID: u(f.draftReq), IfMatch: "*"})
 			return err
 		},

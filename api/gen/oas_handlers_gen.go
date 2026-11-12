@@ -15926,7 +15926,10 @@ func (s *Server) handleCreateRegressionSuiteRequest(args [0]string, argsEscaped 
 
 // handleCreateRequisitionRequest handles createRequisition operation.
 //
-// Creates a draft requisition.
+// Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
+// with a quantity (ADR-0071 §6, T84b): it takes the catalog item's description, unit, price and price
+// unit, and the requisition its supplier and, if the catalog item names one, its contract. The
+// requisition is then submitted, approved and ordered as any other.
 //
 // POST /v1/requisitions
 func (s *Server) handleCreateRequisitionRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -88814,7 +88817,12 @@ func (s *Server) handleUpdatePurchaseOrderChangeRequest(args [2]string, argsEsca
 // handleUpdateRequisitionRequest handles updateRequisition operation.
 //
 // Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
-// `null` clears an optional field, arrays are replaced as a whole.
+// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
+// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
+// description or price) and checked again against the catalog; while the requisition has such items
+// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
+// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
+// `procurement.catalog_item_contract`).
 //
 // PATCH /v1/requisitions/{id}
 func (s *Server) handleUpdateRequisitionRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

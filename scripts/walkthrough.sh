@@ -6178,11 +6178,14 @@ step_dunning() {
 # step_catalog: catalog items (ADR-0071, T84a). Priya, the purchasing
 # manager, loads items of Tyrell into Maple's catalog; Ben, a requester,
 # finds them by a word of their description. The catalog is the tenant's
-# own table: nothing is fetched from a supplier's system.
+# own table: nothing is fetched from a supplier's system. Then (T84b) Ben
+# raises a requisition from the chair with a quantity: its description,
+# unit, price and supplier are the catalog's, and it is submitted and
+# approved as any other.
 step_catalog() {
-  heading "Step 54 — Catalog items: two items of a supplier loaded into the company's catalog and found by a search on a word of their description; a retired item is no longer found"
+  heading "Step 54 — Catalog items: two items of a supplier loaded into the company's catalog and found by a search on a word of their description; a retired item is no longer found; a requisition from a catalog item takes its price and supplier"
   as priya
-  local chair desk arm
+  local chair desk arm req request expense
   say "Priya loads Tyrell's items into Maple's catalog, one at a time: an item key, a description, a unit and one"
   say "price each (ADR-0071). The supplier must be one Maple can order from, as a purchase order's must be."
   api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
@@ -6215,6 +6218,35 @@ step_catalog() {
   say "The retired arm is found only when retired items are asked for:"
   api 200 '.items[] | "  \(.item_key) \(.description): \(.status)"' listCatalogItems -p "legal_entity_id=$LE" -p text=office -p status=retired
   expect "the retired items" "$(field '[.items[].id] | join(" ")')" "$arm"
+  accounts
+  expense=$(account 6000)
+  say "Ben asks for two of the chairs. He names the catalog item, a quantity and the account to charge; the"
+  say "description, the unit, the price and the supplier are the catalog's (ADR-0071 §6, T84b):"
+  api 201 '"requisition \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit) of \(.item_key) \(.description) at \(.unit_price.amount) \(.unit_price.currency)")' createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$chair\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}]}"
+  req=$(field .id)
+  say "A price of his own is not his to give for a catalog item:"
+  refused 422 procurement.catalog_item_override createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$chair\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}]}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "items[0].unit_price"
+  say "Nor is a retired item to be had:"
+  refused 422 procurement.invalid_catalog_item createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$arm\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}]}"
+  say "Read back, the requisition has the catalog's price and Tyrell as its supplier:"
+  api 200 '"requisition \(.document_number) for \(.expanded.supplier.number) \(.expanded.supplier.name): \(.items[0].item_key) at \(.items[0].unit_price.amount) \(.items[0].unit_price.currency), total \(.total_amount.amount) \(.total_amount.currency)"' \
+    getRequisition -p "id=$req" -p expand=supplier
+  expect "the requisition's item from the catalog" \
+    "$(field '.items[0] | "\(.catalog_item_id) \(.item_key) \(.description) \(.quantity.value) \(.quantity.unit) \(.unit_price.amount) \(.unit_price.currency)"')" \
+    "$chair CHAIR-ERGO Ergonomic office chair, mesh back 2 EA 450.00 CAD"
+  expect "the requisition's supplier and total" "$(field '"\(.supplier_id) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER 900.00 CAD"
+  say "Ben submits it; it goes to approval as any other requisition, and Priya approves it:"
+  api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
+  expect "the submitted requisition" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "Furniture for the new colleague"
+  as ben
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the approved requisition" "$(field .status)" approved
   passed
 }
 
