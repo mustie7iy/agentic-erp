@@ -20,6 +20,8 @@ import (
 // items in key order (catalog_item_by_key, 000276) and matches the text
 // in each, so its worst case is a text nothing contains, which reads the
 // company's whole catalog; a text many items contain stops at the page.
+// By creation time no index gives the order, so a text most items contain
+// reads and sorts the company's matches for each page: measured too.
 func TestCatalogSearchBudget(t *testing.T) {
 	nfr.Measure(t)
 	e := setup(t)
@@ -39,6 +41,7 @@ func TestCatalogSearchBudget(t *testing.T) {
 		{"a text every item contains, the first page", "&text=item-", 50},
 		{"one supplier's items, the first page", "&supplier_id=" + e.Supplier.String(), 50},
 		{"a text and a supplier", "&text=chair&supplier_id=" + e.Supplier.String() + "&page_size=100", 100},
+		{"a text most items contain, by when they were loaded", "&text=chair&order_by=created_at", 50},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := e.in(t)

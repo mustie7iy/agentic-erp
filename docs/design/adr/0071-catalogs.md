@@ -78,6 +78,10 @@ An item may name the contract item that prices an order of it
 item's currency and unit. The catalog item keeps its own price, which a
 requisition takes as its estimate; an order that names the contract item
 takes the contract's price, as today (question 1).
+The contract's state is checked when the item is loaded and not held
+afterwards: a contract terminated or expired later leaves the catalog
+item naming it, and the requisition and the order that use it check the
+contract again, as they do for any contract.
 
 What an item offers is not changed afterwards: the application may
 update an item's status and nothing else (column privileges). A new
