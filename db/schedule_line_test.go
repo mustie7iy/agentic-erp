@@ -106,6 +106,21 @@ func TestScheduleLineRules(t *testing.T) {
 			return exec(tx, scheduleLineSQL, line(f.agreement, 3, 1, "2026-01-01", "12.5")...)
 		})
 	})
+	// The trigger numbers lines one after another only for writers that
+	// queue on the contract; two that read it FOR SHARE at once both find
+	// the same last number, and the unique key refuses the second. With
+	// the triggers off, as the owner, the key is what is left.
+	t.Run("a number used twice", func(t *testing.T) {
+		tx, err := testDB.Begin(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(t.Context())
+		if err := exec(tx, `SET LOCAL session_replication_role = replica`); err != nil {
+			t.Fatal(err)
+		}
+		failsWith(t, exec(tx, scheduleLineSQL, line(f.agreement, 1, 1, "2026-06-15", "40")...), "schedule_line_numbered_once")
+	})
 	t.Run("a contract written without a kind is a contract", func(t *testing.T) {
 		var kind string
 		mustApp(t, f.tenant, func(tx pgx.Tx) error {

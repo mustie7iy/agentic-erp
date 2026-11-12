@@ -324,10 +324,10 @@ func TestScheduleLinesNumberedInTurn(t *testing.T) {
 	c, path := e.agreement(t)
 	first, second := apitest.Serialized(t, e.Tenant, e.Tenant.Human, scheduleLine(h, uuidOf(c), "2026-09-01"), scheduleLine(h, uuidOf(c), "2026-08-01"))
 	if first != nil {
-		t.Fatalf("first line: %v", first)
+		t.Fatalf("first line: got %v, want nil", first)
 	}
 	if second != nil {
-		t.Fatalf("second line: %v", second)
+		t.Fatalf("second line: got %v, want nil", second)
 	}
 	page, _ := e.Must(200, "GET", path+"/schedule-lines", "", "")
 	if got, want := lines(t, page), "2 2026-08-01 10 EA 50.00 EUR, 1 2026-09-01 10 EA 50.00 EUR"; got != want {
