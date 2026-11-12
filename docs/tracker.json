@@ -1122,8 +1122,8 @@
        },
        {
         "s": "T",
-        "t": "later: customer open item variants: reversal through the document, changing or cancelling a draft, parked invoices and approval, invoices created by billing, the customer account statement, down payments received, attachments and custom fields, sending e-invoices, taking customer open items over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week1.md §T75b, Later",
+        "t": "later: customer open item variants: reversal through the document, changing or cancelling a draft, parked invoices and approval, the customer account statement, down payments received, attachments and custom fields, sending e-invoices, taking customer open items over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week1.md §T75b, Later · invoices created by billing are T79b (docs/design/plan-breadth-week2.md §T79b), as that paragraph says of week 2",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        }
@@ -2747,23 +2747,72 @@
      {
       "s": "T",
       "t": "Revenue contracts and performance obligations",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A revenue accountant creates a revenue contract for a confirmed sales order, with one performance obligation per order item, and reads it back with its transaction price; the revenue context and its ADR (POST /v1/revenue-contracts)",
+        "r": "T81a · docs/design/plan-breadth-week2.md §T81a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications, contracts in a foreign currency, contracts without a sales order or created automatically, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T81a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Price allocation",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The revenue accountant sets per obligation whether it is satisfied at a point in time or over time, with its service period, and its stand-alone selling price, and activates the contract: the transaction price is allocated to the obligations in proportion to those prices",
+        "r": "T81b · docs/design/plan-breadth-week2.md §T81b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: price allocation variants: variable consideration and its constraint, a discount or variable amount allocated to some obligations only, a significant financing component, non-cash consideration and consideration payable to a customer, estimating stand-alone selling prices and keeping them as master data, reallocation after a modification (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T81b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Recognition schedules",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The revenue accountant reads an active contract's recognition schedule: per obligation and fiscal period the revenue recognized so far and planned, a point-in-time obligation by its delivery confirmations and an over-time one on a straight line by days (GET /v1/revenue-contracts/{id}/schedule)",
+        "r": "T81c · docs/design/plan-breadth-week2.md §T81c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The revenue accountant runs revenue recognition for a company and a period: per active contract revenue is brought to what is recognized to the period's end, and the contract's position, revenue recognized less revenue billed, stands as one contract asset or one contract liability (POST /v1/revenue-recognition-runs)",
+        "r": "T81d · docs/design/plan-breadth-week2.md §T81d",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: recognition variants: measures of progress other than time elapsed, recognition at a point other than the delivery confirmation, reversing a run, the run as a close task and as a workflow for large volumes, reclassifying between contract asset and receivable, remaining performance obligations and the other IFRS 15 disclosures, contract balances in the cash forecast and analytics, a parallel ledger under another accounting principle (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T81d, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -2803,9 +2852,23 @@
      {
       "s": "T",
       "t": "Order credit blocks",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "When a sales order is confirmed its value is checked against the customer's credit limit: an order that takes the customer over the limit is confirmed with a credit block, cannot be delivered, and a credit manager releases it (POST /v1/sales-orders/{id}:release-credit-block)",
+        "r": "T77b · docs/design/plan-breadth-week2.md §T77b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: order credit block variants: checking again at delivery and when an order changes, automatic release when a payment brings the customer within the limit, rejecting a blocked order, the order's tax in the amount checked, a worklist of blocked orders with their ages, approval of a release above an amount (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T77b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -3742,9 +3805,30 @@
      {
       "s": "T",
       "t": "Scheduling agreements",
-      "r": "(post-pilot, PO 2026-10-21)",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md · not in the first pilot (PO 2026-10-21)",
+      "c": [
+       {
+        "s": "T",
+        "t": "A buyer creates a scheduling agreement with a supplier (a contract of the kind scheduling_agreement, its items priced) and, once it is released, enters its delivery schedule: per item, dates and quantities; its ADR (POST /v1/contracts/{id}/schedule-lines)",
+        "r": "T83a · docs/design/plan-breadth-week2.md §T83a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The buyer calls off a schedule line: a purchase order for its quantity is created against the agreement at the agreement's price, due on the line's date, then released, received and invoiced as any order (POST /v1/contracts/{id}/schedule-lines/{line_no}:call-off)",
+        "r": "T83b · docs/design/plan-breadth-week2.md §T83b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: scheduling agreement variants: goods received against the schedule line itself without an order, forecast and just-in-time delivery schedules sent to the supplier, releases created by MRP, firm and trade-off zones, cumulative quantities and their reconciliation, changing or deleting a schedule line, target quantities per item, calling off several lines into one order (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T83b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "D",
@@ -4163,23 +4247,79 @@
      {
       "s": "T",
       "t": "RFQ events",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A buyer creates a request for quotation (company, currency, due date, items with quantity and unit, the suppliers invited) and publishes it; its ADR (POST /v1/rfqs, :publish)",
+        "r": "T82a · docs/design/plan-breadth-week2.md §T82a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The buyer records each invited supplier's quotation against the RFQ: a price per RFQ item, the supplier's reference and its validity (POST /v1/rfqs/{id}/quotations)",
+        "r": "T82b · docs/design/plan-breadth-week2.md §T82b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: RFQ variants: an RFQ from a requisition, suppliers answering themselves through a portal or the supplier network, several rounds and revised quotations, sealed bids, auctions, attachments and questions, sending the RFQ as a document, cancelling or closing an RFQ without an award, quotations in another currency (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T82b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Bid comparison agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into a first-version slice, the agent as a leaf for week 3 and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The buyer reads the comparison of an RFQ's quotations: per supplier the total and each item's price, ranked from the lowest total, with the lowest price per item marked (GET /v1/rfqs/{id}/comparison)",
+        "r": "T82c · docs/design/plan-breadth-week2.md §T82c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The bid comparison agent reads an RFQ's comparison and recommends an award with its reasons; it never awards",
+        "r": "week 3 with the thin agents (roadmap of 2026-11-10) · reads GET /v1/rfqs/{id}/comparison · docs/design/plan-breadth-week2.md §T82c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: bid comparison variants: criteria other than price and their weights, comparison against the last purchase price and the contract price, total cost of ownership, export of the comparison (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T82c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Award to contract",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The buyer awards the RFQ to one quotation: a draft contract with that supplier is created with the quoted prices, and the RFQ and its quotations show the outcome (POST /v1/rfqs/{id}:award)",
+        "r": "T82d · docs/design/plan-breadth-week2.md §T82d",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: award variants: award to a purchase order in place of a contract, splitting an award between suppliers or by item, approval of an award above an amount, a recorded reason when the lowest quotation does not win, notifying the suppliers not awarded, withdrawing an award (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T82d, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -4191,16 +4331,44 @@
      {
       "s": "T",
       "t": "Catalog connector (punch-out)",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A catalog manager loads a supplier's catalog items in a company (item key, description, unit, price, optionally the contract item that prices it), and a requester searches the company's catalog by text and supplier; its ADR (POST /v1/catalog-items, GET /v1/catalog-items)",
+        "r": "T84a · docs/design/plan-breadth-week2.md §T84a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: catalog variants: punch-out to a supplier's catalog (cXML PunchOut, OCI) and its connector, loading a catalog file in bulk and by schedule, changing an item's price with validity dates, categories and their default accounts, images and attachments, a catalog shared by several companies or kept per purchasing organization, search ranking (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T84a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Requisitions from catalogs",
-      "r": "(post-pilot, PO 2026-10-21; moved from phase 1 Sourcing and procurement / Purchase requisitions and approvals: catalogs and guided buying)",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md · not in the first pilot (PO 2026-10-21); moved from phase 1 Sourcing and procurement / Purchase requisitions and approvals",
+      "c": [
+       {
+        "s": "T",
+        "t": "A requester adds a catalog item to a requisition with a quantity: description, unit, price and supplier come from the catalog, and the requisition goes through approval to a purchase order as any other (catalog_item_id on the requisition item)",
+        "r": "T84b · docs/design/plan-breadth-week2.md §T84b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: catalog requisition variants: a shopping cart across suppliers split into one requisition per supplier, the account proposed from the catalog category, preferred suppliers and guided buying rules, a requisition approved straight to a purchase order for catalog items under a contract, favourites and order templates (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T84b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -4315,23 +4483,65 @@
      {
       "s": "T",
       "t": "Quotations",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A sales representative creates a quotation for a customer (items by description and optional item key with quantity, unit, unit price, revenue account and output tax code, valid until a date), reads it back with its net value and records that the customer accepted or rejected it; the sales context and its ADR",
+        "r": "T78a · docs/design/plan-breadth-week2.md §T78a",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: quotation variants: changing a quotation and its versions, the quotation as a document sent to the customer, the tax shown on it, alternative items, follow-up and win probability, quotations from the CRM and CPQ connectors, approval below a margin (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T78a, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Sales orders",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A sales representative creates a sales order, from an accepted quotation or directly, and confirms it; the order shows each item's ordered, delivered and billed quantities (POST /v1/sales-orders, :confirm)",
+        "r": "T78b · docs/design/plan-breadth-week2.md §T78b",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: sales order variants: changing or cancelling an order and its versions, sales organizations and sales areas, partner functions, order types, schedule lines and requested delivery dates per item, incompletion checks, approval, the order confirmation as a document, custom fields, taking open orders over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T78b, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Order-to-delivery flow",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A sales administrator confirms that quantities of a confirmed order's items were delivered on a date; the order shows what is delivered and what is open; a delivery confirmation in the sales context, no stock and no posting (POST /v1/sales-orders/{id}/deliveries)",
+        "r": "T78c · docs/design/plan-breadth-week2.md §T78c",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: order-to-delivery variants: the outbound delivery document, picking, packing and goods issue with their stock movement and cost of goods sold (Supply chain, outside the required scope), availability check, delivery blocks, partial delivery rules and tolerances, reversing a confirmation, proof of delivery, delivery notes (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T78c, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -4343,16 +4553,44 @@
      {
       "s": "T",
       "t": "Condition types and pricing procedures in configuration",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A configuration administrator defines condition types (a price, a percentage discount) and the order they apply in; a pricing analyst records a customer's discount, and quotation and order items show each condition applied and the net value after it",
+        "r": "T80b · docs/design/plan-breadth-week2.md §T80b",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: pricing configuration variants: several procedures chosen by customer and document type, access sequences, fixed-amount and quantity-based conditions, header conditions, condition exclusion, statistical conditions, tax as a condition, pricing configuration generated from SAP's condition tables (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T80b, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Price determination",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A pricing analyst records prices for item keys, for every customer or for one, with validity dates; a quotation or order item naming an item key without a price takes the price valid on the document's date (POST /v1/sales-prices)",
+        "r": "T80a · docs/design/plan-breadth-week2.md §T80a",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: price determination variants: scales by quantity or value, prices per customer group, price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T80a, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -4385,16 +4623,44 @@
      {
       "s": "T",
       "t": "Billing documents",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A billing clerk creates a billing document for an order: its items are the order's delivered quantities not yet billed, at the order's prices (POST /v1/billing-documents)",
+        "r": "T79a · docs/design/plan-breadth-week2.md §T79a",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: billing document variants: cancelling a billing document, collective billing and invoice splits, billing plans, milestones and down payment requests, pro forma invoices, billing without delivery, intercompany billing, the billing due list as a scheduled run, the invoice as a document sent to the customer and as an e-invoice (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T79a, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Revenue and receivable postings",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The billing clerk posts the billing document: a customer invoice is entered and posted in receivables in the same transaction and is the customer's open item, ready for dunning, the aging and an incoming payment (POST /v1/billing-documents/{id}:post)",
+        "r": "T79b · docs/design/plan-breadth-week2.md §T79b",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: billing posting variants: revenue account determination by customer and item group, reversal of a posted billing document, credit and debit memos from billing, posting to a profit center or segment derived from the sales organization, cost of goods sold, rebate accruals, a tax date other than the billing date (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T79b, Later",
+        "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       }
+      ]
      }
     ]
    },
