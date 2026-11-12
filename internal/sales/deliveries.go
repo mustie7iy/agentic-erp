@@ -94,8 +94,9 @@ func scanDelivery(row pgx.Row) (Delivery, error) {
 
 // ConfirmDelivery records that quantities of a confirmed order's items
 // were delivered on a date (ADR-0067 §8). The order's row is read FOR
-// UPDATE (ADR-0008), so two confirmations of one order wait for one
-// another and the second is judged on what the first left open. Only a
+// UPDATE (ADR-0008) and its items are read after the lock is held
+// (loadOrder), so two confirmations of one order wait for one another
+// and the second is judged on what the first left open. Only a
 // confirmed order takes one (409 sales.order_not_confirmed); the date is
 // not after the company's date today (422 sales.delivery_date_in_future);
 // each item is one of the order's, named once, with a quantity in its

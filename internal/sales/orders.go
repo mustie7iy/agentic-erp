@@ -114,13 +114,19 @@ func scanOrder(row pgx.Row) (Order, error) {
 }
 
 // loadOrder reads an order whatever its company, forUpdate under its row
-// lock (ADR-0008); order applies company access.
+// lock (ADR-0008); order applies company access. The lock is taken by a
+// statement of its own and the order read by the next: a statement that
+// waits for the lock sees the order's row as the other transaction left
+// it, but its items as they were when it began (read committed), and
+// what is open of an item, to deliver or to bill, must be judged on what
+// the other left.
 func loadOrder(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (Order, error) {
-	lock := ""
 	if forUpdate {
-		lock = " FOR UPDATE OF o"
+		if _, err := tx.Exec(ctx, `SELECT FROM sales.sales_order WHERE id = $1 FOR UPDATE`, id); err != nil {
+			return Order{}, fmt.Errorf("sales: lock sales order %s: %w", id, err)
+		}
 	}
-	o, err := scanOrder(tx.QueryRow(ctx, orderSelect+` WHERE o.id = $1`+lock, id))
+	o, err := scanOrder(tx.QueryRow(ctx, orderSelect+` WHERE o.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Order{}, problem.NotFoundOf("sales order")
 	}

@@ -6285,7 +6285,7 @@ step_sales_order() {
   expect "the customer's confirmed orders" "$(field '[.items[].document_number] | join(" ")')" "$number"
   SALES_ORDER=$order
   say "The brackets leave in two shipments. There is no stock in the ERP yet, so a delivery is a confirmation by a"
-  say "person: Sally records what was delivered and when (ADR-0067 §8). A draft order takes none; a confirmed one does."
+  say "person: Sally records what was delivered and when, against the confirmed order (ADR-0067 §8)."
   say "The first shipment is 100 of the 120 brackets:"
   day=$(company_day)
   api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit)")' \

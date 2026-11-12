@@ -392,6 +392,11 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   number and each item by the order item's number, key and description.
   It has no `Location`: there is no read of one delivery, the response
   is the delivery and the list gives it again.
+- The order's row lock is taken by a statement of its own and the order
+  with its items read by the next (`loadOrder`): at read committed, a
+  statement that waited for the lock would still see the items as they
+  were when it began, and a second delivery would be judged on what was
+  open before the first (review round 1).
 - The order's items show `delivered_quantity` (in the representation
   since T78b); what is open is `quantity` less it. The order's `version`
   and `ETag` move with each delivery.
