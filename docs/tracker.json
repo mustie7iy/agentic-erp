@@ -2766,14 +2766,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Credit limits",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit manager sets a customer's credit limit in a company, and any API consumer reads the customer's exposure and whether an amount is within the limit (GET /v1/credit-exposure); the credit context and its ADR",
-        "r": "T77a · docs/design/plan-breadth-week1.md §T77a",
+        "r": "T77a · docs/design/plan-breadth-week1.md §T77a · db/migrations/000271 · credit.credit_limit · POST /v1/credit-limits · PATCH /v1/credit-limits/{id} · GET /v1/credit-limits · GET /v1/credit-limits/{id} · GET /v1/credit-exposure · CreditLimitChanged · credit.limit.read, .write · walkthrough step_credit_limit · ADR-0066 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

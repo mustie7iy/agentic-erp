@@ -4171,3 +4171,42 @@ erDiagram
   `collections.worklist.read` (T76c, migration 000270). The collection
   worklist has no table: it is computed on read from the ledger's open
   customer items and `dunned_item` (ADR-0065 §9).
+
+## 3.28 Credit management (`credit`)
+
+ADR-0066, T77a (migration 000271). A leaf: it reads the ledger's customer
+open items (§3.7, `ledger.OpenItems.Receivable`), the partner context's
+customers and names and tenancy through its ports, posts nothing and
+keeps no foreign key out of its schema (02 §2.1). It stores a customer's
+credit limit in a company and nothing else: the credit exposure, what
+the customer's open items add up to, is computed from the ledger when it
+is read (ADR-0066 §3), and the check of an amount against the limit
+writes nothing (ADR-0066 §4).
+
+```mermaid
+erDiagram
+  credit_limit { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, one per company"
+    text customer_number "the partner's, fixed"
+    char currency "the company's"
+    bigint amount "in currency, 0 or more"
+    int version }
+```
+
+- `credit.credit_limit`: the most a customer may owe a company, an
+  amount of zero or more (`credit_limit_amount_check`) in a known
+  currency (`credit_limit_currency_fkey`), the company's when the limit
+  was set; one per customer and company (`credit_limit_once`, which the
+  API answers 409 `credit.limit_exists`); with the customer's business
+  partner number (`credit_limit_customer_number_check`), by which the
+  limits are listed (`credit_limit_by_customer_number`). A change sets
+  the amount with the next version (`platform.touch`, which also moves
+  `updated_at`): the application is granted the update of `amount`,
+  `version` and `updated_by` alone, so a limit's customer, company and
+  currency stay, and it is granted no delete. A customer without a row
+  has no limit and is not restricted; a limit of zero is a limit.
+- `credit.outbox`, `credit.inbox`: the context's events
+  (`CreditLimitChanged`).
+- Permissions `credit.limit.read` (limits and the exposure) and
+  `credit.limit.write`.

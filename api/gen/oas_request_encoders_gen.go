@@ -644,6 +644,20 @@ func encodeCreateCostCenterRequest(
 	return nil
 }
 
+func encodeCreateCreditLimitRequest(
+	req *CustomerCreditLimitCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateCustomerInvoiceRequest(
 	req *CustomerInvoiceCreate,
 	r *http.Request,
@@ -2317,6 +2331,20 @@ func encodeUpdateContractRequest(
 
 func encodeUpdateCostCenterRequest(
 	req *CenterTextsUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateCreditLimitRequest(
+	req *CustomerCreditLimitUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

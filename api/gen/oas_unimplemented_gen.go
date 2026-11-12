@@ -924,6 +924,26 @@ func (UnimplementedHandler) CreateCostCenter(ctx context.Context, req *CostCente
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCreditLimit implements createCreditLimit operation.
+//
+// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
+// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
+// holds at once: there is no approval of it and no validity period. The customer is a business partner
+// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
+// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
+// amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
+// `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
+// Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
+// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+// `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-limits
+func (UnimplementedHandler) CreateCreditLimit(ctx context.Context, req *CustomerCreditLimitCreate, params CreateCreditLimitParams) (r CreateCreditLimitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateCustomerInvoice implements createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -2274,6 +2294,44 @@ func (UnimplementedHandler) GetContract(ctx context.Context, params GetContractP
 //
 // GET /v1/cost-centers/{id}
 func (UnimplementedHandler) GetCostCenter(ctx context.Context, params GetCostCenterParams) (r GetCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCreditExposure implements getCreditExposure operation.
+//
+// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
+// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
+// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
+// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
+// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
+// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
+// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
+// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
+// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
+// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
+// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
+// what a consumer does with the answer is its own. It is computed at the read from one database state
+// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
+// without open items in the company has an exposure of zero. An amount below zero is refused (422
+// `credit.invalid_amount`, naming `amount`), one without exactly the currency's minor-unit digits is
+// 400 `request.invalid_amount`, as are open items that add up to more than an amount holds (422
+// `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner
+// that does not exist.
+//
+// GET /v1/credit-exposure
+func (UnimplementedHandler) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (r GetCreditExposureRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCreditLimit implements getCreditLimit operation.
+//
+// One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and
+// name, and the limit in the company's currency. What the customer owes is read with
+// `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does
+// not exist.
+//
+// GET /v1/credit-limits/{id}
+func (UnimplementedHandler) GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (r GetCreditLimitRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3655,6 +3713,18 @@ func (UnimplementedHandler) ListCostCenters(ctx context.Context, params ListCost
 //
 // GET /v1/country-packs
 func (UnimplementedHandler) ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (r ListCountryPacksRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCreditLimits implements listCreditLimits operation.
+//
+// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
+// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
+// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
+// (default).
+//
+// GET /v1/credit-limits
+func (UnimplementedHandler) ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (r ListCreditLimitsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -6224,6 +6294,22 @@ func (UnimplementedHandler) UpdateContract(ctx context.Context, req *ContractUpd
 //
 // PATCH /v1/cost-centers/{id}
 func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateCostCenterParams) (r UpdateCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCreditLimit implements updateCreditLimit operation.
+//
+// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
+// change came first): the new limit holds at once, in the limit's currency, zero or more (422
+// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
+// The customer, the company and the currency of a limit do not change. A change to the amount the
+// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
+// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
+// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
+//
+// PATCH /v1/credit-limits/{id}
+func (UnimplementedHandler) UpdateCreditLimit(ctx context.Context, req *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (r UpdateCreditLimitRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

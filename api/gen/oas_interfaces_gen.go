@@ -209,6 +209,10 @@ type CreateCostCenterRes interface {
 	createCostCenterRes()
 }
 
+type CreateCreditLimitRes interface {
+	createCreditLimitRes()
+}
+
 type CreateCustomerInvoiceRes interface {
 	createCustomerInvoiceRes()
 }
@@ -551,6 +555,14 @@ type GetContractRes interface {
 
 type GetCostCenterRes interface {
 	getCostCenterRes()
+}
+
+type GetCreditExposureRes interface {
+	getCreditExposureRes()
+}
+
+type GetCreditLimitRes interface {
+	getCreditLimitRes()
 }
 
 type GetCurrentPrincipalRes interface {
@@ -959,6 +971,10 @@ type ListCostCentersRes interface {
 
 type ListCountryPacksRes interface {
 	listCountryPacksRes()
+}
+
+type ListCreditLimitsRes interface {
+	listCreditLimitsRes()
 }
 
 type ListCustomerInvoicesRes interface {
@@ -1603,6 +1619,10 @@ type UpdateContractRes interface {
 
 type UpdateCostCenterRes interface {
 	updateCostCenterRes()
+}
+
+type UpdateCreditLimitRes interface {
+	updateCreditLimitRes()
 }
 
 type UpdateEntryTemplateRes interface {

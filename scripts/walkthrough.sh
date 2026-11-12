@@ -5947,6 +5947,78 @@ step_collections() {
   passed
 }
 
+# step_credit_limit is T77a (ADR-0066): Ruth reads what Northwind owes
+# Maple, its credit exposure, which is what its open items add up to;
+# without a limit the customer is not restricted, and the answer says none
+# is set. She sets a limit 500.00 above the exposure, once: a second limit
+# for the customer is refused. An amount of 400.00 is then within the
+# limit and 600.00 is not; the check changes nothing, the open items and
+# the limit are as before. She raises the limit with her version of it,
+# and the larger amount is within it. The amounts follow from the exposure
+# read, so the step holds whatever earlier steps left open.
+step_credit_limit() {
+  heading "Step 51 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
+  local customer=$CUSTOMER exposure limit raised id tag before
+  as ruth
+  say "Ruth looks after Maple's credit as well. Before more is sold to Northwind Traders on account she reads what"
+  say "it owes: its credit exposure, the customer's open items in Maple's currency, credits netted (ADR-0066 §3)."
+  say "No limit is set for it yet, so it is not restricted, and the answer says so:"
+  api 200 '"\(.customer_number) \(.customer_name) in \(.company_code) \(.company_name): exposure \(.exposure.amount) \(.exposure.currency) from \(.open_item_count) open item(s); limit set: \(.has_limit); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "no limit set, and so within it" "$(field '"\(.has_limit) \(.is_within_limit) \(has("limit")) \(has("available")) \(.currency)"')" "false true false false CAD"
+  exposure=$(field .exposure.amount)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  before=$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')
+  expect "the exposure, the customer's open items added up" "$(field '[.items[].amount_lc.amount | tonumber] | add * 100 | round')" \
+    "$(jq -rn --arg x "$exposure" '$x | tonumber * 100 | round')"
+  expect "an exposure above zero" "$(jq -rn --arg x "$exposure" '($x | tonumber) > 0')" true
+  limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 500 }')
+  raised=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
+  say "She sets Northwind's limit in Maple at $limit CAD, 500.00 above what it owes. A limit is one amount per"
+  say "customer and company in the company's currency; it holds at once, and nothing is posted or blocked:"
+  api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  id=$(field .id) tag=$ETAG
+  expect "the limit" "$(field '"\(.customer_id) \(.customer_name) \(.limit.amount) \(.limit.currency) \(.version)"')" "$customer Northwind Traders $limit CAD 1"
+  say "A customer has one limit in a company; a second is refused, and a limit in another currency too:"
+  refused 409 credit.limit_exists createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  refused 422 credit.currency_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "USD"}}'
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the customer's limits in Maple" "$(field '[.items[].id] | join(" ")')" "$id"
+  say "Now the exposure is read against the limit: what is available is the limit less the exposure."
+  api 200 '"exposure \(.exposure.amount) \(.exposure.currency), limit \(.limit.amount), available \(.available.amount); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the exposure against the limit" "$(field '"\(.exposure.amount) \(.has_limit) \(.credit_limit_id) \(.limit.amount) \(.available.amount) \(.available.currency) \(.is_within_limit)"')" \
+    "$exposure true $id $limit 500.00 CAD true"
+  say "Any API consumer, an order entry screen or an agent, asks whether an amount is within the limit: the"
+  say "exposure and the amount together may be no more than it. An order of 400.00 CAD is within Northwind's limit:"
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=400.00
+  expect "400.00 within the limit" "$(field '"\(.amount.amount) \(.amount.currency) \(.is_within_limit)"')" "400.00 CAD true"
+  say "One of 600.00 CAD is not. The check only answers: it blocks nothing and changes nothing."
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
+  expect "600.00 not within the limit" "$(field '"\(.amount.amount) \(.is_within_limit) \(.exposure.amount) \(.available.amount)"')" "600.00 false $exposure 500.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items after the checks" "$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')" "$before"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  expect "the limit after the checks" "$(field '"\(.limit.amount) \(.version)"') $ETAG" "$limit 1 $tag"
+  say "Ruth agrees a higher limit with sales and changes it, with her version of the limit: $raised CAD. The audit"
+  say "trail and the event CreditLimitChanged carry the limit before and after; the event names the customer by"
+  say "id and number, never by name:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
+  expect "the raised limit" "$(field '"\(.limit.amount) \(.version)"')" "$raised 2"
+  say "Her earlier version of it is stale now, and a change with it is refused:"
+  refused 412 request.version_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
+  expect "600.00 within the raised limit" "$(field '"\(.limit.amount) \(.available.amount) \(.is_within_limit)"')" "$raised 1000.00 true"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
+  expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.create"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7971,7 +8043,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_dunning step_collections step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_dunning step_collections step_credit_limit step_close'
 
 main() {
   stop_unseen

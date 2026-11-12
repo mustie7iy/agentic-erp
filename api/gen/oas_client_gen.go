@@ -784,6 +784,23 @@ type Invoker interface {
 	//
 	// POST /v1/cost-centers
 	CreateCostCenter(ctx context.Context, request *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
+	// CreateCreditLimit invokes createCreditLimit operation.
+	//
+	// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
+	// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
+	// holds at once: there is no approval of it and no validity period. The customer is a business partner
+	// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+	// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
+	// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+	// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
+	// amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
+	// `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
+	// Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
+	// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+	// `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-limits
+	CreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (CreateCreditLimitRes, error)
 	// CreateCustomerInvoice invokes createCustomerInvoice operation.
 	//
 	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -1879,6 +1896,38 @@ type Invoker interface {
 	//
 	// GET /v1/cost-centers/{id}
 	GetCostCenter(ctx context.Context, params GetCostCenterParams) (GetCostCenterRes, error)
+	// GetCreditExposure invokes getCreditExposure operation.
+	//
+	// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
+	// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
+	// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
+	// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
+	// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
+	// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
+	// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
+	// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
+	// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
+	// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
+	// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
+	// what a consumer does with the answer is its own. It is computed at the read from one database state
+	// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
+	// without open items in the company has an exposure of zero. An amount below zero is refused (422
+	// `credit.invalid_amount`, naming `amount`), one without exactly the currency's minor-unit digits is
+	// 400 `request.invalid_amount`, as are open items that add up to more than an amount holds (422
+	// `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner
+	// that does not exist.
+	//
+	// GET /v1/credit-exposure
+	GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error)
+	// GetCreditLimit invokes getCreditLimit operation.
+	//
+	// One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and
+	// name, and the limit in the company's currency. What the customer owes is read with
+	// `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does
+	// not exist.
+	//
+	// GET /v1/credit-limits/{id}
+	GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (GetCreditLimitRes, error)
 	// GetCurrentPrincipal invokes getCurrentPrincipal operation.
 	//
 	// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
@@ -2954,6 +3003,15 @@ type Invoker interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListCreditLimits invokes listCreditLimits operation.
+	//
+	// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
+	// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
+	// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
+	// (default).
+	//
+	// GET /v1/credit-limits
+	ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error)
 	// ListCustomerInvoices invokes listCustomerInvoices operation.
 	//
 	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
@@ -5040,6 +5098,19 @@ type Invoker interface {
 	//
 	// PATCH /v1/cost-centers/{id}
 	UpdateCostCenter(ctx context.Context, request *CenterTextsUpdate, params UpdateCostCenterParams) (UpdateCostCenterRes, error)
+	// UpdateCreditLimit invokes updateCreditLimit operation.
+	//
+	// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
+	// change came first): the new limit holds at once, in the limit's currency, zero or more (422
+	// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
+	// The customer, the company and the currency of a limit do not change. A change to the amount the
+	// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
+	// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
+	// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+	// (`x-agent: false`).
+	//
+	// PATCH /v1/credit-limits/{id}
+	UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error)
 	// UpdateEntryTemplate invokes updateEntryTemplate operation.
 	//
 	// Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`).
@@ -13670,6 +13741,147 @@ func (c *Client) sendCreateCostCenter(ctx context.Context, request *CostCenterCr
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateCreditLimit invokes createCreditLimit operation.
+//
+// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
+// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
+// holds at once: there is no approval of it and no validity period. The customer is a business partner
+// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
+// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
+// amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
+// `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
+// Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
+// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+// `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-limits
+func (c *Client) CreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (CreateCreditLimitRes, error) {
+	res, err := c.sendCreateCreditLimit(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (res CreateCreditLimitRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCreditLimit"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-limits"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCreditLimitOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-limits"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCreditLimitRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCreditLimitOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCreditLimitResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -26435,6 +26647,319 @@ func (c *Client) sendGetCostCenter(ctx context.Context, params GetCostCenterPara
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCreditExposure invokes getCreditExposure operation.
+//
+// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
+// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
+// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
+// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
+// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
+// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
+// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
+// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
+// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
+// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
+// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
+// what a consumer does with the answer is its own. It is computed at the read from one database state
+// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
+// without open items in the company has an exposure of zero. An amount below zero is refused (422
+// `credit.invalid_amount`, naming `amount`), one without exactly the currency's minor-unit digits is
+// 400 `request.invalid_amount`, as are open items that add up to more than an amount holds (422
+// `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner
+// that does not exist.
+//
+// GET /v1/credit-exposure
+func (c *Client) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error) {
+	res, err := c.sendGetCreditExposure(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCreditExposure(ctx context.Context, params GetCreditExposureParams) (res GetCreditExposureRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditExposure"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-exposure"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCreditExposureOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-exposure"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.CustomerID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "amount" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "amount",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Amount.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCreditExposureOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCreditExposureResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCreditLimit invokes getCreditLimit operation.
+//
+// One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and
+// name, and the limit in the company's currency. What the customer owes is read with
+// `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does
+// not exist.
+//
+// GET /v1/credit-limits/{id}
+func (c *Client) GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (GetCreditLimitRes, error) {
+	res, err := c.sendGetCreditLimit(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCreditLimit(ctx context.Context, params GetCreditLimitParams) (res GetCreditLimitRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditLimit"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-limits/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCreditLimitOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/credit-limits/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCreditLimitOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCreditLimitResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -45053,6 +45578,211 @@ func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPac
 
 	stage = "DecodeResponse"
 	result, err := decodeListCountryPacksResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCreditLimits invokes listCreditLimits operation.
+//
+// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
+// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
+// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
+// (default).
+//
+// GET /v1/credit-limits
+func (c *Client) ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error) {
+	res, err := c.sendListCreditLimits(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (res ListCreditLimitsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCreditLimits"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-limits"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCreditLimitsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-limits"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCreditLimitsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCreditLimitsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -76681,6 +77411,172 @@ func (c *Client) sendUpdateCostCenter(ctx context.Context, request *CenterTextsU
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateCreditLimit invokes updateCreditLimit operation.
+//
+// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
+// change came first): the new limit holds at once, in the limit's currency, zero or more (422
+// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
+// The customer, the company and the currency of a limit do not change. A change to the amount the
+// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
+// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
+// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
+//
+// PATCH /v1/credit-limits/{id}
+func (c *Client) UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error) {
+	res, err := c.sendUpdateCreditLimit(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (res UpdateCreditLimitRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateCreditLimit"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/credit-limits/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateCreditLimitOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/credit-limits/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateCreditLimitRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateCreditLimitOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateCreditLimitResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

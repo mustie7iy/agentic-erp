@@ -93,6 +93,7 @@ info:
     - name: payables
     - name: receivables
     - name: collections
+    - name: credit
     - name: payments
     - name: workflow
     - name: integration
@@ -424,6 +425,14 @@ channels:
     messages:
       DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
       DunningNoticeIssued: {$ref: '#/components/messages/DunningNoticeIssued'}
+  credit:
+    address: 'erp.{cell}.credit.{tenant}.{event}'
+    title: Credit management events
+    description: Customers' credit limits (ADR-0066 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      CreditLimitChanged: {$ref: '#/components/messages/CreditLimitChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -690,6 +699,12 @@ operations:
     messages:
       - $ref: '#/channels/collections/messages/DunningRunChanged'
       - $ref: '#/channels/collections/messages/DunningNoticeIssued'
+  publishCreditEvents:
+    action: send
+    title: Credit management publishes
+    channel: {$ref: '#/channels/credit'}
+    messages:
+      - $ref: '#/channels/credit/messages/CreditLimitChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3698,6 +3713,34 @@ components:
         - name: issued
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}}
+    CreditLimitChanged:
+      name: CreditLimitChanged
+      x-webhook: true
+      title: Credit limit changed
+      summary: A customer's credit limit in a company was set or changed.
+      description: |
+        Emitted when a customer's credit limit in a company is set
+        (`limit_before` null) and at each change of its amount (ADR-0066
+        §5, T77a), with the limit after the change and the one before. It
+        names the customer by id and number, never by name. It does not
+        carry what the customer owes: `GET /v1/credit-exposure` returns
+        the exposure and the check against the limit, and
+        `GET /v1/credit-limits/{id}` the limit at `version` or later.
+        Subject is the credit limit id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.credit.credit_limit_changed.v1}
+      payload: {$ref: '#/components/schemas/CreditLimitChangedV1'}
+      examples:
+        - name: set
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '5000.00', currency: CAD}, limit_before: null, version: 1}
+        - name: changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f06, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '7500.00', currency: CAD}, limit_before: {amount: '5000.00', currency: CAD}, version: 2}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4384,6 +4427,18 @@ components:
         level: {type: integer, description: "The notice's dunning level, 1 to 9: the highest among its items."}
         item_count: {type: integer, description: "The customer's overdue items in the notice."}
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+    CreditLimitChangedV1:
+      type: object
+      required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, version]
+      properties:
+        credit_limit_id: {$ref: '#/components/schemas/Uuid', description: '`credit.credit_limit.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company the limit holds in.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        limit: {$ref: '#/components/schemas/Money', description: "The limit after the change, in the company's currency."}
+        limit_before: {oneOf: [{$ref: '#/components/schemas/Money'}, {type: 'null'}], description: 'The limit before the change; null when the limit was set for the first time.'}
+        version: {type: integer, description: "The limit's version after the change."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]
