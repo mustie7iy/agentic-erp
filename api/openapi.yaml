@@ -5854,6 +5854,7 @@ paths:
               - receivables
               - assets
               - integration
+              - controlling
         - name: source_document_id
           in: query
           required: false
@@ -5943,6 +5944,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.internal_order_not_parkable
         - ledger.invalid_tax_code
@@ -6167,6 +6169,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -6682,6 +6685,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
@@ -7310,6 +7314,7 @@ paths:
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.key_date_not_period_end
         - ledger.ledger_not_kept
@@ -7433,6 +7438,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -8100,6 +8106,7 @@ paths:
             x-extensible-enum:
               - created
               - released
+              - closed
         - name: responsible_cost_center_id
           in: query
           required: false
@@ -8428,6 +8435,545 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}:settle":
+    post:
+      operationId: settleInternalOrder
+      tags:
+        - controlling
+      summary: Settle an internal order
+      description: "Settles a released internal order's actual costs up to a fiscal period to the receiver of its settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day), which per account credits the order and debits the receiving cost center for the order's unsettled balance, so each account's balance is unchanged and the cost moves from the order to the cost center on the accounts it was posted on. The unsettled balance of an account is the balance of the leading ledger's lines naming the order in every period up to the one named, earlier years included; an earlier settlement's lines are among them, so only what was posted since moves. With nothing unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before the one the order was last settled up to is refused (409 `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so the balance up to an earlier one still holds what it moved; name the same period or a later one, which also moves a cost posted since into a period already settled. `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a settlement does not move it. The order is held under a row lock, so two settlements never move one balance twice and a posting to the order waits for a settlement under way. Refused: an order that is not released (409 `controlling.internal_order_not_released`) or already closed (409 `controlling.internal_order_closed`); an order without a settlement rule (409 `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace the rule); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`). The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not settle an order."
+      x-permission: controlling.order.settle
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - controlling.internal_order_closed
+        - controlling.internal_order_not_released
+        - controlling.period_not_regular
+        - controlling.settlement_period_before_last
+        - controlling.settlement_receiver_not_valid
+        - controlling.settlement_rule_missing
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The period the order is settled up to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderSettle"
+      responses:
+        "200":
+          description: "What the settlement did: the settlement posted, or that nothing was unsettled."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}/settlements":
+    get:
+      operationId: listInternalOrderSettlements
+      tags:
+        - controlling
+      summary: List an internal order's settlements
+      description: "The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it was posted on, the receiving cost center with its code, the amount moved in the legal entity's local currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`), which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.order.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the order's settlements.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/internal-orders/{id}:close":
+    post:
+      operationId: closeInternalOrder
+      tags:
+        - controlling
+      summary: Close an internal order
+      description: "Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing needs the order's balance to be zero on every account, in the leading ledger over every fiscal year: an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming the balance: settle it first). An order that was never released (409 `controlling.internal_order_not_released`) or is already closed (409 `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order."
+      x-permission: controlling.order.settle
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - controlling.internal_order_closed
+        - controlling.internal_order_exists
+        - controlling.internal_order_not_released
+        - controlling.internal_order_not_settled
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The internal order, closed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/allocation-cycles:
+    get:
+      operationId: listAllocationCycles
+      tags:
+        - controlling
+      summary: List allocation cycles
+      description: "Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender and its receivers, their codes and percentages. Sortable by: `code`."
+      x-permission: controlling.allocation.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the cycles with this code (one per legal entity).
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,12}$"
+        - name: kind
+          in: query
+          required: false
+          description: Only cycles of this kind.
+          schema:
+            type: string
+            description: "Allocation cycle kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - distribution
+        - name: sender_cost_center_id
+          in: query
+          required: false
+          description: Only the cycles whose sender is this cost center.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of allocation cycles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCyclePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createAllocationCycle
+      tags:
+        - controlling
+      summary: Create an allocation cycle
+      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`: a run moves the sender's primary costs to the receivers on their original accounts. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
+      x-permission: controlling.allocation.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.allocation_cycle_exists
+        - controlling.allocation_cycle_invalid
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The allocation cycle create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocationCycleCreate"
+      responses:
+        "201":
+          description: "Created; the new allocation cycle."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCycle"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/allocation-cycles/{id}":
+    get:
+      operationId: getAllocationCycle
+      tags:
+        - controlling
+      summary: Get an allocation cycle
+      description: "Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.allocation.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The allocation cycle.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCycle"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/allocation-cycles/{id}:run":
+    post:
+      operationId: runAllocationCycle
+      tags:
+        - controlling
+      summary: Run an allocation cycle for a period
+      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day): per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). A sender without costs in the period posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
+      x-permission: controlling.allocation.run
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - controlling.allocation_center_not_valid
+        - controlling.allocation_run_exists
+        - controlling.period_not_regular
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The period the cycle is run for.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocationCycleRun"
+      responses:
+        "200":
+          description: "What the run did: the run posted, or that the sender had no costs in the period."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRunResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/allocation-runs:
+    get:
+      operationId: listAllocationRuns
+      tags:
+        - controlling
+      summary: List allocation runs
+      description: "The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest first: each with its cycle's code, name and kind, the period, the sender with its code, the amount moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.allocation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: allocation_cycle_id
+          in: query
+          required: false
+          description: Only the runs of this cycle.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the runs of periods of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only the runs of this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of allocation runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/allocation-runs/{id}":
+    get:
+      operationId: getAllocationRun
+      tags:
+        - controlling
+      summary: Get an allocation run
+      description: "Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.allocation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The allocation run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/internal-order-balances:
     get:
       operationId: listInternalOrderBalances
@@ -9378,6 +9924,7 @@ paths:
         - ledger.cost_center_required
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -11233,6 +11780,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -11377,6 +11925,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -12108,6 +12657,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -12398,6 +12948,7 @@ paths:
         - ledger.down_payment_tax_shared
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -12554,6 +13105,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -13434,6 +13986,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -13596,6 +14149,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -13997,6 +14551,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -18887,6 +19442,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -19033,6 +19589,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -19196,6 +19753,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -19340,6 +19898,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -19508,6 +20067,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -19652,6 +20212,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -22702,6 +23263,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
@@ -24320,6 +24882,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_center_status
         - ledger.invalid_clearing_entry
@@ -32157,6 +32720,7 @@ components:
             - receivables
             - assets
             - integration
+            - controlling
           readOnly: true
         source_document_id:
           type: string
@@ -32292,7 +32856,7 @@ components:
         internal_order_id:
           type: string
           format: uuid
-          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
+          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
         trading_partner_id:
           type: string
           format: uuid
@@ -35305,6 +35869,440 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    AllocationCycle:
+      description: "An allocation cycle (ADR-0064 §5): one sender cost center of a legal entity and receiver cost centers with fixed percentages adding up to 100, which a run charges the sender's costs of a period to."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - kind
+            - sender_cost_center_id
+            - sender_cost_center_code
+            - receivers
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the cycle belongs to. Immutable."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,12}$"
+              description: "Code, unique in the legal entity. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+              readOnly: true
+            kind:
+              type: string
+              description: "`distribution`: a run moves the sender's primary costs to the receivers on their original accounts. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - distribution
+              readOnly: true
+            sender_cost_center_id:
+              type: string
+              format: uuid
+              description: "The cost center whose costs a run charges to the receivers (`GET /v1/cost-centers/{id}`)."
+              readOnly: true
+            sender_cost_center_code:
+              type: string
+              description: The sender's code.
+              readOnly: true
+            receivers:
+              type: array
+              minItems: 1
+              maxItems: 100
+              description: "The receivers, in the order given when the cycle was created; their percentages add up to 100."
+              readOnly: true
+              items:
+                $ref: "#/components/schemas/AllocationReceiver"
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d01"
+          version: 1
+          created_at: "2026-11-12T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-11-12T09:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000101"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: SHARED-IT
+          name: IT services to the offices
+          kind: distribution
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          sender_cost_center_code: CC-1200
+          receivers:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              cost_center_code: CC-1100
+              percentage: "60.00"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              cost_center_code: CC-2100
+              percentage: "40.00"
+    AllocationReceiver:
+      type: object
+      description: A receiver of an allocation cycle with its share.
+      required:
+        - cost_center_id
+        - cost_center_code
+        - percentage
+      properties:
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The receiving cost center (`GET /v1/cost-centers/{id}`)."
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: The receiving cost center's code.
+          readOnly: true
+        percentage:
+          type: string
+          description: "The receiver's share of the sender's costs in percent, with two decimals."
+          readOnly: true
+      examples:
+        - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1100
+          percentage: "60.00"
+    AllocationCycleCreate:
+      type: object
+      description: The allocation cycle create request.
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - kind
+        - sender_cost_center_id
+        - receivers
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code) the cycle belongs to.
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,12}$"
+          description: "Code, unique in the legal entity."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        kind:
+          type: string
+          description: "`distribution`. Open enumeration; a kind not listed is refused (422)."
+          x-extensible-enum:
+            - distribution
+        sender_cost_center_id:
+          type: string
+          format: uuid
+          description: An active cost center of the legal entity whose costs the cycle's runs charge to the receivers.
+        receivers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: "The receivers: active cost centers of the legal entity other than the sender, each once, with percentages adding up to 100."
+          items:
+            type: object
+            required:
+              - cost_center_id
+              - percentage
+            properties:
+              cost_center_id:
+                type: string
+                format: uuid
+                description: The receiving cost center.
+              percentage:
+                type: string
+                pattern: "^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$"
+                description: "The receiver's share in percent: above 0 and at most 100, with up to two decimals."
+            additionalProperties: false
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: SHARED-IT
+          name: IT services to the offices
+          kind: distribution
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          receivers:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              percentage: "60"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              percentage: "40"
+    AllocationCyclePage:
+      type: object
+      description: One page of allocation cycles.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllocationCycle"
+          description: The allocation cycles on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    AllocationCycleRun:
+      type: object
+      description: The period an allocation cycle is run for.
+      required:
+        - fiscal_year
+        - fiscal_period
+      properties:
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: "The fiscal year of the period, one set up for the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "A regular posting period of the fiscal year: the sender's costs posted in it are charged to the receivers, and the entry is dated its last day."
+      additionalProperties: false
+      examples:
+        - fiscal_year: 2026
+          fiscal_period: 11
+    AllocationRun:
+      type: object
+      description: "A run of an allocation cycle for a fiscal period (ADR-0064 §5): the journal entry that charged the sender's costs of the period to the cycle's receivers. Never changed."
+      required:
+        - id
+        - allocation_cycle_id
+        - allocation_cycle_code
+        - allocation_cycle_name
+        - kind
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - posting_date
+        - sender_cost_center_id
+        - sender_cost_center_code
+        - amount
+        - account_count
+        - journal_entry_id
+        - journal_entry_number
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The run's id.
+          readOnly: true
+        allocation_cycle_id:
+          type: string
+          format: uuid
+          description: "The cycle run (`GET /v1/allocation-cycles/{id}`), whose receivers and percentages the run used."
+          readOnly: true
+        allocation_cycle_code:
+          type: string
+          description: The cycle's code.
+          readOnly: true
+        allocation_cycle_name:
+          type: string
+          description: The cycle's name.
+          readOnly: true
+        kind:
+          type: string
+          description: "The cycle's kind: `distribution`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - distribution
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The cycle's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period run.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: "The period run, and the entry's."
+        posting_date:
+          type: string
+          format: date
+          description: "The entry's posting date: the period's last day."
+          readOnly: true
+        sender_cost_center_id:
+          type: string
+          format: uuid
+          description: "The cycle's sender (`GET /v1/cost-centers/{id}`)."
+          readOnly: true
+        sender_cost_center_code:
+          type: string
+          description: The sender's code.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What the run moved off the sender to the receivers, in the legal entity's local currency: the total of the sender's costs of the period on the accounts charged."
+          readOnly: true
+        account_count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many accounts the run charged.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show each account's credit on the sender and each receiver's share."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: The entry's document number.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the cycle was run (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who ran it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d11"
+          allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+          allocation_cycle_code: SHARED-IT
+          allocation_cycle_name: IT services to the offices
+          kind: distribution
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posting_date: "2026-11-30"
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          sender_cost_center_code: CC-1200
+          amount:
+            amount: "999.99"
+            currency: EUR
+          account_count: 1
+          journal_entry_id: "0192a000-0000-7000-8000-000000000e42"
+          journal_entry_number: "100000043"
+          created_at: "2026-11-30T17:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    AllocationRunResult:
+      type: object
+      description: "What running an allocation cycle for a period did (ADR-0064 §5): the run it posted, or that the sender had no costs in the period."
+      required:
+        - allocation_cycle_id
+        - allocation_cycle_code
+        - allocation_cycle_name
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - posted
+      properties:
+        allocation_cycle_id:
+          type: string
+          format: uuid
+          description: "The cycle (`GET /v1/allocation-cycles/{id}`)."
+          readOnly: true
+        allocation_cycle_code:
+          type: string
+          description: The cycle's code.
+          readOnly: true
+        allocation_cycle_name:
+          type: string
+          description: The cycle's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The cycle's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period run.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period run.
+        posted:
+          type: boolean
+          description: "Whether an entry was posted: false when the sender had no primary costs in the period, so nothing changed and no run is kept."
+          readOnly: true
+        run:
+          $ref: "#/components/schemas/AllocationRun"
+          description: "The run posted. Absent when `posted` is false."
+          readOnly: true
+      examples:
+        - allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+          allocation_cycle_code: SHARED-IT
+          allocation_cycle_name: IT services to the offices
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posted: true
+          run:
+            id: "0192a000-0000-7000-8000-000000000d11"
+            allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+            allocation_cycle_code: SHARED-IT
+            allocation_cycle_name: IT services to the offices
+            kind: distribution
+            legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+            fiscal_year: 2026
+            fiscal_period: 11
+            posting_date: "2026-11-30"
+            sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+            sender_cost_center_code: CC-1200
+            amount:
+              amount: "999.99"
+              currency: EUR
+            account_count: 1
+            journal_entry_id: "0192a000-0000-7000-8000-000000000e42"
+            journal_entry_number: "100000043"
+            created_at: "2026-11-30T17:00:00Z"
+            created_by: "0192a000-0000-7000-8000-000000000101"
+    AllocationRunPage:
+      type: object
+      description: One page of allocation runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllocationRun"
+          description: The allocation runs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     InternalOrder:
       description: "An internal order (ADR-0064 §1): a cost object of the controlling context in one legal entity, collecting the costs of a job or an event. Costs are posted to it once it is released."
       allOf:
@@ -35345,10 +36343,11 @@ components:
               readOnly: true
             status:
               type: string
-              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it; `closed` (`:close`): settled, and no posting any more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - created
                 - released
+                - closed
               readOnly: true
       examples:
         - id: "0192a000-0000-7000-8000-000000000c01"
@@ -35583,6 +36582,226 @@ components:
       additionalProperties: false
       examples:
         - receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+    InternalOrderSettle:
+      type: object
+      description: "The period an internal order is settled up to."
+      required:
+        - fiscal_year
+        - fiscal_period
+      properties:
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: "The fiscal year of the period, one set up for the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "A regular posting period of the fiscal year: what was posted to the order in it and in every period before it, earlier years included, is settled, and the entry is dated its last day."
+      additionalProperties: false
+      examples:
+        - fiscal_year: 2026
+          fiscal_period: 11
+    InternalOrderSettlement:
+      type: object
+      description: "A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled balance up to a period to the receiving cost center, account by account. Never changed."
+      required:
+        - id
+        - internal_order_id
+        - fiscal_year
+        - fiscal_period
+        - posting_date
+        - receiver_cost_center_id
+        - receiver_cost_center_code
+        - amount
+        - account_count
+        - journal_entry_id
+        - journal_entry_number
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The settlement's id.
+          readOnly: true
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order settled (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period settled up to.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: "The period settled up to, and the entry's."
+        posting_date:
+          type: string
+          format: date
+          description: "The entry's posting date: the period's last day."
+          readOnly: true
+        receiver_cost_center_id:
+          type: string
+          format: uuid
+          description: "The cost center that received the costs (`GET /v1/cost-centers/{id}`): the receiver of the order's settlement rule when it was settled."
+          readOnly: true
+        receiver_cost_center_code:
+          type: string
+          description: The receiving cost center's code.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What moved from the order to the receiver, in the legal entity's local currency: the total of the accounts' balances settled, negative when the order held a credit balance."
+          readOnly: true
+        account_count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many accounts the settlement moved a balance on.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The settlement's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show each account's credit on the order and debit on the receiver."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: The entry's document number.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the order was settled (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who settled it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c11"
+          internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posting_date: "2026-11-30"
+          receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+          receiver_cost_center_code: CC-2100
+          amount:
+            amount: "1500.00"
+            currency: EUR
+          account_count: 1
+          journal_entry_id: "0192a000-0000-7000-8000-000000000e41"
+          journal_entry_number: "100000042"
+          created_at: "2026-11-30T16:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderSettlementResult:
+      type: object
+      description: "What settling an internal order up to a period did (ADR-0064 §3): the settlement it posted, or that nothing was unsettled."
+      required:
+        - internal_order_id
+        - internal_order_code
+        - internal_order_name
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - settled
+      properties:
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        internal_order_code:
+          type: string
+          description: The order's code.
+          readOnly: true
+        internal_order_name:
+          type: string
+          description: The order's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The order's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period settled up to.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period settled up to.
+        settled:
+          type: boolean
+          description: "Whether an entry was posted: false when the order had no unsettled balance up to the period, so nothing changed."
+          readOnly: true
+        settlement:
+          $ref: "#/components/schemas/InternalOrderSettlement"
+          description: "The settlement posted. Absent when `settled` is false."
+          readOnly: true
+      examples:
+        - internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          internal_order_code: TRADEFAIR-26
+          internal_order_name: Trade fair 2026
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          settled: true
+          settlement:
+            id: "0192a000-0000-7000-8000-000000000c11"
+            internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+            fiscal_year: 2026
+            fiscal_period: 11
+            posting_date: "2026-11-30"
+            receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+            receiver_cost_center_code: CC-2100
+            amount:
+              amount: "1500.00"
+              currency: EUR
+            account_count: 1
+            journal_entry_id: "0192a000-0000-7000-8000-000000000e41"
+            journal_entry_number: "100000042"
+            created_at: "2026-11-30T16:00:00Z"
+            created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderSettlementPage:
+      type: object
+      description: One page of an internal order's settlements.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrderSettlement"
+          description: The settlements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     InternalOrderBalance:
       type: object
       description: "The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the legal entity's local currency."

@@ -448,6 +448,23 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:close
 	CloseFiscalPeriod(ctx context.Context, params CloseFiscalPeriodParams) (CloseFiscalPeriodRes, error)
+	// CloseInternalOrder invokes closeInternalOrder operation.
+	//
+	// Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the
+	// order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting
+	// (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing
+	// needs the order's balance to be zero on every account, in the leading ledger over every fiscal year:
+	// an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming
+	// the balance: settle it first). An order that was never released (409
+	// `controlling.internal_order_not_released`) or is already closed (409
+	// `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval
+	// request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the
+	// caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger
+	// amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order.
+	//
+	// POST /v1/internal-orders/{id}:close
+	CloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (CloseInternalOrderRes, error)
 	// ClosePurchaseOrder invokes closePurchaseOrder operation.
 	//
 	// Closes a released order: no further goods receipts or invoices are expected and both are refused
@@ -505,6 +522,25 @@ type Invoker interface {
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
+	// CreateAllocationCycle invokes createAllocationCycle operation.
+	//
+	// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
+	// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
+	// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
+	// original accounts. The code is unique in the legal entity (409
+	// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
+	// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
+	// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
+	// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+	// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
+	// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
+	// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+	// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
+	// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
+	// not create one.
+	//
+	// POST /v1/allocation-cycles
+	CreateAllocationCycle(ctx context.Context, request *AllocationCycleCreate, params CreateAllocationCycleParams) (CreateAllocationCycleRes, error)
 	// CreateAsset invokes createAsset operation.
 	//
 	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -1441,6 +1477,22 @@ type Invoker interface {
 	//
 	// GET /v1/ai-usage
 	GetAiUsage(ctx context.Context, params GetAiUsageParams) (GetAiUsageRes, error)
+	// GetAllocationCycle invokes getAllocationCycle operation.
+	//
+	// Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller
+	// cannot act in is answered as missing (404).
+	//
+	// GET /v1/allocation-cycles/{id}
+	GetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (GetAllocationCycleRes, error)
+	// GetAllocationRun invokes getAllocationRun operation.
+	//
+	// Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered
+	// as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the
+	// caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+	// otherwise).
+	//
+	// GET /v1/allocation-runs/{id}
+	GetAllocationRun(ctx context.Context, params GetAllocationRunParams) (GetAllocationRunRes, error)
 	// GetAnalyticsModel invokes getAnalyticsModel operation.
 	//
 	// The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as
@@ -2694,6 +2746,23 @@ type Invoker interface {
 	//
 	// GET /v1/agent-sessions/{id}/tool-calls
 	ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (ListAgentToolCallsRes, error)
+	// ListAllocationCycles invokes listAllocationCycles operation.
+	//
+	// Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender
+	// and its receivers, their codes and percentages. Sortable by: `code`.
+	//
+	// GET /v1/allocation-cycles
+	ListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (ListAllocationCyclesRes, error)
+	// ListAllocationRuns invokes listAllocationRuns operation.
+	//
+	// The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest
+	// first: each with its cycle's code, name and kind, the period, the sender with its code, the amount
+	// moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The
+	// amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/allocation-runs
+	ListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (ListAllocationRunsRes, error)
 	// ListApprovalRequests invokes listApprovalRequests operation.
 	//
 	// Approval requests; filter by `status=pending` for everything waiting, by `requested_by=me` for the
@@ -3363,6 +3432,18 @@ type Invoker interface {
 	//
 	// GET /v1/internal-order-balances
 	ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (ListInternalOrderBalancesRes, error)
+	// ListInternalOrderSettlements invokes listInternalOrderSettlements operation.
+	//
+	// The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
+	// was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
+	// currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
+	// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
+	// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
+	// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise).
+	//
+	// GET /v1/internal-orders/{id}/settlements
+	ListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (ListInternalOrderSettlementsRes, error)
 	// ListInternalOrders invokes listInternalOrders operation.
 	//
 	// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its
@@ -4888,6 +4969,34 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:rotateSecret
 	RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (RotateWebhookSubscriptionSecretRes, error)
+	// RunAllocationCycle invokes runAllocationCycle operation.
+	//
+	// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
+	// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
+	// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
+	// local currency through the ledger (source context `controlling`, document type `SA`, dated the
+	// period's last day): per account, the sender credited with its cost and each receiver debited with
+	// its share on the same account, so the entry balances per account and every account's balance is
+	// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
+	// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
+	// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
+	// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
+	// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
+	// both post, and two cycles of one sender run at once follow one another: the second moves what the
+	// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
+	// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
+	// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
+	// it); and what the ledger refuses of any entry, among them a period that is not open (409
+	// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
+	// cost posted to the sender in the period after its run stays on the sender. The run is kept
+	// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
+	// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
+	// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Agents may not run a cycle.
+	//
+	// POST /v1/allocation-cycles/{id}:run
+	RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
 	// RunAnalyticsQuery invokes runAnalyticsQuery operation.
 	//
 	// Answers governed metrics (the semantic model in the active configuration version's `analytics`
@@ -4948,6 +5057,40 @@ type Invoker interface {
 	//
 	// POST /v1/balance-carry-forwards
 	RunBalanceCarryForward(ctx context.Context, request *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (RunBalanceCarryForwardRes, error)
+	// SettleInternalOrder invokes settleInternalOrder operation.
+	//
+	// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
+	// settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the
+	// ledger (source context `controlling`, document type `SA`, dated the period's last day), which per
+	// account credits the order and debits the receiving cost center for the order's unsettled balance, so
+	// each account's balance is unchanged and the cost moves from the order to the cost center on the
+	// accounts it was posted on. The unsettled balance of an account is the balance of the leading
+	// ledger's lines naming the order in every period up to the one named, earlier years included; an
+	// earlier settlement's lines are among them, so only what was posted since moves. With nothing
+	// unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before
+	// the one the order was last settled up to is refused (409
+	// `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so
+	// the balance up to an earlier one still holds what it moved; name the same period or a later one,
+	// which also moves a cost posted since into a period already settled. `If-Match` is the order's
+	// version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves
+	// with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a
+	// settlement does not move it. The order is held under a row lock, so two settlements never move one
+	// balance twice and a posting to the order waits for a settlement under way. Refused: an order that is
+	// not released (409 `controlling.internal_order_not_released`) or already closed (409
+	// `controlling.internal_order_closed`); an order without a settlement rule (409
+	// `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or
+	// a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver
+	// that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace
+	// the rule); and what the ledger refuses of any entry, among them a period that is not open (409
+	// `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`).
+	// The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+	// InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing
+	// (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+	// not settle an order.
+	//
+	// POST /v1/internal-orders/{id}:settle
+	SettleInternalOrder(ctx context.Context, request *InternalOrderSettle, params SettleInternalOrderParams) (SettleInternalOrderRes, error)
 	// SignOffPeriodClose invokes signOffPeriodClose operation.
 	//
 	// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
@@ -11352,6 +11495,174 @@ func (c *Client) sendCloseFiscalPeriod(ctx context.Context, params CloseFiscalPe
 	return result, nil
 }
 
+// CloseInternalOrder invokes closeInternalOrder operation.
+//
+// Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the
+// order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting
+// (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing
+// needs the order's balance to be zero on every account, in the leading ledger over every fiscal year:
+// an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming
+// the balance: settle it first). An order that was never released (409
+// `controlling.internal_order_not_released`) or is already closed (409
+// `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval
+// request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the
+// caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger
+// amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order.
+//
+// POST /v1/internal-orders/{id}:close
+func (c *Client) CloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (CloseInternalOrderRes, error) {
+	res, err := c.sendCloseInternalOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (res CloseInternalOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("closeInternalOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}:close"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CloseInternalOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":close"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CloseInternalOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCloseInternalOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ClosePurchaseOrder invokes closePurchaseOrder operation.
 //
 // Closes a released order: no further goods receipts or invoices are expected and both are refused
@@ -12050,6 +12361,149 @@ func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunnin
 
 	stage = "DecodeResponse"
 	result, err := decodeConfirmDunningRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateAllocationCycle invokes createAllocationCycle operation.
+//
+// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
+// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
+// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
+// original accounts. The code is unique in the legal entity (409
+// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
+// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
+// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
+// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
+// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
+// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
+// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
+// not create one.
+//
+// POST /v1/allocation-cycles
+func (c *Client) CreateAllocationCycle(ctx context.Context, request *AllocationCycleCreate, params CreateAllocationCycleParams) (CreateAllocationCycleRes, error) {
+	res, err := c.sendCreateAllocationCycle(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateAllocationCycle(ctx context.Context, request *AllocationCycleCreate, params CreateAllocationCycleParams) (res CreateAllocationCycleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createAllocationCycle"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateAllocationCycleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/allocation-cycles"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateAllocationCycleRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateAllocationCycleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateAllocationCycleResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -21754,6 +22208,272 @@ func (c *Client) sendGetAiUsage(ctx context.Context, params GetAiUsageParams) (r
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAiUsageResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAllocationCycle invokes getAllocationCycle operation.
+//
+// Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller
+// cannot act in is answered as missing (404).
+//
+// GET /v1/allocation-cycles/{id}
+func (c *Client) GetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (GetAllocationCycleRes, error) {
+	res, err := c.sendGetAllocationCycle(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (res GetAllocationCycleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAllocationCycle"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAllocationCycleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/allocation-cycles/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAllocationCycleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAllocationCycleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAllocationRun invokes getAllocationRun operation.
+//
+// Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered
+// as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the
+// caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+// otherwise).
+//
+// GET /v1/allocation-runs/{id}
+func (c *Client) GetAllocationRun(ctx context.Context, params GetAllocationRunParams) (GetAllocationRunRes, error) {
+	res, err := c.sendGetAllocationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAllocationRun(ctx context.Context, params GetAllocationRunParams) (res GetAllocationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAllocationRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAllocationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/allocation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAllocationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAllocationRunResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -37659,6 +38379,517 @@ func (c *Client) sendListAgentToolCalls(ctx context.Context, params ListAgentToo
 	return result, nil
 }
 
+// ListAllocationCycles invokes listAllocationCycles operation.
+//
+// Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender
+// and its receivers, their codes and percentages. Sortable by: `code`.
+//
+// GET /v1/allocation-cycles
+func (c *Client) ListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (ListAllocationCyclesRes, error) {
+	res, err := c.sendListAllocationCycles(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (res ListAllocationCyclesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAllocationCycles"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAllocationCyclesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/allocation-cycles"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Code.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sender_cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sender_cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SenderCostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAllocationCyclesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAllocationCyclesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAllocationRuns invokes listAllocationRuns operation.
+//
+// The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest
+// first: each with its cycle's code, name and kind, the period, the sender with its code, the amount
+// moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The
+// amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/allocation-runs
+func (c *Client) ListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (ListAllocationRunsRes, error) {
+	res, err := c.sendListAllocationRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (res ListAllocationRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAllocationRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAllocationRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/allocation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "allocation_cycle_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "allocation_cycle_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AllocationCycleID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAllocationRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAllocationRunsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListApprovalRequests invokes listApprovalRequests operation.
 //
 // Approval requests; filter by `status=pending` for everything waiting, by `requested_by=me` for the
@@ -52009,6 +53240,216 @@ func (c *Client) sendListInternalOrderBalances(ctx context.Context, params ListI
 
 	stage = "DecodeResponse"
 	result, err := decodeListInternalOrderBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListInternalOrderSettlements invokes listInternalOrderSettlements operation.
+//
+// The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
+// was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
+// currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
+// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
+// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
+// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-orders/{id}/settlements
+func (c *Client) ListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (ListInternalOrderSettlementsRes, error) {
+	res, err := c.sendListInternalOrderSettlements(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (res ListInternalOrderSettlementsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listInternalOrderSettlements"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}/settlements"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListInternalOrderSettlementsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/settlements"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListInternalOrderSettlementsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListInternalOrderSettlementsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -75532,6 +76973,188 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 	return result, nil
 }
 
+// RunAllocationCycle invokes runAllocationCycle operation.
+//
+// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
+// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
+// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
+// local currency through the ledger (source context `controlling`, document type `SA`, dated the
+// period's last day): per account, the sender credited with its cost and each receiver debited with
+// its share on the same account, so the entry balances per account and every account's balance is
+// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
+// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
+// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
+// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
+// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
+// both post, and two cycles of one sender run at once follow one another: the second moves what the
+// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
+// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
+// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
+// it); and what the ledger refuses of any entry, among them a period that is not open (409
+// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
+// cost posted to the sender in the period after its run stays on the sender. The run is kept
+// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
+// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
+// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not run a cycle.
+//
+// POST /v1/allocation-cycles/{id}:run
+func (c *Client) RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error) {
+	res, err := c.sendRunAllocationCycle(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (res RunAllocationCycleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("runAllocationCycle"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles/{id}:run"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RunAllocationCycleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/allocation-cycles/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":run"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRunAllocationCycleRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RunAllocationCycleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRunAllocationCycleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RunAnalyticsQuery invokes runAnalyticsQuery operation.
 //
 // Answers governed metrics (the semantic model in the active configuration version's `analytics`
@@ -75833,6 +77456,194 @@ func (c *Client) sendRunBalanceCarryForward(ctx context.Context, request *Balanc
 
 	stage = "DecodeResponse"
 	result, err := decodeRunBalanceCarryForwardResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// SettleInternalOrder invokes settleInternalOrder operation.
+//
+// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
+// settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the
+// ledger (source context `controlling`, document type `SA`, dated the period's last day), which per
+// account credits the order and debits the receiving cost center for the order's unsettled balance, so
+// each account's balance is unchanged and the cost moves from the order to the cost center on the
+// accounts it was posted on. The unsettled balance of an account is the balance of the leading
+// ledger's lines naming the order in every period up to the one named, earlier years included; an
+// earlier settlement's lines are among them, so only what was posted since moves. With nothing
+// unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before
+// the one the order was last settled up to is refused (409
+// `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so
+// the balance up to an earlier one still holds what it moved; name the same period or a later one,
+// which also moves a cost posted since into a period already settled. `If-Match` is the order's
+// version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves
+// with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a
+// settlement does not move it. The order is held under a row lock, so two settlements never move one
+// balance twice and a posting to the order waits for a settlement under way. Refused: an order that is
+// not released (409 `controlling.internal_order_not_released`) or already closed (409
+// `controlling.internal_order_closed`); an order without a settlement rule (409
+// `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or
+// a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver
+// that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace
+// the rule); and what the ledger refuses of any entry, among them a period that is not open (409
+// `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`).
+// The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+// InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing
+// (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+// not settle an order.
+//
+// POST /v1/internal-orders/{id}:settle
+func (c *Client) SettleInternalOrder(ctx context.Context, request *InternalOrderSettle, params SettleInternalOrderParams) (SettleInternalOrderRes, error) {
+	res, err := c.sendSettleInternalOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendSettleInternalOrder(ctx context.Context, request *InternalOrderSettle, params SettleInternalOrderParams) (res SettleInternalOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("settleInternalOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}:settle"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SettleInternalOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":settle"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeSettleInternalOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SettleInternalOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSettleInternalOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

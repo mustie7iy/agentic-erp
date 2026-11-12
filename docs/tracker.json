@@ -3363,14 +3363,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Settlement",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller settles an internal order's actual costs up to a period to its receiving cost center, on the original accounts, and closes the settled order",
-        "r": "T60e · docs/design/plan-breadth-week1.md §T60e",
+        "r": "T60e · docs/design/plan-breadth-week1.md §T60e · migrations 000273-000275 · internal/controlling/settlement.go · ADR-0064 §3 · scripts/walkthrough.sh step_order_settlement",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -3391,14 +3391,14 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Assessment and distribution cycles",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller defines a distribution cycle (one sender cost center, receivers with fixed percentages) and runs it for a period: the sender's primary costs move to the receivers on their original accounts",
-        "r": "T60f · docs/design/plan-breadth-week1.md §T60f",
+        "r": "T60f · docs/design/plan-breadth-week1.md §T60f · migration 000276 · internal/controlling/allocation.go, allocationrun.go · ADR-0064 §5 · scripts/walkthrough.sh step_distribution",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },

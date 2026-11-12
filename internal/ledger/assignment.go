@@ -55,12 +55,13 @@ type CostObjects interface {
 }
 
 // CostOrder is an internal order as a posting reads it: its company, its
-// code, whether it takes postings (released) and its responsible cost
-// center.
+// code, whether it takes postings (released), whether it is closed, which
+// ends them (T60e), and its responsible cost center.
 type CostOrder struct {
 	LegalEntityID uuid.UUID
 	Code          string
 	Postable      bool
+	Closed        bool
 	CostCenterID  uuid.UUID
 }
 
@@ -113,6 +114,7 @@ const (
 	// Of ledger.internal_order_invalid (ADR-0064 §2), beside reasonUnknown
 	// and reasonNotInCompany.
 	reasonNotReleased      = "not_released"
+	reasonClosed           = "closed"
 	reasonWithCostCenter   = "with_cost_center"
 	reasonNotACostAccount  = "not_a_cost_account"
 	reasonCenterNotOnDate  = "cost_center_not_valid_on_date"
@@ -131,6 +133,7 @@ var reasonTexts = map[string]string{
 	reasonNotAllowed:        "cannot be posted on an account that takes no cost object (cost element none)",
 	reasonLocked:            "is locked on the posting date",
 	reasonNotReleased:       "is not released for posting",
+	reasonClosed:            "is closed and takes no posting",
 	reasonWithCostCenter:    "cannot be named beside a cost center: a line carries one real cost object",
 	reasonNotACostAccount:   "can be posted only on a primary cost account",
 	reasonCenterNotOnDate:   "has a responsible cost center that is not valid on the posting date, so the line's profit center cannot be derived",
@@ -246,10 +249,36 @@ func (e *Endpoints) assignOrders(ctx context.Context, le uuid.UUID, lines []Line
 			continue
 		}
 		o, known := orders[*l.InternalOrderID]
-		if reason := orderState(known, o.LegalEntityID == le, o.Postable, l.CostCenterID != nil); reason != "" {
+		if reason := orderState(known, o.LegalEntityID == le, o, l.CostCenterID != nil); reason != "" {
 			return orderRefused(i, reason)
 		}
 		l.orderCenter = &o.CostCenterID
+	}
+	return nil
+}
+
+// holdOrders holds the internal orders a reversal's lines carry over from
+// its original until the transaction ends, as a posting holds its own
+// (ADR-0064 §3, T60e). The lines are not derived again (ADR-0050 §5), but
+// a closed order takes no posting, a reversal's included: its balance was
+// zero when it was closed and nothing settles it afterwards (409
+// ledger.internal_order_closed). An order the controlling context no
+// longer knows is not held back. A reversal whose lines name none asks
+// nothing.
+func (e *Endpoints) holdOrders(ctx context.Context, lines []Line) error {
+	ids := centerIDs(lines, func(l Line) *uuid.UUID { return l.InternalOrderID })
+	if len(ids) == 0 {
+		return nil
+	}
+	orders, err := e.costOrders(ctx, ids, true)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if o := orders[id]; o.Closed {
+			return problem.Conflict("ledger.internal_order_closed", "The entry posted to internal order "+o.Code+
+				", which is closed since and takes no posting; the entry cannot be reversed.")
+		}
 	}
 	return nil
 }
@@ -266,14 +295,17 @@ func (e *Endpoints) costOrders(ctx context.Context, ids []uuid.UUID, hold bool) 
 }
 
 // orderState is why an order cannot be posted on a line: unknown, not the
-// company's, not released, or named beside a cost center; "" when it can.
-func orderState(known, inCompany, postable, withCostCenter bool) string {
+// company's, closed, not released, or named beside a cost center; "" when
+// it can.
+func orderState(known, inCompany bool, o CostOrder, withCostCenter bool) string {
 	switch {
 	case !known:
 		return reasonUnknown
 	case !inCompany:
 		return reasonNotInCompany
-	case !postable:
+	case o.Closed:
+		return reasonClosed
+	case !o.Postable:
 		return reasonNotReleased
 	case withCostCenter:
 		return reasonWithCostCenter

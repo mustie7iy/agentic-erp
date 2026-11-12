@@ -141,6 +141,10 @@ type CloseFiscalPeriodRes interface {
 	closeFiscalPeriodRes()
 }
 
+type CloseInternalOrderRes interface {
+	closeInternalOrderRes()
+}
+
 type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
@@ -155,6 +159,10 @@ type CompleteYearCloseTaskRes interface {
 
 type ConfirmDunningRunRes interface {
 	confirmDunningRunRes()
+}
+
+type CreateAllocationCycleRes interface {
+	createAllocationCycleRes()
 }
 
 type CreateAssetAcquisitionRes interface {
@@ -423,6 +431,14 @@ type GetAiPolicyRes interface {
 
 type GetAiUsageRes interface {
 	getAiUsageRes()
+}
+
+type GetAllocationCycleRes interface {
+	getAllocationCycleRes()
+}
+
+type GetAllocationRunRes interface {
+	getAllocationRunRes()
 }
 
 type GetAnalyticsModelRes interface {
@@ -845,6 +861,14 @@ type ListAgentToolCallsRes interface {
 	listAgentToolCallsRes()
 }
 
+type ListAllocationCyclesRes interface {
+	listAllocationCyclesRes()
+}
+
+type ListAllocationRunsRes interface {
+	listAllocationRunsRes()
+}
+
 type ListApprovalRequestsRes interface {
 	listApprovalRequestsRes()
 }
@@ -1083,6 +1107,10 @@ type ListIntercompanyDifferencesRes interface {
 
 type ListInternalOrderBalancesRes interface {
 	listInternalOrderBalancesRes()
+}
+
+type ListInternalOrderSettlementsRes interface {
+	listInternalOrderSettlementsRes()
 }
 
 type ListInternalOrdersRes interface {
@@ -1561,12 +1589,20 @@ type RotateWebhookSubscriptionSecretRes interface {
 	rotateWebhookSubscriptionSecretRes()
 }
 
+type RunAllocationCycleRes interface {
+	runAllocationCycleRes()
+}
+
 type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
 }
 
 type RunBalanceCarryForwardRes interface {
 	runBalanceCarryForwardRes()
+}
+
+type SettleInternalOrderRes interface {
+	settleInternalOrderRes()
 }
 
 type SignOffPeriodCloseRes interface {

@@ -325,7 +325,7 @@ code. Costs are posted to a released order on a journal entry line (T60b,
 ADR-0064 §2): `POST /v1/journal-entries` lines take `internal_order_id`
 instead of a cost center, on a primary cost account (422
 `ledger.internal_order_invalid` on `lines[i].internal_order_id`, the field
-error's code `unknown`, `not_in_company`, `not_released`,
+error's code `unknown`, `not_in_company`, `not_released`, `closed`,
 `with_cost_center`, `not_a_cost_account` or
 `cost_center_not_valid_on_date`); the line takes its profit center and
 segment from the order's responsible cost center, and journal entry lines
@@ -367,6 +367,68 @@ otherwise); audited with the receivers before and after. `GET
 /v1/internal-orders/{id}/settlement-rule` (`controlling.order.read`) gives
 the receiver's id and code with the order's code and name and the order's
 version as `ETag`; an order without a rule is answered without a receiver.
+
+An order is settled and closed by two custom methods (ADR-0064 §3, T60e;
+`controlling.order.settle`, `x-agent: false`). `POST
+/v1/internal-orders/{id}:settle` (also `ledger.entry.read`; `If-Match`
+the order's version, which moves with its rule and not with a settlement)
+names a `fiscal_year` and a regular `fiscal_period` (422
+`ledger.no_fiscal_period`, 422 `controlling.period_not_regular`) and
+moves the order's unsettled balance up to that period to its rule's
+receiver in one journal entry dated the period's last day: per account
+the order credited and the receiving cost center debited. It answers 200
+with `settled` and, when an entry was posted, the `settlement` (period,
+posting date, receiver with its code, amount with its currency, number
+of accounts, the entry's id and number); with nothing unsettled it posts
+nothing and `settled` is false, so the action may be repeated. Refused: an
+order not released (409 `controlling.internal_order_not_released`) or
+closed (409 `controlling.internal_order_closed`), without a rule (409
+`controlling.settlement_rule_missing`), a period before the one it was
+last settled up to (409 `controlling.settlement_period_before_last`), a receiver not valid on the
+posting date (409 `controlling.settlement_receiver_not_valid`), and what
+the ledger refuses of the entry (409 `ledger.period_not_open`, 422
+`ledger.cost_center_invalid`, ...). Published as `InternalOrderSettled`.
+`GET /v1/internal-orders/{id}/settlements` (`controlling.order.read` and
+`ledger.entry.read`) pages them, latest first (`posting_date`). `POST
+/v1/internal-orders/{id}:close` (also `ledger.entry.read`; `If-Match`
+the order's version) closes a
+released order whose balance is zero on every account (409
+`controlling.internal_order_not_settled` otherwise), once, published as
+`InternalOrderChanged` (`closed`). A closed order takes no posting (422
+`ledger.internal_order_invalid`, `closed`), and an entry that posted to
+it is not reversed (409 `ledger.internal_order_closed`).
+
+Allocation cycles (ADR-0064 §5, T60f) are the controlling context's.
+`POST /v1/allocation-cycles` (`controlling.allocation.write`, `x-agent:
+false`) defines a cycle of a company: a `kind` (`distribution`), one
+sender cost center and 1 to 100 receivers with percentages (strings, up
+to two decimals) adding up to 100; every field that cannot stand is named
+in one 422 `controlling.allocation_cycle_invalid` (`kind` `unsupported`;
+a center `unknown`, `not_in_company`, `not_active`, `is_sender` or
+`duplicate`; a percentage `invalid`; `receivers` `not_100`), and a code
+used twice in the company is 409 `controlling.allocation_cycle_exists`.
+`GET /v1/allocation-cycles` (`controlling.allocation.read`; filters
+`legal_entity_id`, `code`, `kind`, `sender_cost_center_id`) and `GET
+/v1/allocation-cycles/{id}` show a cycle with its centers' codes. `POST
+/v1/allocation-cycles/{id}:run` (`controlling.allocation.run` and
+`ledger.entry.read`, `x-agent: false`; `If-Match` the cycle's version)
+names a `fiscal_year` and a regular `fiscal_period` and runs the cycle
+for it, synchronously: one journal entry dated the period's last day
+moves the sender's primary costs of the period to the receivers on their
+original accounts, the shares adding up to each account's cost to the
+minor unit. It answers 200 with `posted` and, when an entry was posted,
+the `run` (cycle code, name and kind, period, posting date, sender with
+its code, amount with its currency, number of accounts, the entry's id
+and number); a sender without costs posts nothing, `posted` is false and
+no run is kept. A period already run is 409
+`controlling.allocation_run_exists`; a center not valid on the posting
+date 409 `controlling.allocation_center_not_valid`; what the ledger
+refuses of the entry is its own problem. Published as
+`AllocationRunPosted`. `GET /v1/allocation-runs`
+(`controlling.allocation.read` and `ledger.entry.read`; filters
+`legal_entity_id`, `allocation_cycle_id`, `fiscal_year`, `fiscal_period`;
+latest first by `posting_date`) and `GET /v1/allocation-runs/{id}` show
+the runs.
 
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or

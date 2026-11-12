@@ -46,6 +46,28 @@
 // and its version moved with the rule, by a person holding
 // controlling.order.write; each change is audited with the receivers
 // before and after.
+//
+// A released order is settled (ADR-0064 §3, T60e): its unsettled balance
+// up to a fiscal period moves, account by account, to the rule's receiver
+// in one journal entry posted through the ledger's port (ledger.Postings,
+// source context controlling), which credits the order and debits the
+// receiving cost center on each account, so the account's balance is
+// unchanged. The order is held FOR UPDATE from before its balance is read
+// until the entry is posted, so two settlements never move one balance
+// and a settlement with nothing unsettled posts nothing. A settled order
+// is closed by a person at the version read, its balance zero on every
+// account under the same lock; a closed order takes no posting. Both are
+// a person's (controlling.order.settle), audited and published.
+//
+// An allocation cycle (ADR-0064 §5, T60f) has one sender cost center and
+// receiver cost centers with fixed percentages adding up to 100, all
+// active cost centers of one company. A distribution's run for a fiscal
+// period moves the sender's primary costs of the period to the receivers
+// on their original accounts in one entry through the ledger's port, the
+// shares split with money.Allocate so they add up to each account's cost
+// to the minor unit. The cycle is held FOR UPDATE while it runs: one run
+// per cycle and period. Defining and running are a person's
+// (controlling.allocation.write, .run), audited and published.
 package controlling
 
 import (
@@ -92,6 +114,21 @@ type Ledger interface {
 	OrderActuals(ctx context.Context, q ledger.OrderActualsQuery) (ledger.OrderActuals, error)
 	OrderBalance(ctx context.Context, le, order uuid.UUID) (money.Minor, error)
 	CostCenterValidOn(ctx context.Context, id uuid.UUID, day time.Time) (bool, error)
+	OrderAccountBalances(ctx context.Context, le, order uuid.UUID, upTo *ledger.PeriodKey) ([]ledger.OrderAccountBalance, error)
+	CostAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CostAccount, error)
+}
+
+// Postings is what controlling posts its entries through (ledger.Postings,
+// wired with CostObjects so its lines may name orders): settlements and
+// the runs of allocation cycles.
+type Postings interface {
+	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+}
+
+// Calendar reads a company's regular posting periods with their dates
+// (ledger.Calendar).
+type Calendar interface {
+	Periods(ctx context.Context, legalEntity uuid.UUID, year int16) ([]ledger.FiscalPeriod, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).
@@ -111,6 +148,8 @@ type Endpoints struct {
 	LegalEntities LegalEntities
 	Ledger        Ledger
 	Settings      Settings
+	Postings      Postings
+	Calendar      Calendar
 	Now           func() time.Time // nil: the wall clock
 }
 

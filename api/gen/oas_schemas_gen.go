@@ -2832,6 +2832,829 @@ func (s *AiUsagePrincipal) SetCost(val Money) {
 	s.Cost = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/AllocationCycle
+type AllocationCycle struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Legal entity (company code) the cycle belongs to. Immutable.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code, unique in the legal entity. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// `distribution`: a run moves the sender's primary costs to the receivers on their original accounts.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The cost center whose costs a run charges to the receivers (`GET /v1/cost-centers/{id}`).
+	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
+	// The sender's code.
+	SenderCostCenterCode string `json:"sender_cost_center_code"`
+	// The receivers, in the order given when the cycle was created; their percentages add up to 100.
+	Receivers []AllocationReceiver `json:"receivers"`
+}
+
+// GetID returns the value of ID.
+func (s *AllocationCycle) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AllocationCycle) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AllocationCycle) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AllocationCycle) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AllocationCycle) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AllocationCycle) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationCycle) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *AllocationCycle) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *AllocationCycle) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *AllocationCycle) GetKind() string {
+	return s.Kind
+}
+
+// GetSenderCostCenterID returns the value of SenderCostCenterID.
+func (s *AllocationCycle) GetSenderCostCenterID() uuid.UUID {
+	return s.SenderCostCenterID
+}
+
+// GetSenderCostCenterCode returns the value of SenderCostCenterCode.
+func (s *AllocationCycle) GetSenderCostCenterCode() string {
+	return s.SenderCostCenterCode
+}
+
+// GetReceivers returns the value of Receivers.
+func (s *AllocationCycle) GetReceivers() []AllocationReceiver {
+	return s.Receivers
+}
+
+// SetID sets the value of ID.
+func (s *AllocationCycle) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AllocationCycle) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AllocationCycle) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AllocationCycle) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AllocationCycle) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AllocationCycle) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationCycle) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *AllocationCycle) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *AllocationCycle) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AllocationCycle) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetSenderCostCenterID sets the value of SenderCostCenterID.
+func (s *AllocationCycle) SetSenderCostCenterID(val uuid.UUID) {
+	s.SenderCostCenterID = val
+}
+
+// SetSenderCostCenterCode sets the value of SenderCostCenterCode.
+func (s *AllocationCycle) SetSenderCostCenterCode(val string) {
+	s.SenderCostCenterCode = val
+}
+
+// SetReceivers sets the value of Receivers.
+func (s *AllocationCycle) SetReceivers(val []AllocationReceiver) {
+	s.Receivers = val
+}
+
+// The allocation cycle create request.
+// Ref: #/components/schemas/AllocationCycleCreate
+type AllocationCycleCreate struct {
+	// Legal entity (company code) the cycle belongs to.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code, unique in the legal entity.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// `distribution`. Open enumeration; a kind not listed is refused (422).
+	Kind string `json:"kind"`
+	// An active cost center of the legal entity whose costs the cycle's runs charge to the receivers.
+	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
+	// The receivers: active cost centers of the legal entity other than the sender, each once, with
+	// percentages adding up to 100.
+	Receivers []AllocationCycleCreateReceiversItem `json:"receivers"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationCycleCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *AllocationCycleCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *AllocationCycleCreate) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *AllocationCycleCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetSenderCostCenterID returns the value of SenderCostCenterID.
+func (s *AllocationCycleCreate) GetSenderCostCenterID() uuid.UUID {
+	return s.SenderCostCenterID
+}
+
+// GetReceivers returns the value of Receivers.
+func (s *AllocationCycleCreate) GetReceivers() []AllocationCycleCreateReceiversItem {
+	return s.Receivers
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationCycleCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *AllocationCycleCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *AllocationCycleCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AllocationCycleCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetSenderCostCenterID sets the value of SenderCostCenterID.
+func (s *AllocationCycleCreate) SetSenderCostCenterID(val uuid.UUID) {
+	s.SenderCostCenterID = val
+}
+
+// SetReceivers sets the value of Receivers.
+func (s *AllocationCycleCreate) SetReceivers(val []AllocationCycleCreateReceiversItem) {
+	s.Receivers = val
+}
+
+type AllocationCycleCreateReceiversItem struct {
+	// The receiving cost center.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The receiver's share in percent: above 0 and at most 100, with up to two decimals.
+	Percentage string `json:"percentage"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AllocationCycleCreateReceiversItem) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetPercentage returns the value of Percentage.
+func (s *AllocationCycleCreateReceiversItem) GetPercentage() string {
+	return s.Percentage
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AllocationCycleCreateReceiversItem) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetPercentage sets the value of Percentage.
+func (s *AllocationCycleCreateReceiversItem) SetPercentage(val string) {
+	s.Percentage = val
+}
+
+// AllocationCycleHeaders wraps AllocationCycle with response headers.
+type AllocationCycleHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AllocationCycle
+}
+
+// GetETag returns the value of ETag.
+func (s *AllocationCycleHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AllocationCycleHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AllocationCycleHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AllocationCycleHeaders) GetResponse() AllocationCycle {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AllocationCycleHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AllocationCycleHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AllocationCycleHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AllocationCycleHeaders) SetResponse(val AllocationCycle) {
+	s.Response = val
+}
+
+func (*AllocationCycleHeaders) createAllocationCycleRes() {}
+
+// One page of allocation cycles.
+// Ref: #/components/schemas/AllocationCyclePage
+type AllocationCyclePage struct {
+	// The allocation cycles on this page.
+	Items []AllocationCycle `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *AllocationCyclePage) GetItems() []AllocationCycle {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AllocationCyclePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *AllocationCyclePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *AllocationCyclePage) SetItems(val []AllocationCycle) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AllocationCyclePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *AllocationCyclePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*AllocationCyclePage) listAllocationCyclesRes() {}
+
+// The period an allocation cycle is run for.
+// Ref: #/components/schemas/AllocationCycleRun
+type AllocationCycleRun struct {
+	// The fiscal year of the period, one set up for the legal entity.
+	FiscalYear int32 `json:"fiscal_year"`
+	// A regular posting period of the fiscal year: the sender's costs posted in it are charged to the
+	// receivers, and the entry is dated its last day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AllocationCycleRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *AllocationCycleRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AllocationCycleRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *AllocationCycleRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// A receiver of an allocation cycle with its share.
+// Ref: #/components/schemas/AllocationReceiver
+type AllocationReceiver struct {
+	// The receiving cost center (`GET /v1/cost-centers/{id}`).
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The receiving cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The receiver's share of the sender's costs in percent, with two decimals.
+	Percentage string `json:"percentage"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AllocationReceiver) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *AllocationReceiver) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetPercentage returns the value of Percentage.
+func (s *AllocationReceiver) GetPercentage() string {
+	return s.Percentage
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AllocationReceiver) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *AllocationReceiver) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetPercentage sets the value of Percentage.
+func (s *AllocationReceiver) SetPercentage(val string) {
+	s.Percentage = val
+}
+
+// A run of an allocation cycle for a fiscal period (ADR-0064 §5): the journal entry that charged the
+// sender's costs of the period to the cycle's receivers. Never changed.
+// Ref: #/components/schemas/AllocationRun
+type AllocationRun struct {
+	// The run's id.
+	ID uuid.UUID `json:"id"`
+	// The cycle run (`GET /v1/allocation-cycles/{id}`), whose receivers and percentages the run used.
+	AllocationCycleID uuid.UUID `json:"allocation_cycle_id"`
+	// The cycle's code.
+	AllocationCycleCode string `json:"allocation_cycle_code"`
+	// The cycle's name.
+	AllocationCycleName string `json:"allocation_cycle_name"`
+	// The cycle's kind: `distribution`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The cycle's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period run, and the entry's.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The entry's posting date: the period's last day.
+	PostingDate time.Time `json:"posting_date"`
+	// The cycle's sender (`GET /v1/cost-centers/{id}`).
+	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
+	// The sender's code.
+	SenderCostCenterCode string `json:"sender_cost_center_code"`
+	// What the run moved off the sender to the receivers, in the legal entity's local currency: the total
+	// of the sender's costs of the period on the accounts charged.
+	Amount Money `json:"amount"`
+	// How many accounts the run charged.
+	AccountCount int32 `json:"account_count"`
+	// The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show
+	// each account's credit on the sender and each receiver's share.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When the cycle was run (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *AllocationRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetAllocationCycleID returns the value of AllocationCycleID.
+func (s *AllocationRun) GetAllocationCycleID() uuid.UUID {
+	return s.AllocationCycleID
+}
+
+// GetAllocationCycleCode returns the value of AllocationCycleCode.
+func (s *AllocationRun) GetAllocationCycleCode() string {
+	return s.AllocationCycleCode
+}
+
+// GetAllocationCycleName returns the value of AllocationCycleName.
+func (s *AllocationRun) GetAllocationCycleName() string {
+	return s.AllocationCycleName
+}
+
+// GetKind returns the value of Kind.
+func (s *AllocationRun) GetKind() string {
+	return s.Kind
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AllocationRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *AllocationRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AllocationRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetSenderCostCenterID returns the value of SenderCostCenterID.
+func (s *AllocationRun) GetSenderCostCenterID() uuid.UUID {
+	return s.SenderCostCenterID
+}
+
+// GetSenderCostCenterCode returns the value of SenderCostCenterCode.
+func (s *AllocationRun) GetSenderCostCenterCode() string {
+	return s.SenderCostCenterCode
+}
+
+// GetAmount returns the value of Amount.
+func (s *AllocationRun) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAccountCount returns the value of AccountCount.
+func (s *AllocationRun) GetAccountCount() int32 {
+	return s.AccountCount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *AllocationRun) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *AllocationRun) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AllocationRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AllocationRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *AllocationRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetAllocationCycleID sets the value of AllocationCycleID.
+func (s *AllocationRun) SetAllocationCycleID(val uuid.UUID) {
+	s.AllocationCycleID = val
+}
+
+// SetAllocationCycleCode sets the value of AllocationCycleCode.
+func (s *AllocationRun) SetAllocationCycleCode(val string) {
+	s.AllocationCycleCode = val
+}
+
+// SetAllocationCycleName sets the value of AllocationCycleName.
+func (s *AllocationRun) SetAllocationCycleName(val string) {
+	s.AllocationCycleName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AllocationRun) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AllocationRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *AllocationRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AllocationRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetSenderCostCenterID sets the value of SenderCostCenterID.
+func (s *AllocationRun) SetSenderCostCenterID(val uuid.UUID) {
+	s.SenderCostCenterID = val
+}
+
+// SetSenderCostCenterCode sets the value of SenderCostCenterCode.
+func (s *AllocationRun) SetSenderCostCenterCode(val string) {
+	s.SenderCostCenterCode = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AllocationRun) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAccountCount sets the value of AccountCount.
+func (s *AllocationRun) SetAccountCount(val int32) {
+	s.AccountCount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *AllocationRun) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *AllocationRun) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AllocationRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AllocationRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+func (*AllocationRun) getAllocationRunRes() {}
+
+// One page of allocation runs.
+// Ref: #/components/schemas/AllocationRunPage
+type AllocationRunPage struct {
+	// The allocation runs on this page.
+	Items []AllocationRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *AllocationRunPage) GetItems() []AllocationRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AllocationRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *AllocationRunPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *AllocationRunPage) SetItems(val []AllocationRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AllocationRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *AllocationRunPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*AllocationRunPage) listAllocationRunsRes() {}
+
+// What running an allocation cycle for a period did (ADR-0064 §5): the run it posted, or that the
+// sender had no costs in the period.
+// Ref: #/components/schemas/AllocationRunResult
+type AllocationRunResult struct {
+	// The cycle (`GET /v1/allocation-cycles/{id}`).
+	AllocationCycleID uuid.UUID `json:"allocation_cycle_id"`
+	// The cycle's code.
+	AllocationCycleCode string `json:"allocation_cycle_code"`
+	// The cycle's name.
+	AllocationCycleName string `json:"allocation_cycle_name"`
+	// The cycle's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period run.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Whether an entry was posted: false when the sender had no primary costs in the period, so nothing
+	// changed and no run is kept.
+	Posted bool `json:"posted"`
+	// The run posted. Absent when `posted` is false.
+	Run OptAllocationRun `json:"run"`
+}
+
+// GetAllocationCycleID returns the value of AllocationCycleID.
+func (s *AllocationRunResult) GetAllocationCycleID() uuid.UUID {
+	return s.AllocationCycleID
+}
+
+// GetAllocationCycleCode returns the value of AllocationCycleCode.
+func (s *AllocationRunResult) GetAllocationCycleCode() string {
+	return s.AllocationCycleCode
+}
+
+// GetAllocationCycleName returns the value of AllocationCycleName.
+func (s *AllocationRunResult) GetAllocationCycleName() string {
+	return s.AllocationCycleName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationRunResult) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AllocationRunResult) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *AllocationRunResult) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPosted returns the value of Posted.
+func (s *AllocationRunResult) GetPosted() bool {
+	return s.Posted
+}
+
+// GetRun returns the value of Run.
+func (s *AllocationRunResult) GetRun() OptAllocationRun {
+	return s.Run
+}
+
+// SetAllocationCycleID sets the value of AllocationCycleID.
+func (s *AllocationRunResult) SetAllocationCycleID(val uuid.UUID) {
+	s.AllocationCycleID = val
+}
+
+// SetAllocationCycleCode sets the value of AllocationCycleCode.
+func (s *AllocationRunResult) SetAllocationCycleCode(val string) {
+	s.AllocationCycleCode = val
+}
+
+// SetAllocationCycleName sets the value of AllocationCycleName.
+func (s *AllocationRunResult) SetAllocationCycleName(val string) {
+	s.AllocationCycleName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationRunResult) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AllocationRunResult) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *AllocationRunResult) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPosted sets the value of Posted.
+func (s *AllocationRunResult) SetPosted(val bool) {
+	s.Posted = val
+}
+
+// SetRun sets the value of Run.
+func (s *AllocationRunResult) SetRun(val OptAllocationRun) {
+	s.Run = val
+}
+
+// AllocationRunResultHeaders wraps AllocationRunResult with response headers.
+type AllocationRunResultHeaders struct {
+	IdempotentReplayed OptBool
+	Response           AllocationRunResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AllocationRunResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AllocationRunResultHeaders) GetResponse() AllocationRunResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AllocationRunResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AllocationRunResultHeaders) SetResponse(val AllocationRunResult) {
+	s.Response = val
+}
+
+func (*AllocationRunResultHeaders) runAllocationCycleRes() {}
+
 // A cell: a dimension's value, or a measure as an exact decimal with exactly its digits (an amount at
 // its currency's exponent, a count whole, a ratio to 4 digits); null when it cannot be computed, as a
 // ratio over zero.
@@ -20540,6 +21363,66 @@ type CloseFiscalPeriodUnprocessableEntity Problem
 
 func (*CloseFiscalPeriodUnprocessableEntity) closeFiscalPeriodRes() {}
 
+type CloseInternalOrderBadRequest Problem
+
+func (*CloseInternalOrderBadRequest) closeInternalOrderRes() {}
+
+type CloseInternalOrderForbidden Problem
+
+func (*CloseInternalOrderForbidden) closeInternalOrderRes() {}
+
+type CloseInternalOrderNotFound Problem
+
+func (*CloseInternalOrderNotFound) closeInternalOrderRes() {}
+
+// CloseInternalOrderOKHeaders wraps InternalOrder with response headers.
+type CloseInternalOrderOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *CloseInternalOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CloseInternalOrderOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CloseInternalOrderOKHeaders) GetResponse() InternalOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CloseInternalOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CloseInternalOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CloseInternalOrderOKHeaders) SetResponse(val InternalOrder) {
+	s.Response = val
+}
+
+func (*CloseInternalOrderOKHeaders) closeInternalOrderRes()   {}
+func (*CloseInternalOrderOKHeaders) releaseInternalOrderRes() {}
+
+type CloseInternalOrderPreconditionFailed Problem
+
+func (*CloseInternalOrderPreconditionFailed) closeInternalOrderRes() {}
+
+type CloseInternalOrderPreconditionRequired Problem
+
+func (*CloseInternalOrderPreconditionRequired) closeInternalOrderRes() {}
+
 // A ledger a period close covers, with its period's live posting status.
 // Ref: #/components/schemas/CloseLedger
 type CloseLedger struct {
@@ -22022,10 +22905,12 @@ func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
+func (*ConflictHeaders) closeInternalOrderRes()                    {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
 func (*ConflictHeaders) confirmDunningRunRes()                     {}
+func (*ConflictHeaders) createAllocationCycleRes()                 {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -22185,8 +23070,10 @@ func (*ConflictHeaders) reverseGoodsReceiptRes()                   {}
 func (*ConflictHeaders) reverseJournalEntryRes()                   {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*ConflictHeaders) runAllocationCycleRes()                    {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
+func (*ConflictHeaders) settleInternalOrderRes()                   {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) signOffYearCloseRes()                      {}
 func (*ConflictHeaders) simulateChangeRequestRes()                 {}
@@ -27219,6 +28106,22 @@ func (s *CountryPackSource) SetURL(val string) {
 func (s *CountryPackSource) SetRetrieved(val string) {
 	s.Retrieved = val
 }
+
+type CreateAllocationCycleBadRequest Problem
+
+func (*CreateAllocationCycleBadRequest) createAllocationCycleRes() {}
+
+type CreateAllocationCycleForbidden Problem
+
+func (*CreateAllocationCycleForbidden) createAllocationCycleRes() {}
+
+type CreateAllocationCyclePreconditionRequired Problem
+
+func (*CreateAllocationCyclePreconditionRequired) createAllocationCycleRes() {}
+
+type CreateAllocationCycleUnprocessableEntity Problem
+
+func (*CreateAllocationCycleUnprocessableEntity) createAllocationCycleRes() {}
 
 type CreateAssetAcquisitionBadRequest Problem
 
@@ -35974,6 +36877,58 @@ type GetAiUsageForbidden Problem
 
 func (*GetAiUsageForbidden) getAiUsageRes() {}
 
+type GetAllocationCycleBadRequest Problem
+
+func (*GetAllocationCycleBadRequest) getAllocationCycleRes() {}
+
+type GetAllocationCycleForbidden Problem
+
+func (*GetAllocationCycleForbidden) getAllocationCycleRes() {}
+
+type GetAllocationCycleNotFound Problem
+
+func (*GetAllocationCycleNotFound) getAllocationCycleRes() {}
+
+// GetAllocationCycleOKHeaders wraps AllocationCycle with response headers.
+type GetAllocationCycleOKHeaders struct {
+	ETag     OptString
+	Response AllocationCycle
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAllocationCycleOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAllocationCycleOKHeaders) GetResponse() AllocationCycle {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAllocationCycleOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAllocationCycleOKHeaders) SetResponse(val AllocationCycle) {
+	s.Response = val
+}
+
+func (*GetAllocationCycleOKHeaders) getAllocationCycleRes() {}
+
+type GetAllocationRunBadRequest Problem
+
+func (*GetAllocationRunBadRequest) getAllocationRunRes() {}
+
+type GetAllocationRunForbidden Problem
+
+func (*GetAllocationRunForbidden) getAllocationRunRes() {}
+
+type GetAllocationRunNotFound Problem
+
+func (*GetAllocationRunNotFound) getAllocationRunRes() {}
+
 type GetAnalyticsModelBadRequest Problem
 
 func (*GetAnalyticsModelBadRequest) getAnalyticsModelRes() {}
@@ -42459,8 +43414,9 @@ type InternalOrder struct {
 	ResponsibleCostCenterID uuid.UUID `json:"responsible_cost_center_id"`
 	// The responsible cost center's code.
 	ResponsibleCostCenterCode string `json:"responsible_cost_center_code"`
-	// `created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration:
-	// clients must accept and preserve values not listed here; values may be added within /v1.
+	// `created`: no posting yet; `released` (`:release`): costs may be posted to it; `closed` (`:close`):
+	// settled, and no posting any more. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Status string `json:"status"`
 }
 
@@ -43176,6 +44132,376 @@ func (s *InternalOrderPage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*InternalOrderPage) listInternalOrdersRes() {}
+
+// The period an internal order is settled up to.
+// Ref: #/components/schemas/InternalOrderSettle
+type InternalOrderSettle struct {
+	// The fiscal year of the period, one set up for the legal entity.
+	FiscalYear int32 `json:"fiscal_year"`
+	// A regular posting period of the fiscal year: what was posted to the order in it and in every period
+	// before it, earlier years included, is settled, and the entry is dated its last day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettle) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettle) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettle) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettle) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled
+// balance up to a period to the receiving cost center, account by account. Never changed.
+// Ref: #/components/schemas/InternalOrderSettlement
+type InternalOrderSettlement struct {
+	// The settlement's id.
+	ID uuid.UUID `json:"id"`
+	// The internal order settled (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The fiscal year of the period settled up to.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period settled up to, and the entry's.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The entry's posting date: the period's last day.
+	PostingDate time.Time `json:"posting_date"`
+	// The cost center that received the costs (`GET /v1/cost-centers/{id}`): the receiver of the order's
+	// settlement rule when it was settled.
+	ReceiverCostCenterID uuid.UUID `json:"receiver_cost_center_id"`
+	// The receiving cost center's code.
+	ReceiverCostCenterCode string `json:"receiver_cost_center_code"`
+	// What moved from the order to the receiver, in the legal entity's local currency: the total of the
+	// accounts' balances settled, negative when the order held a credit balance.
+	Amount Money `json:"amount"`
+	// How many accounts the settlement moved a balance on.
+	AccountCount int32 `json:"account_count"`
+	// The settlement's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines
+	// show each account's credit on the order and debit on the receiver.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When the order was settled (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who settled it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *InternalOrderSettlement) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlement) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettlement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettlement) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *InternalOrderSettlement) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReceiverCostCenterID returns the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlement) GetReceiverCostCenterID() uuid.UUID {
+	return s.ReceiverCostCenterID
+}
+
+// GetReceiverCostCenterCode returns the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlement) GetReceiverCostCenterCode() string {
+	return s.ReceiverCostCenterCode
+}
+
+// GetAmount returns the value of Amount.
+func (s *InternalOrderSettlement) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAccountCount returns the value of AccountCount.
+func (s *InternalOrderSettlement) GetAccountCount() int32 {
+	return s.AccountCount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *InternalOrderSettlement) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *InternalOrderSettlement) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *InternalOrderSettlement) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *InternalOrderSettlement) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *InternalOrderSettlement) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlement) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettlement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettlement) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *InternalOrderSettlement) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReceiverCostCenterID sets the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlement) SetReceiverCostCenterID(val uuid.UUID) {
+	s.ReceiverCostCenterID = val
+}
+
+// SetReceiverCostCenterCode sets the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlement) SetReceiverCostCenterCode(val string) {
+	s.ReceiverCostCenterCode = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *InternalOrderSettlement) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAccountCount sets the value of AccountCount.
+func (s *InternalOrderSettlement) SetAccountCount(val int32) {
+	s.AccountCount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *InternalOrderSettlement) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *InternalOrderSettlement) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *InternalOrderSettlement) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *InternalOrderSettlement) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// One page of an internal order's settlements.
+// Ref: #/components/schemas/InternalOrderSettlementPage
+type InternalOrderSettlementPage struct {
+	// The settlements on this page.
+	Items []InternalOrderSettlement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *InternalOrderSettlementPage) GetItems() []InternalOrderSettlement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *InternalOrderSettlementPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *InternalOrderSettlementPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *InternalOrderSettlementPage) SetItems(val []InternalOrderSettlement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *InternalOrderSettlementPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *InternalOrderSettlementPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*InternalOrderSettlementPage) listInternalOrderSettlementsRes() {}
+
+// What settling an internal order up to a period did (ADR-0064 §3): the settlement it posted, or that
+// nothing was unsettled.
+// Ref: #/components/schemas/InternalOrderSettlementResult
+type InternalOrderSettlementResult struct {
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period settled up to.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period settled up to.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Whether an entry was posted: false when the order had no unsettled balance up to the period, so
+	// nothing changed.
+	Settled bool `json:"settled"`
+	// The settlement posted. Absent when `settled` is false.
+	Settlement OptInternalOrderSettlement `json:"settlement"`
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlementResult) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderSettlementResult) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderSettlementResult) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderSettlementResult) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettlementResult) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettlementResult) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetSettled returns the value of Settled.
+func (s *InternalOrderSettlementResult) GetSettled() bool {
+	return s.Settled
+}
+
+// GetSettlement returns the value of Settlement.
+func (s *InternalOrderSettlementResult) GetSettlement() OptInternalOrderSettlement {
+	return s.Settlement
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlementResult) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderSettlementResult) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderSettlementResult) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderSettlementResult) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettlementResult) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettlementResult) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetSettled sets the value of Settled.
+func (s *InternalOrderSettlementResult) SetSettled(val bool) {
+	s.Settled = val
+}
+
+// SetSettlement sets the value of Settlement.
+func (s *InternalOrderSettlementResult) SetSettlement(val OptInternalOrderSettlement) {
+	s.Settlement = val
+}
+
+// InternalOrderSettlementResultHeaders wraps InternalOrderSettlementResult with response headers.
+type InternalOrderSettlementResultHeaders struct {
+	IdempotentReplayed OptBool
+	Response           InternalOrderSettlementResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *InternalOrderSettlementResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderSettlementResultHeaders) GetResponse() InternalOrderSettlementResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *InternalOrderSettlementResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderSettlementResultHeaders) SetResponse(val InternalOrderSettlementResult) {
+	s.Response = val
+}
+
+func (*InternalOrderSettlementResultHeaders) settleInternalOrderRes() {}
 
 // The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's
 // legal entity, taking the whole.
@@ -44462,8 +45788,8 @@ type JournalLineInput struct {
 	// an order. The order must be one of the entry's legal entity and released, the account a primary cost
 	// account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's
 	// field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`,
-	// `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its
-	// profit center and segment from the order's responsible cost center on the posting date, and a
+	// `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes
+	// its profit center and segment from the order's responsible cost center on the posting date, and a
 	// different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry
 	// that is posted: a parked entry or an entry template naming an order is refused in this version (422
 	// `ledger.internal_order_not_parkable`).
@@ -47496,6 +48822,22 @@ type ListAgentToolCallsNotFound Problem
 
 func (*ListAgentToolCallsNotFound) listAgentToolCallsRes() {}
 
+type ListAllocationCyclesBadRequest Problem
+
+func (*ListAllocationCyclesBadRequest) listAllocationCyclesRes() {}
+
+type ListAllocationCyclesForbidden Problem
+
+func (*ListAllocationCyclesForbidden) listAllocationCyclesRes() {}
+
+type ListAllocationRunsBadRequest Problem
+
+func (*ListAllocationRunsBadRequest) listAllocationRunsRes() {}
+
+type ListAllocationRunsForbidden Problem
+
+func (*ListAllocationRunsForbidden) listAllocationRunsRes() {}
+
 type ListApprovalRequestsBadRequest Problem
 
 func (*ListApprovalRequestsBadRequest) listApprovalRequestsRes() {}
@@ -48051,6 +49393,18 @@ func (*ListInternalOrderBalancesForbidden) listInternalOrderBalancesRes() {}
 type ListInternalOrderBalancesUnprocessableEntity Problem
 
 func (*ListInternalOrderBalancesUnprocessableEntity) listInternalOrderBalancesRes() {}
+
+type ListInternalOrderSettlementsBadRequest Problem
+
+func (*ListInternalOrderSettlementsBadRequest) listInternalOrderSettlementsRes() {}
+
+type ListInternalOrderSettlementsForbidden Problem
+
+func (*ListInternalOrderSettlementsForbidden) listInternalOrderSettlementsRes() {}
+
+type ListInternalOrderSettlementsNotFound Problem
+
+func (*ListInternalOrderSettlementsNotFound) listInternalOrderSettlementsRes() {}
 
 type ListInternalOrdersBadRequest Problem
 
@@ -53008,6 +54362,52 @@ func (o OptAiPolicyUpdateRoutes) Or(d AiPolicyUpdateRoutes) AiPolicyUpdateRoutes
 	return d
 }
 
+// NewOptAllocationRun returns new OptAllocationRun with value set to v.
+func NewOptAllocationRun(v AllocationRun) OptAllocationRun {
+	return OptAllocationRun{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAllocationRun is optional AllocationRun.
+type OptAllocationRun struct {
+	Value AllocationRun
+	Set   bool
+}
+
+// IsSet returns true if OptAllocationRun was set.
+func (o OptAllocationRun) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAllocationRun) Reset() {
+	var v AllocationRun
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAllocationRun) SetTo(v AllocationRun) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAllocationRun) Get() (v AllocationRun, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAllocationRun) Or(d AllocationRun) AllocationRun {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptAnalyticsDefinitionFilter returns new OptAnalyticsDefinitionFilter with value set to v.
 func NewOptAnalyticsDefinitionFilter(v AnalyticsDefinitionFilter) OptAnalyticsDefinitionFilter {
 	return OptAnalyticsDefinitionFilter{
@@ -55302,6 +56702,52 @@ func (o OptInt64) Get() (v int64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt64) Or(d int64) int64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInternalOrderSettlement returns new OptInternalOrderSettlement with value set to v.
+func NewOptInternalOrderSettlement(v InternalOrderSettlement) OptInternalOrderSettlement {
+	return OptInternalOrderSettlement{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInternalOrderSettlement is optional InternalOrderSettlement.
+type OptInternalOrderSettlement struct {
+	Value InternalOrderSettlement
+	Set   bool
+}
+
+// IsSet returns true if OptInternalOrderSettlement was set.
+func (o OptInternalOrderSettlement) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInternalOrderSettlement) Reset() {
+	var v InternalOrderSettlement
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInternalOrderSettlement) SetTo(v InternalOrderSettlement) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInternalOrderSettlement) Get() (v InternalOrderSettlement, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInternalOrderSettlement) Or(d InternalOrderSettlement) InternalOrderSettlement {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -67623,45 +69069,6 @@ type ReleaseInternalOrderNotFound Problem
 
 func (*ReleaseInternalOrderNotFound) releaseInternalOrderRes() {}
 
-// ReleaseInternalOrderOKHeaders wraps InternalOrder with response headers.
-type ReleaseInternalOrderOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           InternalOrder
-}
-
-// GetETag returns the value of ETag.
-func (s *ReleaseInternalOrderOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *ReleaseInternalOrderOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *ReleaseInternalOrderOKHeaders) GetResponse() InternalOrder {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *ReleaseInternalOrderOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *ReleaseInternalOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ReleaseInternalOrderOKHeaders) SetResponse(val InternalOrder) {
-	s.Response = val
-}
-
-func (*ReleaseInternalOrderOKHeaders) releaseInternalOrderRes() {}
-
 type ReleaseInternalOrderPreconditionFailed Problem
 
 func (*ReleaseInternalOrderPreconditionFailed) releaseInternalOrderRes() {}
@@ -70742,6 +72149,30 @@ type RotateWebhookSubscriptionSecretUnprocessableEntity Problem
 
 func (*RotateWebhookSubscriptionSecretUnprocessableEntity) rotateWebhookSubscriptionSecretRes() {}
 
+type RunAllocationCycleBadRequest Problem
+
+func (*RunAllocationCycleBadRequest) runAllocationCycleRes() {}
+
+type RunAllocationCycleForbidden Problem
+
+func (*RunAllocationCycleForbidden) runAllocationCycleRes() {}
+
+type RunAllocationCycleNotFound Problem
+
+func (*RunAllocationCycleNotFound) runAllocationCycleRes() {}
+
+type RunAllocationCyclePreconditionFailed Problem
+
+func (*RunAllocationCyclePreconditionFailed) runAllocationCycleRes() {}
+
+type RunAllocationCyclePreconditionRequired Problem
+
+func (*RunAllocationCyclePreconditionRequired) runAllocationCycleRes() {}
+
+type RunAllocationCycleUnprocessableEntity Problem
+
+func (*RunAllocationCycleUnprocessableEntity) runAllocationCycleRes() {}
+
 type RunAnalyticsQueryBadRequest Problem
 
 func (*RunAnalyticsQueryBadRequest) runAnalyticsQueryRes() {}
@@ -71111,9 +72542,11 @@ func (*ServiceUnavailableHeaders) checkCloseTaskRes()                        {}
 func (*ServiceUnavailableHeaders) checkYearCloseTaskRes()                    {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                     {}
+func (*ServiceUnavailableHeaders) closeInternalOrderRes()                    {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
+func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
@@ -71239,8 +72672,10 @@ func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()                   {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()                   {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*ServiceUnavailableHeaders) runAllocationCycleRes()                    {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
+func (*ServiceUnavailableHeaders) settleInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()                 {}
@@ -71344,6 +72779,30 @@ func (s *SessionEndHeaders) SetResponse(val SessionEnd) {
 }
 
 func (*SessionEndHeaders) endCurrentSessionRes() {}
+
+type SettleInternalOrderBadRequest Problem
+
+func (*SettleInternalOrderBadRequest) settleInternalOrderRes() {}
+
+type SettleInternalOrderForbidden Problem
+
+func (*SettleInternalOrderForbidden) settleInternalOrderRes() {}
+
+type SettleInternalOrderNotFound Problem
+
+func (*SettleInternalOrderNotFound) settleInternalOrderRes() {}
+
+type SettleInternalOrderPreconditionFailed Problem
+
+func (*SettleInternalOrderPreconditionFailed) settleInternalOrderRes() {}
+
+type SettleInternalOrderPreconditionRequired Problem
+
+func (*SettleInternalOrderPreconditionRequired) settleInternalOrderRes() {}
+
+type SettleInternalOrderUnprocessableEntity Problem
+
+func (*SettleInternalOrderUnprocessableEntity) settleInternalOrderRes() {}
 
 type SignOffPeriodCloseBadRequest Problem
 
@@ -75622,10 +77081,12 @@ func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
+func (*TooManyRequestsHeaders) closeInternalOrderRes()                    {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
 func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
+func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -75693,6 +77154,8 @@ func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                       {}
 func (*TooManyRequestsHeaders) getAiPolicyRes()                           {}
 func (*TooManyRequestsHeaders) getAiUsageRes()                            {}
+func (*TooManyRequestsHeaders) getAllocationCycleRes()                    {}
+func (*TooManyRequestsHeaders) getAllocationRunRes()                      {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                     {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()                    {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                   {}
@@ -75798,6 +77261,8 @@ func (*TooManyRequestsHeaders) listAccountsRes()                          {}
 func (*TooManyRequestsHeaders) listAccrualProposalsRes()                  {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                     {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()                    {}
+func (*TooManyRequestsHeaders) listAllocationCyclesRes()                  {}
+func (*TooManyRequestsHeaders) listAllocationRunsRes()                    {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()                  {}
 func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                      {}
@@ -75858,6 +77323,7 @@ func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listIncomingPaymentsRes()                  {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
+func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
@@ -75977,8 +77443,10 @@ func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                   {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*TooManyRequestsHeaders) runAllocationCycleRes()                    {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
+func (*TooManyRequestsHeaders) settleInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()                 {}
@@ -76365,10 +77833,12 @@ func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
+func (*UnauthorizedHeaders) closeInternalOrderRes()                    {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
 func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
+func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
@@ -76436,6 +77906,8 @@ func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                       {}
 func (*UnauthorizedHeaders) getAiPolicyRes()                           {}
 func (*UnauthorizedHeaders) getAiUsageRes()                            {}
+func (*UnauthorizedHeaders) getAllocationCycleRes()                    {}
+func (*UnauthorizedHeaders) getAllocationRunRes()                      {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                     {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()                    {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                   {}
@@ -76541,6 +78013,8 @@ func (*UnauthorizedHeaders) listAccountsRes()                          {}
 func (*UnauthorizedHeaders) listAccrualProposalsRes()                  {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                     {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()                    {}
+func (*UnauthorizedHeaders) listAllocationCyclesRes()                  {}
+func (*UnauthorizedHeaders) listAllocationRunsRes()                    {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()                  {}
 func (*UnauthorizedHeaders) listAssetAcquisitionsRes()                 {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                      {}
@@ -76601,6 +78075,7 @@ func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listIncomingPaymentsRes()                  {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
+func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
@@ -76720,8 +78195,10 @@ func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                   {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*UnauthorizedHeaders) runAllocationCycleRes()                    {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
+func (*UnauthorizedHeaders) settleInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()                 {}

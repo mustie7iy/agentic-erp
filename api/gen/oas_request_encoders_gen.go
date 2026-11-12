@@ -462,6 +462,20 @@ func encodeCompleteYearCloseTaskRequest(
 	return nil
 }
 
+func encodeCreateAllocationCycleRequest(
+	req *AllocationCycleCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateAssetRequest(
 	req *AssetCreate,
 	r *http.Request,
@@ -2121,6 +2135,20 @@ func encodeReverseSupplierInvoiceRequest(
 	return nil
 }
 
+func encodeRunAllocationCycleRequest(
+	req *AllocationCycleRun,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeRunAnalyticsQueryRequest(
 	req *AnalyticsQuery,
 	r *http.Request,
@@ -2137,6 +2165,20 @@ func encodeRunAnalyticsQueryRequest(
 
 func encodeRunBalanceCarryForwardRequest(
 	req *BalanceCarryForwardRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeSettleInternalOrderRequest(
+	req *InternalOrderSettle,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

@@ -251,7 +251,7 @@ func New(cfg Config) (http.Handler, error) {
 		consolAPI:      Consolidation(cfg),
 		einvoicingAPI:  EInvoicing(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
-			Settings: configuration.Settings{}, Now: cfg.Now},
+			Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar()},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
 	}
@@ -508,6 +508,14 @@ func postings() ledger.Postings {
 
 // calendar resolves fiscal periods.
 func calendar() ledger.Calendar { return ledger.Calendar{LegalEntities: tenancy.Directory{}} }
+
+// controllingPostings is the ledger's posting port as the controlling
+// context posts through it (ADR-0064 §3): the one context whose lines
+// name internal orders, so it is wired with the cost objects port.
+func controllingPostings() ledger.Postings {
+	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+		CostObjects: controlling.CostObjects{}}
+}
 
 // resolver is the configured secret resolver, or the replica's own
 // environment and files.

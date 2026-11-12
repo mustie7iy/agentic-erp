@@ -5963,14 +5963,31 @@ step_order_budget() {
   passed
 }
 
-# step_order_settlement: an order's settlement rule (ADR-0064 §3, T60d):
-# Carla names the cost center that will receive the trade fair's costs
-# when the order is settled, one receiver taking the whole. The rule is
-# replaced with the order's version.
+# center_costs CENTER ACCOUNT is what the cost center's report shows on the
+# account this year, the debits less the credits, in whole cents of the
+# local currency: jq reads each two-decimal amount as a number and rounds
+# it to whole cents before adding, as the reports' other checks do.
+center_costs() {
+  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$1" -p page_size=100
+  field "[.items[] | select(.account_id == \"$2\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
+}
+
+# cents_plain CENTS is whole cents, zero or more, as an amount with two
+# decimals.
+cents_plain() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
+
+# step_order_settlement: an order's settlement rule and its settlement
+# (ADR-0064 §3, T60d, T60e): Carla names the cost center that will receive
+# the trade fair's costs when the order is settled, one receiver taking
+# the whole. The rule is replaced with the order's version. She then
+# settles the order up to this period: one entry moves the order's costs
+# to the receiver on the account they were posted on, the order's balance
+# is zero and the cost center's report shows the cost; settling again
+# posts nothing. The settled order is closed and takes no posting.
 step_order_settlement() {
-  heading "Step 51 — An order's settlement rule: the trade fair's order names the cost center that receives its costs, one receiver taking the whole"
+  heading "Step 51 — An order's settlement: the trade fair's order names the cost center that receives its costs, is settled to it on the original account, and is closed"
   as carla
-  local order cc line tag
+  local order cc line tag period expense bank before after settlement entry
   line='"order \(.internal_order_code) \(.internal_order_name): receiver \(.receiver_cost_center_code // "none") (order version \(.version))"'
   QUIET=1 api 200 '' listInternalOrders -p "legal_entity_id=$LE" -p "code=FAIR-$YEAR"
   order=$(field '.items[0].id')
@@ -5992,6 +6009,123 @@ step_order_settlement() {
   refused 412 request.version_mismatch updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" -body "{\"receiver_cost_center_id\": \"$cc\"}"
   api 200 "$line" getInternalOrderSettlementRule -p "id=$order"
   expect "the rule read again" "$(field .receiver_cost_center_code)" CC-1100
+  tag=$ETAG
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  period=$(field "[.items[] | select(.is_special | not) | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period][0]")
+  before=$(center_costs "$cc" "$expense")
+  say "The order still holds the CAD 1,500.00 Alex posted to it, so it cannot be closed yet:"
+  refused 409 controlling.internal_order_not_settled closeInternalOrder -p "id=$order" -if-match "$tag"
+  say "Carla settles the order up to this period, $YEAR/$period (T60e), at the order's version she read with its rule. One"
+  say "journal entry, dated the period's last day, credits the order and debits the receiving cost center CC-1100 on the"
+  say "account the cost was posted on, so the account's balance is unchanged and the cost moves from the order to the"
+  say "cost center (ADR-0064 §3):"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(.settlement.amount.amount) \(.settlement.amount.currency) to \(.settlement.receiver_cost_center_code) on \(.settlement.account_count) account, entry \(.settlement.journal_entry_number) dated \(.settlement.posting_date)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the settlement moved" "$(field '"\(.settled) \(.settlement.amount.amount) \(.settlement.amount.currency) \(.settlement.receiver_cost_center_code) \(.settlement.account_count)"')" \
+    "true 1500.00 CAD CC-1100 1"
+  settlement=$(field .settlement.id)
+  entry=$(field .settlement.journal_entry_id)
+  api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(if .internal_order_code then "on order \(.internal_order_code)" else "on cost center \(.cost_center_code)" end)"] | join(" / "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the settlement's entry: the order credited, the cost center debited, on one account" \
+    "$(field '[.lines[] | "\(.account_id) \(.amount.amount) \(.internal_order_code // .cost_center_code)"] | join("; ")')" \
+    "$expense -1500.00 FAIR-$YEAR; $expense 1500.00 CC-1100"
+  expect "the entry's source" "$(field .source_context)" controlling
+  say "The order's balance is zero, and the cost center's report shows the cost:"
+  api 200 '"order \(.internal_order_code), \(.fiscal_year): debit \(.totals.debit.amount), credit \(.totals.credit.amount), balance \(.totals.balance.amount) \(.totals.balance.currency)"' \
+    listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the settled order's totals" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount) \(.totals.balance.currency)"')" "1500.00 1500.00 0.00 CAD"
+  after=$(center_costs "$cc" "$expense")
+  say "cost center CC-1100 on account 510000: $(cents_plain $((after - before))) CAD more than before the settlement"
+  expect "the cost the cost center's report gained, in cents" "$((after - before))" 150000
+  say "Settling again finds nothing unsettled and posts nothing:"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(if .settled then "an entry posted" else "nothing to settle" end)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "a second settlement" "$(field '"\(.settled) \(.settlement // "none")"')" "false none"
+  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)"' \
+    listInternalOrderSettlements -p "id=$order"
+  expect "the order's settlements" "$(field '[.items[].id] | join(" ")')" "$settlement"
+  say "Carla closes the settled order. A closed order takes no posting:"
+  api 200 '"internal order \(.code): \(.status), version \(.version)"' closeInternalOrder -p "id=$order" -if-match "$tag"
+  expect "the closed order's status" "$(field .status)" closed
+  as alex
+  refused 422 ledger.internal_order_invalid postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+  expect "why a closed order takes no posting" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].internal_order_id closed"
+  passed
+}
+
+# step_distribution: a distribution cycle and its run (ADR-0064 §5, T60f):
+# Sam sets up a cost center for shared services and one for the sales
+# office; Alex posts a cost to the shared one; Carla defines a cycle that
+# sends its costs to the finance office and the sales office at 60 and 40
+# percent and runs it for this period. One entry moves the cost on the
+# account it was posted on, the shares adding up to it to the cent; the
+# centers' reports show the shares, and the period is run once.
+step_distribution() {
+  heading "Step 52 — A distribution cycle: a shared cost center's costs of the period are moved to two others at 60 and 40 percent, on the account they were posted on"
+  local first sender second expense bank cycle tag period entry before_first
+  as sam
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  first=$(field '.items[0].id')
+  say "Sam sets up two more cost centers of Maple, which Carla approves: CC-1200 for the shared services whose costs"
+  say "the offices bear, and CC-1300 for the sales office."
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1200\", \"name\": \"Shared services\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"Costs shared by the offices\"}"
+  sender=$(field .id)
+  center_approved sam
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1300\", \"name\": \"Sales office\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The pilot's sales office\"}"
+  second=$(field .id)
+  center_approved sam
+  as alex
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  say "Alex posts this month's shared supplies, CAD 999.99, to the shared services' cost center:"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .cost_center_code then " on cost center \(.cost_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Shared supplies\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"999.99\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$sender\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-999.99\", \"currency\": \"CAD\"}}]}"
+  as carla
+  say "Carla defines a distribution cycle (ADR-0064 §5): one sender and receivers with fixed percentages, which must"
+  say "add up to 100:"
+  refused 422 controlling.allocation_cycle_invalid createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"SHARED\", \"name\": \"Shared services to the offices\", \"kind\": \"distribution\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"60\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"30\"}]}"
+  expect "why the cycle is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "receivers not_100"
+  api 201 '"cycle \(.code) \(.name) (\(.kind)): from \(.sender_cost_center_code) to \([.receivers[] | "\(.cost_center_code) \(.percentage) %"] | join(", "))"' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"SHARED\", \"name\": \"Shared services to the offices\", \"kind\": \"distribution\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"60\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"40\"}]}"
+  cycle=$(field .id)
+  tag=$ETAG
+  expect "the cycle's sender and receivers" "$(field '"\(.sender_cost_center_code) \([.receivers[] | "\(.cost_center_code) \(.percentage)"] | join(" "))"')" \
+    "CC-1200 CC-1100 60.00 CC-1300 40.00"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  period=$(field "[.items[] | select(.is_special | not) | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period][0]")
+  before_first=$(center_costs "$first" "$expense")
+  say "She runs the cycle for this period, $YEAR/$period. One journal entry, dated the period's last day, credits the"
+  say "sender with its cost and debits each receiver with its share on the same account. 60 percent of CAD 999.99 is"
+  say "599.994 and 40 percent is 399.996: the shares are rounded so that they add up to the cost to the cent."
+  api 200 '"cycle \(.allocation_cycle_code) run for \(.fiscal_year)/\(.fiscal_period): \(.run.amount.amount) \(.run.amount.currency) from \(.run.sender_cost_center_code) on \(.run.account_count) account, entry \(.run.journal_entry_number) dated \(.run.posting_date)"' \
+    runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the run moved" "$(field '"\(.posted) \(.run.amount.amount) \(.run.amount.currency) \(.run.sender_cost_center_code) \(.run.account_count) \(.run.kind)"')" \
+    "true 999.99 CAD CC-1200 1 distribution"
+  entry=$(field .run.journal_entry_id)
+  api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) on cost center \(.cost_center_code)"] | join(" / "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the run's entry: the sender credited, the receivers debited with their shares, on one account" \
+    "$(field '[.lines[] | "\(.account_id) \(.amount.amount) \(.cost_center_code)"] | join("; ")')" \
+    "$expense -999.99 CC-1200; $expense 599.99 CC-1100; $expense 400.00 CC-1300"
+  say "The centers' reports show the shares; the sender's cost of the period is gone:"
+  say "  CC-1200: $(cents_plain "$(center_costs "$sender" "$expense")") CAD; CC-1100: $(cents_plain $(($(center_costs "$first" "$expense") - before_first))) CAD more than before the run; CC-1300: $(cents_plain "$(center_costs "$second" "$expense")") CAD"
+  expect "the sender's cost left on the account, in cents" "$(center_costs "$sender" "$expense")" 0
+  expect "the first receiver's share, in cents" "$(($(center_costs "$first" "$expense") - before_first))" 59999
+  expect "the second receiver's share, in cents" "$(center_costs "$second" "$expense")" 40000
+  say "A cycle is run once for a period:"
+  refused 409 controlling.allocation_run_exists runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  api 200 '.items[] | "  run of \(.allocation_cycle_code) for \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) from \(.sender_cost_center_code), entry \(.journal_entry_number)"' \
+    listAllocationRuns -p "allocation_cycle_id=$cycle"
+  expect "the cycle's runs" "$(field '.items | length')" 1
   passed
 }
 
@@ -8449,7 +8583,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_close'
 
 main() {
   stop_unseen
