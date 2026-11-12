@@ -4167,4 +4167,7 @@ erDiagram
   the highest level gets a row per confirmed run that took it.
 - `collections.outbox`, `collections.inbox`: the context's events
   (`DunningRunChanged`, `DunningNoticeIssued`).
-- Permissions `collections.dunning.read` and `.run`.
+- Permissions `collections.dunning.read` and `.run`, and
+  `collections.worklist.read` (T76c, migration 000270). The collection
+  worklist has no table: it is computed on read from the ledger's open
+  customer items and `dunned_item` (ADR-0065 §9).

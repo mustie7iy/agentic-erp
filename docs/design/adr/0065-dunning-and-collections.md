@@ -4,7 +4,7 @@
 `go-reviewer` had no blocking finding on T76a's last commit). It decides
 the collections context and the slices T76a-T76c
 (`docs/design/plan-breadth-week1.md`, Lane B). Each slice records what it
-built under "As built"; T76a's and T76b's are there now. The defaults taken and the
+built under "As built"; all three are there now. The defaults taken and the
 questions left are listed at the end for the product owner's digest.
 
 ## Context
@@ -377,3 +377,49 @@ is a report read and gets a budget test.
   `proposed`; a run twenty days later, the invoice 30 days overdue,
   proposes Northwind's notice at level 2 with the invoice's item from
   level 1 to 2.
+
+### T76c Collection worklist (migration 000270)
+
+- **Operation.** `GET /v1/collection-worklist?legal_entity_id=&key_date=`
+  (both required; `x-slo-class: report`, `x-snapshot: true`; an agent
+  tool), permission `collections.worklist.read`, which the migration
+  seeds; nothing else is stored. A company the caller may not act in is
+  404, as the cash position answers it.
+- **Rows.** `collections.WorklistOf` reads every open customer item of
+  the company (`ledger.OpenItems.Receivable`) and groups them by
+  customer. A customer is listed when one of its items is overdue on the
+  key date as §4 counts it (a debit with payment terms, past its net due
+  date by a day at least; the first dunning level's days do not matter,
+  and a company without dunning levels has a worklist too). Each row:
+  the customer's id, number and name; `open_amount`, all its open items
+  with credits; `overdue_amount`, its overdue items, which credits do
+  not reduce (as a notice's amount); `oldest_due_date` among the overdue
+  items; `dunning_level` and `last_dunning_date`, the highest level and
+  latest date `dunned_item` holds for its open items (0 and absent when
+  none was dunned). Amounts are in the company's currency as booked.
+  Decided by default: the level and date are those of items still open,
+  as they are recorded now, whatever the key date; a cleared item's
+  dunning no longer counts.
+- **Totals.** `customer_count`, `open_amount` and `overdue_amount` of
+  every customer listed, on every page (REVIEW.md, a report without its
+  totals).
+- **Order and paging.** The largest overdue amount first (plan default
+  7), customers with the same amount by id, so the order is total. The
+  cursor is the last row's overdue amount and customer id, signed and
+  bound to the company and key date; the worklist is computed again for
+  each page and the page continues after that place, so nobody is listed
+  twice; a customer whose amount changed between two pages is read at
+  its new place or not again. Names and dunning are read for the page's
+  customers only.
+- **Key date.** Required and at most 2100-12-31, as a run's (T76b).
+  The items are those open at the read, not on the key date (§4).
+- **Budget.** 01 §1.3 gets the row: p95 3 s, p99 6 s over 100,000 open
+  customer items, the liquidity forecast's figures for a report computed
+  on read at that volume (decided by default).
+  `TestCollectionWorklistBudget` (2,000 customers with 50 items each,
+  every item dunned once, a page of 100): p95 1.2-1.5 s at a load
+  average of 35-47, 2026-11-12.
+- **Walkthrough.** `step_collections` (step 50): at the key date of the
+  run confirmed in `step_dunning`, Northwind leads Maple's worklist with
+  its notice's overdue amount, its items' due date, level 1 and the key
+  date as last dunning date; at the due date it is not listed.

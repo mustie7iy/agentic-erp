@@ -5,7 +5,9 @@
 // which stay the ledger's, and nothing is sent. Confirming a run records
 // each item's level and dunning date, which the next run reads, and
 // publishes one event per customer (ADR-0065 §8, T76b). The collection
-// worklist follows in T76c (ADR-0065 §9).
+// worklist, a company's customers with overdue items, is computed on read
+// from the same open items and the recorded levels and stores nothing
+// (ADR-0065 §9, T76c).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, tenancy and the configuration

@@ -19,9 +19,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// errTooLarge refuses a run whose amounts are out of range.
+// errTooLarge refuses a run or a worklist whose amounts are out of range.
 func errTooLarge() *problem.Problem {
-	return problem.Unprocessable("collections.amount_too_large", "The overdue items add up to more than an amount can hold.")
+	return problem.Unprocessable("collections.amount_too_large", "The items add up to more than an amount can hold.")
 }
 
 // reach is the dunning level an item days overdue would reach in a run

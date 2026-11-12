@@ -181,6 +181,7 @@ var operationRolesOidc = map[string][]string{
 	GetChangeRequestOperation:                      []string{},
 	GetClearingOperation:                           []string{},
 	GetCloseCalendarOperation:                      []string{},
+	GetCollectionWorklistOperation:                 []string{},
 	GetCompanyAccessOperation:                      []string{},
 	GetConfigVersionOperation:                      []string{},
 	GetConnectorOperation:                          []string{},

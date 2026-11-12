@@ -9,8 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestCollectionsPermissions (T76a, migration 000268; ADR-0065 §7): the
-// dunning permissions are seeded and are no approval permissions.
+// TestCollectionsPermissions (T76a, migration 000268; T76c, 000270;
+// ADR-0065 §7): the dunning permissions and the worklist's are seeded and
+// are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
 	need(t)
 	rows, err := testDB.Query(context.Background(), `SELECT code FROM ref.permission WHERE code LIKE 'collections.%' AND NOT is_approval ORDER BY code`)
@@ -21,7 +22,7 @@ func TestCollectionsPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "collections.dunning.read collections.dunning.run"; got != want {
+	if got, want := strings.Join(codes, " "), "collections.dunning.read collections.dunning.run collections.worklist.read"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }

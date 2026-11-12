@@ -2808,14 +2808,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Collection worklists",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A collections specialist reads a company's worklist: the customers with overdue items, the largest overdue amount first, with open and overdue totals, oldest due date, highest dunning level and last dunning date (GET /v1/collection-worklist)",
-        "r": "T76c · docs/design/plan-breadth-week1.md §T76c",
+        "r": "T76c · docs/design/plan-breadth-week1.md §T76c · db/migrations/000270 · GET /v1/collection-worklist · collections.worklist.read · TestCollectionWorklistBudget (01 §1.3) · walkthrough step_collections · ADR-0065 §9 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -21085,6 +21085,239 @@ func (s *CodeTax) SetTax(val Money) {
 	s.Tax = val
 }
 
+// A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers
+// with overdue items, the largest overdue amount first, with the totals of every customer listed.
+// Ref: #/components/schemas/CollectionWorklist
+type CollectionWorklist struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items are overdue on.
+	KeyDate time.Time `json:"key_date"`
+	// The company's currency (ISO 4217), the currency of every amount.
+	Currency string `json:"currency"`
+	// The customers on the worklist, on every page together.
+	CustomerCount int32 `json:"customer_count"`
+	// The sum of `open_amount` of every customer on the worklist.
+	OpenAmount Money `json:"open_amount"`
+	// The sum of `overdue_amount` of every customer on the worklist.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The customers on this page, the largest overdue amount first.
+	Items []CollectionWorklistCustomer `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CollectionWorklist) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CollectionWorklist) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CollectionWorklist) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *CollectionWorklist) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CollectionWorklist) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *CollectionWorklist) GetCustomerCount() int32 {
+	return s.CustomerCount
+}
+
+// GetOpenAmount returns the value of OpenAmount.
+func (s *CollectionWorklist) GetOpenAmount() Money {
+	return s.OpenAmount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *CollectionWorklist) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetItems returns the value of Items.
+func (s *CollectionWorklist) GetItems() []CollectionWorklistCustomer {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CollectionWorklist) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CollectionWorklist) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CollectionWorklist) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CollectionWorklist) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *CollectionWorklist) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CollectionWorklist) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *CollectionWorklist) SetCustomerCount(val int32) {
+	s.CustomerCount = val
+}
+
+// SetOpenAmount sets the value of OpenAmount.
+func (s *CollectionWorklist) SetOpenAmount(val Money) {
+	s.OpenAmount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *CollectionWorklist) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *CollectionWorklist) SetItems(val []CollectionWorklistCustomer) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CollectionWorklist) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CollectionWorklist) getCollectionWorklistRes() {}
+
+// A customer on a collection worklist: one with items overdue on the key date. Amounts are in the
+// company's currency, as the items were booked.
+// Ref: #/components/schemas/CollectionWorklistCustomer
+type CollectionWorklistCustomer struct {
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// What the customer's open items add up to, overdue or not, credit items included; negative when its
+	// credits exceed what it owes.
+	OpenAmount Money `json:"open_amount"`
+	// What the customer's items overdue on the key date add up to; credit items do not reduce it.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The earliest net due date among the customer's overdue items.
+	OldestDueDate time.Time `json:"oldest_due_date"`
+	// The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0
+	// when none was dunned.
+	DunningLevel int32 `json:"dunning_level"`
+	// The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items;
+	// absent when none was dunned.
+	LastDunningDate OptDate `json:"last_dunning_date"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CollectionWorklistCustomer) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CollectionWorklistCustomer) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CollectionWorklistCustomer) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetOpenAmount returns the value of OpenAmount.
+func (s *CollectionWorklistCustomer) GetOpenAmount() Money {
+	return s.OpenAmount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *CollectionWorklistCustomer) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetOldestDueDate returns the value of OldestDueDate.
+func (s *CollectionWorklistCustomer) GetOldestDueDate() time.Time {
+	return s.OldestDueDate
+}
+
+// GetDunningLevel returns the value of DunningLevel.
+func (s *CollectionWorklistCustomer) GetDunningLevel() int32 {
+	return s.DunningLevel
+}
+
+// GetLastDunningDate returns the value of LastDunningDate.
+func (s *CollectionWorklistCustomer) GetLastDunningDate() OptDate {
+	return s.LastDunningDate
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CollectionWorklistCustomer) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CollectionWorklistCustomer) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CollectionWorklistCustomer) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetOpenAmount sets the value of OpenAmount.
+func (s *CollectionWorklistCustomer) SetOpenAmount(val Money) {
+	s.OpenAmount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *CollectionWorklistCustomer) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetOldestDueDate sets the value of OldestDueDate.
+func (s *CollectionWorklistCustomer) SetOldestDueDate(val time.Time) {
+	s.OldestDueDate = val
+}
+
+// SetDunningLevel sets the value of DunningLevel.
+func (s *CollectionWorklistCustomer) SetDunningLevel(val int32) {
+	s.DunningLevel = val
+}
+
+// SetLastDunningDate sets the value of LastDunningDate.
+func (s *CollectionWorklistCustomer) SetLastDunningDate(val OptDate) {
+	s.LastDunningDate = val
+}
+
 // Body of a rejection or cancellation decision.
 // Ref: #/components/schemas/CommentRequiredInput
 type CommentRequiredInput struct {
@@ -35694,6 +35927,22 @@ func (*GetCloseCalendarBadRequest) getCloseCalendarRes() {}
 type GetCloseCalendarForbidden Problem
 
 func (*GetCloseCalendarForbidden) getCloseCalendarRes() {}
+
+type GetCollectionWorklistBadRequest Problem
+
+func (*GetCollectionWorklistBadRequest) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistForbidden Problem
+
+func (*GetCollectionWorklistForbidden) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistNotFound Problem
+
+func (*GetCollectionWorklistNotFound) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistUnprocessableEntity Problem
+
+func (*GetCollectionWorklistUnprocessableEntity) getCollectionWorklistRes() {}
 
 type GetCompanyAccessBadRequest Problem
 
@@ -72708,6 +72957,7 @@ func (*TooManyRequestsHeaders) getCenterChangeRes()                       {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                      {}
 func (*TooManyRequestsHeaders) getClearingRes()                           {}
 func (*TooManyRequestsHeaders) getCloseCalendarRes()                      {}
+func (*TooManyRequestsHeaders) getCollectionWorklistRes()                 {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                      {}
 func (*TooManyRequestsHeaders) getConnectorRes()                          {}
@@ -73223,6 +73473,7 @@ func (*UnauthorizedHeaders) getCenterChangeRes()                       {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                      {}
 func (*UnauthorizedHeaders) getClearingRes()                           {}
 func (*UnauthorizedHeaders) getCloseCalendarRes()                      {}
+func (*UnauthorizedHeaders) getCollectionWorklistRes()                 {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                      {}
 func (*UnauthorizedHeaders) getConnectorRes()                          {}

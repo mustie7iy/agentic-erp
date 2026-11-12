@@ -1734,6 +1734,29 @@ type Handler interface {
 	//
 	// GET /v1/close-calendar
 	GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (GetCloseCalendarRes, error)
+	// GetCollectionWorklist implements getCollectionWorklist operation.
+	//
+	// The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue
+	// items, the largest overdue amount first (customers with the same amount by `customer_id`), each with
+	// its number and name, what its open items add up to (`open_amount`, credits included), what its
+	// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
+	// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
+	// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
+	// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
+	// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
+	// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
+	// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
+	// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
+	// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
+	// counts what is overdue. Amounts are in the company's currency, as the items were booked.
+	// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
+	// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
+	// company and key date. The worklist needs no dunning levels: a company without any has one too. A key
+	// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal
+	// entity the caller cannot act in is 404.
+	//
+	// GET /v1/collection-worklist
+	GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error)
 	// GetCompanyAccess implements getCompanyAccess operation.
 	//
 	// Returns one company access grant.

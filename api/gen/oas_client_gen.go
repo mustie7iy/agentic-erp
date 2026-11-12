@@ -1755,6 +1755,29 @@ type Invoker interface {
 	//
 	// GET /v1/close-calendar
 	GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (GetCloseCalendarRes, error)
+	// GetCollectionWorklist invokes getCollectionWorklist operation.
+	//
+	// The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue
+	// items, the largest overdue amount first (customers with the same amount by `customer_id`), each with
+	// its number and name, what its open items add up to (`open_amount`, credits included), what its
+	// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
+	// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
+	// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
+	// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
+	// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
+	// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
+	// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
+	// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
+	// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
+	// counts what is overdue. Amounts are in the company's currency, as the items were booked.
+	// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
+	// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
+	// company and key date. The worklist needs no dunning levels: a company without any has one too. A key
+	// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal
+	// entity the caller cannot act in is 404.
+	//
+	// GET /v1/collection-worklist
+	GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error)
 	// GetCompanyAccess invokes getCompanyAccess operation.
 	//
 	// Returns one company access grant.
@@ -25055,6 +25078,202 @@ func (c *Client) sendGetCloseCalendar(ctx context.Context, params GetCloseCalend
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCloseCalendarResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCollectionWorklist invokes getCollectionWorklist operation.
+//
+// The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue
+// items, the largest overdue amount first (customers with the same amount by `customer_id`), each with
+// its number and name, what its open items add up to (`open_amount`, credits included), what its
+// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
+// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
+// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
+// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
+// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
+// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
+// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
+// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
+// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
+// counts what is overdue. Amounts are in the company's currency, as the items were booked.
+// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
+// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
+// company and key date. The worklist needs no dunning levels: a company without any has one too. A key
+// date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal
+// entity the caller cannot act in is 404.
+//
+// GET /v1/collection-worklist
+func (c *Client) GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error) {
+	res, err := c.sendGetCollectionWorklist(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (res GetCollectionWorklistRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCollectionWorklist"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/collection-worklist"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCollectionWorklistOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/collection-worklist"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "key_date" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.KeyDate))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCollectionWorklistOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCollectionWorklistResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

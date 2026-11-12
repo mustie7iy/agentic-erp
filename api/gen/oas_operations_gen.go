@@ -135,6 +135,7 @@ const (
 	GetChangeRequestOperation                      OperationName = "GetChangeRequest"
 	GetClearingOperation                           OperationName = "GetClearing"
 	GetCloseCalendarOperation                      OperationName = "GetCloseCalendar"
+	GetCollectionWorklistOperation                 OperationName = "GetCollectionWorklist"
 	GetCompanyAccessOperation                      OperationName = "GetCompanyAccess"
 	GetConfigVersionOperation                      OperationName = "GetConfigVersion"
 	GetConnectorOperation                          OperationName = "GetConnector"

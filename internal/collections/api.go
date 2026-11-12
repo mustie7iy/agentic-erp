@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -197,4 +198,43 @@ func (e *Endpoints) shown(ctx context.Context, tx pgx.Tx, run Run, page []Notice
 		return shown{}, fmt.Errorf("collections: customers of %d dunning notices: %w", len(page), err)
 	}
 	return shown{run: run, customers: names}, nil
+}
+
+// GetCollectionWorklist implements GET /v1/collection-worklist: a
+// company's customers with items overdue on the key date, the largest
+// overdue amount first, one page of them with the worklist's totals.
+func (e *Endpoints) GetCollectionWorklist(ctx context.Context, params gen.GetCollectionWorklistParams) (gen.GetCollectionWorklistRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	size, err := pagination.Size(params.PageSize.Value, params.PageSize.Set)
+	if err != nil {
+		return nil, err
+	}
+	w, err := e.WorklistOf(ctx, params.LegalEntityID, params.KeyDate)
+	if err != nil {
+		return nil, err
+	}
+	scope := fmt.Sprintf("getCollectionWorklist|%s|%s", params.LegalEntityID, params.KeyDate.Format(time.DateOnly))
+	page, next, err := e.page(w, scope, size, params.PageToken.Value, params.PageToken.Set)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.describe(ctx, tx, page); err != nil {
+		return nil, err
+	}
+	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, w.Company.LocalCurrency, w.Exponent) }
+	out := &gen.CollectionWorklist{LegalEntityID: w.Company.ID, CompanyCode: w.Company.Code, CompanyName: w.Company.Name, KeyDate: w.KeyDate,
+		Currency: w.Company.LocalCurrency, CustomerCount: int32(len(w.Customers)), OpenAmount: amount(w.Open), OverdueAmount: amount(w.Overdue),
+		Items: make([]gen.CollectionWorklistCustomer, len(page))}
+	for i, c := range page {
+		out.Items[i] = gen.CollectionWorklistCustomer{CustomerID: c.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name,
+			OpenAmount: amount(c.Open), OverdueAmount: amount(c.Overdue), OldestDueDate: c.OldestDue, DunningLevel: c.Level,
+			LastDunningDate: apitypes.OptDate(c.LastDunned)}
+	}
+	if next != "" {
+		out.NextPageToken.SetTo(next)
+	}
+	return out, nil
 }

@@ -517,6 +517,10 @@ type GetCloseCalendarRes interface {
 	getCloseCalendarRes()
 }
 
+type GetCollectionWorklistRes interface {
+	getCollectionWorklistRes()
+}
+
 type GetCompanyAccessRes interface {
 	getCompanyAccessRes()
 }

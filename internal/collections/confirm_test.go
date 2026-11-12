@@ -189,14 +189,6 @@ func TestNextLevel(t *testing.T) {
 	}
 }
 
-// start2 starts two runs at the key date and returns their ids.
-func (e env) start2(t *testing.T, key string) (first, second string) {
-	t.Helper()
-	first, _ = e.start(t, key)
-	second, _ = e.start(t, key)
-	return first, second
-}
-
 // In returns e calling the API for tb.
 func (e env) In(tb testing.TB) env {
 	tb.Helper()
@@ -291,10 +283,11 @@ func TestConfirmationsSerialize(t *testing.T) {
 			t.Errorf("got %v and %v, want the first confirmed and the second refused as collections.proposal_stale", first, second)
 		}
 	})
-	// A day later every item stays at level 1: CI-A and CI-USD would rise, but CI-B, 6 days overdue, stays, and its
-	// level tells the two proposals nothing; one confirmed after the other is refused all the same.
+	// A day later CI-B, 6 days overdue, stays at level 1, so its level tells the second proposal nothing once the
+	// first is confirmed; the times it was dunned do, and the refusal counts it among the items dunned since: all 4.
 	t.Run("two proposals whose items stay at their level", func(t *testing.T) {
-		stay, twin := e.In(t).start2(t, "2026-07-01")
+		stay, _ := e.In(t).start(t, "2026-07-01")
+		twin, _ := e.In(t).start(t, "2026-07-01")
 		if got, want := e.In(t).proposed(t, twin), "CI-USD 1->2, CI-A 1->2, CI-B 1->1, CI-C 0->1"; got != want {
 			t.Fatalf("proposed: got %q, want %q", got, want)
 		}

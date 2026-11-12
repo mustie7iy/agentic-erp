@@ -5897,6 +5897,8 @@ step_dunning() {
   api 200 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice, \(.item_count) item(s), version \(.version)"' \
     confirmDunningRun -p "id=$run" -if-match "$ETAG"
   expect "the confirmed run" "$(field '"\(.id) \(.status) \(.version)"')" "$run confirmed 2"
+  # What step_collections reads back: the customer dunned, when, and for how much.
+  DUNNED_CUSTOMER=$customer DUNNING_KEY=$key DUNNING_DUE=$due DUNNED_AMOUNT=$(field '"\(.overdue_amount.amount) \(.overdue_amount.currency)"')
   say "A run is confirmed once: confirming it again records and publishes nothing."
   refused 409 collections.invalid_status confirmDunningRun -p "id=$run" -if-match "$ETAG"
   say "The colleague's proposal still says Northwind's items were never dunned. It is stale, and a new run is started instead:"
@@ -5924,6 +5926,36 @@ step_dunning() {
 # late asset in the previous period's close (T64l), its other checks
 # (T64c), its accrual proposals (T64e), its variances (T64h) and their
 # comments (T64i) and, last, its sign-off (T64d), which locks the period.
+# step_collections is T76c (ADR-0065 §9): Ruth reads Maple's collection
+# worklist at the key date of the dunning run she confirmed in
+# step_dunning: Northwind, the customer dunned, leads it with the overdue
+# amount of its notice, the due date of its items, dunning level 1 and
+# the run's key date as its last dunning date; the worklist's totals
+# count every customer listed. On the due date itself nothing of
+# Northwind's is overdue, so it is not listed. The key dates are the
+# requests'.
+step_collections() {
+  heading "Step 50 — The collection worklist: the company's customers with overdue items on a key date, the largest overdue amount first, each with its open and overdue amounts, oldest due date, dunning level and last dunning date"
+  local customer=$DUNNED_CUSTOMER key=$DUNNING_KEY
+  as ruth
+  say "Ruth reads whom to chase: Maple's customers with items overdue on $key, the largest overdue amount first."
+  say "The worklist is computed from the ledger's open items and the dunning levels recorded; it stores nothing:"
+  api 200 '"worklist of \(.company_code) \(.company_name) at \(.key_date): \(.customer_count) customer(s), \(.open_amount.amount) \(.open_amount.currency) open, \(.overdue_amount.amount) \(.overdue_amount.currency) overdue", (.items[] | "  \(.customer_number) \(.customer_name): \(.overdue_amount.amount) \(.overdue_amount.currency) overdue of \(.open_amount.amount) open, oldest due \(.oldest_due_date), dunning level \(.dunning_level), last dunned \(.last_dunning_date // "never")")' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key"
+  expect "the customer leading the worklist" "$(field '.items[0] | "\(.customer_id) \(.customer_name)"')" "$customer Northwind Traders"
+  expect "its overdue amount, the confirmed notice's" "$(field '.items[0] | "\(.overdue_amount.amount) \(.overdue_amount.currency)"')" "$DUNNED_AMOUNT"
+  expect "its oldest due date, dunning level and last dunning date" \
+    "$(field '.items[0] | "\(.oldest_due_date) \(.dunning_level) \(.last_dunning_date)"')" "$DUNNING_DUE 1 $key"
+  expect "the largest overdue amount first" "$(field '[.items[].overdue_amount.amount | tonumber] | . == (sort | reverse)')" true
+  expect "the totals count every customer" "$(field '.customer_count == (.items | length) and .currency == "CAD"')" true
+  say "Northwind owes nothing but these items, so what is open is what is overdue. On the due date itself, $DUNNING_DUE,"
+  say "nothing of Northwind's is overdue yet, and a customer with nothing overdue is not on the worklist:"
+  api 200 '"worklist at \(.key_date): \(.customer_count) customer(s), \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$DUNNING_DUE"
+  expect "Northwind on the worklist at the due date" "$(field "[.items[] | select(.customer_id == \"$customer\")] | length")" 0
+  passed
+}
+
 step_close() {
   heading "Final step — Financial close: the close template through a governed change, the year's close calendar, the checklist and its sign-off, and the group's consolidated figures finalized"
   as ada
@@ -7939,7 +7971,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_dunning step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_dunning step_collections step_close'
 
 main() {
   stop_unseen

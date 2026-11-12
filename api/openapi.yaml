@@ -58,7 +58,7 @@ tags:
   - name: receivables
     description: "Accounts receivable (ADR-0063): customer invoices."
   - name: collections
-    description: "Dunning and collections (ADR-0065): dunning runs and their notices."
+    description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -14902,6 +14902,57 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/collection-worklist:
+    get:
+      operationId: getCollectionWorklist
+      tags:
+        - collections
+      summary: Get a company's collection worklist
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key date is past its net due date; an item due on the key date is not overdue, credit items reduce no overdue amount, and an item without payment terms has no due date. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      x-permission: collections.worklist.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - collections.amount_too_large
+        - collections.invalid_key_date
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: key_date
+          in: query
+          required: true
+          description: "The date the items are overdue on (required): an item due on this date is not overdue. 2100-12-31 at the latest."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the worklist with its totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionWorklist"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
@@ -42734,6 +42785,56 @@ components:
           items: {$ref: "#/components/schemas/CustomerInvoice"}
           description: The customer invoices on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CollectionWorklistCustomer:
+      type: object
+      description: "A customer on a collection worklist: one with items overdue on the key date. Amounts are in the company's currency, as the items were booked."
+      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level]
+      properties:
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        open_amount: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, overdue or not, credit items included; negative when its credits exceed what it owes."}
+        overdue_amount: {$ref: "#/components/schemas/Money", description: "What the customer's items overdue on the key date add up to; credit items do not reduce it."}
+        oldest_due_date: {type: string, format: date, description: "The earliest net due date among the customer's overdue items.", readOnly: true}
+        dunning_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0 when none was dunned.", readOnly: true}
+        last_dunning_date: {type: string, format: date, description: "The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items; absent when none was dunned.", readOnly: true}
+    CollectionWorklist:
+      type: object
+      description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
+      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        key_date: {type: string, format: date, description: "The date the items are overdue on.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of every amount.", readOnly: true}
+        customer_count: {type: integer, format: int32, minimum: 0, description: "The customers on the worklist, on every page together.", readOnly: true}
+        open_amount: {$ref: "#/components/schemas/Money", description: "The sum of `open_amount` of every customer on the worklist."}
+        overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of `overdue_amount` of every customer on the worklist."}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CollectionWorklistCustomer"}
+          description: "The customers on this page, the largest overdue amount first."
+          readOnly: true
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          key_date: "2026-12-31"
+          currency: CAD
+          customer_count: 1
+          open_amount: {amount: "1050.00", currency: CAD}
+          overdue_amount: {amount: "1050.00", currency: CAD}
+          items:
+            - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              customer_name: Northwind Traders
+              open_amount: {amount: "1050.00", currency: CAD}
+              overdue_amount: {amount: "1050.00", currency: CAD}
+              oldest_due_date: "2026-12-11"
+              dunning_level: 1
+              last_dunning_date: "2026-12-31"
     DunningRunCreate:
       type: object
       description: "Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue on the key date."
