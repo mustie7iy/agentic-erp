@@ -19532,7 +19532,8 @@ type CatalogItemCreate struct {
 	// The contract whose item `contract_item_no` prices an order of the item; given with
 	// `contract_item_no`.
 	ContractID OptUUID `json:"contract_id"`
-	// The item of `contract_id`, in the catalog item's unit; given with `contract_id`.
+	// The item of `contract_id`, in the catalog item's unit and at its `unit_price` per `price_unit` (422
+	// `procurement.catalog_item_price` otherwise); given with `contract_id`.
 	ContractItemNo OptInt32 `json:"contract_item_no"`
 }
 

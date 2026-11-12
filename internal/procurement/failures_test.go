@@ -141,8 +141,8 @@ func newFailureFixture(t *testing.T, e env) failureFixture {
 	_, f.gr = e.receipt(t, id(f.released), "1:2:EA")
 	f.closable = e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
 	e.act(t, "/v1/purchase-orders/"+id(f.closable), "release", "")
-	f.catalogItem = e.catalogItem(t, e.Supplier, "FAIL-1", "P", "1.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(f.active)))
-	kept := e.catalogItem(t, e.Supplier, "FAIL-2", "P", "1.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(f.active)))
+	f.catalogItem = e.catalogItem(t, e.Supplier, "FAIL-1", "P", "5.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(f.active)))
+	kept := e.catalogItem(t, e.Supplier, "FAIL-2", "P", "5.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(f.active)))
 	f.fromCatalog = []gen.RequisitionItemInput{f.ok[0], {CatalogItemID: gen.NewOptUUID(uuid.MustParse(id(kept))),
 		Quantity: gen.Quantity{Value: "1", Unit: "EA"}, AccountID: uuid.MustParse(e.office)}}
 	f.catalogReq = e.requisition(t, items(e.fromCatalog(id(kept), "1", "")), "")
@@ -234,7 +234,7 @@ func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]
 		},
 		"create catalog item": func(ctx context.Context) error {
 			_, err := h.CreateCatalogItem(ctx, &gen.CatalogItemCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, ItemKey: "FAIL-" + uuid.NewString()[:8],
-				Description: "P", Unit: "EA", UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"}, ContractID: gen.NewOptUUID(u(f.active)),
+				Description: "P", Unit: "EA", UnitPrice: gen.Money{Amount: "5.00", Currency: "EUR"}, ContractID: gen.NewOptUUID(u(f.active)),
 				ContractItemNo: gen.NewOptInt32(1)}, gen.CreateCatalogItemParams{})
 			return err
 		},

@@ -75,9 +75,11 @@ as ADR-0038 and ADR-0061 build theirs).
 An item may name the contract item that prices an order of it
 (`contract_id` with `contract_item_no`, both or neither): an item of an
 `active` contract of the same company and supplier, in the catalog
-item's currency and unit. The catalog item keeps its own price, which a
-requisition takes as its estimate; an order that names the contract item
-takes the contract's price, as today (question 1).
+item's currency and unit, at the catalog item's price: the same amount
+per the same price unit, compared as written (422
+`procurement.catalog_item_price`; product owner, 2026-11-12, T84c). So
+the estimate a requisition takes from the catalog is the price an order
+that names the contract item takes.
 The contract's state is checked when the item is loaded and not held
 afterwards: a contract terminated or expired later leaves the catalog
 item naming it, and the requisition and the order that use it check the
@@ -200,6 +202,8 @@ other; the order's items are the buyer's, as today.
    whatever the case, with no ranking; it requires the company and
    returns active items unless `status=retired` is asked.
 5. A catalog item naming a contract item keeps its own price.
+   Overruled by the product owner on 2026-11-12: its price is the
+   contract item's, or the load is refused (T84c).
 6. Loading and retiring are by permission, without approval; agents are
    not excluded, as from a contract's creation.
 7. `CatalogItemChanged` names the supplier by id and number and carries
@@ -219,6 +223,7 @@ other; the order's items are the buyer's, as today.
    catalog item's own price is used on the requisition; when it names a
    contract item, the order takes the contract's price as today. Should
    the catalog refuse a price that differs from its contract item's?
+   **Answered 2026-11-12: yes** (T84c, below).
 
 ## As built
 
@@ -290,3 +295,41 @@ other; the order's items are the buyer's, as today.
   two chairs from the catalog item; a price of his own and the retired
   arm are refused; read back it has the catalog's price, CAD 450.00, and
   Tyrell as its supplier; he submits it and Priya approves it.
+
+### T84c A catalog price is its contract item's (no migration)
+
+Product owner, 2026-11-12 (row 8 of that day's decisions): a catalog item
+that names a contract item and whose price differs from that contract
+item's is refused when it is loaded. Question 1 is answered and default 5
+overruled.
+
+- **Rule.** `catalogContractPrice` (`catalog.go`), called by
+  `catalogContractItem` once the contract item is found: the catalog
+  item's amount and price unit (1 when absent) are the contract item's,
+  compared as written and not as a ratio, so 10.00 per 2 is refused
+  against 5.00 per 1. The currency was already the contract's (422
+  `procurement.invalid_contract` on `contract_id`, unchanged). The refusal
+  is 422 `procurement.catalog_item_price` on `unit_price.amount`, or on
+  `price_unit` when only that differs, and its detail names the catalog
+  item by its key, the contract item and both prices.
+- **Every path.** `POST /v1/catalog-items` is the only path that creates
+  a catalog item or sets its price: an item's price is not changed
+  afterwards (the application may update its status alone, §2), and
+  retiring changes no price. No other code writes the table.
+- **Items already stored when the contract item's price changes later
+  (decided by default).** It cannot: a contract's items are changed only
+  while it is a draft (`updateContract`), a catalog item may name only an
+  `active` contract, and neither an active contract's items nor a catalog
+  item's price change afterwards. So the prices agree for as long as both
+  exist and nothing is checked again. A contract terminated or expired
+  later leaves the catalog item naming it, as before (§2). When changing
+  a contract's or a catalog item's price is built (both "later" leaves),
+  that change must keep the rule.
+- **Items loaded before this rule.** Not rechecked and not migrated: no
+  catalog exists outside tests and the walkthrough before the pilot, and
+  the rule is the load's. No schema change: the rule compares two tables'
+  rows at load and is kept by the two being immutable, not by a
+  constraint.
+- **Walkthrough.** Step 61 loads no contract-priced item (the story has
+  no contract), so it is unchanged and keeps passing; the rule's evidence
+  is `TestCatalogItemContract`.

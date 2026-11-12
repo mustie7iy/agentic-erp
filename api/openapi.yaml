@@ -11367,10 +11367,11 @@ paths:
       tags:
         - procurement
       summary: Load a catalog item
-      description: "Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its item key, description, unit and price per `price_unit`, in the price's currency. The supplier must be one that can be ordered from in the company, as a purchase order's must be (422 `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with `contract_item_no` names the contract item that prices an order of the item: an item of an `active` contract of the company and the supplier in the item's currency (422 `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the catalog item keeps its own price, which a requisition takes. What an item offers is not changed afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is published. The catalog is the tenant's own data: nothing is fetched from a supplier's system."
+      description: "Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its item key, description, unit and price per `price_unit`, in the price's currency. The supplier must be one that can be ordered from in the company, as a purchase order's must be (422 `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with `contract_item_no` names the contract item that prices an order of the item: an item of an `active` contract of the company and the supplier in the item's currency (422 `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at the item's price: the same amount per the same `price_unit`, compared as written (422 `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the catalog is the one an order on the contract item takes. What an item offers is not changed afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is published. The catalog is the tenant's own data: nothing is fetched from a supplier's system."
       x-permission: procurement.catalog.manage
       x-problem-codes:
         - procurement.catalog_item_exists
+        - procurement.catalog_item_price
         - procurement.currency_mismatch
         - procurement.invalid_amount
         - procurement.invalid_contract
@@ -40511,7 +40512,7 @@ components:
         unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency; positive."}
         price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "Quantity the unit price refers to."}
         contract_id: {type: string, format: uuid, description: "The contract whose item `contract_item_no` prices an order of the item; given with `contract_item_no`."}
-        contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of `contract_id`, in the catalog item's unit; given with `contract_id`."}
+        contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of `contract_id`, in the catalog item's unit and at its `unit_price` per `price_unit` (422 `procurement.catalog_item_price` otherwise); given with `contract_id`."}
       examples:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"

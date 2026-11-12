@@ -4348,6 +4348,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "Fix: a catalog item that names a contract item is loaded only at that contract item's price (the same amount per the same price unit); another price is refused naming the item, the contract item and both prices (422 procurement.catalog_item_price)",
+        "r": "T84c · internal/procurement/catalog.go catalogContractPrice · POST /v1/catalog-items · TestCatalogItemContract · ADR-0071 §2 and As built T84c",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: catalog variants: punch-out to a supplier's catalog (cXML PunchOut, OCI) and its connector, loading a catalog file in bulk and by schedule, changing an item's price with validity dates, categories and their default accounts, images and attachments, a catalog shared by several companies or kept per purchasing organization, search ranking (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T84a, Later",

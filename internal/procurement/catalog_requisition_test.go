@@ -90,7 +90,7 @@ func TestRequisitionCatalogContract(t *testing.T) {
 	e.act(t, "/v1/contracts/"+id(active), "release", "")
 	other := e.contract(t, e.Supplier.String(), "")
 	e.act(t, "/v1/contracts/"+id(other), "release", "")
-	paper := e.catalogItem(t, e.Supplier, "PAPER", "Paper", "4.50", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(active)))
+	paper := e.catalogItem(t, e.Supplier, "PAPER", "Paper", "5.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(active)))
 	pens := e.catalogItem(t, e.Supplier, "PENS", "Pens", "2.00", "")
 	theirs := e.catalogItem(t, e.Vendor, "TONER", "Toner", "30.00", "")
 	r := e.requisition(t, items(e.fromCatalog(id(pens), "1", ""), e.fromCatalog(id(paper), "10", "")), "")

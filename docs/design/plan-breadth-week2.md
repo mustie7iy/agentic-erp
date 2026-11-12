@@ -1073,3 +1073,4 @@ that makes the main path work, and the slice records it in its ADR.
     price is used on the requisition; when it names a contract item, the
     order takes the contract's price as today. Should the catalog refuse
     a price that differs from its contract item's?
+    Answered 2026-11-12: yes, at load (T84c, ADR-0071 As built).

@@ -1976,8 +1976,10 @@ frees its key). `contract_id` and `contract_item_no` name the contract
 item that prices an order of it, both or neither
 (`catalog_item_contract_item_both`), an item the contract has
 (`catalog_item_contract_item_fkey`); that the contract is active, of the
-same company and supplier and in the item's currency and unit is checked
-when the item is loaded. `search_text` is the key and the description in
+same company and supplier and in the item's currency and unit, and that
+its price is the item's (the same amount per the same price unit, T84c),
+is checked when the item is loaded; neither price changes afterwards, so
+they stay equal. `search_text` is the key and the description in
 lower case, generated, which the search matches a text in;
 `catalog_item_by_key` is the order the search's pages are read in. The
 legal entity is tenancy's and the supplier the partner context's, with no

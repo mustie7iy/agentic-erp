@@ -182,7 +182,9 @@ func TestCatalogSearch(t *testing.T) {
 
 // TestCatalogItemContract (T84a): a catalog item may name the contract
 // item that prices an order of it: an item of an active contract of the
-// company and the supplier, in the item's unit and currency.
+// company and the supplier, in the item's unit and currency and at its
+// price (product owner, 2026-11-12): another amount or price unit is
+// refused when the item is loaded, naming the item.
 func TestCatalogItemContract(t *testing.T) {
 	e := setupIn2026(t)
 	draft := e.contract(t, e.Supplier.String(), "")
@@ -193,18 +195,24 @@ func TestCatalogItemContract(t *testing.T) {
 	named := func(contract any, item int) string {
 		return fmt.Sprintf(`, "contract_id": %q, "contract_item_no": %d`, contract, item)
 	}
-	c := e.catalogItem(t, e.Supplier, "PAPER", "Paper", "4.50", named(id(active), 1))
+	c := e.catalogItem(t, e.Supplier, "PAPER", "Paper", "5.00", named(id(active), 1))
 	if c["contract_id"] != id(active) || c["contract_number"] != active["document_number"] || c["contract_item_no"] != float64(1) {
 		t.Errorf("the contract item: got %v %v item %v, want %v %v item 1", c["contract_id"], c["contract_number"], c["contract_item_no"],
 			id(active), active["document_number"])
 	}
-	if got := fmt.Sprint(c["unit_price"]); got != "map[amount:4.50 currency:EUR]" {
-		t.Errorf("the catalog item's own price: got %s, want 4.50 EUR", got)
+	if got := fmt.Sprint(c["unit_price"], c["price_unit"]); got != "map[amount:5.00 currency:EUR] 1" {
+		t.Errorf("the catalog item's price: got %s, want the contract item's 5.00 EUR per 1", got)
 	}
-	if ev := events(t, e, "catalog_item_changed"); len(ev) != 1 || ev[0]["contract_id"] != id(active) || ev[0]["contract_item_no"] != float64(1) {
+	// The contract item's price per its price unit, 30.00 per 2 BOX.
+	toner, _ := e.Must(201, "POST", "/v1/catalog-items",
+		strings.Replace(e.catalogBody(e.Supplier, "TONER", "Toner", "30.00", `, "price_unit": 2`+named(id(active), 2)), `"EA"`, `"BOX"`, 1), "")
+	if got := fmt.Sprint(toner["unit_price"], toner["price_unit"]); got != "map[amount:30.00 currency:EUR] 2" {
+		t.Errorf("the catalog item's price per two: got %s, want the contract item's 30.00 EUR per 2", got)
+	}
+	if ev := events(t, e, "catalog_item_changed"); len(ev) != 2 || ev[0]["contract_id"] != id(active) || ev[0]["contract_item_no"] != float64(1) {
 		t.Errorf("the event's contract item: got %v, want contract %s item 1", ev, id(active))
 	}
-	usd := strings.Replace(e.catalogBody(e.Supplier, "PAPER-USD", "Paper", "4.50", named(id(active), 1)), `"EUR"`, `"USD"`, 1)
+	usd := strings.Replace(e.catalogBody(e.Supplier, "PAPER-USD", "Paper", "5.00", named(id(active), 1)), `"EUR"`, `"USD"`, 1)
 	for _, r := range []struct{ name, body, code, field string }{
 		{"a contract without its item", e.catalogBody(e.Supplier, "K", "D", "1.00", fmt.Sprintf(`, "contract_id": %q`, id(active))), "procurement.invalid_contract_item", "contract_item_no"},
 		{"an item without its contract", e.catalogBody(e.Supplier, "K", "D", "1.00", `, "contract_item_no": 1`), "procurement.invalid_contract_item", "contract_item_no"},
@@ -214,6 +222,9 @@ func TestCatalogItemContract(t *testing.T) {
 		{"a contract in another currency", usd, "procurement.invalid_contract", "contract_id"},
 		{"a contract item in another unit", e.catalogBody(e.Supplier, "K", "D", "1.00", named(id(active), 2)), "procurement.invalid_contract_item", "contract_item_no"},
 		{"an item the contract does not have", e.catalogBody(e.Supplier, "K", "D", "1.00", named(id(active), 9)), "procurement.invalid_contract_item", "contract_item_no"},
+		{"another amount than the contract item's", e.catalogBody(e.Supplier, "K", "D", "4.50", named(id(active), 1)), "procurement.catalog_item_price", "unit_price.amount"},
+		{"another price unit than the contract item's", e.catalogBody(e.Supplier, "K", "D", "5.00", `, "price_unit": 2`+named(id(active), 1)), "procurement.catalog_item_price", "price_unit"},
+		{"the same ratio at another price unit", e.catalogBody(e.Supplier, "K", "D", "10.00", `, "price_unit": 2`+named(id(active), 1)), "procurement.catalog_item_price", "unit_price.amount"},
 	} {
 		t.Run(r.name, func(t *testing.T) {
 			refusal := e.in(t).Problem(422, r.code, "POST", "/v1/catalog-items", r.body, "")
@@ -221,6 +232,17 @@ func TestCatalogItemContract(t *testing.T) {
 				t.Errorf("refused field: got %s, want %s", got, r.field)
 			}
 		})
+	}
+	// The refusal of a price names the catalog item, the contract item and both prices.
+	refusal := e.Problem(422, "procurement.catalog_item_price", "POST", "/v1/catalog-items", e.catalogBody(e.Supplier, "PAPER-2", "Paper", "4.50", named(id(active), 1)), "")
+	want := fmt.Sprintf("catalog item PAPER-2 is priced at 4.50 EUR per 1, but item 1 of contract %v prices it at 5.00 EUR per 1", active["document_number"])
+	if detail := apitest.String(t, refusal, "detail"); detail != want {
+		t.Errorf("the refusal of a price: got %q, want %q", detail, want)
+	}
+	var n int
+	pgtest.Scan(t, `SELECT count(*) FROM procurement.catalog_item WHERE tenant_id = $1`, []any{e.Tenant.ID}, &n)
+	if n != 2 {
+		t.Errorf("catalog items after the refusals: got %d, want 2 (the two at their contract items' prices)", n)
 	}
 	// A contract of another company is not one of this company's.
 	other := strings.Replace(e.catalogBody(e.Supplier, "K", "D", "1.00", named(id(active), 1)), e.DE.String(), e.US.String(), 1)

@@ -144,7 +144,7 @@ func (e *Endpoints) createCatalogItem(ctx context.Context, in NewCatalogItem) (C
 	if err := e.supplier(ctx, in.SupplierID, le.ID); err != nil {
 		return CatalogItem{}, err
 	}
-	if err := catalogContractItem(ctx, tx, in, le.ID); err != nil {
+	if err := catalogContractItem(ctx, tx, in, le.ID, price, exp); err != nil {
 		return CatalogItem{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
@@ -173,8 +173,11 @@ func catalogTexts(in NewCatalogItem) error {
 
 // catalogContractItem checks the contract item a catalog item names, if
 // any: an item of an active contract of the company and the supplier, in
-// the catalog item's unit and currency.
-func catalogContractItem(ctx context.Context, tx pgx.Tx, in NewCatalogItem, le uuid.UUID) error {
+// the catalog item's unit and currency and at its price (product owner,
+// 2026-11-12: a catalog price that differs from its contract item's is
+// refused, since the requisition would be estimated at one price and
+// ordered at the other).
+func catalogContractItem(ctx context.Context, tx pgx.Tx, in NewCatalogItem, le uuid.UUID, price money.Minor, exp int) error {
 	if in.ContractID == nil && in.ContractItemNo == nil {
 		return nil
 	}
@@ -198,10 +201,29 @@ func catalogContractItem(ctx context.Context, tx pgx.Tx, in NewCatalogItem, le u
 	}
 	for _, it := range c.Items {
 		if it.No == *in.ContractItemNo && it.Unit == in.Unit {
-			return nil
+			return catalogContractPrice(in, c, it, price, exp)
 		}
 	}
 	return invalid("procurement.invalid_contract_item", "contract_item_no", "an item of the contract in the same unit")
+}
+
+// catalogContractPrice refuses a catalog item whose price is not its
+// contract item's: the same amount per the same price unit, compared as
+// they are written and not as a ratio (9.00 per 2 is not 4.50 per 1), so
+// that the catalog shows the price the order will take. The currency is
+// the contract's already. The refusal names the item, the contract item
+// and both prices, on the field that differs.
+func catalogContractPrice(in NewCatalogItem, c Contract, it Item, price money.Minor, exp int) error {
+	unit := max(in.PriceUnit, 1)
+	if it.UnitPrice == price && it.PriceUnit == unit {
+		return nil
+	}
+	field := "unit_price.amount"
+	if it.UnitPrice == price {
+		field = "price_unit"
+	}
+	return invalid("procurement.catalog_item_price", field, fmt.Sprintf("catalog item %s is priced at %s %s per %d, but item %d of contract %s prices it at %s %s per %d",
+		in.ItemKey, price.Plain(exp), in.Currency, unit, it.No, c.DocumentNumber, it.UnitPrice.Plain(exp), c.Currency, it.PriceUnit))
 }
 
 // retireCatalogItem takes an active item out of the catalog, once: it is

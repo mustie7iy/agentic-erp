@@ -10911,8 +10911,11 @@ func (s *Server) handleCreateCashExportRequest(args [1]string, argsEscaped bool,
 // items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
 // `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
 // contract of the company and the supplier in the item's currency (422
-// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
-// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`) and at
+// the item's price: the same amount per the same `price_unit`, compared as written (422
+// `procurement.catalog_item_price` on `unit_price.amount` or `price_unit`, naming the item, the
+// contract item and both prices; product owner, 2026-11-12), so the price a requisition takes from the
+// catalog is the one an order on the contract item takes. What an item offers is not changed
 // afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
 // published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
 //
