@@ -442,8 +442,9 @@ func TestDeliveryRules(t *testing.T) {
 
 // TestBillingRules (T79a, migration 000293; ADR-0067 §9): a billing
 // document is created for a confirmed order of its company, customer and
-// currency, numbered once per company, with a net value above zero, and
-// is not changed or deleted; an item is a quantity and an amount above
+// currency, numbered once per company, with a net value above zero; it
+// changes only by being posted (TestBillingPostingRules) and is never
+// deleted; an item is a quantity and an amount above
 // zero of an item of the document's own order, once per document; each
 // item adds its quantity to the order item's billed quantity, never above
 // what is delivered; the amounts billed of an order item never exceed its
@@ -571,8 +572,11 @@ func TestBillingRules(t *testing.T) {
 		{"an item of no document", func(tx pgx.Tx, s scene) error {
 			return all(tx, append(ordered(s), step(line, s.tenant, s.doc, 1, s.order, 1, "1", 333))...)
 		}, "billing_document_item_document_fkey"},
-		{"a document changed", func(tx pgx.Tx, s scene) error {
+		{"a document changed without being posted", func(tx pgx.Tx, s scene) error {
 			return all(tx, with(s, step(`UPDATE sales.billing_document SET version = version + 1`))...)
+		}, "only a created document changes, and only by being posted"},
+		{"what a document bills changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`UPDATE sales.billing_document SET net_amount = 1`))...)
 		}, "permission denied"},
 		{"a document deleted", func(tx pgx.Tx, s scene) error {
 			return all(tx, with(s, step(`DELETE FROM sales.billing_document`))...)
@@ -590,6 +594,97 @@ func TestBillingRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), actor: id(), company: id(), customer: id(), order: id(), other: id(), doc: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestBillingPostingRules (T79b, migration 000296; ADR-0067 §9): a
+// created billing document moves to posted once, naming its customer
+// invoice by id and number, its posting date and the invoice's journal
+// entry, all of them or none; a customer invoice is one document's; what
+// was billed stays as it was.
+func TestBillingPostingRules(t *testing.T) {
+	need(t)
+	const order = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date,
+		currency, payment_term_code, net_amount, status, created_by, updated_by)
+		VALUES ($1, $2, 'SO1', $3, $4, '2026-03-12', 'EUR', 'NT30', 2000, 'draft', $1, $1)`
+	const confirm = `UPDATE sales.sales_order SET status = 'confirmed', version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const document = `INSERT INTO sales.billing_document (tenant_id, id, document_number, legal_entity_id, customer_id, sales_order_id, billing_date,
+		currency, net_amount, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, '2026-03-15', 'EUR', 1000, 'created', $1, $1)`
+	const post = `UPDATE sales.billing_document SET status = 'posted', posting_date = $2, customer_invoice_id = $3, customer_invoice_number = $4,
+		journal_entry_year = $5, journal_entry_id = $6, version = version + 1, updated_by = tenant_id WHERE id = $1`
+	type scene struct{ tenant, company, customer, order, doc, invoice, entry uuid.UUID }
+	var none *string
+	var noYear *int16
+	var noID *uuid.UUID
+	year, number, day := int16(2026), "CI100001", "2026-03-16"
+	created := func(s scene, more ...stmt) []stmt {
+		return append([]stmt{step(order, s.tenant, s.order, s.company, s.customer), step(confirm, s.order),
+			step(document, s.tenant, s.doc, "BD1", s.company, s.customer, s.order)}, more...)
+	}
+	posted := func(s scene) stmt { return step(post, s.doc, &day, &s.invoice, &number, &year, &s.entry) }
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a created document, posted", func(tx pgx.Tx, s scene) error { return all(tx, created(s, posted(s))...) }, ""},
+		{"posted without its customer invoice", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(post, s.doc, &day, noID, &number, &year, &s.entry))...)
+		}, "billing_document_posted"},
+		{"posted without the invoice's number", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(post, s.doc, &day, &s.invoice, none, &year, &s.entry))...)
+		}, "billing_document_posted"},
+		{"posted without a posting date", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(post, s.doc, none, &s.invoice, &number, &year, &s.entry))...)
+		}, "billing_document_posted"},
+		{"posted without the invoice's entry", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(post, s.doc, &day, &s.invoice, &number, &year, noID))...)
+		}, "billing_document_posted"},
+		{"posted without the entry's year", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(post, s.doc, &day, &s.invoice, &number, noYear, &s.entry))...)
+		}, "billing_document_posted"},
+		{"an invoice number of 41 characters", func(tx pgx.Tx, s scene) error {
+			long := strings.Repeat("1", 41)
+			return all(tx, created(s, step(post, s.doc, &day, &s.invoice, &long, &year, &s.entry))...)
+		}, "billing_document_customer_invoice_number_check"},
+		{"a created document given an invoice", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(`UPDATE sales.billing_document SET customer_invoice_id = $1, customer_invoice_number = 'CI1', posting_date = '2026-03-16',
+				journal_entry_year = 2026, journal_entry_id = $2, version = version + 1`, s.invoice, s.entry))...)
+		}, "only a created document changes, and only by being posted"},
+		{"posted twice", func(tx pgx.Tx, s scene) error { return all(tx, created(s, posted(s), posted(s))...) },
+			"only a created document changes, and only by being posted"},
+		{"a posted document moved back to created", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, posted(s), step(`UPDATE sales.billing_document SET status = 'created', customer_invoice_id = NULL,
+				customer_invoice_number = NULL, posting_date = NULL, journal_entry_year = NULL, journal_entry_id = NULL, version = version + 1`))...)
+		}, "only a created document changes, and only by being posted"},
+		{"posted without moving its version", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(strings.Replace(post, "version = version + 1, ", "", 1), s.doc, &day, &s.invoice, &number, &year, &s.entry))...)
+		}, "optimistic lock"},
+		{"two documents posted as one customer invoice", func(tx pgx.Tx, s scene) error {
+			other := id()
+			return all(tx, created(s, step(document, s.tenant, other, "BD2", s.company, s.customer, s.order), posted(s),
+				step(post, other, &day, &s.invoice, &number, &year, id()))...)
+		}, "billing_document_invoice_once"},
+		{"what it bills changed with the posting", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, step(strings.Replace(post, "status = 'posted'", "status = 'posted', net_amount = 1", 1),
+				s.doc, &day, &s.invoice, &number, &year, &s.entry))...)
+		}, "permission denied"},
+		{"a posted document deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, created(s, posted(s), step(`DELETE FROM sales.billing_document`))...)
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), company: id(), customer: id(), order: id(), doc: id(), invoice: id(), entry: id()}
 			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
 			if c.want != "" {
 				failsWith(t, err, c.want)

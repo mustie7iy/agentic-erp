@@ -4649,14 +4649,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Revenue and receivable postings",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The billing clerk posts the billing document: a customer invoice is entered and posted in receivables in the same transaction and is the customer's open item, ready for dunning, the aging and an incoming payment (POST /v1/billing-documents/{id}:post)",
-        "r": "T79b · docs/design/plan-breadth-week2.md §T79b",
+        "r": "T79b · docs/design/plan-breadth-week2.md §T79b · db/migrations/000296 · POST /v1/billing-documents/{id}:post · BillingDocumentPosted · sales.billing.post · receivables.customer_invoice source_document_id, source_document_number · sales.Orders item billings · walkthrough step_billing · ADR-0067 §9 and As built · ADR-0063 As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

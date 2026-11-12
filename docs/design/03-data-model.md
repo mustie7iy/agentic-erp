@@ -4259,6 +4259,8 @@ erDiagram
     date net_due_date "when posted"
     smallint journal_entry_year "when posted"
     uuid journal_entry_id "ledger, when posted"
+    uuid source_document_id "optional: sales, the billing document"
+    text source_document_number "with source_document_id"
     int version }
   customer_invoice_item { int item_no PK
     text description
@@ -4301,7 +4303,12 @@ erDiagram
   invoice's (`customer_invoice_entry_once`). Posting is the only change:
   the application may update the columns posting sets, and the trigger
   `customer_invoice_posted_once` refuses a change of anything but a
-  draft being posted. Nothing deletes an invoice.
+  draft being posted. Nothing deletes an invoice. An invoice another
+  context entered names the document it came from by id and number, both
+  or neither (`customer_invoice_source`; T79b, migration 000296: a
+  billing document of sales), and a document is invoiced once
+  (`customer_invoice_source_once`); the source is written with the
+  invoice and not among the columns the application may update.
 - `receivables.customer_invoice_item`: a net amount above zero
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
@@ -4574,7 +4581,12 @@ erDiagram
     date billing_date
     char currency "the order's"
     bigint net_amount "sum of the items'"
-    text status "created"
+    text status "created, posted"
+    date posting_date "when posted"
+    uuid customer_invoice_id "receivables, when posted"
+    text customer_invoice_number "when posted"
+    smallint journal_entry_year "when posted"
+    uuid journal_entry_id "ledger, when posted"
     int version
   }
   billing_document_item { uuid billing_document_id PK
@@ -4665,12 +4677,18 @@ erDiagram
   one order, numbered once per company
   (`billing_document_number_once`), with its billing date and a net
   value above zero (`billing_document_net_positive`); the status is
-  `created` (`billing_document_status_check`; T79b adds `posted`). It is
+  `created` or `posted` (`billing_document_status_check`). It is
   of a confirmed order of its company, customer and currency
   (`billing_document_order_confirmed`, a trigger running as the table's
   owner that also moves the order's `version` once per document and sets
-  its `updated_by`). The application may neither change nor delete one
-  until T79b is granted what posting sets. The list reads a company's
+  its `updated_by`). A posted document (T79b, migration 000296) names
+  the customer invoice it posted as, by id and number, its posting date
+  and the invoice's journal entry with its year, and a created one none
+  of them (`billing_document_posted`); a customer invoice is one
+  document's (`billing_document_invoice_once`). Posting is the only
+  change: the application may update the columns posting sets, and the
+  trigger `billing_document_posted_once` refuses a change of anything
+  but a created document being posted. Nothing deletes one. The list reads a company's
   documents by date, a customer's and an order's
   (`billing_document_by_date`, `billing_document_by_customer`,
   `billing_document_by_order`).
@@ -4723,7 +4741,7 @@ erDiagram
   amounts add up to the item's `net_amount`.
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
-  `BillingDocumentChanged`, `SalesPriceChanged`).
+  `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
   `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
