@@ -1,6 +1,6 @@
 // Package partner is the business partner context (03-data-model §3.6):
 // suppliers and customers on the SAP business partner model, with company
-// data per legal entity, effective-dated addresses and bank accounts, and
+// data per role and legal entity, effective-dated addresses and bank accounts, and
 // encrypted tax identifiers. Master data changes are governed (SAP MDG):
 // creating a partner, changing its data or bank details and unblocking it
 // open a partner change that is applied only when its approval request is
@@ -86,6 +86,10 @@ type Accounts interface {
 	// subledger of the kind (supplier or customer) and can be posted in the
 	// legal entity.
 	IsReconciliationAccount(ctx context.Context, legalEntity, account uuid.UUID, kind string) (bool, error)
+	// AccountNumbers returns the accounts' numbers by id, leaving out an
+	// id of no account: a customer's company data is read with its
+	// reconciliation account's number (T74a).
+	AccountNumbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error)
 	// IsWithholdingTaxCode reports whether the code is an active
 	// withholding tax code of the legal entity (T46e).
 	IsWithholdingTaxCode(ctx context.Context, legalEntity uuid.UUID, code string) (bool, error)
@@ -209,6 +213,14 @@ type SupplierCompany struct {
 	PlanningGroup           *string   `json:"planning_group"`        // T53b
 }
 
+// CustomerCompany is a row of partner.customer_company (T74a).
+type CustomerCompany struct {
+	LegalEntityID           uuid.UUID `json:"legal_entity_id"`
+	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
+	PaymentTermCode         string    `json:"payment_term_code"`
+	IsPostingBlocked        bool      `json:"is_posting_blocked"`
+}
+
 // Address is a row of partner.address.
 type Address struct {
 	ID          uuid.UUID `json:"id"`
@@ -244,6 +256,7 @@ type Partner struct {
 	ExtensionsSchema  *int // the custom field schema version the extensions were written under (ADR-0046)
 	Roles             []string
 	SupplierCompanies []SupplierCompany
+	CustomerCompanies []CustomerCompany // ordered by legal entity id (T74a)
 	Addresses         []Address
 	TaxIdentifiers    []TaxIdentifier
 	// GroupCompanyID is the legal entity of the tenant the partner is, when
@@ -270,14 +283,17 @@ const partnerSelect = `SELECT p.id, p.number, p.kind, p.name, p.legal_name, p.co
 			ORDER BY a.purpose, a.valid_from) FROM partner.address a WHERE a.tenant_id = p.tenant_id AND a.partner_id = p.id), '[]'),
 		coalesce((SELECT json_agg(json_build_object('scheme', t.scheme, 'value_last4', t.value_last4) ORDER BY t.scheme)
 			FROM partner.tax_identifier t WHERE t.tenant_id = p.tenant_id AND t.partner_id = p.id), '[]'),
-		p.group_company_id
+		p.group_company_id,
+		coalesce((SELECT json_agg(json_build_object('legal_entity_id', c.legal_entity_id, 'reconciliation_account_id', c.reconciliation_account_id,
+			'payment_term_code', c.payment_term_code, 'is_posting_blocked', c.is_posting_blocked) ORDER BY c.legal_entity_id)
+			FROM partner.customer_company c WHERE c.tenant_id = p.tenant_id AND c.partner_id = p.id), '[]')
 	FROM partner.business_partner p`
 
 func scanPartner(row pgx.Row) (Partner, error) {
 	var p Partner
 	err := row.Scan(&p.ID, &p.Number, &p.Kind, &p.Name, &p.LegalName, &p.CountryCode, &p.Language, &p.Status, &p.Extensions, &p.ExtensionsSchema,
 		&p.Version, &p.CreatedAt, &p.CreatedBy, &p.UpdatedAt, &p.UpdatedBy, &p.Roles, &p.SupplierCompanies, &p.Addresses, &p.TaxIdentifiers,
-		&p.GroupCompanyID)
+		&p.GroupCompanyID, &p.CustomerCompanies)
 	return p, errs.Wrapf(err, "scan business partner")
 }
 
@@ -290,6 +306,13 @@ func visible(p Partner, access authz.Access) Partner {
 		}
 	}
 	p.SupplierCompanies = kept
+	customers := []CustomerCompany{}
+	for _, c := range p.CustomerCompanies {
+		if access.Allows(c.LegalEntityID) {
+			customers = append(customers, c)
+		}
+	}
+	p.CustomerCompanies = customers
 	return p
 }
 

@@ -3044,6 +3044,7 @@ paths:
         - partner.bank_account_overlap
         - partner.bank_country_mismatch
         - partner.change_pending
+        - partner.customer_role_required
         - partner.duplicate_bank_purpose
         - partner.duplicate_company
         - partner.duplicate_payment_method
@@ -3547,6 +3548,7 @@ paths:
         - partner.backdated_address
         - partner.bank_account_overlap
         - partner.change_pending
+        - partner.customer_role_required
         - partner.duplicate_company
         - partner.duplicate_payment_method
         - partner.duplicate_tax_scheme
@@ -22895,6 +22897,7 @@ paths:
         - partner.bank_account_overlap
         - partner.bank_country_mismatch
         - partner.change_pending
+        - partner.customer_role_required
         - partner.duplicate_bank_purpose
         - partner.duplicate_company
         - partner.duplicate_payment_method
@@ -27586,6 +27589,77 @@ components:
         - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dca"
           payment_term_code: NT30
+    CustomerCompany:
+      type: object
+      description: "A customer's data in one company (03 §3.6, T74a): the reconciliation account its receivables post to, its payment term and whether postings to it are blocked there."
+      required:
+        - legal_entity_id
+        - reconciliation_account_id
+        - reconciliation_account_number
+        - payment_term_code
+        - is_posting_blocked
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity the customer is set up in.
+          readOnly: true
+        reconciliation_account_id:
+          type: string
+          format: uuid
+          description: "Receivables reconciliation account (ledger context): a customer reconciliation account of the legal entity, read with `GET /v1/accounts/{id}`."
+          readOnly: true
+        reconciliation_account_number:
+          type: string
+          description: "The reconciliation account's number in the legal entity's chart of accounts, as it is now."
+          example: "1200"
+          readOnly: true
+        payment_term_code:
+          type: string
+          description: "Payment terms: a code of the configuration's `payment_terms`."
+          pattern: "^[A-Z0-9_/]{1,10}$"
+          example: NT30
+          readOnly: true
+        is_posting_blocked:
+          type: boolean
+          description: "Postings to this customer are blocked in this legal entity: a journal line naming the customer there is refused (422 `ledger.partner_not_postable`)."
+          readOnly: true
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dcb"
+          reconciliation_account_number: "1200"
+          payment_term_code: NT30
+          is_posting_blocked: false
+    CustomerCompanyInput:
+      type: object
+      description: "A customer's data in one company to set up or replace (T74a). The entry replaces the customer's data in the legal entity as a whole."
+      required:
+        - legal_entity_id
+        - reconciliation_account_id
+        - payment_term_code
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity, one the caller may act in.
+        reconciliation_account_id:
+          type: string
+          format: uuid
+          description: "Receivables reconciliation account: an active customer reconciliation account of the legal entity's chart (the configuration's `customer_reconciliation`), set up in the legal entity (422 `partner.invalid_reconciliation_account` otherwise)."
+        payment_term_code:
+          type: string
+          description: "Payment terms: a code of the configuration's `payment_terms` (422 `partner.unknown_payment_term` otherwise)."
+          pattern: "^[A-Z0-9_/]{1,10}$"
+          example: NT30
+        is_posting_blocked:
+          type: boolean
+          description: "Blocks postings to the customer in this legal entity once the change is approved. Like the other company data it is replaced: leaving it out, or false, lifts a block."
+          default: false
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          reconciliation_account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dcb"
+          payment_term_code: NT30
     Address:
       type: object
       description: An effective-dated address of a business partner.
@@ -27770,6 +27844,7 @@ components:
             - status
             - roles
             - supplier_companies
+            - customer_companies
             - addresses
             - tax_identifiers
             - extensions
@@ -27832,6 +27907,12 @@ components:
                 $ref: "#/components/schemas/SupplierCompany"
               description: Supplier data per legal entity.
               readOnly: true
+            customer_companies:
+              type: array
+              items:
+                $ref: "#/components/schemas/CustomerCompany"
+              description: "Customer data per legal entity (role `customer`), of the legal entities the caller may act in, ordered by legal entity id (T74a). Empty for a partner that is no customer, or is one without company data."
+              readOnly: true
             addresses:
               type: array
               items:
@@ -27876,6 +27957,7 @@ components:
               payment_term_code: NT30
               is_posting_blocked: false
               is_payment_blocked: false
+          customer_companies: []
           addresses:
             - purpose: legal
               line1: Hauptstrasse 1
@@ -27966,6 +28048,12 @@ components:
             $ref: "#/components/schemas/SupplierCompanyInput"
           description: "Supplier data per legal entity (role `supplier`)."
           maxItems: 500
+        customer_companies:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerCompanyInput"
+          description: "Customer data per legal entity (role `customer`; 422 `partner.customer_role_required` without it), one entry per legal entity (T74a)."
+          maxItems: 500
         addresses:
           type: array
           items:
@@ -28042,6 +28130,12 @@ components:
             $ref: "#/components/schemas/SupplierCompanyInput"
           description: Supplier data per legal entity to add or change.
           maxItems: 500
+        customer_companies:
+          type: array
+          items:
+            $ref: "#/components/schemas/CustomerCompanyInput"
+          description: "Customer data per legal entity to add or replace, one entry per legal entity; the partner must have the role `customer`, or the change must give it (422 `partner.customer_role_required`). Legal entities left out keep their data (T74a)."
+          maxItems: 500
         addresses:
           type: array
           items:
@@ -28106,6 +28200,7 @@ components:
                   payment_term_code: NT30
                   is_posting_blocked: false
                   is_payment_blocked: false
+              customer_companies: []
               addresses:
                 - purpose: legal
                   line1: Hauptstrasse 1

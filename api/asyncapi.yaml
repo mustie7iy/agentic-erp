@@ -201,6 +201,7 @@ channels:
     messages:
       BusinessPartnerCreated: {$ref: '#/components/messages/BusinessPartnerCreated'}
       SupplierApproved: {$ref: '#/components/messages/SupplierApproved'}
+      CustomerApproved: {$ref: '#/components/messages/CustomerApproved'}
       BankAccountChanged: {$ref: '#/components/messages/BankAccountChanged'}
       PartnerBlocked: {$ref: '#/components/messages/PartnerBlocked'}
       PartnerUnblocked: {$ref: '#/components/messages/PartnerUnblocked'}
@@ -486,6 +487,7 @@ operations:
     messages:
       - $ref: '#/channels/partner/messages/BusinessPartnerCreated'
       - $ref: '#/channels/partner/messages/SupplierApproved'
+      - $ref: '#/channels/partner/messages/CustomerApproved'
       - $ref: '#/channels/partner/messages/BankAccountChanged'
       - $ref: '#/channels/partner/messages/PartnerBlocked'
       - $ref: '#/channels/partner/messages/PartnerUnblocked'
@@ -858,6 +860,22 @@ components:
         - name: acme
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000008, source: /erp/eu-1/partner, type: com.example.erp.partner.supplier_approved.v1, subject: 0192a000-0000-7000-8000-000000000301, time: '2026-10-04T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {partner_id: 0192a000-0000-7000-8000-000000000301, number: BP-100231, partner_change_id: 0192a000-0000-7000-8000-000000000304, workflow_request_id: 0192a000-0000-7000-8000-000000000901, status: active, legal_entity_ids: [0192a000-0000-7000-8000-000000000201]}
+    CustomerApproved:
+      name: CustomerApproved
+      title: Customer approved
+      summary: A new customer's create change was approved and applied; the customer is active.
+      description: "Emitted when a `create` partner change for a partner with the customer role is applied after approval and the partner becomes `active` (T74a). `legal_entity_ids` are the legal entities it has customer company data in, read through `GET /v1/business-partners/{id}`. A partner with both roles gets this event and SupplierApproved. An active partner that becomes a customer later, by an `update` change giving it the role, publishes no CustomerApproved: BusinessPartnerUpdated then names `roles`, and `customer_company.<legal_entity_id>` for its data. Subject is the business partner id."
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.partner.customer_approved.v1}
+      payload: {$ref: '#/components/schemas/CustomerApprovedV1'}
+      examples:
+        - name: northwind
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e000000000c1, source: /erp/eu-1/partner, type: com.example.erp.partner.customer_approved.v1, subject: 0192a000-0000-7000-8000-000000000311, time: '2026-11-11T15:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {partner_id: 0192a000-0000-7000-8000-000000000311, number: BP00000042, partner_change_id: 0192a000-0000-7000-8000-000000000314, workflow_request_id: 0192a000-0000-7000-8000-000000000911, status: active, legal_entity_ids: [0192a000-0000-7000-8000-000000000201]}
     BankAccountChanged:
       name: BankAccountChanged
       title: Bank account changed
@@ -2685,7 +2703,7 @@ components:
       name: BusinessPartnerUpdated
       title: Business partner updated
       summary: "An approved `update` change was applied to a business partner."
-      description: "Emitted when an `update` partner change is applied. `changed_fields` names every changed attribute (business partner columns, `roles`, `address.<purpose>`, `tax_identifier.<scheme>`, `supplier_company.<legal_entity_id>`); the new values of the business partner's own non-sensitive columns are included when they changed. Tax identifiers and addresses are read through the API. Subject is the business partner id."
+      description: "Emitted when an `update` partner change is applied. `changed_fields` names every changed attribute (business partner columns, `roles`, `address.<purpose>`, `tax_identifier.<scheme>`, `supplier_company.<legal_entity_id>`, `customer_company.<legal_entity_id>`); the new values of the business partner's own non-sensitive columns are included when they changed. Tax identifiers and addresses are read through the API. Subject is the business partner id."
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
         allOf:
@@ -3829,6 +3847,19 @@ components:
           type: array
           items: {$ref: '#/components/schemas/Uuid'}
           description: Legal entities with supplier company data.
+    CustomerApprovedV1:
+      type: object
+      required: [partner_id, number, partner_change_id, status, legal_entity_ids]
+      properties:
+        partner_id: {$ref: '#/components/schemas/Uuid'}
+        number: {type: string, description: The business partner's number.}
+        partner_change_id: {$ref: '#/components/schemas/Uuid'}
+        workflow_request_id: {$ref: '#/components/schemas/NullableUuid'}
+        status: {type: string, description: 'Partner status after approval (active).'}
+        legal_entity_ids:
+          type: array
+          items: {$ref: '#/components/schemas/Uuid'}
+          description: Legal entities with customer company data, ordered by id; empty for a customer without any.
     BankAccountChangedV1:
       type: object
       required: [partner_id, bank_account_id, purpose, account_scheme, account_last4, bank_country_code, valid_from, valid_to, ended_bank_account_id, partner_change_id]

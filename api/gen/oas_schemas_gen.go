@@ -13471,6 +13471,10 @@ type BusinessPartner struct {
 	Roles []string `json:"roles"`
 	// Supplier data per legal entity.
 	SupplierCompanies []SupplierCompany `json:"supplier_companies"`
+	// Customer data per legal entity (role `customer`), of the legal entities the caller may act in,
+	// ordered by legal entity id (T74a). Empty for a partner that is no customer, or is one without
+	// company data.
+	CustomerCompanies []CustomerCompany `json:"customer_companies"`
 	// Addresses.
 	Addresses []Address `json:"addresses"`
 	// Tax identifiers, masked.
@@ -13559,6 +13563,11 @@ func (s *BusinessPartner) GetRoles() []string {
 // GetSupplierCompanies returns the value of SupplierCompanies.
 func (s *BusinessPartner) GetSupplierCompanies() []SupplierCompany {
 	return s.SupplierCompanies
+}
+
+// GetCustomerCompanies returns the value of CustomerCompanies.
+func (s *BusinessPartner) GetCustomerCompanies() []CustomerCompany {
+	return s.CustomerCompanies
 }
 
 // GetAddresses returns the value of Addresses.
@@ -13661,6 +13670,11 @@ func (s *BusinessPartner) SetSupplierCompanies(val []SupplierCompany) {
 	s.SupplierCompanies = val
 }
 
+// SetCustomerCompanies sets the value of CustomerCompanies.
+func (s *BusinessPartner) SetCustomerCompanies(val []CustomerCompany) {
+	s.CustomerCompanies = val
+}
+
 // SetAddresses sets the value of Addresses.
 func (s *BusinessPartner) SetAddresses(val []Address) {
 	s.Addresses = val
@@ -13700,6 +13714,10 @@ type BusinessPartnerChanges struct {
 	Roles []string `json:"roles"`
 	// Supplier data per legal entity to add or change.
 	SupplierCompanies []SupplierCompanyInput `json:"supplier_companies"`
+	// Customer data per legal entity to add or replace, one entry per legal entity; the partner must have
+	// the role `customer`, or the change must give it (422 `partner.customer_role_required`). Legal
+	// entities left out keep their data (T74a).
+	CustomerCompanies []CustomerCompanyInput `json:"customer_companies"`
 	// Addresses to add.
 	Addresses []Address `json:"addresses"`
 	// Tax identifiers to add or replace.
@@ -13735,6 +13753,11 @@ func (s *BusinessPartnerChanges) GetRoles() []string {
 // GetSupplierCompanies returns the value of SupplierCompanies.
 func (s *BusinessPartnerChanges) GetSupplierCompanies() []SupplierCompanyInput {
 	return s.SupplierCompanies
+}
+
+// GetCustomerCompanies returns the value of CustomerCompanies.
+func (s *BusinessPartnerChanges) GetCustomerCompanies() []CustomerCompanyInput {
+	return s.CustomerCompanies
 }
 
 // GetAddresses returns the value of Addresses.
@@ -13782,6 +13805,11 @@ func (s *BusinessPartnerChanges) SetSupplierCompanies(val []SupplierCompanyInput
 	s.SupplierCompanies = val
 }
 
+// SetCustomerCompanies sets the value of CustomerCompanies.
+func (s *BusinessPartnerChanges) SetCustomerCompanies(val []CustomerCompanyInput) {
+	s.CustomerCompanies = val
+}
+
 // SetAddresses sets the value of Addresses.
 func (s *BusinessPartnerChanges) SetAddresses(val []Address) {
 	s.Addresses = val
@@ -13821,6 +13849,9 @@ type BusinessPartnerCreate struct {
 	Roles []string `json:"roles"`
 	// Supplier data per legal entity (role `supplier`).
 	SupplierCompanies []SupplierCompanyInput `json:"supplier_companies"`
+	// Customer data per legal entity (role `customer`; 422 `partner.customer_role_required` without it),
+	// one entry per legal entity (T74a).
+	CustomerCompanies []CustomerCompanyInput `json:"customer_companies"`
 	// Addresses.
 	Addresses []Address `json:"addresses"`
 	// Tax identifiers.
@@ -13871,6 +13902,11 @@ func (s *BusinessPartnerCreate) GetRoles() []string {
 // GetSupplierCompanies returns the value of SupplierCompanies.
 func (s *BusinessPartnerCreate) GetSupplierCompanies() []SupplierCompanyInput {
 	return s.SupplierCompanies
+}
+
+// GetCustomerCompanies returns the value of CustomerCompanies.
+func (s *BusinessPartnerCreate) GetCustomerCompanies() []CustomerCompanyInput {
+	return s.CustomerCompanies
 }
 
 // GetAddresses returns the value of Addresses.
@@ -13936,6 +13972,11 @@ func (s *BusinessPartnerCreate) SetRoles(val []string) {
 // SetSupplierCompanies sets the value of SupplierCompanies.
 func (s *BusinessPartnerCreate) SetSupplierCompanies(val []SupplierCompanyInput) {
 	s.SupplierCompanies = val
+}
+
+// SetCustomerCompanies sets the value of CustomerCompanies.
+func (s *BusinessPartnerCreate) SetCustomerCompanies(val []CustomerCompanyInput) {
+	s.CustomerCompanies = val
 }
 
 // SetAddresses sets the value of Addresses.
@@ -28063,6 +28104,132 @@ func (s *CustomFieldSchemaSchema) init() CustomFieldSchemaSchema {
 		*s = m
 	}
 	return m
+}
+
+// A customer's data in one company (03 §3.6, T74a): the reconciliation account its receivables post
+// to, its payment term and whether postings to it are blocked there.
+// Ref: #/components/schemas/CustomerCompany
+type CustomerCompany struct {
+	// Legal entity the customer is set up in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Receivables reconciliation account (ledger context): a customer reconciliation account of the legal
+	// entity, read with `GET /v1/accounts/{id}`.
+	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
+	// The reconciliation account's number in the legal entity's chart of accounts, as it is now.
+	ReconciliationAccountNumber string `json:"reconciliation_account_number"`
+	// Payment terms: a code of the configuration's `payment_terms`.
+	PaymentTermCode string `json:"payment_term_code"`
+	// Postings to this customer are blocked in this legal entity: a journal line naming the customer there
+	// is refused (422 `ledger.partner_not_postable`).
+	IsPostingBlocked bool `json:"is_posting_blocked"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerCompany) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetReconciliationAccountID returns the value of ReconciliationAccountID.
+func (s *CustomerCompany) GetReconciliationAccountID() uuid.UUID {
+	return s.ReconciliationAccountID
+}
+
+// GetReconciliationAccountNumber returns the value of ReconciliationAccountNumber.
+func (s *CustomerCompany) GetReconciliationAccountNumber() string {
+	return s.ReconciliationAccountNumber
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerCompany) GetPaymentTermCode() string {
+	return s.PaymentTermCode
+}
+
+// GetIsPostingBlocked returns the value of IsPostingBlocked.
+func (s *CustomerCompany) GetIsPostingBlocked() bool {
+	return s.IsPostingBlocked
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerCompany) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetReconciliationAccountID sets the value of ReconciliationAccountID.
+func (s *CustomerCompany) SetReconciliationAccountID(val uuid.UUID) {
+	s.ReconciliationAccountID = val
+}
+
+// SetReconciliationAccountNumber sets the value of ReconciliationAccountNumber.
+func (s *CustomerCompany) SetReconciliationAccountNumber(val string) {
+	s.ReconciliationAccountNumber = val
+}
+
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerCompany) SetPaymentTermCode(val string) {
+	s.PaymentTermCode = val
+}
+
+// SetIsPostingBlocked sets the value of IsPostingBlocked.
+func (s *CustomerCompany) SetIsPostingBlocked(val bool) {
+	s.IsPostingBlocked = val
+}
+
+// A customer's data in one company to set up or replace (T74a). The entry replaces the customer's data
+// in the legal entity as a whole.
+// Ref: #/components/schemas/CustomerCompanyInput
+type CustomerCompanyInput struct {
+	// Legal entity, one the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Receivables reconciliation account: an active customer reconciliation account of the legal entity's
+	// chart (the configuration's `customer_reconciliation`), set up in the legal entity (422
+	// `partner.invalid_reconciliation_account` otherwise).
+	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
+	// Payment terms: a code of the configuration's `payment_terms` (422 `partner.unknown_payment_term`
+	// otherwise).
+	PaymentTermCode string `json:"payment_term_code"`
+	// Blocks postings to the customer in this legal entity once the change is approved. Like the other
+	// company data it is replaced: leaving it out, or false, lifts a block.
+	IsPostingBlocked OptBool `json:"is_posting_blocked"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerCompanyInput) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetReconciliationAccountID returns the value of ReconciliationAccountID.
+func (s *CustomerCompanyInput) GetReconciliationAccountID() uuid.UUID {
+	return s.ReconciliationAccountID
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerCompanyInput) GetPaymentTermCode() string {
+	return s.PaymentTermCode
+}
+
+// GetIsPostingBlocked returns the value of IsPostingBlocked.
+func (s *CustomerCompanyInput) GetIsPostingBlocked() OptBool {
+	return s.IsPostingBlocked
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerCompanyInput) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetReconciliationAccountID sets the value of ReconciliationAccountID.
+func (s *CustomerCompanyInput) SetReconciliationAccountID(val uuid.UUID) {
+	s.ReconciliationAccountID = val
+}
+
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerCompanyInput) SetPaymentTermCode(val string) {
+	s.PaymentTermCode = val
+}
+
+// SetIsPostingBlocked sets the value of IsPostingBlocked.
+func (s *CustomerCompanyInput) SetIsPostingBlocked(val OptBool) {
+	s.IsPostingBlocked = val
 }
 
 // Merged schema.

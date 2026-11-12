@@ -177,7 +177,7 @@ func TestChangeFormPartners(t *testing.T) {
 		"GET /v1/legal-entities":          empty, "GET /v1/accounts": empty,
 		"GET /v1/business-partners": answer(200, `{"items":[{"id":"`+partner.String()+`","version":1,"created_at":"2026-10-22T10:00:00Z",
 			"created_by":"`+uuid.NewString()+`","updated_at":"2026-10-22T10:00:00Z","number":"BP42","kind":"organization","name":"Tyrell",
-			"country_code":"CA","status":"active","roles":["supplier"],"supplier_companies":[],"addresses":[],"tax_identifiers":[],"extensions":{}}]}`),
+			"country_code":"CA","status":"active","roles":["supplier"],"supplier_companies":[],"customer_companies":[],"addresses":[],"tax_identifiers":[],"extensions":{}}]}`),
 	}}
 	s, b, _ := stubStack(t, st)
 	edit := func() string {

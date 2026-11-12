@@ -49,7 +49,7 @@ func accountEntryJSON(company, account uuid.UUID, extra string) string {
 // partnerJSON is a supplier with its number and name.
 func partnerJSON(id uuid.UUID, number, name string) string {
 	return fmt.Sprintf(`{"id":%q,"version":1,"created_at":"2026-10-22T10:00:00Z","created_by":%q,"updated_at":"2026-10-22T10:00:00Z","number":%q,
-		"kind":"organization","name":%q,"country_code":"CA","status":"active","roles":["supplier"],"supplier_companies":[],"addresses":[],
+		"kind":"organization","name":%q,"country_code":"CA","status":"active","roles":["supplier"],"supplier_companies":[],"customer_companies":[],"addresses":[],
 		"tax_identifiers":[],"extensions":{}}`, id, uuid.New(), number, name)
 }
 

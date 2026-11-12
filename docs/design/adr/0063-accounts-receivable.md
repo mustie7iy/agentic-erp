@@ -268,9 +268,9 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `CenterNames`), once per page.
 - `CustomerInvoiceChanged` (`x-webhook`) and the audit record
   `receivables.customer_invoice.create`, in the entry's transaction.
-- Walkthrough `step_customer_invoice` (step 47): Alex sets up a customer
-  by the partner API, enters an invoice of three items with GO5 and reads
-  it back; an input tax code (GA, an adjustment) is refused naming its
+- Walkthrough `step_customer_invoice` (step 48): Alex enters an invoice
+  to the customer of `step_customer` (step 47, T74a; batch 66 joined the
+  two), three items with GO5, and reads it back; an input tax code (GA, an adjustment) is refused naming its
   field; the customer has
   no open item. The pilot's settings (step 2) add the `customer_invoice`
   number range.

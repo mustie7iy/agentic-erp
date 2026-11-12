@@ -1481,7 +1481,7 @@ migrated_down_payment() {
 # the walkthrough's sales entry: GST at 5% (Excise Tax Act, Part IX, s. 165(1);
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
-# a number range for the customer invoices of step 47 (T75a; the packs
+# a number range for the customer invoices of step 48 (T75a; the packs
 # number none yet),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
@@ -5675,22 +5675,71 @@ step_asset_order_expenses() {
   passed
 }
 
+# step_customer is the customer with its data in a company (T74a, 03
+# §3.6): Ada adds Maple's trade receivables account, a customer
+# reconciliation account, through a governed change of the chart; Ruth, the
+# AR accountant, creates Northwind Traders as a customer of Maple with its
+# receivables account and payment term, a payables account refused there;
+# Carla approves it as she does suppliers, and Ruth reads the customer back,
+# active, with its company data. CUSTOMER is the customer for later steps.
+step_customer() {
+  heading "Step 47 — A customer with its data in a company: the receivables account through a governed change; the customer created, approved and read back"
+  as ada
+  say "A customer's receivables post to a customer reconciliation account, whose every line names its customer."
+  say "Maple's chart has none yet, so Ada proposes account 1200, a change of the chart, tier 4, with its evidence"
+  say "and two approvers:"
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  local base ar ap body
+  base=$(field '.items[0].number')
+  jq "{title: \"Trade receivables account\", rationale: \"Customers of the pilot company (T74a)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"1200\", \"name\": \"Trade receivables\", \"type\": \"asset\", \"customer_reconciliation\": true}
+      + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G1000\"} else {} end]))}" "$WORK/last.json" >"$WORK/receivables.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @receivables.json
+  governed "$(field .id)" "the receivables account"
+  accounts
+  ar=$(account 1200)
+  api 200 '"account \(.number) \(.name): reconciliation kind \(.reconciliation_kind)"' getAccount -p "id=$ar"
+  expect "the receivables account's reconciliation kind" "$(field .reconciliation_kind)" customer
+  say "Ada adds Ruth, the AR accountant, to the team:"
+  person ruth "Ruth Receivables" finance_staff
+  as ruth
+  QUIET=1 api 200 '' getBusinessPartner -p "id=$SUPPLIER"
+  ap=$(field ".supplier_companies[] | select(.legal_entity_id == \"$LE\") | .reconciliation_account_id")
+  say "Ruth creates Northwind Traders as a customer of Maple: its receivables account and its payment term, net 30"
+  say "days. Naming Maple's payables account instead is refused, the field named:"
+  body="{\"kind\": \"organization\", \"name\": \"Northwind Traders\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"@ACCOUNT@\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys machined parts from Maple\"}"
+  refused 422 partner.invalid_reconciliation_account createBusinessPartner -body "${body//@ACCOUNT@/$ap}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "customer_companies[0].reconciliation_account_id"
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_number), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
+    createBusinessPartner -body "${body//@ACCOUNT@/$ar}"
+  CUSTOMER=$(field .id)
+  expect "the new customer's status" "$(field .status)" pending
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$CUSTOMER" -p kind=create
+  say "Its create change waits for the approver of partner master data, Carla, as a supplier's does:"
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its purchase order"
+  as ruth
+  api 200 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))", (.customer_companies[] | "  in company '"$CC"': account \(.reconciliation_account_number), terms \(.payment_term_code), posting blocked \(.is_posting_blocked)")' \
+    getBusinessPartner -p "id=$CUSTOMER"
+  expect "the customer's status" "$(field .status)" active
+  expect "the customer's company data" \
+    "$(field '[.customer_companies[] | "\(.legal_entity_id) \(.reconciliation_account_id) \(.reconciliation_account_number) \(.payment_term_code) \(.is_posting_blocked)"] | join(", ")')" \
+    "$LE $ar 1200 NT30 false"
+  expect "no supplier data on a customer" "$(field '.supplier_companies | length')" 0
+  api 200 '.items[] | "customer \(.number) \(.name), \(.country_code), \(.status)"' listBusinessPartners -p role=customer -p name_prefix=Northwind
+  expect "the customers named Northwind" "$(field '[.items[].id] | join(" ")')" "$CUSTOMER"
+  passed
+}
+
 # step_customer_invoice is T75a (ADR-0063 §2-§4): a customer invoice
 # entered without a sales order and read back; nothing is posted. The
-# customer is created here, by role, as the ledger knows customers today.
+# customer is step_customer's, CUSTOMER.
 step_customer_invoice() {
-  heading "Step 47 — Customer invoices: an invoice to a customer entered without a sales order, its GST calculated per item at the invoice date, read back; nothing posted"
-  local customer sales invoice number item1 item2 item3
+  heading "Step 48 — Customer invoices: an invoice to a customer entered without a sales order, its GST calculated per item at the invoice date, read back; nothing posted"
+  local customer=$CUSTOMER sales invoice number item1 item2 item3
   as alex
   say "Maple invoices Northwind Traders for October's consulting. The ERP issues no legal tax invoice and sends no"
   say "e-invoice (ADR-0049 §7): the customer invoice entered here is the accounting record of the invoice Maple"
-  say "issued (ADR-0063 §2). Alex sets the customer up, a business partner with the customer role; Carla approves it."
-  api 201 '"business partner \(.number) \(.name): \(.status), roles \(.roles | join(", "))"' createBusinessPartner \
-    -body '{"kind": "organization", "name": "Northwind Traders", "country_code": "CA", "roles": ["customer"], "reason": "A customer of the consulting practice"}'
-  customer=$(field .id)
-  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$customer"
-  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed with sales"
-  as alex
+  say "issued (ADR-0063 §2). The customer is the one Ruth created in step 47."
   sales=$(account 4000)
   say "Alex enters the invoice: two items on 4000 Sales with GO5, the GST output code of step 2 (5%), and a"
   say "recharge without tax. The tax date is the invoice date (ADR-0049 §4). 5% of 1,000.10 + 499.95 is 75.0025:"
@@ -7748,7 +7797,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer_invoice step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_close'
 
 main() {
   stop_unseen

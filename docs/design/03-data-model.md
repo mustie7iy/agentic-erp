@@ -576,11 +576,13 @@ is not led by `tenant_id`, as it has none.
 erDiagram
   business_partner ||--o{ partner_role : plays
   business_partner ||--o{ supplier_company : "supplier in"
+  business_partner ||--o{ customer_company : "customer in"
   business_partner ||--o{ address : has
   business_partner ||--o{ bank_account : has
   business_partner ||--o{ tax_identifier : has
   business_partner ||--o{ partner_change : "changed by"
   payment_term ||--o{ supplier_company : used_by
+  payment_term ||--o{ customer_company : used_by
   business_partner { uuid id PK
     text number
     text kind "organization | person"
@@ -599,6 +601,11 @@ erDiagram
     bool is_payment_blocked
     text_array payment_methods "allowed methods; T45b"
     text planning_group "cash.planning_groups; T53b" }
+  customer_company { uuid partner_id PK
+    uuid legal_entity_id PK
+    uuid reconciliation_account_id "ledger"
+    text payment_term_code
+    bool is_posting_blocked "T74a" }
   bank_account { uuid id PK
     uuid partner_id
     bytea account_cipher
@@ -637,7 +644,8 @@ when it is set on creation or an update change is requested (422
 `partner.group_company_unknown`).
 
 One business partner can be both supplier and customer (SAP business partner
-model). Company-specific supplier data lives in `supplier_company`. Bank
+model). Company-specific supplier data lives in `supplier_company`, and a
+customer's in `customer_company` (below). Bank
 accounts are effective-dated; a change creates a new row with `valid_from`,
 which drives the payment hold after bank changes. "Today" for a bank
 account is UTC's day, one rule for the whole partner, which serves
@@ -686,6 +694,79 @@ partner asks about through its own port (`partner.PlanningGroups`, wired by
 the composition root, §3.18). A configuration taking away a group a
 supplier has, or a pending change gives, is refused
 (`partner.PlanningGroupCodes`, under the planning group lock).
+
+**Customers' company data (T74a, migration 000266; as built).** A customer
+is a business partner with the role `customer`; its data in a company is a
+row of `partner.customer_company` per legal entity, as a supplier's is of
+`supplier_company`, so a partner that is both has a row of each, each on
+its own reconciliation account. The row holds the reconciliation account
+its receivables post to, its payment term and whether postings to it are
+blocked there. The database requires the
+customer role (a foreign key to `partner_role` through `role_customer`,
+as `role_supplier` does for suppliers) and a payment term of the tenant;
+the legal entity and the account are other contexts' and are checked by
+partner when the data is requested: a legal entity the caller may act in,
+an active customer reconciliation account set up in it
+(`Accounts.IsReconciliationAccount` with kind `customer`, 422
+`partner.invalid_reconciliation_account`) and a configured payment term
+(422 `partner.unknown_payment_term`), each refusal naming the request's
+own field (`customer_companies[n]…`, under `payload.` in a change).
+Payment terms have no status: a configured term is never removed
+(`partner.PaymentTerms`), so every configured term is usable.
+
+The data is given as `customer_companies[]` on `createBusinessPartner` and
+in an `update` partner change (`createPartnerChange`), and applies as
+supplier data does: written with the pending partner on creation, by the
+approved change on an update. An entry replaces the customer's data in its
+legal entity as a whole, the posting block included (`is_posting_blocked`,
+false when left out), so a block is set and lifted by an approved change;
+legal entities the change does not name keep their data, and none is
+deleted. The partner's representation returns `customer_companies` of the
+legal entities the caller may act in, ordered by legal entity id, each
+with its reconciliation account's number beside the id (read from the
+ledger through `Accounts.AccountNumbers`, once per page). Approval
+of a customer's creation publishes `CustomerApproved` (the partner, its
+number and the legal entities it has customer data in), beside
+`SupplierApproved` for a partner that is both; an applied update names
+`customer_company.<legal_entity_id>` among BusinessPartnerUpdated's
+`changed_fields`. Both are audited as every partner change is.
+
+Other contexts read a customer through `partner.Customers.Customer`
+(partner, legal entity): its number, name, status, whether it plays the
+role, and its company data when it is set up there; `Customer.Usable` says
+why a receivables document cannot name it (not active, no customer, not
+set up in the company, blocked for posting). The ledger asks
+`partner.Postings.PostingBlock`, which refuses a line naming a customer
+blocked for posting in the line's company (422
+`ledger.partner_not_postable`). A customer without company data stays
+postable by manual journal entries, as before; receivables documents
+require the company data (plan-breadth-week1, default 2).
+
+A customer reconciliation account is an account of the configuration's
+chart flagged `customer_reconciliation` (SAP SKB1-MITKZ D, as
+`internal/sap` reads the field), as
+`vendor_reconciliation` flags a supplier's: an asset that reconciles
+nothing else, which the ledger creates with `reconciliation_kind =
+'customer'`, open-item managed, each line naming its customer (§3.7). The
+flag is structural (tier 4) and, like the other kinds, cannot change once
+the account is activated; no other use of an account (account
+determination, tax, statement rules, asset accounts, FX adjustment,
+withholding, retained earnings, accruals) may name such an account, and it
+is not revalued as a balance. Decided by default (07 §7.7): nothing but the
+configuration creates accounts, and the ledger has known the kind since
+000005, so the flag details what T74a needs. A customer reconciliation
+account's open items in a foreign currency are revalued as a supplier's
+are: the account is named in `fx_valuation.accounts` with its adjustment
+account (ADR-0042), and a run refuses one that is not. The SAP
+configuration draft does not yet map MITKZ D, since customers are not
+taken over from SAP in the first version: until it does, a drafted chart's
+receivables accounts must be flagged by the reviewer before the first
+activation, because an activated account's kind cannot change.
+
+Not built in the first version (plan-breadth-week1, "Later"): sales-area
+data and partner functions, contact persons, customer payment methods and
+direct debit mandates, a planning group, custom fields on the company
+data, and taking customers over from SAP.
 
 ## 3.7 General ledger (`ledger`)
 

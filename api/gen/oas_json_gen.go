@@ -30413,6 +30413,14 @@ func (s *BusinessPartner) encodeFields(e *jx.Encoder) {
 		e.ArrEnd()
 	}
 	{
+		e.FieldStart("customer_companies")
+		e.ArrStart()
+		for _, elem := range s.CustomerCompanies {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
+	{
 		e.FieldStart("addresses")
 		e.ArrStart()
 		for _, elem := range s.Addresses {
@@ -30446,7 +30454,7 @@ func (s *BusinessPartner) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBusinessPartner = [20]string{
+var jsonFieldsNameOfBusinessPartner = [21]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -30462,11 +30470,12 @@ var jsonFieldsNameOfBusinessPartner = [20]string{
 	12: "status",
 	13: "roles",
 	14: "supplier_companies",
-	15: "addresses",
-	16: "tax_identifiers",
-	17: "extensions",
-	18: "group_company_id",
-	19: "group_company",
+	15: "customer_companies",
+	16: "addresses",
+	17: "tax_identifiers",
+	18: "extensions",
+	19: "group_company_id",
+	20: "group_company",
 }
 
 // Decode decodes BusinessPartner from json.
@@ -30666,8 +30675,26 @@ func (s *BusinessPartner) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"supplier_companies\"")
 			}
-		case "addresses":
+		case "customer_companies":
 			requiredBitSet[1] |= 1 << 7
+			if err := func() error {
+				s.CustomerCompanies = make([]CustomerCompany, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CustomerCompany
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.CustomerCompanies = append(s.CustomerCompanies, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_companies\"")
+			}
+		case "addresses":
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				s.Addresses = make([]Address, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -30685,7 +30712,7 @@ func (s *BusinessPartner) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"addresses\"")
 			}
 		case "tax_identifiers":
-			requiredBitSet[2] |= 1 << 0
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				s.TaxIdentifiers = make([]TaxIdentifier, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -30703,7 +30730,7 @@ func (s *BusinessPartner) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"tax_identifiers\"")
 			}
 		case "extensions":
-			requiredBitSet[2] |= 1 << 1
+			requiredBitSet[2] |= 1 << 2
 			if err := func() error {
 				if err := s.Extensions.Decode(d); err != nil {
 					return err
@@ -30744,7 +30771,7 @@ func (s *BusinessPartner) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b11110101,
-		0b00000011,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -30838,6 +30865,16 @@ func (s *BusinessPartnerChanges) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CustomerCompanies != nil {
+			e.FieldStart("customer_companies")
+			e.ArrStart()
+			for _, elem := range s.CustomerCompanies {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.Addresses != nil {
 			e.FieldStart("addresses")
 			e.ArrStart()
@@ -30871,16 +30908,17 @@ func (s *BusinessPartnerChanges) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBusinessPartnerChanges = [9]string{
+var jsonFieldsNameOfBusinessPartnerChanges = [10]string{
 	0: "name",
 	1: "legal_name",
 	2: "language",
 	3: "roles",
 	4: "supplier_companies",
-	5: "addresses",
-	6: "tax_identifiers",
-	7: "extensions",
-	8: "group_company_id",
+	5: "customer_companies",
+	6: "addresses",
+	7: "tax_identifiers",
+	8: "extensions",
+	9: "group_company_id",
 }
 
 // Decode decodes BusinessPartnerChanges from json.
@@ -30956,6 +30994,23 @@ func (s *BusinessPartnerChanges) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"supplier_companies\"")
+			}
+		case "customer_companies":
+			if err := func() error {
+				s.CustomerCompanies = make([]CustomerCompanyInput, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CustomerCompanyInput
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.CustomerCompanies = append(s.CustomerCompanies, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_companies\"")
 			}
 		case "addresses":
 			if err := func() error {
@@ -31087,6 +31142,16 @@ func (s *BusinessPartnerCreate) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.CustomerCompanies != nil {
+			e.FieldStart("customer_companies")
+			e.ArrStart()
+			for _, elem := range s.CustomerCompanies {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
+	{
 		if s.Addresses != nil {
 			e.FieldStart("addresses")
 			e.ArrStart()
@@ -31134,7 +31199,7 @@ func (s *BusinessPartnerCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfBusinessPartnerCreate = [13]string{
+var jsonFieldsNameOfBusinessPartnerCreate = [14]string{
 	0:  "kind",
 	1:  "name",
 	2:  "legal_name",
@@ -31142,12 +31207,13 @@ var jsonFieldsNameOfBusinessPartnerCreate = [13]string{
 	4:  "language",
 	5:  "roles",
 	6:  "supplier_companies",
-	7:  "addresses",
-	8:  "tax_identifiers",
-	9:  "bank_accounts",
-	10: "extensions",
-	11: "group_company_id",
-	12: "reason",
+	7:  "customer_companies",
+	8:  "addresses",
+	9:  "tax_identifiers",
+	10: "bank_accounts",
+	11: "extensions",
+	12: "group_company_id",
+	13: "reason",
 }
 
 // Decode decodes BusinessPartnerCreate from json.
@@ -31252,6 +31318,23 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"supplier_companies\"")
 			}
+		case "customer_companies":
+			if err := func() error {
+				s.CustomerCompanies = make([]CustomerCompanyInput, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem CustomerCompanyInput
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.CustomerCompanies = append(s.CustomerCompanies, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"customer_companies\"")
+			}
 		case "addresses":
 			if err := func() error {
 				s.Addresses = make([]Address, 0)
@@ -31324,7 +31407,7 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"group_company_id\"")
 			}
 		case "reason":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Reason = string(v)
@@ -31346,7 +31429,7 @@ func (s *BusinessPartnerCreate) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b00101011,
-		0b00010000,
+		0b00100000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -69223,6 +69306,318 @@ func (s CustomFieldSchemaSchema) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *CustomFieldSchemaSchema) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CustomerCompany) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CustomerCompany) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("reconciliation_account_id")
+		json.EncodeUUID(e, s.ReconciliationAccountID)
+	}
+	{
+		e.FieldStart("reconciliation_account_number")
+		e.Str(s.ReconciliationAccountNumber)
+	}
+	{
+		e.FieldStart("payment_term_code")
+		e.Str(s.PaymentTermCode)
+	}
+	{
+		e.FieldStart("is_posting_blocked")
+		e.Bool(s.IsPostingBlocked)
+	}
+}
+
+var jsonFieldsNameOfCustomerCompany = [5]string{
+	0: "legal_entity_id",
+	1: "reconciliation_account_id",
+	2: "reconciliation_account_number",
+	3: "payment_term_code",
+	4: "is_posting_blocked",
+}
+
+// Decode decodes CustomerCompany from json.
+func (s *CustomerCompany) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CustomerCompany to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "reconciliation_account_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ReconciliationAccountID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reconciliation_account_id\"")
+			}
+		case "reconciliation_account_number":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.ReconciliationAccountNumber = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reconciliation_account_number\"")
+			}
+		case "payment_term_code":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Str()
+				s.PaymentTermCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_term_code\"")
+			}
+		case "is_posting_blocked":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Bool()
+				s.IsPostingBlocked = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"is_posting_blocked\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CustomerCompany")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00011111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCustomerCompany) {
+					name = jsonFieldsNameOfCustomerCompany[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CustomerCompany) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CustomerCompany) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *CustomerCompanyInput) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *CustomerCompanyInput) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("legal_entity_id")
+		json.EncodeUUID(e, s.LegalEntityID)
+	}
+	{
+		e.FieldStart("reconciliation_account_id")
+		json.EncodeUUID(e, s.ReconciliationAccountID)
+	}
+	{
+		e.FieldStart("payment_term_code")
+		e.Str(s.PaymentTermCode)
+	}
+	{
+		if s.IsPostingBlocked.Set {
+			e.FieldStart("is_posting_blocked")
+			s.IsPostingBlocked.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfCustomerCompanyInput = [4]string{
+	0: "legal_entity_id",
+	1: "reconciliation_account_id",
+	2: "payment_term_code",
+	3: "is_posting_blocked",
+}
+
+// Decode decodes CustomerCompanyInput from json.
+func (s *CustomerCompanyInput) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode CustomerCompanyInput to nil")
+	}
+	var requiredBitSet [1]uint8
+	s.setDefaults()
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "legal_entity_id":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.LegalEntityID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"legal_entity_id\"")
+			}
+		case "reconciliation_account_id":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := json.DecodeUUID(d)
+				s.ReconciliationAccountID = v
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"reconciliation_account_id\"")
+			}
+		case "payment_term_code":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				v, err := d.Str()
+				s.PaymentTermCode = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"payment_term_code\"")
+			}
+		case "is_posting_blocked":
+			if err := func() error {
+				s.IsPostingBlocked.Reset()
+				if err := s.IsPostingBlocked.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"is_posting_blocked\"")
+			}
+		default:
+			return errors.Errorf("unexpected field %q", k)
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode CustomerCompanyInput")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000111,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfCustomerCompanyInput) {
+					name = jsonFieldsNameOfCustomerCompanyInput[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *CustomerCompanyInput) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *CustomerCompanyInput) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

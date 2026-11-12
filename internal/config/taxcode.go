@@ -395,7 +395,7 @@ func (v *validator) date(path, s string) (time.Time, bool) {
 
 // taxCodes checks the company's tax codes (CheckTaxCodes) with accounts of
 // its chart other than the GR/IR account, which only goods receipts and
-// invoices' order items post.
+// invoices' order items post, and a customer reconciliation account.
 func (v *validator) taxCodes(p string, co *Company) {
 	v.out = append(v.out, CheckTaxCodes(p+".tax_codes", co.TaxCodes, func(number string) string {
 		switch {
@@ -403,6 +403,8 @@ func (v *validator) taxCodes(p string, co *Company) {
 			return fmt.Sprintf("account %s is not in the chart of accounts", number)
 		case number == co.AccountDetermination.GRIR:
 			return fmt.Sprintf("account %s is the GR/IR account, which only goods receipts and invoices' order items post", number)
+		case co.Account(number).CustomerReconciliation: // a tax line names no customer, so every posting with the code would be refused
+			return fmt.Sprintf("account %s is a customer reconciliation account, posted only through the customer's items", number)
 		}
 		return ""
 	})...)

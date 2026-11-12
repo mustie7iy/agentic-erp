@@ -37,6 +37,7 @@ func TestDatabaseFailures(t *testing.T) {
 	e.withholdingCodes(t)
 	e.paymentMethods(t)
 	e.planningGroups(t)
+	ar := e.receivables(t)
 	u := func(m map[string]any) uuid.UUID { return uuid.MustParse(id(m)) }
 	bankOf := func(p map[string]any) uuid.UUID {
 		page, _ := e.Must(200, "GET", "/v1/business-partners/"+id(p)+"/bank-accounts", "", "")
@@ -47,7 +48,8 @@ func TestDatabaseFailures(t *testing.T) {
 	update, _ := e.Must(201, "POST", "/v1/partner-changes", e.update(id(a), fmt.Sprintf(`{"name": "A2", "roles": ["supplier", "customer"],
 		"supplier_companies": [{"legal_entity_id": %q, "reconciliation_account_id": %q, "payment_term_code": "NT60"}],
 		"addresses": [{"purpose": "legal", "line1": "L", "city": "C", "country_code": "DE", "valid_from": %q}],
-		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"segment": "x"}, "group_company_id": %q}`, e.le, e.recon, e.date(0), e.le)), "")
+		"tax_identifiers": [{"scheme": "EU_VAT", "value": "DE1"}], "extensions": {"segment": "x"}, "group_company_id": %q,
+		"customer_companies": [%s]}`, e.le, e.recon, e.date(0), e.le, e.customerData(ar, "NT30", `, "is_posting_blocked": true`))), "")
 	pgtest.Exec(t, `UPDATE partner.business_partner SET group_company_id = $2, version = version + 1 WHERE id = $1`, id(a), e.le) // named on reads
 	_, aTag := e.Must(200, "GET", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String(), "", "")
 	bankEnd, _ := e.Must(200, "POST", "/v1/business-partners/"+id(a)+"/bank-accounts/"+bankOf(a).String()+":end",
@@ -67,8 +69,9 @@ func TestDatabaseFailures(t *testing.T) {
 
 	h := endpoints()
 	when := e.day.AddDate(0, 0, 3)
-	newPartner := &gen.BusinessPartnerCreate{Kind: "organization", Name: "N", CountryCode: "DE", Roles: []string{"supplier"}, Reason: "r",
-		LegalName: gen.NewOptString("N GmbH"), Language: gen.NewOptString("de"),
+	newPartner := &gen.BusinessPartnerCreate{Kind: "organization", Name: "N", CountryCode: "DE", Roles: []string{"supplier", "customer"}, Reason: "r",
+		CustomerCompanies: []gen.CustomerCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: ar, PaymentTermCode: "NT30"}},
+		LegalName:         gen.NewOptString("N GmbH"), Language: gen.NewOptString("de"),
 		SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT30", WithholdingTaxCodes: []string{"W1"},
 			PaymentMethods: []string{"T"}, PlanningGroup: gen.NewOptString("TAX")}},
 		Addresses: []gen.Address{{Purpose: "legal", Line1: "L", City: "C", CountryCode: "DE", ValidFrom: e.day, ValidTo: gen.NewOptDate(when),
@@ -112,7 +115,8 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"request update": func(ctx context.Context) error {
 			_, err := h.CreatePartnerChange(ctx, &gen.PartnerChangeCreate{PartnerID: u(c), Kind: "update", Reason: "r", Payload: gen.BusinessPartnerChanges{
-				Name: gen.NewOptString("C2"), LegalName: gen.NewOptNilString("C2 GmbH"), Roles: []string{"supplier"},
+				Name: gen.NewOptString("C2"), LegalName: gen.NewOptNilString("C2 GmbH"), Roles: []string{"supplier", "customer"},
+				CustomerCompanies: []gen.CustomerCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: ar, PaymentTermCode: "NT60", IsPostingBlocked: gen.NewOptBool(true)}},
 				SupplierCompanies: []gen.SupplierCompanyInput{{LegalEntityID: e.le, ReconciliationAccountID: e.recon, PaymentTermCode: "NT60"}},
 				Addresses:         []gen.Address{{Purpose: "legal", Line1: "L", City: "C", CountryCode: "DE", ValidFrom: e.day}},
 				TaxIdentifiers:    []gen.TaxIdentifierInput{{Scheme: "EU_VAT", Value: "DE2"}}, GroupCompanyID: gen.NewOptNilUUID(e.le)}}, gen.CreatePartnerChangeParams{})

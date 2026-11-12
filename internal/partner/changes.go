@@ -54,6 +54,17 @@ type SupplierCompanyInput struct {
 	PlanningGroup string `json:"planning_group,omitempty"`
 }
 
+// CustomerCompanyInput is customer data for one legal entity (T74a): it
+// replaces the customer's data there as a whole, the posting block too.
+type CustomerCompanyInput struct {
+	LegalEntityID           uuid.UUID `json:"legal_entity_id"`
+	ReconciliationAccountID uuid.UUID `json:"reconciliation_account_id"`
+	PaymentTermCode         string    `json:"payment_term_code"`
+	// IsPostingBlocked blocks postings to the customer in the legal entity
+	// from the change's approval on.
+	IsPostingBlocked bool `json:"is_posting_blocked,omitempty"`
+}
+
 // AddressInput is an address to add.
 type AddressInput struct {
 	Purpose     string  `json:"purpose"`
@@ -143,6 +154,9 @@ type createPayload struct {
 	BankAccounts      []sealedBank           `json:"bank_accounts"`
 	Extensions        map[string]any         `json:"extensions"`
 	GroupCompanyID    *uuid.UUID             `json:"group_company_id,omitempty"` // T68c
+	// Absent from the payloads of changes requested before T74a, and of
+	// partners created without customer data.
+	CustomerCompanies []CustomerCompanyInput `json:"customer_companies,omitempty"`
 }
 
 type updatePayload struct {
@@ -154,6 +168,7 @@ type updatePayload struct {
 	GroupCompanyID    nullable[uuid.UUID]    `json:"group_company_id,omitzero"`
 	Roles             []string               `json:"roles,omitempty"`
 	SupplierCompanies []SupplierCompanyInput `json:"supplier_companies,omitempty"`
+	CustomerCompanies []CustomerCompanyInput `json:"customer_companies,omitempty"` // T74a
 	Addresses         []AddressInput         `json:"addresses,omitempty"`
 	TaxIdentifiers    []sealedTax            `json:"tax_identifiers,omitempty"`
 	Extensions        map[string]any         `json:"extensions,omitempty"`
@@ -196,16 +211,64 @@ func checkCountries(ctx context.Context, tx pgx.Tx, fields, codes []string) erro
 	return nil
 }
 
-// checkCompanies validates supplier data: a supplier role, legal entities
-// the caller may act in, the ledger's supplier reconciliation accounts and
-// configured payment terms.
-func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, in []SupplierCompanyInput) error {
-	if len(in) > 0 && !supplier {
-		return invalid("partner.supplier_role_required", "roles", "supplier data needs the supplier role")
+// companyData is what a supplier's and a customer's data in a legal
+// entity share, with the entry of the request it comes from.
+type companyData struct {
+	field, kind          string // kind: supplier or customer
+	legalEntity, account uuid.UUID
+	term                 string
+}
+
+// checkCompanyData checks one entry of company data: one per legal entity
+// (seen), a legal entity the caller may act in, the ledger's reconciliation
+// account of the entry's kind there and a configured payment term.
+func checkCompanyData(ctx context.Context, tx pgx.Tx, ports Ports, access authz.Access, seen map[uuid.UUID]bool, d companyData) error {
+	if seen[d.legalEntity] {
+		return invalid("partner.duplicate_company", d.field+".legal_entity_id", "one entry per legal entity")
 	}
+	seen[d.legalEntity] = true
+	if _, err := tenancy.Accessible(ctx, ports.LegalEntities, access, d.legalEntity, d.field+".legal_entity_id"); err != nil {
+		return err
+	}
+	recon, err := ports.Accounts.IsReconciliationAccount(ctx, d.legalEntity, d.account, d.kind)
+	if err != nil {
+		return err
+	}
+	if !recon {
+		return invalid("partner.invalid_reconciliation_account", d.field+".reconciliation_account_id",
+			"an active "+d.kind+" reconciliation account of the legal entity")
+	}
+	var term bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.payment_term WHERE code = $1)`, d.term).Scan(&term); err != nil {
+		return fmt.Errorf("partner: find payment term %s: %w", d.term, err)
+	}
+	if !term {
+		return invalid("partner.unknown_payment_term", d.field+".payment_term_code", "payment terms from the configuration")
+	}
+	return nil
+}
+
+// checkCompanies validates the company data of both roles, under the
+// roles the request leaves the partner. prefix is where the request holds
+// the customer data: "" on creation, "payload." in an update change.
+func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, prefix string, roles []string, suppliers []SupplierCompanyInput,
+	customers []CustomerCompanyInput) error {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return err
+	}
+	if err := checkSupplierCompanies(ctx, tx, ports, access, slices.Contains(roles, "supplier"), suppliers); err != nil {
+		return err
+	}
+	return checkCustomerCompanies(ctx, tx, ports, access, prefix, slices.Contains(roles, "customer"), customers)
+}
+
+// checkSupplierCompanies validates supplier data: a supplier role, legal
+// entities the caller may act in, the ledger's supplier reconciliation
+// accounts and configured payment terms.
+func checkSupplierCompanies(ctx context.Context, tx pgx.Tx, ports Ports, access authz.Access, supplier bool, in []SupplierCompanyInput) error {
+	if len(in) > 0 && !supplier {
+		return invalid("partner.supplier_role_required", "roles", "supplier data needs the supplier role")
 	}
 	if err := lockGiven(ctx, tx, in); err != nil {
 		return err
@@ -213,29 +276,30 @@ func checkCompanies(ctx context.Context, tx pgx.Tx, ports Ports, supplier bool, 
 	seen := map[uuid.UUID]bool{}
 	for i, s := range in {
 		f := fmt.Sprintf("supplier_companies[%d]", i)
-		if seen[s.LegalEntityID] {
-			return invalid("partner.duplicate_company", f+".legal_entity_id", "one entry per legal entity")
-		}
-		seen[s.LegalEntityID] = true
-		if _, err := tenancy.Accessible(ctx, ports.LegalEntities, access, s.LegalEntityID, f+".legal_entity_id"); err != nil {
+		if err := checkCompanyData(ctx, tx, ports, access, seen, companyData{field: f, kind: "supplier", legalEntity: s.LegalEntityID,
+			account: s.ReconciliationAccountID, term: s.PaymentTermCode}); err != nil {
 			return err
-		}
-		recon, err := ports.Accounts.IsReconciliationAccount(ctx, s.LegalEntityID, s.ReconciliationAccountID, "supplier")
-		if err != nil {
-			return err
-		}
-		if !recon {
-			return invalid("partner.invalid_reconciliation_account", f+".reconciliation_account_id",
-				"an active supplier reconciliation account of the legal entity")
-		}
-		var term bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT FROM partner.payment_term WHERE code = $1)`, s.PaymentTermCode).Scan(&term); err != nil {
-			return fmt.Errorf("partner: find payment term %s: %w", s.PaymentTermCode, err)
-		}
-		if !term {
-			return invalid("partner.unknown_payment_term", f+".payment_term_code", "payment terms from the configuration")
 		}
 		if err := checkCompanyCodes(ctx, ports, f, s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkCustomerCompanies validates customer data (T74a): a customer role,
+// legal entities the caller may act in, the ledger's customer
+// reconciliation accounts and configured payment terms, each refusal
+// naming the request's own field under prefix.
+func checkCustomerCompanies(ctx context.Context, tx pgx.Tx, ports Ports, access authz.Access, prefix string, customer bool,
+	in []CustomerCompanyInput) error {
+	if len(in) > 0 && !customer {
+		return invalid("partner.customer_role_required", prefix+"roles", "customer data needs the customer role")
+	}
+	seen := map[uuid.UUID]bool{}
+	for i, c := range in {
+		if err := checkCompanyData(ctx, tx, ports, access, seen, companyData{field: fmt.Sprintf("%scustomer_companies[%d]", prefix, i), kind: "customer",
+			legalEntity: c.LegalEntityID, account: c.ReconciliationAccountID, term: c.PaymentTermCode}); err != nil {
 			return err
 		}
 	}
@@ -554,6 +618,29 @@ func putCompanies(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID 
 	return putWithholding(ctx, tx, p, partnerID, in)
 }
 
+// putCustomerCompanies writes the customer's data in each legal entity of
+// in, replacing what it had there, the posting block too (T74a).
+func putCustomerCompanies(ctx context.Context, tx pgx.Tx, p reqctx.Principal, partnerID uuid.UUID, in []CustomerCompanyInput) error {
+	var les, accounts []uuid.UUID
+	var terms []string
+	var blocked []bool
+	for _, c := range in {
+		les, accounts = append(les, c.LegalEntityID), append(accounts, c.ReconciliationAccountID)
+		terms, blocked = append(terms, c.PaymentTermCode), append(blocked, c.IsPostingBlocked)
+	}
+	_, err := tx.Exec(ctx, `INSERT INTO partner.customer_company AS c (tenant_id, partner_id, legal_entity_id, reconciliation_account_id,
+			payment_term_code, is_posting_blocked, created_by, updated_by)
+		SELECT $1, $2, le, a, t, b, $3, $3 FROM unnest($4::uuid[], $5::uuid[], $6::text[], $7::boolean[]) AS x(le, a, t, b)
+		ON CONFLICT (tenant_id, partner_id, legal_entity_id) DO UPDATE SET reconciliation_account_id = EXCLUDED.reconciliation_account_id,
+			payment_term_code = EXCLUDED.payment_term_code, is_posting_blocked = EXCLUDED.is_posting_blocked,
+			version = c.version + 1, updated_by = $3`,
+		p.TenantID, partnerID, p.ID, les, accounts, terms, blocked)
+	if err != nil {
+		return fmt.Errorf("partner: put customer companies of business partner %s: %w", partnerID, err)
+	}
+	return nil
+}
+
 // putWithholding makes the supplier's withholding tax codes in each legal
 // entity of in the given ones: codes no longer given are deactivated,
 // never deleted, and given ones inserted or reactivated (T46e).
@@ -641,6 +728,7 @@ type NewPartner struct {
 	Language          *string
 	Roles             []string
 	SupplierCompanies []SupplierCompanyInput
+	CustomerCompanies []CustomerCompanyInput // T74a
 	Addresses         []AddressInput
 	TaxIdentifiers    []TaxInput
 	BankAccounts      []BankInput
@@ -701,7 +789,8 @@ func createPartner(ctx context.Context, ports Ports, in NewPartner, back backdat
 	}
 	c, err := insertChange(ctx, tx, p, KindCreate, id, createPayload{Kind: in.Kind, Name: in.Name, LegalName: in.LegalName,
 		CountryCode: in.CountryCode, Language: in.Language, Roles: in.Roles, SupplierCompanies: in.SupplierCompanies, Addresses: in.Addresses,
-		TaxIdentifiers: taxes, BankAccounts: banks, Extensions: in.Extensions, GroupCompanyID: in.GroupCompanyID}, in.Reason, warns, false)
+		TaxIdentifiers: taxes, BankAccounts: banks, Extensions: in.Extensions, GroupCompanyID: in.GroupCompanyID,
+		CustomerCompanies: in.CustomerCompanies}, in.Reason, warns, false)
 	if err != nil {
 		return Partner{}, Change{}, err
 	}
@@ -719,7 +808,7 @@ func checkNewPartnerData(ctx context.Context, tx pgx.Tx, ports Ports, day time.T
 	if err := checkCountries(ctx, tx, fields, codes); err != nil {
 		return err
 	}
-	if err := checkCompanies(ctx, tx, ports, slices.Contains(in.Roles, "supplier"), in.SupplierCompanies); err != nil {
+	if err := checkCompanies(ctx, tx, ports, "", in.Roles, in.SupplierCompanies, in.CustomerCompanies); err != nil {
 		return err
 	}
 	if err := checkAddresses(day, in.Addresses, false); err != nil {
@@ -797,6 +886,9 @@ func insertPartner(ctx context.Context, tx pgx.Tx, p reqctx.Principal, id uuid.U
 	if err := putCompanies(ctx, tx, p, id, in.SupplierCompanies); err != nil {
 		return err
 	}
+	if err := putCustomerCompanies(ctx, tx, p, id, in.CustomerCompanies); err != nil {
+		return err
+	}
 	if err := addAddresses(ctx, tx, p, id, in.Addresses, false); err != nil {
 		return err
 	}
@@ -862,6 +954,7 @@ type Changes struct {
 	Language          **string
 	Roles             []string // complete set; nil: unchanged
 	SupplierCompanies []SupplierCompanyInput
+	CustomerCompanies []CustomerCompanyInput // T74a
 	Addresses         []AddressInput
 	TaxIdentifiers    []TaxInput
 	Extensions        map[string]any
@@ -915,8 +1008,8 @@ func RequestUpdate(ctx context.Context, ports Ports, partnerID uuid.UUID, ch Cha
 		return Change{}, err
 	}
 	c, err := insertChange(ctx, tx, p, KindUpdate, partnerID, updatePayload{Name: ch.Name, LegalName: toNullable(ch.LegalName),
-		Language: toNullable(ch.Language), Roles: ch.Roles, SupplierCompanies: ch.SupplierCompanies, Addresses: ch.Addresses,
-		TaxIdentifiers: taxes, Extensions: ch.Extensions, ExtensionsSchema: schema, GroupCompanyID: toNullable(ch.GroupCompanyID)}, reason, warns, false)
+		Language: toNullable(ch.Language), Roles: ch.Roles, SupplierCompanies: ch.SupplierCompanies, CustomerCompanies: ch.CustomerCompanies,
+		Addresses: ch.Addresses, TaxIdentifiers: taxes, Extensions: ch.Extensions, ExtensionsSchema: schema, GroupCompanyID: toNullable(ch.GroupCompanyID)}, reason, warns, false)
 	if err != nil {
 		return Change{}, err
 	}
@@ -938,7 +1031,7 @@ func checkUpdateData(ctx context.Context, tx pgx.Tx, ports Ports, ch Changes, al
 	if err := checkCountries(ctx, tx, fields, codes); err != nil {
 		return err
 	}
-	if err := checkCompanies(ctx, tx, ports, slices.Contains(all, "supplier"), ch.SupplierCompanies); err != nil {
+	if err := checkCompanies(ctx, tx, ports, "payload.", all, ch.SupplierCompanies, ch.CustomerCompanies); err != nil {
 		return err
 	}
 	if err := checkAddresses(day, ch.Addresses, true); err != nil {
@@ -955,7 +1048,7 @@ func checkUpdateData(ctx context.Context, tx pgx.Tx, ports Ports, ch Changes, al
 // approval otherwise.
 func checkChanges(ch Changes) error {
 	if ch.Name == nil && ch.LegalName == nil && ch.Language == nil && ch.Roles == nil && len(ch.SupplierCompanies) == 0 &&
-		len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 && ch.GroupCompanyID == nil {
+		len(ch.CustomerCompanies) == 0 && len(ch.Addresses) == 0 && len(ch.TaxIdentifiers) == 0 && len(ch.Extensions) == 0 && ch.GroupCompanyID == nil {
 		return problem.Unprocessable("partner.no_changes", "The change requests no changes.")
 	}
 	if ch.Name != nil {
@@ -1183,9 +1276,14 @@ func applyCreate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		for _, s := range bp.SupplierCompanies {
 			les = append(les, s.LegalEntityID)
 		}
-		events = append(events, event("supplier_approved", bp.ID, "partner.business_partner", map[string]any{
-			"partner_id": bp.ID, "number": bp.Number, "partner_change_id": c.ID, "workflow_request_id": c.WorkflowRequestID,
-			"status": Active, "legal_entity_ids": les}))
+		events = append(events, approved("supplier_approved", bp, c, les))
+	}
+	if slices.Contains(bp.Roles, "customer") { // T74a
+		les := []uuid.UUID{}
+		for _, cc := range bp.CustomerCompanies {
+			les = append(les, cc.LegalEntityID)
+		}
+		events = append(events, approved("customer_approved", bp, c, les))
 	}
 	for _, b := range pl.BankAccounts {
 		e, err := insertBank(ctx, tx, p, c, b, earliest)
@@ -1195,6 +1293,15 @@ func applyCreate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 		events = append(events, e)
 	}
 	return events, nil
+}
+
+// approved is SupplierApproved or CustomerApproved: the partner active in
+// a role, with the legal entities it has the role's company data in, in
+// the order the partner is read with (by legal entity id).
+func approved(name string, bp Partner, c Change, les []uuid.UUID) outbox.Event {
+	return event(name, bp.ID, "partner.business_partner", map[string]any{
+		"partner_id": bp.ID, "number": bp.Number, "partner_change_id": c.ID, "workflow_request_id": c.WorkflowRequestID,
+		"status": Active, "legal_entity_ids": les})
 }
 
 func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, bp Partner, day time.Time, w extensions.Writes) ([]outbox.Event, error) {
@@ -1222,6 +1329,12 @@ func applyUpdate(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c Change, b
 	}
 	for _, s := range pl.SupplierCompanies {
 		fields = append(fields, "supplier_company."+s.LegalEntityID.String())
+	}
+	if err := putCustomerCompanies(ctx, tx, p, bp.ID, pl.CustomerCompanies); err != nil {
+		return nil, err
+	}
+	for _, cc := range pl.CustomerCompanies {
+		fields = append(fields, "customer_company."+cc.LegalEntityID.String())
 	}
 	for i := range pl.Addresses {
 		pl.Addresses[i].ValidFrom = Date{later(pl.Addresses[i].ValidFrom.Time, day)}

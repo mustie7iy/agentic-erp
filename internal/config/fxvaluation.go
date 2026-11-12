@@ -39,8 +39,8 @@ func (v *validator) fxValuation(p string, co *Company) {
 		}
 		ap := fmt.Sprintf("%s.chart_of_accounts[%s].revalue_foreign_currency", p, a.Number)
 		switch {
-		case (a.Type != Asset && a.Type != Liability) || a.VendorReconciliation || a.Number == co.AccountDetermination.GRIR:
-			v.err(ap, "only an asset or liability that reconciles no supplier and is not the GR/IR account is revalued as a balance")
+		case (a.Type != Asset && a.Type != Liability) || a.PartnerReconciliation() || a.Number == co.AccountDetermination.GRIR:
+			v.err(ap, "only an asset or liability that reconciles no supplier or customer and is not the GR/IR account is revalued as a balance")
 		case !valued[a.Number]:
 			v.err(ap, "account %s is revalued: add it to fx_valuation.accounts with its unrealised gain and loss", a.Number)
 		}
@@ -72,7 +72,9 @@ func (v *validator) fxValuationLedgers(fp string, co *Company) {
 // fxValuationAccount checks one account's valuation accounts.
 func (v *validator) fxValuationAccount(ap string, co *Company, f FXValuationAccount) {
 	a := co.Account(f.Account)
-	recon := a != nil && a.VendorReconciliation
+	// A customer's open items are revalued as a supplier's are (T74a): the
+	// ledger's run reads both kinds and refuses one without its accounts.
+	recon := a != nil && a.PartnerReconciliation()
 	switch {
 	case a == nil:
 		v.err(ap, "account %s is not in the chart of accounts", f.Account)
@@ -80,12 +82,12 @@ func (v *validator) fxValuationAccount(ap string, co *Company, f FXValuationAcco
 	case f.Account == co.AccountDetermination.DownPayment:
 		v.err(ap, "account %s is the down payment account; special G/L items are not revalued", f.Account)
 	case !recon && !a.RevalueForeignCurrency:
-		v.err(ap, "account %s is neither a vendor reconciliation account nor revalue_foreign_currency", f.Account)
+		v.err(ap, "account %s is neither a supplier or customer reconciliation account nor revalue_foreign_currency", f.Account)
 	}
 	adj := co.Account(f.Adjustment)
 	switch {
-	case recon && (adj == nil || !adj.Type.BalanceSheet() || adj.VendorReconciliation):
-		v.err(ap+".adjustment", "a reconciliation account's difference goes to a balance-sheet account of the chart that reconciles no supplier")
+	case recon && (adj == nil || !adj.Type.BalanceSheet() || adj.PartnerReconciliation()):
+		v.err(ap+".adjustment", "a reconciliation account's difference goes to a balance-sheet account of the chart that reconciles no supplier or customer")
 	case !recon && f.Adjustment != "":
 		v.err(ap+".adjustment", "a revalued G/L account takes its difference itself; leave adjustment out")
 	}

@@ -346,6 +346,8 @@ func checkActivated(base, proposed *config.Config, out *findings) {
 				out.add(p+".chart_of_accounts["+was.Number+"].type", "an account's type cannot change once activated")
 			case a.VendorReconciliation != was.VendorReconciliation:
 				out.add(p+".chart_of_accounts["+was.Number+"].vendor_reconciliation", "an account's reconciliation kind cannot change once activated")
+			case a.CustomerReconciliation != was.CustomerReconciliation: // its lines are, or are not, customers' open items (T74a)
+				out.add(p+".chart_of_accounts["+was.Number+"].customer_reconciliation", "an account's reconciliation kind cannot change once activated")
 			case was.OpenItems && !a.OpenItems: // its lines are open items a statement may still clear (ADR-0047)
 				out.add(p+".chart_of_accounts["+was.Number+"].open_items", "open-item management cannot be turned off once activated")
 			case was.AssetReconciliation && !a.AssetReconciliation: // its balance is assets' movements (ADR-0057 §3)
@@ -471,6 +473,8 @@ func applyAccounts(ctx context.Context, tx pgx.Tx, p reqctx.Principal, le, chart
 		switch {
 		case a.VendorReconciliation:
 			kind = "supplier"
+		case a.CustomerReconciliation:
+			kind = "customer"
 		case a.AssetReconciliation:
 			kind = "asset"
 		}
@@ -657,6 +661,21 @@ func fiscalYear(y, m int) []period {
 
 // Accounts answers the partner context's questions about accounts.
 type Accounts struct{}
+
+// AccountNumbers returns the accounts' numbers by id, for the partner
+// context to name the reconciliation accounts its company data holds by
+// id (T74a); an id of no account is left out.
+func (Accounts) AccountNumbers(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]string, error) {
+	names, err := AssetReads{}.AccountNames(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[uuid.UUID]string, len(names))
+	for id, a := range names {
+		out[id] = a.Number
+	}
+	return out, nil
+}
 
 // IsReconciliationAccount reports whether the account is an active
 // reconciliation account of the kind with settings in the legal entity. The

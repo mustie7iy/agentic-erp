@@ -4257,14 +4257,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Customer master with company data",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant creates a customer (a business partner with the role customer) with its company data (reconciliation account, payment term, posting block) through the partner change and its approval, and reads it back",
-        "r": "T74a · docs/design/plan-breadth-week1.md §T74a",
+        "r": "T74a · docs/design/plan-breadth-week1.md §T74a · migration 000266 (partner.customer_company) · customer_companies[] on createBusinessPartner, createPartnerChange (BusinessPartnerChanges) and BusinessPartner (CustomerCompany with reconciliation_account_number, CustomerCompanyInput; 422 partner.customer_role_required) · event CustomerApproved, BusinessPartnerUpdated changed_fields customer_company.<legal_entity_id> · partner.Customers.Customer, Customer.Usable · partner.Postings.PostingBlock (a customer blocked for posting in the company) · config chart_of_accounts[].customer_reconciliation, ledger.Setup (reconciliation_kind customer) · TestCustomerCompanyData, TestCustomersRead, TestCustomerCompanyRefusals, TestCustomerReconciliationAccounts, TestCustomerItemsRevalued, TestCustomerReconciliationValid, TestCustomerCompanyRules, TestCustomerCompanyIsolation · walkthrough step_customer (step 47) · 03-data-model §3.6",
         "src": "po:2026-11-10 · design:03 §3.6",
         "c": []
        },
