@@ -4032,7 +4032,13 @@ partner context, tenancy and the configuration through its ports, posts
 only through the ledger (§3.16) and keeps no foreign key out of its schema
 (02 §2.1). T75a (migration 000265) builds the schema with its outbox and
 inbox and the customer invoice, the accounting record of an invoice the
-company issued, entered as a draft; nothing is posted yet.
+company issued, entered as a draft. T75b (migration 000267) posts it,
+once: the invoice names its journal entry, whose debit line on the
+customer's reconciliation account is the customer's open item (§3.7).
+T75c (migration 000268) applies an incoming payment waiting on a house
+bank's incoming payments clearing account (ADR-0047) to a customer's open
+items, in full and exactly: a document written once, naming the receipt's
+entry and the ledger's clearing entry that cleared receipt and items.
 
 ```mermaid
 erDiagram
@@ -4043,12 +4049,16 @@ erDiagram
     uuid customer_id "partner, customer role"
     text kind "invoice"
     date invoice_date "the tax date"
-    date posting_date "optional"
+    date posting_date "optional; set when posted"
     char currency
     bigint net_amount
     bigint tax_amount
     bigint gross_amount "net + tax"
-    text status "draft"
+    text status "draft, posted"
+    text payment_term_code "optional; the term posted with"
+    date net_due_date "when posted"
+    smallint journal_entry_year "when posted"
+    uuid journal_entry_id "ledger, when posted"
     int version }
   customer_invoice_item { int item_no PK
     text description
@@ -4058,17 +4068,40 @@ erDiagram
     bigint tax_amount "0 without a code"
     uuid cost_center_id
     uuid profit_center_id }
+  incoming_payment ||--|{ incoming_payment_item : "applied to"
+  incoming_payment { uuid id PK
+    text document_number "incoming_payment range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    smallint receipt_entry_year
+    uuid receipt_entry_id "ledger: the statement line's entry, applied once"
+    uuid receipt_account_id "ledger: the incoming payments clearing account"
+    date posting_date
+    char currency
+    bigint amount "above 0: the receipt's, the items' sum"
+    smallint clearing_entry_year
+    uuid clearing_entry_id "ledger: cleared receipt and items" }
+  incoming_payment_item { int item_no PK
+    smallint fiscal_year
+    uuid journal_entry_id "ledger: the open item"
+    int line_no
+    bigint amount "debit positive; a credit negative" }
 ```
 
 - `receivables.customer_invoice`: amounts are minor units of `currency`,
   never negative (`customer_invoice_amounts_not_negative`); the kind gives
   their direction. `gross_amount = net_amount + tax_amount`
   (`customer_invoice_totals`). The number is unique per company
-  (`customer_invoice_number_once`). The kind is `invoice` and the status
-  `draft` alone (`customer_invoice_kind_check`,
-  `customer_invoice_status_check`), which T75d (`credit_memo`) and T75b
-  (`posted`) widen. The application may insert and read: nothing changes
-  or deletes a draft in the first version.
+  (`customer_invoice_number_once`). The kind is `invoice` alone
+  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`); the
+  status is `draft` or `posted` (`customer_invoice_status_check`). A
+  posted invoice names its journal entry with its year, its posting
+  date, the payment term it posted with and its net due date, and a
+  draft names no entry (`customer_invoice_posted`); an entry is one
+  invoice's (`customer_invoice_entry_once`). Posting is the only change:
+  the application may update the columns posting sets, and the trigger
+  `customer_invoice_posted_once` refuses a change of anything but a
+  draft being posted. Nothing deletes an invoice.
 - `receivables.customer_invoice_item`: a net amount above zero
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
@@ -4076,7 +4109,30 @@ erDiagram
   `customer_invoice_item_tax_needs_code`); insert-only
   (`platform.forbid_mutation`). The items' net and tax add up to the
   header's, which the context writes in one transaction.
+- `receivables.incoming_payment` (T75c): an incoming payment applied.
+  The number is unique per company (`incoming_payment_number_once`); the
+  amount is above zero (`incoming_payment_amount_positive`); a receipt is
+  applied once (`incoming_payment_receipt_once`) and a clearing entry is
+  one application's (`incoming_payment_entry_once`). Insert-only
+  (`platform.forbid_mutation`, no update or delete grant): an application
+  is not undone in the first version.
+- `receivables.incoming_payment_item`: the open items it was applied to,
+  each with the amount it stood at in the payment's currency, never zero
+  (`incoming_payment_item_amount_not_zero`), a credit of the customer's
+  negative; an open item is applied once (`incoming_payment_item_once`).
+  Insert-only. The items add up to the payment's amount, which the ledger
+  holds the application to (`ledger.Postings.ApplyReceipt`).
 - `receivables.outbox`, `receivables.inbox`: the context's events
-  (`CustomerInvoiceChanged`).
-- Permissions `receivables.invoice.read`, `.write` and `.post` (the last
-  used from T75b).
+  (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
+  `IncomingPaymentApplied`).
+- Permissions `receivables.invoice.read`, `.write` and `.post`, and
+  `receivables.payment.apply`.
+- In the ledger, `ledger.open_item_terms` keeps the terms of a customer
+  open item as of a supplier's (T75b), and `ledger.OpenItems.Receivable`
+  reads the customer open items of a company for the aging, dunning, the
+  collection worklist and the credit exposure (ADR-0063 As built).
+  `ledger.Postings.ApplyReceipt` posts the entry that clears a receipt on
+  an incoming payments clearing account with a customer's open items, and
+  `ledger.OpenItems.Receipts` reads the receipts not yet applied (T75c;
+  §3.7's clearing, `ledger.clearing` and `ledger.clearing_item`, with no
+  new table).

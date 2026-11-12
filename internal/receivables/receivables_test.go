@@ -17,16 +17,24 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"receivables.invoice.read", "receivables.invoice.write"}
+var perms = []string{"receivables.invoice.read", "receivables.invoice.write", "receivables.invoice.post", "receivables.payment.apply",
+	"ledger.entry.read", "ledger.entry.post", "ledger.clearing.post"}
 
 // env is a configured tenant whose company 2000 (EUR) has the output tax
 // codes A1 (19% to 30 June 2026, 21% from 1 July), A0 (zero-rated), AJ
 // (levying its lines' subdivision) and A2 (two components of 60%) on
-// account 230000, and a customer.
+// account 230000, the customer reconciliation account 120000, number
+// ranges for the entries customer invoices post (journal_dr) and for
+// incoming payments and their clearing entries (incoming_payment,
+// journal_dz), house bank MAIN with the main bank account 102000 and the
+// incoming payments clearing account 103000, and a customer set up in the
+// company on 120000 with the payment term NT30.
 type env struct {
 	fixture.Env
-	revenue, other uuid.UUID // accounts 400000 and 530000 of company 2000
-	customer       uuid.UUID
+	revenue, other  uuid.UUID // accounts 400000 and 530000 of company 2000
+	receivable, tax uuid.UUID // accounts 120000 and 230000
+	bank, incoming  uuid.UUID // accounts 102000 and 103000
+	customer        uuid.UUID
 }
 
 // outputCodes gives company 2000 its output tax account and codes;
@@ -34,7 +42,29 @@ type env struct {
 func outputCodes(rounding string) func(*config.Config) {
 	return func(doc *config.Config) {
 		de := doc.Company("2000")
-		de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "230000", Name: "Output tax", Type: config.Liability})
+		de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "230000", Name: "Output tax", Type: config.Liability},
+			config.Account{Number: "120000", Name: "Trade receivables", Type: config.Asset, CustomerReconciliation: true})
+		// House bank MAIN posts its statements to 102000 and its incoming
+		// payments to 103000 (ADR-0047); its clearing account 100000 and the
+		// incoming account are open-item managed.
+		de.ChartOfAccounts = append(de.ChartOfAccounts, config.Account{Number: "102000", Name: "Bank - Deutsche Bank", Type: config.Asset},
+			config.Account{Number: "103000", Name: "Bank incoming - Deutsche Bank", Type: config.Asset, OpenItems: true})
+		for i := range de.ChartOfAccounts {
+			if de.ChartOfAccounts[i].Number == "100000" {
+				de.ChartOfAccounts[i].OpenItems = true
+			}
+		}
+		de.HouseBank.MainGLAccount, de.HouseBank.IncomingGLAccount = "102000", "103000"
+		for _, y := range fixture.Years() {
+			doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999},
+				config.NumberRange{Company: "2000", DocumentType: "journal_dz", FiscalYear: y, First: 100000, Last: 999999})
+			first := int64(100000)
+			if y != 2026 { // a range may not repeat another year's numbers (config.RangeRepeats)
+				first = 1000000
+			}
+			doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "incoming_payment", FiscalYear: y, Prefix: "IP",
+				First: first, Last: first + 899999})
+		}
 		output := func(code, kind string, onLine bool, rates ...config.TaxRate) config.TaxCode {
 			c := config.TaxComponent{Key: "vat", AccountKey: config.KeyOutput, Account: "230000", Rates: rates}
 			if onLine {
@@ -60,9 +90,20 @@ func setup(t *testing.T) env { t.Helper(); return setupRounding(t, "") }
 func setupRounding(t *testing.T, rounding string) env {
 	t.Helper()
 	f := fixture.NewWith(t, nil, outputCodes(rounding), perms...)
-	e := env{Env: f, revenue: f.Account(t, "2000", "400000"), other: f.Account(t, "2000", "530000")}
+	e := env{Env: f, revenue: f.Account(t, "2000", "400000"), other: f.Account(t, "2000", "530000"), receivable: f.Account(t, "2000", "120000"),
+		tax: f.Account(t, "2000", "230000"), bank: f.Account(t, "2000", "102000"), incoming: f.Account(t, "2000", "103000")}
 	e.customer = e.partner(t, "BP70000001", "Northwind Traders", "active", "customer")
+	e.companyData(t, e.customer, "NT30")
 	return e
+}
+
+// companyData sets the customer up in company 2000 on its receivables
+// account 120000 with the payment term, as an approved partner change
+// would (T74a).
+func (e env) companyData(t *testing.T, customer uuid.UUID, term string) {
+	t.Helper()
+	pgtest.Exec(t, `INSERT INTO partner.customer_company (tenant_id, partner_id, legal_entity_id, reconciliation_account_id, payment_term_code, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)`, e.Tenant.ID, customer, e.DE, e.receivable, term, e.Tenant.Human.ID)
 }
 
 // partner inserts a business partner in the status with the roles.

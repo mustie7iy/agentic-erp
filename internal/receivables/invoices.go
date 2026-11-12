@@ -39,7 +39,10 @@ type Input struct {
 	InvoiceDate   time.Time
 	PostingDate   *time.Time
 	Currency      string
-	Items         []ItemInput
+	// PaymentTermCode is the payment term the invoice is to post with; nil:
+	// the customer's in the company when it posts.
+	PaymentTermCode *string
+	Items           []ItemInput
 }
 
 // checked is an input that passed validation: its company, its customer
@@ -80,16 +83,16 @@ func (e *Endpoints) CreateInvoice(ctx context.Context, in Input) (Invoice, error
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
-			posting_date, currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)`,
+			posting_date, currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, payment_term_code)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)`,
 		p.TenantID, id, number, in.LegalEntityID, in.CustomerID, KindInvoice, in.InvoiceDate, in.PostingDate, in.Currency, c.net, c.tax, c.gross,
-		Draft, p.ID); err != nil {
+		Draft, p.ID, in.PaymentTermCode); err != nil {
 		return Invoice{}, fmt.Errorf("receivables: insert customer invoice %s: %w", id, err)
 	}
 	if err := insertItems(ctx, tx, p.TenantID, id, c.items); err != nil {
 		return Invoice{}, err
 	}
-	v, err := load(ctx, tx, id)
+	v, err := load(ctx, tx, id, false)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -152,6 +155,9 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 	if c.exp, err = currency.Exponent(ctx, tx, in.Currency, problem.Invalid("receivables.unknown_currency", "currency", "The currency is not known.")); err != nil {
 		return checked{}, fmt.Errorf("receivables: currency %s: %w", in.Currency, err)
 	}
+	if err := e.knownTerm(ctx, in.PaymentTermCode); err != nil {
+		return checked{}, err
+	}
 	if len(in.Items) == 0 {
 		return checked{}, problem.Invalid("receivables.items_required", "items", "A customer invoice has at least one item.")
 	}
@@ -169,6 +175,23 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 		return checked{}, err
 	}
 	return c, c.total()
+}
+
+// knownTerm refuses a payment term entered that is not configured (422
+// receivables.unknown_payment_term naming payment_term_code); nil: none
+// entered, the customer's applies when the invoice posts.
+func (e *Endpoints) knownTerm(ctx context.Context, code *string) error {
+	if code == nil {
+		return nil
+	}
+	_, ok, err := e.Terms.PaymentTerm(ctx, *code)
+	if err != nil {
+		return fmt.Errorf("receivables: payment term %s: %w", *code, err)
+	}
+	if !ok {
+		return problem.Invalid("receivables.unknown_payment_term", "payment_term_code", "Payment term "+*code+" is not configured.")
+	}
+	return nil
 }
 
 // total adds the items' net and tax up to the invoice's, and these to its
@@ -192,9 +215,10 @@ func (c *checked) total() error {
 
 // parties resolves the legal entity, which the caller must be allowed to
 // act in, and the customer: a business partner that may be posted as a
-// customer there (active, with the customer role), as the ledger checks a
-// line on a customer reconciliation account today (T75a; its company data
-// is required from T75b, ADR-0063 §3).
+// customer there (active, with the customer role and, since T74a, not
+// blocked for posting in the company), as the ledger checks a line on a
+// customer reconciliation account. Its company data is required when the
+// invoice posts, not when it is entered (ADR-0063 §3).
 func (e *Endpoints) parties(ctx context.Context, in Input) (tenancy.Entity, partner.Named, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {

@@ -157,6 +157,20 @@ func (e *Endpoints) bankLines(ctx context.Context, tx pgx.Tx, in BankPosting, le
 // accountItems are the entries' lines on the account, which must be
 // open-item managed in the legal entity, in the order of the entries.
 func accountItems(ctx context.Context, tx pgx.Tx, le, account uuid.UUID, entries []ItemRef) ([]item, error) {
+	refs, err := accountLines(ctx, tx, le, account, entries)
+	if err != nil {
+		return nil, err
+	}
+	return loadItems(ctx, tx, refs)
+}
+
+// accountLines names the entries' lines on the account, which must be
+// open-item managed in the legal entity, in the order of the entries. It
+// takes no lock and reads no state: journal lines never change, and
+// whether they are still open is read under the entries' locks by the one
+// loadItems of the transaction (lockEntries), which a caller that clears
+// further items with them makes over all of them at once (ApplyReceipt).
+func accountLines(ctx context.Context, tx pgx.Tx, le, account uuid.UUID, entries []ItemRef) ([]ItemRef, error) {
 	var managed bool
 	if err := tx.QueryRow(ctx, `SELECT coalesce((SELECT is_open_item_managed FROM ledger.company_account WHERE legal_entity_id = $1 AND account_id = $2), false)`,
 		le, account).Scan(&managed); err != nil {
@@ -189,7 +203,7 @@ func accountItems(ctx context.Context, tx pgx.Tx, le, account uuid.UUID, entries
 	if missing != nil {
 		return nil, problem.Unprocessable("ledger.not_an_open_item", "Entry "+missing.String()+" has no line on the clearing account in the legal entity.")
 	}
-	return loadItems(ctx, tx, refs)
+	return refs, nil
 }
 
 // checkAccountItem checks item i, a line on an open-item managed account:

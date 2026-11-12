@@ -1107,9 +1107,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant posts the customer invoice: it is the customer's open item with its payment terms and net due date in GET /v1/open-items; the ledger's reader of customer open items",
-        "r": "T75b · docs/design/plan-breadth-week1.md §T75b",
+        "r": "T75b · docs/design/plan-breadth-week1.md §T75b · db/migrations/000267 · POST /v1/customer-invoices/{id}:post · CustomerInvoicePosted · ledger.OpenItems.Receivable (internal/ledger/receivable.go), terms kept for customer open items (keepTerms) · walkthrough step_customer_invoice · ADR-0063 §3, §5, §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -1123,14 +1123,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Incoming payment posting and clearing",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant applies an incoming payment on a house bank's incoming payments clearing account to a customer's open items in full: one entry clears the payment and the items",
-        "r": "T75c · docs/design/plan-breadth-week1.md §T75c · clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047)",
+        "r": "T75c · docs/design/plan-breadth-week1.md §T75c · clears the open items T49h leaves on a house bank's incoming payments clearing account (ADR-0047) · db/migrations/000268 · POST /v1/incoming-payments, GET /v1/incoming-payments, GET /v1/incoming-payments/{id}, GET /v1/unapplied-receipts · IncomingPaymentApplied · ledger.Postings.ApplyReceipt, ledger.OpenItems.Receipts (internal/ledger/receipt.go) · walkthrough step_incoming_payment · ADR-0063 §6 and As built",
         "src": "po:2026-11-10 · design:03 §3.16 · adr:ADR-0047",
         "c": []
        },

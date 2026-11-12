@@ -233,6 +233,10 @@ type CreateHierarchyRes interface {
 	createHierarchyRes()
 }
 
+type CreateIncomingPaymentRes interface {
+	createIncomingPaymentRes()
+}
+
 type CreateInternalOrderRes interface {
 	createInternalOrderRes()
 }
@@ -603,6 +607,10 @@ type GetHierarchyNodeRes interface {
 
 type GetHierarchyRes interface {
 	getHierarchyRes()
+}
+
+type GetIncomingPaymentRes interface {
+	getIncomingPaymentRes()
 }
 
 type GetInternalOrderRes interface {
@@ -1013,6 +1021,10 @@ type ListHouseBanksRes interface {
 	listHouseBanksRes()
 }
 
+type ListIncomingPaymentsRes interface {
+	listIncomingPaymentsRes()
+}
+
 type ListIntercompanyDifferencesRes interface {
 	listIntercompanyDifferencesRes()
 }
@@ -1205,6 +1217,10 @@ type ListTaxReturnsRes interface {
 	listTaxReturnsRes()
 }
 
+type ListUnappliedReceiptsRes interface {
+	listUnappliedReceiptsRes()
+}
+
 type ListVarianceCommentsRes interface {
 	listVarianceCommentsRes()
 }
@@ -1287,6 +1303,10 @@ type PlaceInHierarchyRes interface {
 
 type PostBankStatementLineRes interface {
 	postBankStatementLineRes()
+}
+
+type PostCustomerInvoiceRes interface {
+	postCustomerInvoiceRes()
 }
 
 type PostGoodsReceiptRes interface {

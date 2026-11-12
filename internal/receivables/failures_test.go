@@ -47,11 +47,54 @@ func TestDatabaseFailures(t *testing.T) {
 	entered, _ := e.Must(201, "POST", "/v1/customer-invoices", e.invoice(e.customer, "2026-03-10", e.item("100.00", "A1")), "")
 	id := uuid.MustParse(entered["id"].(string))
 	create := &gen.CustomerInvoiceCreate{LegalEntityID: e.DE, CustomerID: e.customer, InvoiceDate: date(t, "2026-03-10"),
-		PostingDate: gen.NewOptDate(date(t, "2026-03-11")), Currency: "EUR", Items: []gen.CustomerInvoiceItemCreate{
+		PostingDate: gen.NewOptDate(date(t, "2026-03-11")), Currency: "EUR", PaymentTermCode: gen.NewOptString("NT14"), Items: []gen.CustomerInvoiceItemCreate{
 			{AccountID: e.revenue, NetAmount: gen.Money{Amount: "100.00", Currency: "EUR"}, TaxCode: gen.NewOptString("A1"),
 				CostCenterID: gen.NewOptUUID(c.Sales), ProfitCenterID: gen.NewOptUUID(c.Profit), Description: gen.NewOptString("Goods")},
 			{AccountID: e.revenue, NetAmount: gen.Money{Amount: "5.00", Currency: "EUR"}}}}
+	draft, _ := e.Must(201, "POST", "/v1/customer-invoices", e.invoice(e.customer, "2026-03-10", e.item("100.00", "A1")), "")
+	post := gen.PostCustomerInvoiceParams{ID: uuid.MustParse(draft["id"].(string)), IfMatch: `"1"`}
+	h.Now = func() time.Time { return date(t, "2026-03-15") }
+	// A receipt to apply to an invoice, and one applied already.
+	receipt, spent := e.receipt(t, 10000, "2026-03-14"), e.receipt(t, 5000, "2026-03-14")
+	owed := gen.ClearingItemRef{FiscalYear: 2026, JournalEntryID: entryOf(t, e.invoiced(t, e.customer, "100.00", "2026-03-10")), LineNo: 1}
+	applied, _ := e.Must(201, "POST", "/v1/incoming-payments", e.payment(e.customer, spent.ID, "2026-03-15", e.invoiced(t, e.customer, "50.00", "2026-03-10")), "")
+	apply := func(receipt uuid.UUID, day gen.OptDate) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			_, err := h.CreateIncomingPayment(ctx, &gen.IncomingPaymentCreate{LegalEntityID: e.DE, CustomerID: e.customer, ReceiptJournalEntryID: receipt,
+				PostingDate: day, Items: []gen.ClearingItemRef{owed}}, gen.CreateIncomingPaymentParams{})
+			return err
+		}
+	}
 	calls := map[string]func(ctx context.Context) error{
+		"apply a payment":                       apply(receipt.ID, gen.NewOptDate(date(t, "2026-03-15"))),
+		"apply a payment on the company's date": apply(receipt.ID, gen.OptDate{}),
+		"apply a receipt applied already": func(ctx context.Context) error {
+			err := apply(spent.ID, gen.OptDate{})(ctx)
+			if problem.From(err).Code == "receivables.receipt_already_applied" {
+				return nil // every statement ran: the refusal is the call's answer
+			}
+			return err
+		},
+		"get a payment": func(ctx context.Context) error {
+			_, err := h.GetIncomingPayment(ctx, gen.GetIncomingPaymentParams{ID: uuid.MustParse(applied["id"].(string))})
+			return err
+		},
+		"list payments": func(ctx context.Context) error {
+			_, err := h.ListIncomingPayments(ctx, gen.ListIncomingPaymentsParams{})
+			return err
+		},
+		"list receipts": func(ctx context.Context) error {
+			_, err := h.ListUnappliedReceipts(ctx, gen.ListUnappliedReceiptsParams{LegalEntityID: e.DE})
+			return err
+		},
+		"post": func(ctx context.Context) error {
+			_, err := h.PostCustomerInvoice(ctx, gen.NewOptCustomerInvoicePost(gen.CustomerInvoicePost{PostingDate: gen.NewOptDate(date(t, "2026-03-12"))}), post)
+			return err
+		},
+		"post on the company's date": func(ctx context.Context) error {
+			_, err := h.PostCustomerInvoice(ctx, gen.OptCustomerInvoicePost{}, post)
+			return err
+		},
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateCustomerInvoice(ctx, create, gen.CreateCustomerInvoiceParams{})
 			return err
@@ -73,15 +116,26 @@ func TestDatabaseFailures(t *testing.T) {
 			apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, name, call)
 		})
 	}
-	t.Run("list page size", func(t *testing.T) {
-		err := e.inRequest(t, func(ctx context.Context) error {
+	for name, list := range map[string]func(ctx context.Context) error{
+		"invoices": func(ctx context.Context) error {
 			_, err := h.ListCustomerInvoices(ctx, gen.ListCustomerInvoicesParams{PageSize: gen.NewOptInt32(0)})
 			return err
+		},
+		"payments": func(ctx context.Context) error {
+			_, err := h.ListIncomingPayments(ctx, gen.ListIncomingPaymentsParams{PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"receipts": func(ctx context.Context) error {
+			_, err := h.ListUnappliedReceipts(ctx, gen.ListUnappliedReceiptsParams{LegalEntityID: e.DE, PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+	} {
+		t.Run("list page size, "+name, func(t *testing.T) {
+			if p := problem.From(e.inRequest(t, list)); p.Code != "request.invalid_page_size" {
+				t.Errorf("got %v, want request.invalid_page_size", p)
+			}
 		})
-		if p := problem.From(err); p.Code != "request.invalid_page_size" {
-			t.Errorf("got %v, want request.invalid_page_size", err)
-		}
-	})
+	}
 }
 
 // badRate is a ledger whose tax codes carry a rate the calculator cannot

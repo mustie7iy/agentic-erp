@@ -403,11 +403,28 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 
 // Receivables is the receivables context as the API wires it (ADR-0063
 // §1): the ledger, the partner context, tenancy and the configuration
-// through its ports, as payables reads them.
+// through its ports, as payables reads them. The payment terms are the
+// tenant's, for customers as for suppliers: partner.Suppliers is their one
+// reader.
 func Receivables(cfg Config) *receivables.Endpoints {
-	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, Partners: partner.Payees{},
-		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}}
+	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
+		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
+		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, Statements: receivablesStatements{},
+		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+}
+
+// receivablesStatements gives receivables the statement lines behind its
+// receipts' entries from the payments context, which it does not import
+// (ADR-0063 §1, As built T75c).
+type receivablesStatements struct{}
+
+func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef) (map[uuid.UUID]receivables.StatementLine, error) {
+	lines, err := payments.StatementPostings{}.Lines(ctx, entries)
+	out := make(map[uuid.UUID]receivables.StatementLine, len(lines))
+	for entry, l := range lines {
+		out[entry] = receivables.StatementLine{StatementID: l.StatementID, StatementRef: l.StatementRef, LineNo: l.LineNo}
+	}
+	return out, err
 }
 
 // uploads is the API's direct-upload service (ADR-0020).

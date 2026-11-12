@@ -5,15 +5,19 @@
 //
 // A customer invoice is the accounting record of an invoice the company
 // issued: not the legal tax invoice, and no e-invoice is sent. It is a
-// draft when entered and nothing is posted; posting it as the customer's
-// open item, applying incoming payments, credit memos and the aging read
-// follow in T75b-T75e (ADR-0063 §5-§7, §10). Its amounts are never negative:
-// the kind gives their direction.
+// draft when entered and nothing is posted; posting it (T75b, ADR-0063
+// §5) debits the customer's reconciliation account, which is the
+// customer's open item with its payment terms, and credits revenue and
+// output tax. An incoming payment waiting on a house bank's incoming
+// payments clearing account is applied to the customer's open items in
+// full and exactly (T75c, ADR-0063 §6; incoming.go). Credit memos and the
+// aging read follow in T75d and T75e (ADR-0063 §7, §10). An invoice's
+// amounts are never negative: the kind gives their direction.
 //
 // The context reads the ledger (accounts, tax codes, assignments), the
-// partner context (the customer by role), tenancy and the configuration
-// through the ports below, as payables does; its financial effects will go
-// only through the ledger's posting port (03 §3.16).
+// partner context (the customer by role and its company data), tenancy
+// and the configuration through the ports below, as payables does; its
+// financial effects go only through the ledger's posting port (03 §3.16).
 package receivables
 
 import (
@@ -37,9 +41,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Draft is the status a customer invoice is entered in; the slices that
-// post it add the others (ADR-0063 §5).
-const Draft = "draft"
+// The statuses of a customer invoice: entered as a draft, posted once
+// (ADR-0063 §2, §5).
+const (
+	Draft  = "draft"
+	Posted = "posted"
+)
 
 // KindInvoice is the kind of a customer invoice; a credit memo's follows
 // with T75d (ADR-0063 §7).
@@ -65,6 +72,54 @@ type Customers interface {
 	PostingBlock(ctx context.Context, partnerID, legalEntity uuid.UUID, kind string) (string, error)
 }
 
+// CustomerData reads a customer's data in a company: the reconciliation
+// account and payment term a receivables document posts with (partner
+// context, T74a).
+type CustomerData interface {
+	Customer(ctx context.Context, partnerID, legalEntity uuid.UUID) (partner.Customer, bool, error)
+}
+
+// Terms reads a configured payment term (partner context).
+type Terms interface {
+	PaymentTerm(ctx context.Context, code string) (partner.PaymentTerm, bool, error)
+}
+
+// Postings is the ledger's posting port (03 §3.16): a customer invoice's
+// entry, and the entry that applies a receipt to a customer's open items.
+type Postings interface {
+	Post(ctx context.Context, in ledger.Posting) (ledger.Entry, error)
+	ApplyReceipt(ctx context.Context, in ledger.ReceiptApplication) (ledger.AppliedReceipt, error)
+}
+
+// Entries names journal entries by their document numbers and by their
+// references (ledger context).
+type Entries interface {
+	Numbers(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+	References(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]string, error)
+}
+
+// Receipts reads the receipts not yet applied on a company's incoming
+// payments clearing accounts (ledger context).
+type Receipts interface {
+	Receipts(ctx context.Context, page *pagination.Keyset, legalEntity uuid.UUID, accounts []uuid.UUID, f ledger.ReceiptFilter) ([]ledger.Receipt, error)
+}
+
+// StatementLine is the bank statement line that posted a receipt: the
+// statement's id and reference and the line's number, where a person
+// reads who paid and what the remittance says (payments context).
+type StatementLine struct {
+	StatementID  uuid.UUID
+	StatementRef string
+	LineNo       int32
+}
+
+// Statements names the statement lines behind the journal entries
+// (fiscal year and id) their postings posted, keyed by entry (payments context, which receivables
+// does not import: the composition root wires it).
+type Statements interface {
+	Lines(ctx context.Context, entries []ledger.ItemRef) (map[uuid.UUID]StatementLine, error)
+}
+
 // Partners names business partners by number and name (partner context).
 type Partners interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
@@ -79,8 +134,10 @@ type Accounts interface {
 }
 
 // References names the accounts and centers a document's items carry by
-// id (ledger context).
+// id, and finds a company's accounts by the numbers the configuration
+// names them by (ledger context).
 type References interface {
+	Accounts(ctx context.Context, legalEntity uuid.UUID, numbers []string) (map[string]uuid.UUID, error)
 	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
 	CenterNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CenterName, error)
 }
@@ -95,7 +152,8 @@ type Calendar interface {
 	FiscalYear(ctx context.Context, legalEntity uuid.UUID, date time.Time) (int16, error)
 }
 
-// Settings reads the active configuration: a company's tax rounding
+// Settings reads the active configuration: a company's tax rounding, its
+// time zone and its house banks' incoming payments clearing accounts
 // (configuration context).
 type Settings interface {
 	Document(ctx context.Context) (*config.Config, int32, error)
@@ -106,12 +164,21 @@ type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
 	Customers     Customers
+	CustomerData  CustomerData
+	Terms         Terms
 	Partners      Partners
+	Postings      Postings
+	Entries       Entries
+	Receipts      Receipts
+	Statements    Statements
 	Accounts      Accounts
 	References    References
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	// Now is the clock a posting without a date is dated by, in the
+	// company's time zone; nil: the wall clock.
+	Now func() time.Time
 }
 
 // Item is an item of a customer invoice: a net amount on an account and
@@ -142,6 +209,14 @@ type Invoice struct {
 	Exponent        int
 	Net, Tax, Gross money.Minor
 	Status          string
+	// PaymentTermCode is the payment term entered, nil for none; once
+	// posted, the term the invoice posted with. NetDueDate is its open
+	// item's net due date, and EntryYear and EntryID its journal entry:
+	// nil until posted.
+	PaymentTermCode *string
+	NetDueDate      *time.Time
+	EntryYear       *int16
+	EntryID         *uuid.UUID
 	Items           []Item
 	Version         int32
 	CreatedAt       time.Time
@@ -153,7 +228,7 @@ type Invoice struct {
 // invoiceSelect reads invoices with their items by item number, so every
 // read lists them in the order they were entered.
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.customer_id, i.kind, i.invoice_date, i.posting_date, i.currency, c.exponent,
-		i.net_amount, i.tax_amount, i.gross_amount, i.status,
+		i.net_amount, i.tax_amount, i.gross_amount, i.status, i.payment_term_code, i.net_due_date, i.journal_entry_year, i.journal_entry_id,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'description', t.description, 'account_id', t.account_id,
 			'net_amount', t.net_amount, 'tax_code', t.tax_code, 'tax_amount', t.tax_amount, 'cost_center_id', t.cost_center_id,
 			'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
@@ -164,13 +239,18 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.cust
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.Kind, &v.InvoiceDate, &v.PostingDate, &v.Currency, &v.Exponent,
-		&v.Net, &v.Tax, &v.Gross, &v.Status, &v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+		&v.Net, &v.Tax, &v.Gross, &v.Status, &v.PaymentTermCode, &v.NetDueDate, &v.EntryYear, &v.EntryID, &v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
 	return v, errs.Wrapf(err, "scan customer invoice")
 }
 
-// load reads an invoice whatever its company; get applies company access.
-func load(ctx context.Context, tx pgx.Tx, id uuid.UUID) (Invoice, error) {
-	v, err := scanInvoice(tx.QueryRow(ctx, invoiceSelect+` WHERE i.id = $1`, id))
+// load reads an invoice whatever its company, forUpdate under its row lock
+// (ADR-0008); get applies company access.
+func load(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (Invoice, error) {
+	lock := ""
+	if forUpdate {
+		lock = " FOR UPDATE OF i"
+	}
+	v, err := scanInvoice(tx.QueryRow(ctx, invoiceSelect+` WHERE i.id = $1`+lock, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Invoice{}, problem.NotFoundOf("customer invoice")
 	}
@@ -187,11 +267,17 @@ func GetInvoice(ctx context.Context, id uuid.UUID) (Invoice, error) {
 	if err != nil {
 		return Invoice{}, err
 	}
+	return get(ctx, tx, id, false)
+}
+
+// get reads an invoice of a legal entity the caller may act in, forUpdate
+// under its row lock.
+func get(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (Invoice, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return Invoice{}, fmt.Errorf("receivables: company access for customer invoice %s: %w", id, err)
 	}
-	v, err := load(ctx, tx, id)
+	v, err := load(ctx, tx, id, forUpdate)
 	if err == nil && !access.Allows(v.LegalEntityID) {
 		return Invoice{}, problem.NotFoundOf("customer invoice")
 	}

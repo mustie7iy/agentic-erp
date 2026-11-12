@@ -21749,6 +21749,7 @@ func (*ConflictHeaders) createExchangeRateRes()                    {}
 func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
 func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
+func (*ConflictHeaders) createIncomingPaymentRes()                 {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
@@ -21834,6 +21835,7 @@ func (*ConflictHeaders) pauseWebhookSubscriptionRes()              {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()               {}
 func (*ConflictHeaders) placeInHierarchyRes()                      {}
 func (*ConflictHeaders) postBankStatementLineRes()                 {}
+func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
@@ -27371,6 +27373,22 @@ type CreateHierarchyUnprocessableEntity Problem
 
 func (*CreateHierarchyUnprocessableEntity) createHierarchyRes() {}
 
+type CreateIncomingPaymentBadRequest Problem
+
+func (*CreateIncomingPaymentBadRequest) createIncomingPaymentRes() {}
+
+type CreateIncomingPaymentForbidden Problem
+
+func (*CreateIncomingPaymentForbidden) createIncomingPaymentRes() {}
+
+type CreateIncomingPaymentPreconditionRequired Problem
+
+func (*CreateIncomingPaymentPreconditionRequired) createIncomingPaymentRes() {}
+
+type CreateIncomingPaymentUnprocessableEntity Problem
+
+func (*CreateIncomingPaymentUnprocessableEntity) createIncomingPaymentRes() {}
+
 type CreateInternalOrderBadRequest Problem
 
 func (*CreateInternalOrderBadRequest) createInternalOrderRes() {}
@@ -28285,7 +28303,8 @@ type CustomerInvoice struct {
 	Kind string `json:"kind"`
 	// The invoice date, its tax date.
 	InvoiceDate time.Time `json:"invoice_date"`
-	// The posting date entered; absent when none was.
+	// The posting date entered; once posted, the date the invoice posted on. Absent on a draft entered
+	// without one.
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217).
 	Currency string `json:"currency"`
@@ -28295,9 +28314,22 @@ type CustomerInvoice struct {
 	TaxAmount Money `json:"tax_amount"`
 	// What the customer owes: `net_amount` and `tax_amount`.
 	GrossAmount Money `json:"gross_amount"`
-	// `draft`: entered, not posted. Open enumeration: clients must accept and preserve values not listed
+	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its debit line
+	// is the customer's open item. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1.
 	Status string `json:"status"`
+	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
+	// company when none was entered). Absent on a draft entered without one.
+	PaymentTermCode OptString `json:"payment_term_code"`
+	// When the invoice's open item is due: the invoice date plus its payment term's net days, as the
+	// ledger keeps it with the item. Absent until posted.
+	NetDueDate OptDate `json:"net_due_date"`
+	// The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year. Absent until posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number. Absent until posted.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The items, by item number.
 	Items []CustomerInvoiceItem `json:"items"`
 }
@@ -28405,6 +28437,31 @@ func (s *CustomerInvoice) GetGrossAmount() Money {
 // GetStatus returns the value of Status.
 func (s *CustomerInvoice) GetStatus() string {
 	return s.Status
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerInvoice) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *CustomerInvoice) GetNetDueDate() OptDate {
+	return s.NetDueDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *CustomerInvoice) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *CustomerInvoice) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *CustomerInvoice) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
 }
 
 // GetItems returns the value of Items.
@@ -28517,6 +28574,31 @@ func (s *CustomerInvoice) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerInvoice) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *CustomerInvoice) SetNetDueDate(val OptDate) {
+	s.NetDueDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *CustomerInvoice) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *CustomerInvoice) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *CustomerInvoice) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
 // SetItems sets the value of Items.
 func (s *CustomerInvoice) SetItems(val []CustomerInvoiceItem) {
 	s.Items = val
@@ -28535,6 +28617,9 @@ type CustomerInvoiceCreate struct {
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217), every item's.
 	Currency string `json:"currency"`
+	// The payment term the invoice posts with: a configured term (`payment_terms` of the configuration);
+	// absent: the customer's in the company when the invoice posts.
+	PaymentTermCode OptString `json:"payment_term_code"`
 	// The items, numbered in this order from 1.
 	Items []CustomerInvoiceItemCreate `json:"items"`
 }
@@ -28562,6 +28647,11 @@ func (s *CustomerInvoiceCreate) GetPostingDate() OptDate {
 // GetCurrency returns the value of Currency.
 func (s *CustomerInvoiceCreate) GetCurrency() string {
 	return s.Currency
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerInvoiceCreate) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
 }
 
 // GetItems returns the value of Items.
@@ -28592,6 +28682,11 @@ func (s *CustomerInvoiceCreate) SetPostingDate(val OptDate) {
 // SetCurrency sets the value of Currency.
 func (s *CustomerInvoiceCreate) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerInvoiceCreate) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
 }
 
 // SetItems sets the value of Items.
@@ -28920,6 +29015,24 @@ func (s *CustomerInvoicePage) SetNextPageToken(val OptString) {
 }
 
 func (*CustomerInvoicePage) listCustomerInvoicesRes() {}
+
+// Options for posting a customer invoice.
+// Ref: #/components/schemas/CustomerInvoicePost
+type CustomerInvoicePost struct {
+	// The posting date; absent: the one entered with the invoice, else today, the company's date in its
+	// time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CustomerInvoicePost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CustomerInvoicePost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
 
 type DecideRecommendationBadRequest Problem
 
@@ -35493,6 +35606,46 @@ type GetHierarchyNotFound Problem
 
 func (*GetHierarchyNotFound) getHierarchyRes() {}
 
+type GetIncomingPaymentBadRequest Problem
+
+func (*GetIncomingPaymentBadRequest) getIncomingPaymentRes() {}
+
+type GetIncomingPaymentForbidden Problem
+
+func (*GetIncomingPaymentForbidden) getIncomingPaymentRes() {}
+
+type GetIncomingPaymentNotFound Problem
+
+func (*GetIncomingPaymentNotFound) getIncomingPaymentRes() {}
+
+// GetIncomingPaymentOKHeaders wraps IncomingPayment with response headers.
+type GetIncomingPaymentOKHeaders struct {
+	ETag     OptString
+	Response IncomingPayment
+}
+
+// GetETag returns the value of ETag.
+func (s *GetIncomingPaymentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetIncomingPaymentOKHeaders) GetResponse() IncomingPayment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetIncomingPaymentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetIncomingPaymentOKHeaders) SetResponse(val IncomingPayment) {
+	s.Response = val
+}
+
+func (*GetIncomingPaymentOKHeaders) getIncomingPaymentRes() {}
+
 type GetInternalOrderBadRequest Problem
 
 func (*GetInternalOrderBadRequest) getInternalOrderRes() {}
@@ -39668,6 +39821,602 @@ func (*ImportBankStatementsPreconditionRequired) importBankStatementsRes() {}
 type ImportBankStatementsUnprocessableEntity Problem
 
 func (*ImportBankStatementsUnprocessableEntity) importBankStatementsRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/IncomingPayment
+type IncomingPayment struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `incoming_payment` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that received the payment.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The posting date of the clearing entry.
+	PostingDate time.Time `json:"posting_date"`
+	// The payment's currency (ISO 4217), the receipt's and every item's.
+	Currency string `json:"currency"`
+	// What was received and applied: the receipt's amount, the sum of the items' amounts.
+	Amount Money `json:"amount"`
+	// The receipt: the journal entry the bank statement line posted (`GET /v1/journal-entries/{id}`).
+	ReceiptJournalEntryID uuid.UUID `json:"receipt_journal_entry_id"`
+	// The receipt entry's fiscal year.
+	ReceiptJournalEntryYear int32 `json:"receipt_journal_entry_year"`
+	// The receipt entry's document number.
+	ReceiptJournalEntryNumber string `json:"receipt_journal_entry_number"`
+	// The incoming payments clearing account the receipt waited on.
+	ReceiptAccountID uuid.UUID `json:"receipt_account_id"`
+	// That account's number.
+	ReceiptAccountNumber string `json:"receipt_account_number"`
+	// That account's name, as it is now.
+	ReceiptAccountName string `json:"receipt_account_name"`
+	// The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the
+	// line with the payer's references and remittance text); absent when no statement line posted the
+	// entry.
+	ReceiptBankStatementID OptUUID `json:"receipt_bank_statement_id"`
+	// That statement's reference, as the bank gave it; absent with `receipt_bank_statement_id`.
+	ReceiptBankStatementRef OptString `json:"receipt_bank_statement_ref"`
+	// The line's number in that statement; absent with `receipt_bank_statement_id`.
+	ReceiptBankStatementLineNo OptInt32 `json:"receipt_bank_statement_line_no"`
+	// The clearing entry that cleared the receipt and the items (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The clearing entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The clearing entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The items the payment was applied to, by item number.
+	Items []IncomingPaymentItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *IncomingPayment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *IncomingPayment) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IncomingPayment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IncomingPayment) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *IncomingPayment) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *IncomingPayment) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *IncomingPayment) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IncomingPayment) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *IncomingPayment) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *IncomingPayment) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IncomingPayment) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *IncomingPayment) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *IncomingPayment) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPayment) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *IncomingPayment) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPayment) GetAmount() Money {
+	return s.Amount
+}
+
+// GetReceiptJournalEntryID returns the value of ReceiptJournalEntryID.
+func (s *IncomingPayment) GetReceiptJournalEntryID() uuid.UUID {
+	return s.ReceiptJournalEntryID
+}
+
+// GetReceiptJournalEntryYear returns the value of ReceiptJournalEntryYear.
+func (s *IncomingPayment) GetReceiptJournalEntryYear() int32 {
+	return s.ReceiptJournalEntryYear
+}
+
+// GetReceiptJournalEntryNumber returns the value of ReceiptJournalEntryNumber.
+func (s *IncomingPayment) GetReceiptJournalEntryNumber() string {
+	return s.ReceiptJournalEntryNumber
+}
+
+// GetReceiptAccountID returns the value of ReceiptAccountID.
+func (s *IncomingPayment) GetReceiptAccountID() uuid.UUID {
+	return s.ReceiptAccountID
+}
+
+// GetReceiptAccountNumber returns the value of ReceiptAccountNumber.
+func (s *IncomingPayment) GetReceiptAccountNumber() string {
+	return s.ReceiptAccountNumber
+}
+
+// GetReceiptAccountName returns the value of ReceiptAccountName.
+func (s *IncomingPayment) GetReceiptAccountName() string {
+	return s.ReceiptAccountName
+}
+
+// GetReceiptBankStatementID returns the value of ReceiptBankStatementID.
+func (s *IncomingPayment) GetReceiptBankStatementID() OptUUID {
+	return s.ReceiptBankStatementID
+}
+
+// GetReceiptBankStatementRef returns the value of ReceiptBankStatementRef.
+func (s *IncomingPayment) GetReceiptBankStatementRef() OptString {
+	return s.ReceiptBankStatementRef
+}
+
+// GetReceiptBankStatementLineNo returns the value of ReceiptBankStatementLineNo.
+func (s *IncomingPayment) GetReceiptBankStatementLineNo() OptInt32 {
+	return s.ReceiptBankStatementLineNo
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPayment) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IncomingPayment) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPayment) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetItems returns the value of Items.
+func (s *IncomingPayment) GetItems() []IncomingPaymentItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *IncomingPayment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *IncomingPayment) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IncomingPayment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IncomingPayment) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *IncomingPayment) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *IncomingPayment) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *IncomingPayment) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IncomingPayment) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *IncomingPayment) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *IncomingPayment) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IncomingPayment) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *IncomingPayment) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *IncomingPayment) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPayment) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *IncomingPayment) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPayment) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetReceiptJournalEntryID sets the value of ReceiptJournalEntryID.
+func (s *IncomingPayment) SetReceiptJournalEntryID(val uuid.UUID) {
+	s.ReceiptJournalEntryID = val
+}
+
+// SetReceiptJournalEntryYear sets the value of ReceiptJournalEntryYear.
+func (s *IncomingPayment) SetReceiptJournalEntryYear(val int32) {
+	s.ReceiptJournalEntryYear = val
+}
+
+// SetReceiptJournalEntryNumber sets the value of ReceiptJournalEntryNumber.
+func (s *IncomingPayment) SetReceiptJournalEntryNumber(val string) {
+	s.ReceiptJournalEntryNumber = val
+}
+
+// SetReceiptAccountID sets the value of ReceiptAccountID.
+func (s *IncomingPayment) SetReceiptAccountID(val uuid.UUID) {
+	s.ReceiptAccountID = val
+}
+
+// SetReceiptAccountNumber sets the value of ReceiptAccountNumber.
+func (s *IncomingPayment) SetReceiptAccountNumber(val string) {
+	s.ReceiptAccountNumber = val
+}
+
+// SetReceiptAccountName sets the value of ReceiptAccountName.
+func (s *IncomingPayment) SetReceiptAccountName(val string) {
+	s.ReceiptAccountName = val
+}
+
+// SetReceiptBankStatementID sets the value of ReceiptBankStatementID.
+func (s *IncomingPayment) SetReceiptBankStatementID(val OptUUID) {
+	s.ReceiptBankStatementID = val
+}
+
+// SetReceiptBankStatementRef sets the value of ReceiptBankStatementRef.
+func (s *IncomingPayment) SetReceiptBankStatementRef(val OptString) {
+	s.ReceiptBankStatementRef = val
+}
+
+// SetReceiptBankStatementLineNo sets the value of ReceiptBankStatementLineNo.
+func (s *IncomingPayment) SetReceiptBankStatementLineNo(val OptInt32) {
+	s.ReceiptBankStatementLineNo = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPayment) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IncomingPayment) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPayment) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetItems sets the value of Items.
+func (s *IncomingPayment) SetItems(val []IncomingPaymentItem) {
+	s.Items = val
+}
+
+// Apply an incoming payment to a customer's open items, in full and exactly.
+// Ref: #/components/schemas/IncomingPaymentCreate
+type IncomingPaymentCreate struct {
+	// The company that received the payment: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer whose open items the payment is applied to (business partner id).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The receipt: the journal entry a bank statement line matched as incoming posted, waiting on a house
+	// bank's incoming payments clearing account (`listUnappliedReceipts`).
+	ReceiptJournalEntryID uuid.UUID `json:"receipt_journal_entry_id"`
+	// The posting date of the clearing entry; absent: today, the company's date in its time zone
+	// (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+	// The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits;
+	// together they equal the receipt exactly, in its currency.
+	Items []ClearingItemRef `json:"items"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IncomingPaymentCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IncomingPaymentCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetReceiptJournalEntryID returns the value of ReceiptJournalEntryID.
+func (s *IncomingPaymentCreate) GetReceiptJournalEntryID() uuid.UUID {
+	return s.ReceiptJournalEntryID
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPaymentCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *IncomingPaymentCreate) GetItems() []ClearingItemRef {
+	return s.Items
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IncomingPaymentCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IncomingPaymentCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetReceiptJournalEntryID sets the value of ReceiptJournalEntryID.
+func (s *IncomingPaymentCreate) SetReceiptJournalEntryID(val uuid.UUID) {
+	s.ReceiptJournalEntryID = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPaymentCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *IncomingPaymentCreate) SetItems(val []ClearingItemRef) {
+	s.Items = val
+}
+
+// IncomingPaymentHeaders wraps IncomingPayment with response headers.
+type IncomingPaymentHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           IncomingPayment
+}
+
+// GetETag returns the value of ETag.
+func (s *IncomingPaymentHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *IncomingPaymentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *IncomingPaymentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *IncomingPaymentHeaders) GetResponse() IncomingPayment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *IncomingPaymentHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *IncomingPaymentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *IncomingPaymentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *IncomingPaymentHeaders) SetResponse(val IncomingPayment) {
+	s.Response = val
+}
+
+func (*IncomingPaymentHeaders) createIncomingPaymentRes() {}
+
+// An open item an incoming payment was applied to, identified by (fiscal_year, journal_entry_id,
+// line_no).
+// Ref: #/components/schemas/IncomingPaymentItem
+type IncomingPaymentItem struct {
+	// The item's number in the payment, in the order of the request.
+	ItemNo int32 `json:"item_no"`
+	// Fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The item's journal entry (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The item's line in the entry.
+	LineNo int32 `json:"line_no"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The entry's reference, a customer invoice's document number for one; its document number when it has
+	// none.
+	Reference string `json:"reference"`
+	// The amount the item stood at, in the payment's currency: positive for what the customer owed (an
+	// invoice), negative for a credit of the customer's.
+	Amount Money `json:"amount"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *IncomingPaymentItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *IncomingPaymentItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *IncomingPaymentItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentItem) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *IncomingPaymentItem) GetReference() string {
+	return s.Reference
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPaymentItem) GetAmount() Money {
+	return s.Amount
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *IncomingPaymentItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *IncomingPaymentItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *IncomingPaymentItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentItem) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *IncomingPaymentItem) SetReference(val string) {
+	s.Reference = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPaymentItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// One page of incoming payments applied.
+// Ref: #/components/schemas/IncomingPaymentPage
+type IncomingPaymentPage struct {
+	// The incoming payments on this page.
+	Items []IncomingPayment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *IncomingPaymentPage) GetItems() []IncomingPayment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *IncomingPaymentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *IncomingPaymentPage) SetItems(val []IncomingPayment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *IncomingPaymentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*IncomingPaymentPage) listIncomingPaymentsRes() {}
 
 // A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
 // elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a
@@ -45249,6 +45998,14 @@ type ListHouseBanksForbidden Problem
 
 func (*ListHouseBanksForbidden) listHouseBanksRes() {}
 
+type ListIncomingPaymentsBadRequest Problem
+
+func (*ListIncomingPaymentsBadRequest) listIncomingPaymentsRes() {}
+
+type ListIncomingPaymentsForbidden Problem
+
+func (*ListIncomingPaymentsForbidden) listIncomingPaymentsRes() {}
+
 type ListIntercompanyDifferencesBadRequest Problem
 
 func (*ListIntercompanyDifferencesBadRequest) listIntercompanyDifferencesRes() {}
@@ -45696,6 +46453,18 @@ func (*ListTaxReturnsForbidden) listTaxReturnsRes() {}
 type ListTaxReturnsNotFound Problem
 
 func (*ListTaxReturnsNotFound) listTaxReturnsRes() {}
+
+type ListUnappliedReceiptsBadRequest Problem
+
+func (*ListUnappliedReceiptsBadRequest) listUnappliedReceiptsRes() {}
+
+type ListUnappliedReceiptsForbidden Problem
+
+func (*ListUnappliedReceiptsForbidden) listUnappliedReceiptsRes() {}
+
+type ListUnappliedReceiptsUnprocessableEntity Problem
+
+func (*ListUnappliedReceiptsUnprocessableEntity) listUnappliedReceiptsRes() {}
 
 type ListVarianceCommentsBadRequest Problem
 
@@ -51637,6 +52406,52 @@ func (o OptCreditLimit) Get() (v CreditLimit, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptCreditLimit) Or(d CreditLimit) CreditLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCustomerInvoicePost returns new OptCustomerInvoicePost with value set to v.
+func NewOptCustomerInvoicePost(v CustomerInvoicePost) OptCustomerInvoicePost {
+	return OptCustomerInvoicePost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCustomerInvoicePost is optional CustomerInvoicePost.
+type OptCustomerInvoicePost struct {
+	Value CustomerInvoicePost
+	Set   bool
+}
+
+// IsSet returns true if OptCustomerInvoicePost was set.
+func (o OptCustomerInvoicePost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCustomerInvoicePost) Reset() {
+	var v CustomerInvoicePost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCustomerInvoicePost) SetTo(v CustomerInvoicePost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCustomerInvoicePost) Get() (v CustomerInvoicePost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCustomerInvoicePost) Or(d CustomerInvoicePost) CustomerInvoicePost {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -59903,6 +60718,69 @@ func (*PostBankStatementLinePreconditionRequired) postBankStatementLineRes() {}
 type PostBankStatementLineUnprocessableEntity Problem
 
 func (*PostBankStatementLineUnprocessableEntity) postBankStatementLineRes() {}
+
+type PostCustomerInvoiceBadRequest Problem
+
+func (*PostCustomerInvoiceBadRequest) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceForbidden Problem
+
+func (*PostCustomerInvoiceForbidden) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceNotFound Problem
+
+func (*PostCustomerInvoiceNotFound) postCustomerInvoiceRes() {}
+
+// PostCustomerInvoiceOKHeaders wraps CustomerInvoice with response headers.
+type PostCustomerInvoiceOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CustomerInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *PostCustomerInvoiceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PostCustomerInvoiceOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PostCustomerInvoiceOKHeaders) GetResponse() CustomerInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PostCustomerInvoiceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PostCustomerInvoiceOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PostCustomerInvoiceOKHeaders) SetResponse(val CustomerInvoice) {
+	s.Response = val
+}
+
+func (*PostCustomerInvoiceOKHeaders) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoicePreconditionFailed Problem
+
+func (*PostCustomerInvoicePreconditionFailed) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoicePreconditionRequired Problem
+
+func (*PostCustomerInvoicePreconditionRequired) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceUnprocessableEntity Problem
+
+func (*PostCustomerInvoiceUnprocessableEntity) postCustomerInvoiceRes() {}
 
 type PostGoodsReceiptBadRequest Problem
 
@@ -72427,6 +73305,7 @@ func (*TooManyRequestsHeaders) createExchangeRateRes()                    {}
 func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
+func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
@@ -72520,6 +73399,7 @@ func (*TooManyRequestsHeaders) getGrIrClearingRes()                       {}
 func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()             {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                          {}
+func (*TooManyRequestsHeaders) getIncomingPaymentRes()                    {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
@@ -72622,6 +73502,7 @@ func (*TooManyRequestsHeaders) listGrIrClearingsRes()                     {}
 func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
+func (*TooManyRequestsHeaders) listIncomingPaymentsRes()                  {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
@@ -72670,6 +73551,7 @@ func (*TooManyRequestsHeaders) listTaxPeriodsRes()                        {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()                  {}
 func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()               {}
 func (*TooManyRequestsHeaders) listTaxReturnsRes()                        {}
+func (*TooManyRequestsHeaders) listUnappliedReceiptsRes()                 {}
 func (*TooManyRequestsHeaders) listVarianceCommentsRes()                  {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()                 {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()              {}
@@ -72691,6 +73573,7 @@ func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()              {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()               {}
 func (*TooManyRequestsHeaders) placeInHierarchyRes()                      {}
 func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
+func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
@@ -72857,6 +73740,214 @@ type TransmitBankFileUnprocessableEntity Problem
 
 func (*TransmitBankFileUnprocessableEntity) transmitBankFileRes() {}
 
+// An incoming payment waiting on a house bank's incoming payments clearing account (ADR-0047): the
+// open credit line of the journal entry a bank statement line matched as incoming posted.
+// Ref: #/components/schemas/UnappliedReceipt
+type UnappliedReceipt struct {
+	// The receipt's journal entry: what `createIncomingPayment` takes as `receipt_journal_entry_id`.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The entry's header text, which names the bank statement and line that posted it; absent when it has
+	// none.
+	Text OptString `json:"text"`
+	// The company that received the payment.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The date the receipt was posted on.
+	PostingDate time.Time `json:"posting_date"`
+	// What was received, more than zero, in the receipt's currency.
+	Amount Money `json:"amount"`
+	// The incoming payments clearing account the receipt waits on.
+	AccountID uuid.UUID `json:"account_id"`
+	// That account's number.
+	AccountNumber string `json:"account_number"`
+	// That account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The code of the house bank whose incoming payments clearing account it is (`GET /v1/house-banks`).
+	HouseBankCode string `json:"house_bank_code"`
+	// The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the
+	// line with the payer's references and remittance text); absent when no statement line posted the
+	// entry.
+	BankStatementID OptUUID `json:"bank_statement_id"`
+	// That statement's reference, as the bank gave it; absent with `bank_statement_id`.
+	BankStatementRef OptString `json:"bank_statement_ref"`
+	// The line's number in that statement; absent with `bank_statement_id`.
+	BankStatementLineNo OptInt32 `json:"bank_statement_line_no"`
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *UnappliedReceipt) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *UnappliedReceipt) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *UnappliedReceipt) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetText returns the value of Text.
+func (s *UnappliedReceipt) GetText() OptString {
+	return s.Text
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *UnappliedReceipt) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *UnappliedReceipt) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *UnappliedReceipt) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *UnappliedReceipt) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *UnappliedReceipt) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *UnappliedReceipt) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *UnappliedReceipt) GetHouseBankCode() string {
+	return s.HouseBankCode
+}
+
+// GetBankStatementID returns the value of BankStatementID.
+func (s *UnappliedReceipt) GetBankStatementID() OptUUID {
+	return s.BankStatementID
+}
+
+// GetBankStatementRef returns the value of BankStatementRef.
+func (s *UnappliedReceipt) GetBankStatementRef() OptString {
+	return s.BankStatementRef
+}
+
+// GetBankStatementLineNo returns the value of BankStatementLineNo.
+func (s *UnappliedReceipt) GetBankStatementLineNo() OptInt32 {
+	return s.BankStatementLineNo
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *UnappliedReceipt) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *UnappliedReceipt) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *UnappliedReceipt) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetText sets the value of Text.
+func (s *UnappliedReceipt) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *UnappliedReceipt) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *UnappliedReceipt) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *UnappliedReceipt) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *UnappliedReceipt) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *UnappliedReceipt) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *UnappliedReceipt) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *UnappliedReceipt) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
+}
+
+// SetBankStatementID sets the value of BankStatementID.
+func (s *UnappliedReceipt) SetBankStatementID(val OptUUID) {
+	s.BankStatementID = val
+}
+
+// SetBankStatementRef sets the value of BankStatementRef.
+func (s *UnappliedReceipt) SetBankStatementRef(val OptString) {
+	s.BankStatementRef = val
+}
+
+// SetBankStatementLineNo sets the value of BankStatementLineNo.
+func (s *UnappliedReceipt) SetBankStatementLineNo(val OptInt32) {
+	s.BankStatementLineNo = val
+}
+
+// One page of receipts not yet applied.
+// Ref: #/components/schemas/UnappliedReceiptPage
+type UnappliedReceiptPage struct {
+	// The receipts on this page.
+	Items []UnappliedReceipt `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *UnappliedReceiptPage) GetItems() []UnappliedReceipt {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *UnappliedReceiptPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *UnappliedReceiptPage) SetItems(val []UnappliedReceipt) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *UnappliedReceiptPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*UnappliedReceiptPage) listUnappliedReceiptsRes() {}
+
 // UnauthorizedHeaders wraps Problem with response headers.
 type UnauthorizedHeaders struct {
 	WWWAuthenticate OptString
@@ -72941,6 +74032,7 @@ func (*UnauthorizedHeaders) createExchangeRateRes()                    {}
 func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
+func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
@@ -73034,6 +74126,7 @@ func (*UnauthorizedHeaders) getGrIrClearingRes()                       {}
 func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()             {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) getHierarchyRes()                          {}
+func (*UnauthorizedHeaders) getIncomingPaymentRes()                    {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
@@ -73136,6 +74229,7 @@ func (*UnauthorizedHeaders) listGrIrClearingsRes()                     {}
 func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
+func (*UnauthorizedHeaders) listIncomingPaymentsRes()                  {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
@@ -73184,6 +74278,7 @@ func (*UnauthorizedHeaders) listTaxPeriodsRes()                        {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()                  {}
 func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()               {}
 func (*UnauthorizedHeaders) listTaxReturnsRes()                        {}
+func (*UnauthorizedHeaders) listUnappliedReceiptsRes()                 {}
 func (*UnauthorizedHeaders) listVarianceCommentsRes()                  {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()                 {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()              {}
@@ -73205,6 +74300,7 @@ func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()              {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()               {}
 func (*UnauthorizedHeaders) placeInHierarchyRes()                      {}
 func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
+func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
