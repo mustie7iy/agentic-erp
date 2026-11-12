@@ -613,6 +613,10 @@ type GetInternalOrderRes interface {
 	getInternalOrderRes()
 }
 
+type GetInternalOrderSettlementRuleRes interface {
+	getInternalOrderSettlementRuleRes()
+}
+
 type GetJournalEntryRes interface {
 	getJournalEntryRes()
 }
@@ -1607,6 +1611,10 @@ type UpdateEntryTemplateRes interface {
 
 type UpdateInternalOrderBudgetRes interface {
 	updateInternalOrderBudgetRes()
+}
+
+type UpdateInternalOrderSettlementRuleRes interface {
+	updateInternalOrderSettlementRuleRes()
 }
 
 type UpdateLegalEntityRes interface {

@@ -135,6 +135,50 @@ func TestOrderBudgetRules(t *testing.T) {
 	})
 }
 
+// An order's settlement rule (T60d, migration 000272; ADR-0064 §3): one
+// receiver per order, replaced in place and never deleted.
+
+const settlementRuleSQL = `INSERT INTO controlling.settlement_rule (tenant_id, internal_order_id, receiver_cost_center_id, created_by, updated_by)
+	VALUES ($1, $2, $3, $4, $4)`
+
+func TestSettlementRuleRules(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	mustApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, settlementRuleSQL, f.tenant, f.released, f.cc, f.actor) })
+	for name, c := range map[string]struct {
+		sql  string
+		args []any
+		want string
+	}{
+		"a rule of no order":        {settlementRuleSQL, []any{f.tenant, id(), f.cc, f.actor}, "settlement_rule_order"},
+		"a second rule of an order": {settlementRuleSQL, []any{f.tenant, f.released, id(), f.actor}, "settlement_rule_pkey"},
+		"a rule without a receiver": {settlementRuleSQL, []any{f.tenant, f.created, nil, f.actor}, "receiver_cost_center_id"},
+		"a rule's receiver taken away": {`UPDATE controlling.settlement_rule SET receiver_cost_center_id = NULL, version = version + 1 WHERE internal_order_id = $1`,
+			[]any{f.released}, "receiver_cost_center_id"},
+		"a rule replaced without its version": {`UPDATE controlling.settlement_rule SET receiver_cost_center_id = $2 WHERE internal_order_id = $1`,
+			[]any{f.released, id()}, "optimistic lock"},
+		"a rule deleted": {`DELETE FROM controlling.settlement_rule WHERE internal_order_id = $1`, []any{f.released}, "permission denied"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			failsWith(t, f.try(t, c.sql, c.args...), c.want)
+		})
+	}
+	t.Run("a receiver replaced", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error {
+			return exec(tx, `UPDATE controlling.settlement_rule SET receiver_cost_center_id = $2, version = version + 1 WHERE internal_order_id = $1`, f.released, id())
+		})
+	})
+	t.Run("another tenant sees none", func(t *testing.T) {
+		var n int
+		mustApp(t, id(), func(tx pgx.Tx) error {
+			return tx.QueryRow(t.Context(), `SELECT count(*) FROM controlling.settlement_rule`).Scan(&n)
+		})
+		if n != 0 {
+			t.Errorf("rules another tenant sees: got %d, want 0", n)
+		}
+	})
+}
+
 // The internal order on journal lines (T60b, migrations 000268-000270;
 // ADR-0064 §2): a line carries a cost center or an order, never both; the
 // check holds on every partition, and the order's lines are indexed.

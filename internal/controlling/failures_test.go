@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -49,6 +50,8 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	c.charge(t, charged.String(), "2026-06-10", c.office, "20.00")
 	budgeted := uuid.MustParse(c.order(t, "BUDGETED"))
 	c.Must(200, "PATCH", "/v1/internal-orders/"+budgeted.String()+"/budget", budgetBody("5.00", "EUR"), `"0"`)
+	ruled := uuid.MustParse(c.order(t, "RULED"))
+	c.Must(200, "PATCH", "/v1/internal-orders/"+ruled.String()+"/settlement-rule", ruleBody(c.c.Sales), `"1"`)
 	balances := gen.ListInternalOrderBalancesParams{InternalOrderID: charged, FiscalYear: 2026, PageSize: gen.NewOptInt32(1)}
 	calls := map[string]func(ctx context.Context) error{
 		"create an order": func(ctx context.Context) error {
@@ -88,6 +91,19 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"the ledger's balance of an order": func(ctx context.Context) error {
 			_, err := ledger.AssignmentBalances{}.OrderBalance(ctx, c.DE, charged)
+			return err
+		},
+		"get an order's settlement rule": func(ctx context.Context) error {
+			_, err := h.GetInternalOrderSettlementRule(ctx, gen.GetInternalOrderSettlementRuleParams{ID: ruled})
+			return err
+		},
+		"replace an order's settlement rule": func(ctx context.Context) error {
+			_, err := h.UpdateInternalOrderSettlementRule(ctx, &gen.InternalOrderSettlementRuleUpdate{ReceiverCostCenterID: c.c.Admin},
+				gen.UpdateInternalOrderSettlementRuleParams{ID: ruled, IfMatch: `"2"`})
+			return err
+		},
+		"the ledger's validity of a cost center": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.CostCenterValidOn(ctx, c.c.Admin, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
 			return err
 		},
 		"the orders a posting names": func(ctx context.Context) error {

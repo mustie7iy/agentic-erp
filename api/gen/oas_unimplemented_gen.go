@@ -2428,6 +2428,19 @@ func (UnimplementedHandler) GetInternalOrderBudget(ctx context.Context, params G
 	return r, ht.ErrNotImplemented
 }
 
+// GetInternalOrderSettlementRule implements getInternalOrderSettlementRule operation.
+//
+// The settlement rule of one internal order (ADR-0064 §3): its one receiver, a cost center of the
+// order's legal entity, which takes the whole of what the order is settled for, with the receiver's
+// code. An order that has no rule yet is answered without a receiver. The `ETag` is the order's
+// version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as
+// missing (404).
+//
+// GET /v1/internal-orders/{id}/settlement-rule
+func (UnimplementedHandler) GetInternalOrderSettlementRule(ctx context.Context, params GetInternalOrderSettlementRuleParams) (r GetInternalOrderSettlementRuleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetJournalEntry implements getJournalEntry operation.
 //
 // Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
@@ -6192,6 +6205,24 @@ func (UnimplementedHandler) UpdateEntryTemplate(ctx context.Context, req *EntryT
 //
 // PATCH /v1/internal-orders/{id}/budget
 func (UnimplementedHandler) UpdateInternalOrderBudget(ctx context.Context, req *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (r UpdateInternalOrderBudgetRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateInternalOrderSettlementRule implements updateInternalOrderSettlementRule operation.
+//
+// Sets or replaces the settlement rule of an internal order (ADR-0064 §3): one receiver, taking the
+// whole. JSON Merge Patch (RFC 7396) of the rule, whose one field, `receiver_cost_center_id`, is
+// replaced. The receiver must be an active cost center of the order's legal entity that is valid
+// today, the legal entity's date in its time zone (422 `controlling.settlement_rule_receiver_invalid`,
+// whose field error's code says why: `unknown`, `not_in_company`, `not_active`, `not_valid_today`).
+// `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or this rule's `GET` gave it;
+// the order is read under a row lock and its version moves with the rule, so of two changes at one
+// version the second is refused (412). The rule may be set on an order in any status. Set directly by
+// permission, with no approval request. Audited with the receivers before and after. Agents may not
+// set a rule.
+//
+// PATCH /v1/internal-orders/{id}/settlement-rule
+func (UnimplementedHandler) UpdateInternalOrderSettlementRule(ctx context.Context, req *InternalOrderSettlementRuleUpdate, params UpdateInternalOrderSettlementRuleParams) (r UpdateInternalOrderSettlementRuleRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

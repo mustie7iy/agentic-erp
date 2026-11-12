@@ -242,7 +242,8 @@ func New(cfg Config) (http.Handler, error) {
 		closingAPI:     Closing(cfg),
 		consolAPI:      Consolidation(cfg),
 		einvoicingAPI:  EInvoicing(cfg),
-		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
+		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
+			Settings: configuration.Settings{}, Now: cfg.Now},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
 	}

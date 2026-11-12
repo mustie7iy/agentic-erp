@@ -95,8 +95,8 @@ var allowed = map[string][]string{
 	"closing":                 {"config"}, // a leaf (ADR-0058 §2): configuration, tenancy, the ledger and controlling through ports the composition root wires
 	"config":                  {"bankfile"},
 	"configuration":           {"approvals", "config", "countrypack", "operations"},
-	"consolidation":           {"config"},            // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
-	"controlling":             {"ledger", "tenancy"}, // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2)
+	"consolidation":           {"config"},                      // a leaf (ADR-0059 §2): configuration and tenancy (the ledger and identity in later slices) through ports the composition root wires
+	"controlling":             {"config", "ledger", "tenancy"}, // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3)
 	"countrypack":             {"config"},
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},

@@ -168,7 +168,7 @@ func endpoints(t *testing.T) *controlling.Endpoints {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &controlling.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}}
+	return &controlling.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}, Settings: configuration.Settings{}}
 }
 
 func want[T comparable](t *testing.T, what string, got, want T) {

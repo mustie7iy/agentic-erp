@@ -8339,6 +8339,91 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}/settlement-rule":
+    get:
+      operationId: getInternalOrderSettlementRule
+      tags:
+        - controlling
+      summary: Get an internal order's settlement rule
+      description: "The settlement rule of one internal order (ADR-0064 §3): its one receiver, a cost center of the order's legal entity, which takes the whole of what the order is settled for, with the receiver's code. An order that has no rule yet is answered without a receiver. The `ETag` is the order's version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.order.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The order's settlement rule.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateInternalOrderSettlementRule
+      tags:
+        - controlling
+      summary: Set an internal order's settlement rule
+      description: "Sets or replaces the settlement rule of an internal order (ADR-0064 §3): one receiver, taking the whole. JSON Merge Patch (RFC 7396) of the rule, whose one field, `receiver_cost_center_id`, is replaced. The receiver must be an active cost center of the order's legal entity that is valid today, the legal entity's date in its time zone (422 `controlling.settlement_rule_receiver_invalid`, whose field error's code says why: `unknown`, `not_in_company`, `not_active`, `not_valid_today`). `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or this rule's `GET` gave it; the order is read under a row lock and its version moves with the rule, so of two changes at one version the second is refused (412). The rule may be set on an order in any status. Set directly by permission, with no approval request. Audited with the receivers before and after. Agents may not set a rule."
+      x-permission: controlling.order.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - controlling.internal_order_exists
+        - controlling.settlement_rule_receiver_invalid
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the order's settlement rule.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderSettlementRuleUpdate"
+      responses:
+        "200":
+          description: "The order's settlement rule, as set."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementRule"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/internal-order-balances:
     get:
       operationId: listInternalOrderBalances
@@ -34409,6 +34494,81 @@ components:
         - budget:
             amount: "20000.00"
             currency: EUR
+    InternalOrderSettlementRule:
+      type: object
+      description: "The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's legal entity, taking the whole."
+      required:
+        - internal_order_id
+        - internal_order_code
+        - internal_order_name
+        - legal_entity_id
+        - version
+      properties:
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        internal_order_code:
+          type: string
+          description: The order's code.
+          readOnly: true
+        internal_order_name:
+          type: string
+          description: The order's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The order's legal entity (company code).
+          readOnly: true
+        version:
+          type: integer
+          format: int32
+          minimum: 1
+          description: "The order's version, the `ETag`: it moves with every change of the order and of its rule."
+          readOnly: true
+        receiver_cost_center_id:
+          type: string
+          format: uuid
+          description: "The receiving cost center (`GET /v1/cost-centers/{id}`), which takes the whole. Absent while the order has no rule."
+        receiver_cost_center_code:
+          type: string
+          description: "The receiving cost center's code. Absent while the order has no rule."
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          description: "When the rule was last set (UTC). Absent while the order has no rule."
+          readOnly: true
+        updated_by:
+          type: string
+          format: uuid
+          description: "The principal who last set the rule. Absent while the order has no rule."
+          readOnly: true
+      examples:
+        - internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          internal_order_code: TRADEFAIR-26
+          internal_order_name: Trade fair 2026
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          version: 3
+          receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+          receiver_cost_center_code: CC-2100
+          updated_at: "2026-11-12T11:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderSettlementRuleUpdate:
+      type: object
+      description: "The settlement rule an internal order is given (a merge patch of its rule: the receiver is replaced)."
+      required:
+        - receiver_cost_center_id
+      properties:
+        receiver_cost_center_id:
+          type: string
+          format: uuid
+          description: "An active cost center of the order's legal entity, valid today: the one receiver, taking the whole."
+      additionalProperties: false
+      examples:
+        - receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
     InternalOrderBalance:
       type: object
       description: "The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the legal entity's local currency."

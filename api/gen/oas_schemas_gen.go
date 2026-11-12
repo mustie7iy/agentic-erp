@@ -35545,6 +35545,18 @@ func (s *GetInternalOrderOKHeaders) SetResponse(val InternalOrder) {
 
 func (*GetInternalOrderOKHeaders) getInternalOrderRes() {}
 
+type GetInternalOrderSettlementRuleBadRequest Problem
+
+func (*GetInternalOrderSettlementRuleBadRequest) getInternalOrderSettlementRuleRes() {}
+
+type GetInternalOrderSettlementRuleForbidden Problem
+
+func (*GetInternalOrderSettlementRuleForbidden) getInternalOrderSettlementRuleRes() {}
+
+type GetInternalOrderSettlementRuleNotFound Problem
+
+func (*GetInternalOrderSettlementRuleNotFound) getInternalOrderSettlementRuleRes() {}
+
 type GetJournalEntryBadRequest Problem
 
 func (*GetJournalEntryBadRequest) getJournalEntryRes() {}
@@ -40792,6 +40804,167 @@ func (s *InternalOrderPage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*InternalOrderPage) listInternalOrdersRes() {}
+
+// The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's
+// legal entity, taking the whole.
+// Ref: #/components/schemas/InternalOrderSettlementRule
+type InternalOrderSettlementRule struct {
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The order's version, the `ETag`: it moves with every change of the order and of its rule.
+	Version int32 `json:"version"`
+	// The receiving cost center (`GET /v1/cost-centers/{id}`), which takes the whole. Absent while the
+	// order has no rule.
+	ReceiverCostCenterID OptUUID `json:"receiver_cost_center_id"`
+	// The receiving cost center's code. Absent while the order has no rule.
+	ReceiverCostCenterCode OptString `json:"receiver_cost_center_code"`
+	// When the rule was last set (UTC). Absent while the order has no rule.
+	UpdatedAt OptDateTime `json:"updated_at"`
+	// The principal who last set the rule. Absent while the order has no rule.
+	UpdatedBy OptUUID `json:"updated_by"`
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlementRule) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderSettlementRule) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderSettlementRule) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderSettlementRule) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetVersion returns the value of Version.
+func (s *InternalOrderSettlementRule) GetVersion() int32 {
+	return s.Version
+}
+
+// GetReceiverCostCenterID returns the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRule) GetReceiverCostCenterID() OptUUID {
+	return s.ReceiverCostCenterID
+}
+
+// GetReceiverCostCenterCode returns the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlementRule) GetReceiverCostCenterCode() OptString {
+	return s.ReceiverCostCenterCode
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *InternalOrderSettlementRule) GetUpdatedAt() OptDateTime {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *InternalOrderSettlementRule) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlementRule) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderSettlementRule) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderSettlementRule) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderSettlementRule) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *InternalOrderSettlementRule) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetReceiverCostCenterID sets the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRule) SetReceiverCostCenterID(val OptUUID) {
+	s.ReceiverCostCenterID = val
+}
+
+// SetReceiverCostCenterCode sets the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlementRule) SetReceiverCostCenterCode(val OptString) {
+	s.ReceiverCostCenterCode = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *InternalOrderSettlementRule) SetUpdatedAt(val OptDateTime) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *InternalOrderSettlementRule) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// InternalOrderSettlementRuleHeaders wraps InternalOrderSettlementRule with response headers.
+type InternalOrderSettlementRuleHeaders struct {
+	ETag     OptString
+	Response InternalOrderSettlementRule
+}
+
+// GetETag returns the value of ETag.
+func (s *InternalOrderSettlementRuleHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderSettlementRuleHeaders) GetResponse() InternalOrderSettlementRule {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *InternalOrderSettlementRuleHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderSettlementRuleHeaders) SetResponse(val InternalOrderSettlementRule) {
+	s.Response = val
+}
+
+func (*InternalOrderSettlementRuleHeaders) getInternalOrderSettlementRuleRes() {}
+
+// The settlement rule an internal order is given (a merge patch of its rule: the receiver is
+// replaced).
+// Ref: #/components/schemas/InternalOrderSettlementRuleUpdate
+type InternalOrderSettlementRuleUpdate struct {
+	// An active cost center of the order's legal entity, valid today: the one receiver, taking the whole.
+	ReceiverCostCenterID uuid.UUID `json:"receiver_cost_center_id"`
+}
+
+// GetReceiverCostCenterID returns the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRuleUpdate) GetReceiverCostCenterID() uuid.UUID {
+	return s.ReceiverCostCenterID
+}
+
+// SetReceiverCostCenterID sets the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRuleUpdate) SetReceiverCostCenterID(val uuid.UUID) {
+	s.ReceiverCostCenterID = val
+}
 
 // Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a
 // later change to the payment term changes neither the net due date nor the discounts.
@@ -68250,6 +68423,7 @@ func (*ServiceUnavailableHeaders) updateContractRes()                        {}
 func (*ServiceUnavailableHeaders) updateCostCenterRes()                      {}
 func (*ServiceUnavailableHeaders) updateEntryTemplateRes()                   {}
 func (*ServiceUnavailableHeaders) updateInternalOrderBudgetRes()             {}
+func (*ServiceUnavailableHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*ServiceUnavailableHeaders) updateLegalEntityRes()                     {}
 func (*ServiceUnavailableHeaders) updateMemoRecordRes()                      {}
 func (*ServiceUnavailableHeaders) updateOrgUnitRes()                         {}
@@ -72721,6 +72895,7 @@ func (*TooManyRequestsHeaders) getHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                          {}
 func (*TooManyRequestsHeaders) getInternalOrderBudgetRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
+func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
@@ -72970,6 +73145,7 @@ func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
+func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) updateMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()                         {}
@@ -73237,6 +73413,7 @@ func (*UnauthorizedHeaders) getHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) getHierarchyRes()                          {}
 func (*UnauthorizedHeaders) getInternalOrderBudgetRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
+func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
@@ -73486,6 +73663,7 @@ func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
+func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) updateMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()                         {}
@@ -74154,6 +74332,70 @@ func (*UpdateInternalOrderBudgetPreconditionRequired) updateInternalOrderBudgetR
 type UpdateInternalOrderBudgetUnprocessableEntity Problem
 
 func (*UpdateInternalOrderBudgetUnprocessableEntity) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderSettlementRuleBadRequest Problem
+
+func (*UpdateInternalOrderSettlementRuleBadRequest) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRuleForbidden Problem
+
+func (*UpdateInternalOrderSettlementRuleForbidden) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRuleNotFound Problem
+
+func (*UpdateInternalOrderSettlementRuleNotFound) updateInternalOrderSettlementRuleRes() {}
+
+// UpdateInternalOrderSettlementRuleOKHeaders wraps InternalOrderSettlementRule with response headers.
+type UpdateInternalOrderSettlementRuleOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrderSettlementRule
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) GetResponse() InternalOrderSettlementRule {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) SetResponse(val InternalOrderSettlementRule) {
+	s.Response = val
+}
+
+func (*UpdateInternalOrderSettlementRuleOKHeaders) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRulePreconditionFailed Problem
+
+func (*UpdateInternalOrderSettlementRulePreconditionFailed) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRulePreconditionRequired Problem
+
+func (*UpdateInternalOrderSettlementRulePreconditionRequired) updateInternalOrderSettlementRuleRes() {
+}
+
+type UpdateInternalOrderSettlementRuleUnprocessableEntity Problem
+
+func (*UpdateInternalOrderSettlementRuleUnprocessableEntity) updateInternalOrderSettlementRuleRes() {}
 
 type UpdateLegalEntityBadRequest Problem
 

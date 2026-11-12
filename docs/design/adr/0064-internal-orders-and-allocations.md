@@ -336,3 +336,50 @@ adding up to 100, all active and of one company.
   budget below its costs (shown as exceeded, CAD -500.00 remaining),
   corrects it to CAD 5,000.00 and reads CAD 3,500.00 remaining after the
   CAD 1,500.00 posted in `step_internal_order`.
+
+### T60d: an order's settlement rule (migration 000272)
+- **Table** `controlling.settlement_rule`: at most one row per order (the
+  primary key; `settlement_rule_order`, a foreign key to the order),
+  `receiver_cost_center_id` (the ledger's, no foreign key), the audit
+  columns and a `version` that only counts the row's replacements (an
+  updatable table has one, `platform.touch`); row-level security; never
+  deleted. Schema test: `db/internal_order_test.go`
+  (`TestSettlementRuleRules`).
+- **API**: `PATCH /v1/internal-orders/{id}/settlement-rule` (the plan's
+  `PUT`, as for the budget) sets or replaces the receiver (200 with the
+  rule; 412 `request.version_mismatch`; 422
+  `controlling.settlement_rule_receiver_invalid` on
+  `receiver_cost_center_id` with the reason `unknown`, `not_in_company`,
+  `not_active` or `not_valid_today`; 404 for an order unknown or of a
+  company outside the caller's access). `GET
+  /v1/internal-orders/{id}/settlement-rule` gives the receiver's id and
+  code with the order's code and name; an order without a rule is
+  answered 200 without a receiver, so the read always carries the `ETag`
+  the `PATCH` takes.
+- **The order's version** is the caller's (the plan: "replaced with the
+  order's version"): `If-Match` names it, the order is read `FOR UPDATE`,
+  and its version moves with the rule, so of two changes at one version
+  the second is refused, and a release and a rule change at one version
+  do not both pass.
+- **The receiver** is checked when the rule is set: known, of the
+  order's company, active (`ledger.AssignmentBalances.CostCenterRefs`)
+  and with a period in force today (a new method of the port,
+  `CostCenterValidOn`). Today is the company's date in its time zone
+  (`config.DocumentDay` over `controlling.Settings` and the endpoints'
+  clock, wired in `internal/app`), as center changes are judged
+  (T72n4). The check holds no lock: a center change may end the period
+  later, and the settlement (T60e) posts to the receiver on its own
+  date, where the ledger checks it again.
+- **Audit** action `controlling.internal_order.set_settlement_rule` on
+  the order, with the receiver's id and code before (when there was one)
+  and after. **No event**: the plan adds none for the rule; T60e
+  publishes the settlement.
+- **Decided by default:** setting the rule needs
+  `controlling.order.write` (the plan adds no permission for it) and is
+  a person's (`x-agent: false`), as creating an order is (§1); agents
+  read it. The receiver may be the order's responsible cost center. The
+  rule may be set on an order in any status; it is replaced, never
+  removed.
+- **Walkthrough**: `step_order_settlement`, Carla names CC-1100 as the
+  receiver of `FAIR-<year>`; a cost center that is none and a change at
+  the replaced version are refused.

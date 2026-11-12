@@ -5925,6 +5925,38 @@ step_order_budget() {
   passed
 }
 
+# step_order_settlement: an order's settlement rule (ADR-0064 §3, T60d):
+# Carla names the cost center that will receive the trade fair's costs
+# when the order is settled, one receiver taking the whole. The rule is
+# replaced with the order's version.
+step_order_settlement() {
+  heading "Step 51 — An order's settlement rule: the trade fair's order names the cost center that receives its costs, one receiver taking the whole"
+  as carla
+  local order cc line tag
+  line='"order \(.internal_order_code) \(.internal_order_name): receiver \(.receiver_cost_center_code // "none") (order version \(.version))"'
+  QUIET=1 api 200 '' listInternalOrders -p "legal_entity_id=$LE" -p "code=FAIR-$YEAR"
+  order=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  cc=$(field '.items[0].id')
+  say "The trade fair's order has no settlement rule yet:"
+  api 200 "$line" getInternalOrderSettlementRule -p "id=$order"
+  expect "the order before a rule" "$(field '.receiver_cost_center_code // "none"')" none
+  tag=$ETAG
+  say "A receiver is an active cost center of the order's company that is valid today; another is refused:"
+  refused 422 controlling.settlement_rule_receiver_invalid updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" \
+    -body "{\"receiver_cost_center_id\": \"$order\"}"
+  expect "why the receiver is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "receiver_cost_center_id unknown"
+  say "Carla names the finance office's cost center CC-1100 as the receiver, at the order's version she read. It takes"
+  say "the whole of what the order is settled for (ADR-0064 §3); the order's version moves with its rule."
+  api 200 "$line" updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" -body "{\"receiver_cost_center_id\": \"$cc\"}"
+  expect "the order's receiver" "$(field '"\(.receiver_cost_center_code) \(.receiver_cost_center_id)"')" "CC-1100 $cc"
+  say "A change at the version the rule replaced is refused:"
+  refused 412 request.version_mismatch updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" -body "{\"receiver_cost_center_id\": \"$cc\"}"
+  api 200 "$line" getInternalOrderSettlementRule -p "id=$order"
+  expect "the rule read again" "$(field .receiver_cost_center_code)" CC-1100
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -7949,7 +7981,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_close'
 
 main() {
   stop_unseen
