@@ -426,11 +426,13 @@ func Receivables(cfg Config) *receivables.Endpoints {
 // ledger, the partner context, tenancy and the configuration through its
 // ports, as receivables reads them. The payment terms are the tenant's,
 // for customers as for suppliers: partner.Suppliers is their one reader.
+// A billing document posts through receivables' published API, in
+// process and in the billing's transaction (ADR-0067 §9).
 func Sales(cfg Config) *sales.Endpoints {
 	return &sales.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
 		Terms: partner.Suppliers{}, Partners: partner.Payees{},
-		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}, Now: cfg.Now}
+		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Invoices: Receivables(cfg), Entries: ledger.OpenItems{},
+		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
 }
 
 // receivablesStatements gives receivables the statement lines behind its

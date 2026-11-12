@@ -26,6 +26,9 @@ type references struct {
 	companies map[uuid.UUID]tenancy.Entity
 	partners  map[uuid.UUID]partner.Named
 	accounts  map[uuid.UUID]ledger.AccountRef
+	// entries are the journal entries' document numbers, which posted
+	// billing documents alone name (billingRefs).
+	entries map[uuid.UUID]string
 }
 
 // named is what one document names by id: its company, its customer and

@@ -708,9 +708,9 @@ type Invoker interface {
 	// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
 	// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
 	// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
-	// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
-	// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
-	// answers the document created. Human-only (`x-agent: false`).
+	// `version` moves. Amounts are net; nothing is posted until the document is posted
+	// (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same
+	// `Idempotency-Key` answers the document created. Human-only (`x-agent: false`).
 	//
 	// POST /v1/billing-documents
 	CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error)
@@ -1791,8 +1791,10 @@ type Invoker interface {
 	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
 	// and name, the sales order it bills by id and number with the order's payment term, its billing date,
 	// its net value and its items, each with the order item it bills, the quantity billed, the order's
-	// unit price, its amount and its revenue account's number and name. One of a company the caller may
-	// not act in is not found (404), as one that does not exist.
+	// unit price, its amount and its revenue account's number and name; once posted
+	// (`postBillingDocument`), its posting date, the customer invoice it posted as by id and number and
+	// that invoice's journal entry by id, year and number. One of a company the caller may not act in is
+	// not found (404), as one that does not exist.
 	//
 	// GET /v1/billing-documents/{id}
 	GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error)
@@ -2913,8 +2915,9 @@ type Invoker interface {
 	//
 	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
 	// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
-	// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
-	// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+	// sales order it bills by id and number, its net value and its items and, once posted, its customer
+	// invoice and journal entry. Filtered by company, customer, sales order, status and document number.
+	// Sortable by: `billing_date`, `document_number`.
 	//
 	// GET /v1/billing-documents
 	ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error)
@@ -4130,6 +4133,44 @@ type Invoker interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:post
 	PostBankStatementLine(ctx context.Context, request OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error)
+	// PostBillingDocument invokes postBillingDocument operation.
+	//
+	// Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read
+	// (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same
+	// transaction as the document's change, so either all of it happens or none. The invoice has the
+	// document's company, customer and currency, the billing date as its invoice date, which is its tax
+	// date, the sales order's payment term, and the document's items one for one, each with its
+	// description, account, amount and tax code; it names the billing document as its source
+	// (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at
+	// the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`):
+	// it debits the customer's reconciliation account in the company with the invoice's gross amount,
+	// which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits
+	// each item's account with its amount and output tax per tax code. The invoice's net amount is the
+	// document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed.
+	// The posting date is the request's, else today, the company's date in its time zone; it must be in an
+	// open period (409 `ledger.period_not_open`). The document becomes `posted` and names its
+	// `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's
+	// `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and
+	// BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged,
+	// CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one
+	// document, one posts it and the other meets another version (412). One that is not `created` is
+	// refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted
+	// document. What accounts receivable or the ledger refuses leaves the document `created` and nothing
+	// posted, and is answered with their code, the document's number leading the detail and the document's
+	// own fields named: a customer that is not active, no longer a customer, without data in the company
+	// or blocked for posting there (422 `receivables.customer_not_usable`, `customer_id`); an item's
+	// account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`)
+	// or asks for a cost center the item does not carry (422 `ledger.cost_center_required`,
+	// `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate
+	// on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the
+	// `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). An order's items are
+	// not changed in the first version, so a document refused for an item's account or tax code cannot be
+	// posted until the configuration allows it again. A posted billing document is not reversed or
+	// cancelled in the first version: the ledger's `reverseJournalEntry` refuses its entry (409
+	// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
+	//
+	// POST /v1/billing-documents/{id}:post
+	PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error)
 	// PostCustomerInvoice invokes postCustomerInvoice operation.
 	//
 	// Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
@@ -13085,9 +13126,9 @@ func (c *Client) sendCreateAssetTransfer(ctx context.Context, request *AssetTran
 // output tax code of the company with a rate on the billing date, cannot be billed on that date (422
 // `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
 // is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
-// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
-// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
-// answers the document created. Human-only (`x-agent: false`).
+// `version` moves. Amounts are net; nothing is posted until the document is posted
+// (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same
+// `Idempotency-Key` answers the document created. Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents
 func (c *Client) CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error) {
@@ -25279,8 +25320,10 @@ func (c *Client) sendGetBankStatementRules(ctx context.Context, params GetBankSt
 // One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
 // and name, the sales order it bills by id and number with the order's payment term, its billing date,
 // its net value and its items, each with the order item it bills, the quantity billed, the order's
-// unit price, its amount and its revenue account's number and name. One of a company the caller may
-// not act in is not found (404), as one that does not exist.
+// unit price, its amount and its revenue account's number and name; once posted
+// (`postBillingDocument`), its posting date, the customer invoice it posted as by id and number and
+// that invoice's journal entry by id, year and number. One of a company the caller may not act in is
+// not found (404), as one that does not exist.
 //
 // GET /v1/billing-documents/{id}
 func (c *Client) GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error) {
@@ -42117,8 +42160,9 @@ func (c *Client) sendListBankStatements(ctx context.Context, params ListBankStat
 //
 // The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
 // `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
-// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
-// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+// sales order it bills by id and number, its net value and its items and, once posted, its customer
+// invoice and journal entry. Filtered by company, customer, sales order, status and document number.
+// Sortable by: `billing_date`, `document_number`.
 //
 // GET /v1/billing-documents
 func (c *Client) ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error) {
@@ -68191,6 +68235,198 @@ func (c *Client) sendPostBankStatementLine(ctx context.Context, request OptState
 
 	stage = "DecodeResponse"
 	result, err := decodePostBankStatementLineResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostBillingDocument invokes postBillingDocument operation.
+//
+// Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read
+// (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same
+// transaction as the document's change, so either all of it happens or none. The invoice has the
+// document's company, customer and currency, the billing date as its invoice date, which is its tax
+// date, the sales order's payment term, and the document's items one for one, each with its
+// description, account, amount and tax code; it names the billing document as its source
+// (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at
+// the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`):
+// it debits the customer's reconciliation account in the company with the invoice's gross amount,
+// which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits
+// each item's account with its amount and output tax per tax code. The invoice's net amount is the
+// document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed.
+// The posting date is the request's, else today, the company's date in its time zone; it must be in an
+// open period (409 `ledger.period_not_open`). The document becomes `posted` and names its
+// `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's
+// `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and
+// BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged,
+// CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one
+// document, one posts it and the other meets another version (412). One that is not `created` is
+// refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted
+// document. What accounts receivable or the ledger refuses leaves the document `created` and nothing
+// posted, and is answered with their code, the document's number leading the detail and the document's
+// own fields named: a customer that is not active, no longer a customer, without data in the company
+// or blocked for posting there (422 `receivables.customer_not_usable`, `customer_id`); an item's
+// account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`)
+// or asks for a cost center the item does not carry (422 `ledger.cost_center_required`,
+// `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate
+// on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the
+// `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). An order's items are
+// not changed in the first version, so a document refused for an item's account or tax code cannot be
+// posted until the configuration allows it again. A posted billing document is not reversed or
+// cancelled in the first version: the ledger's `reverseJournalEntry` refuses its entry (409
+// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents/{id}:post
+func (c *Client) PostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (PostBillingDocumentRes, error) {
+	res, err := c.sendPostBillingDocument(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostBillingDocument(ctx context.Context, request OptBillingDocumentPost, params PostBillingDocumentParams) (res PostBillingDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/billing-documents/{id}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/billing-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostBillingDocumentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostBillingDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostBillingDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

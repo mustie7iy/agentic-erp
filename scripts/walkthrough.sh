@@ -6082,18 +6082,20 @@ step_incoming_payment() {
   passed
 }
 
-# rbc_incoming AMOUNT writes RBC's third camt.053 statement of today: a
-# customer's payment of the amount, from the second statement's closing
-# balance (rbc_receipt's: step 8's closing and Northwind's CAD 25,000.00).
+# rbc_incoming AMOUNT [SEQUENCE OPENING] writes a camt.053 statement of RBC
+# of today: a customer's payment of the amount. By default it is the
+# day's third, from the second statement's closing balance (rbc_receipt's:
+# step 8's closing and Northwind's CAD 25,000.00); a later one names its
+# sequence number and its opening balance, the closing of the one before.
 rbc_incoming() {
-  local opening closing
-  opening=$(amount $(($(cents "$CLOSING") + 2500000)))
+  local opening closing seq=${2:-3}
+  opening=${3:-$(amount $(($(cents "$CLOSING") + 2500000)))}
   closing=$(amount $(($(cents "$opening") + $(cents "$1"))))
   {
     printf '<?xml version="1.0" encoding="UTF-8"?>\n'
     printf '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>\n'
-    printf '<GrpHdr><MsgId>RBC-%s-3</MsgId><CreDtTm>%sT23:45:00</CreDtTm></GrpHdr>\n' "$TODAY" "$TODAY"
-    printf '<Stmt><Id>RBC-1000001-%s-3</Id><ElctrncSeqNb>3</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$TODAY"
+    printf '<GrpHdr><MsgId>RBC-%s-%s</MsgId><CreDtTm>%sT23:45:00</CreDtTm></GrpHdr>\n' "$TODAY" "$seq" "$TODAY"
+    printf '<Stmt><Id>RBC-1000001-%s-%s</Id><ElctrncSeqNb>%s</ElctrncSeqNb><Acct><Id><Othr><Id>1000001</Id></Othr></Id><Ccy>CAD</Ccy></Acct>\n' "$TODAY" "$seq" "$seq"
     printf '<Bal><Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$opening" "$TODAY"
     printf '<Bal><Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Dt><Dt>%s</Dt></Dt></Bal>\n' "$closing" "$TODAY"
     printf '<Ntry><Amt Ccy="CAD">%s</Amt><CdtDbtInd>CRDT</CdtDbtInd><Sts>BOOK</Sts><BookgDt><Dt>%s</Dt></BookgDt><ValDt><Dt>%s</Dt></ValDt><BkTxCd><Domn><Cd>PMNT</Cd><Fmly><Cd>RCDT</Cd><SubFmlyCd>ESCT</SubFmlyCd></Fmly></Domn></BkTxCd><NtryDtls><TxDtls><RltdPties><Dbtr><Nm>Northwind Traders</Nm></Dbtr></RltdPties><RmtInf><Ustrd>Customer invoice</Ustrd></RmtInf></TxDtls></NtryDtls></Ntry>\n' "$1" "$TODAY" "$TODAY"
@@ -6331,15 +6333,26 @@ step_sales_order() {
 # order of step_sales_order. Its items are the order's delivered
 # quantities at the order's prices and its net value the order's; the
 # order shows everything billed; a second document is refused, since
-# nothing is left to bill. Nothing is posted (posting is T79b).
-# BILLING_DOCUMENT is the created document for later steps.
+# nothing is left to bill. Nothing is posted until, T79b (ADR-0067 §9),
+# Ruth posts the document: one customer invoice is entered and posted in
+# receivables in the same transaction, naming the document as its source;
+# receivables, revenue and output tax move by its amounts and its debit
+# line is Northwind's open item on the order's terms; a second post is
+# refused. Northwind pays the gross: a statement credit is matched as
+# incoming and applied to the invoice as step_incoming_payment does, so
+# the step leaves Northwind's open items and the unapplied receipts as it
+# found them, whatever earlier steps left there. The statement follows
+# RBC's latest, read from the API. BILLING_DOCUMENT is the posted
+# document for later steps.
 step_billing() {
-  heading "Step 56 — Billing documents: a billing document created for the delivered sales order, its items the delivered quantities at the order's prices and its net value the order's; nothing billed twice; nothing posted"
-  local customer=$CUSTOMER order=$SALES_ORDER before doc number open
+  heading "Step 56 — Billing documents: a billing document created for the delivered sales order, its items the delivered quantities at the order's prices and its net value the order's; nothing billed twice; posted once as a customer invoice in receivables, the customer's open item; paid by an incoming payment"
+  local customer=$CUSTOMER order=$SALES_ORDER before doc number open billed tag invoice entry due st receipt last receipts
   [ -n "$order" ] || fail "step 55's sales order is not there"
   as ruth
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  QUIET=1 api 200 '' listUnappliedReceipts -p "legal_entity_id=$LE"
+  receipts=$(field '[.items[].journal_entry_id] | join(" ")')
   say "The order of step 55 is delivered in full. Ruth bills it: a billing document takes what is delivered of each"
   say "item and not yet billed, at the order's prices (ADR-0067 §9). She gives no date, so it is dated Maple's today:"
   before=$(company_day)
@@ -6347,8 +6360,9 @@ step_billing() {
     createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
   doc=$(field .id)
   number=$(field .document_number)
+  billed=$(field .billing_date)
   expect "the document's status" "$(field .status)" created
-  expect_today "the billing date, Maple's today" "$(field .billing_date)" "$before"
+  expect_today "the billing date, Maple's today" "$billed" "$before"
   expect "the document's order, customer, currency, term and net value" \
     "$(field '"\(.sales_order_id) \(.customer_id) \(.currency) \(.payment_term_code) \(.net_amount.amount)"')" "$order $customer CAD NT30 1737.53"
   expect "each item's order item, quantity and amount" \
@@ -6373,6 +6387,83 @@ step_billing() {
   say "A billing document posts nothing until it is posted as a customer invoice: Northwind's open items are as they were."
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  say "Ruth posts the billing document at the version she read (T79b, ADR-0067 §9). One customer invoice is entered in"
+  say "accounts receivable and posted in the same transaction: dated the billing date, which is its tax date, on the"
+  say "order's term NT30, its items the document's, one for one. The GST is calculated now: 5% of 1,737.53 is"
+  say "86.8765, so 86.88, and the customer owes 1,824.41. Revenue is recognized as billed."
+  due=$(jq -rn --arg d "$billed" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  tag=$ETAG
+  before=$(company_day)
+  api 200 '"billing document \(.document_number): \(.status) on \(.posting_date), posted as customer invoice \(.customer_invoice_number), journal entry \(.journal_entry_number) of \(.journal_entry_year)"' \
+    postBillingDocument -p "id=$doc" -if-match "$tag"
+  expect "the posted document" "$(field '"\(.document_number) \(.status) \(.version) \(.net_amount.amount)"')" "$number posted 2 1737.53"
+  expect_today "the posting date, Maple's today" "$(field .posting_date)" "$before"
+  invoice=$(field .customer_invoice_id)
+  entry=$(field .journal_entry_id)
+  if [ -z "$invoice" ] || [ "$invoice" = null ] || [ -z "$entry" ] || [ "$entry" = null ]; then fail "the posted document names no customer invoice or entry"; fi
+  say "The customer invoice names the billing document as its source. Its net amount is the document's to the cent,"
+  say "and its gross is net and tax exactly:"
+  api 200 '"customer invoice \(.document_number) to \(.customer_number) \(.customer_name): \(.status), from \(.source_document_number), dated \(.invoice_date), terms \(.payment_term_code), due \(.net_due_date), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)", (.items[] | "  item \(.item_no) \(.description): \(.net_amount.amount) on \(.account_number) \(.account_name), \(.tax_code // "no tax code"), tax \(.tax_amount.amount)")' \
+    getCustomerInvoice -p "id=$invoice"
+  expect "the invoice's source, status, customer and term" \
+    "$(field '"\(.source_document_id) \(.source_document_number) \(.status) \(.customer_id) \(.payment_term_code)"')" "$doc $number posted $customer NT30"
+  expect "the invoice's date and due date" "$(field '"\(.invoice_date) \(.net_due_date)"')" "$billed $due"
+  expect "net, tax and gross" "$(field '"\(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.gross_amount.currency)"')" "1737.53 86.88 1824.41 CAD"
+  expect "each item's account, amount and tax code" "$(field '[.items[] | "\(.account_number) \(.net_amount.amount) \(.tax_code)"] | join(", ")')" \
+    "4000 1500.00 GO5, 4000 237.53 GO5"
+  expect "the invoice's entry" "$(field .journal_entry_id)" "$entry"
+  say "The entry debits Northwind on 1200 Trade receivables with the gross and credits 4000 Sales per item and 2300"
+  say "GST/HST payable with the tax: receivables, revenue and output tax moved by exactly the document's amounts."
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DR receivables $invoice"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "1824.41 -1500.00 -237.53 -86.88"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $(account 4000) $(account 4000) $(account 2300)"
+  expect "the receivable line's partner" "$(field '.lines[0].partner_id')" "$customer"
+  say "The debit line is Northwind's open item for the billed amount, on the order's terms:"
+  api 200 ".items[] | select(.journal_entry_id == \"$entry\") | \"  open item \(.document_number): \(.amount.amount) \(.amount.currency), terms \(.payment_terms.code), due \(.payment_terms.net_due_date)\"" \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the order's open item" \
+    "$(field "[.items[] | select(.journal_entry_id == \"$entry\") | \"\(.amount.amount) \(.amount.currency) \(.payment_terms.code) \(.payment_terms.net_due_date)\"] | join(\", \")")" \
+    "1824.41 CAD NT30 $due"
+  say "A billing document posts once: a second post is refused at the version Ruth read and at the new one, and the"
+  say "ledger does not reverse the invoice's entry (reversing a posted billing document comes later)."
+  refused 412 request.version_mismatch postBillingDocument -p "id=$doc" -if-match "$tag"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  refused 409 sales.invalid_status postBillingDocument -p "id=$doc" -if-match "$ETAG"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$entry"
+  refused 409 ledger.entry_owned_elsewhere reverseJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' listBillingDocuments -p "sales_order_id=$order" -p status=posted
+  expect "the order's posted billing documents" "$(field '[.items[] | "\(.document_number) \(.customer_invoice_id)"] | join(" ")')" "$number $invoice"
+  as tom
+  say "Northwind pays the invoice, CAD 1,824.41. RBC's next statement of the day shows the credit; Tom imports it,"
+  say "matches the line as an incoming payment and posts it, as in step 52:"
+  QUIET=1 api 200 '' listBankStatements -p "house_bank_id=$RBC"
+  last=$(field '[.items[] | select(.closing_date == "'"$TODAY"'")] | max_by(.sequence | tonumber) | "\(.sequence) \(.closing_balance.amount)"')
+  rbc_incoming 1824.41 $((${last%% *} + 1)) "${last##* }"
+  api 201 '.statements[] | "statement \(.statement_ref): \(.status), \(.line_count) line, closing \(.closing_balance.amount) \(.closing_balance.currency)"' \
+    importBankStatements -body "{\"house_bank_id\": \"$RBC\", \"format\": \"camt.053\"}" -file file=@camt053-incoming.xml
+  st=$(field '.statements[0].id')
+  if [ -z "$st" ] || [ "$st" = null ]; then fail "the statement was not imported"; fi
+  expect "the statement follows RBC's latest" "$(field '.statements[0].status')" imported
+  QUIET=1 api 200 '' getBankStatement -p "id=$st"
+  api 201 '"line \(.line_no): \(.status) by hand (\(.kind)), incoming \(.targets[0].incoming): \(.reason)"' matchBankStatementLine -p "id=$st" -p line_no=1 \
+    -if-match "$ETAG" -body '{"incoming": true, "reason": "Northwind Traders pays the invoice of its sales order; the remittance names it."}'
+  api 200 '"line \(.line_no): posted in journal entry \(.journal_entry_id[0:8])…"' postBankStatementLine -p "id=$st" -p line_no=1 -if-match "$ETAG"
+  receipt=$(field .journal_entry_id)
+  if [ -z "$receipt" ] || [ "$receipt" = null ]; then fail "the incoming line was not posted"; fi
+  as ruth
+  say "Ruth applies the receipt to the invoice the billing document posted, in full and exactly:"
+  api 201 '"incoming payment \(.document_number) of \(.customer_number) \(.customer_name): \(.amount.amount) \(.amount.currency) on \(.posting_date), clearing entry \(.journal_entry_number)", (.items[] | "  item \(.item_no): journal entry \(.journal_entry_number), reference \(.reference), \(.amount.amount) \(.amount.currency)")' \
+    createIncomingPayment -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"receipt_journal_entry_id\": \"$receipt\", \"posting_date\": \"$TODAY\", \"items\": [{\"fiscal_year\": ${TODAY:0:4}, \"journal_entry_id\": \"$entry\", \"line_no\": 1}]}"
+  expect "the payment's amount" "$(field '"\(.amount.amount) \(.amount.currency)"')" "1824.41 CAD"
+  expect "the item applied" "$(field '[.items[] | "\(.journal_entry_id) \(.line_no) \(.amount.amount)"] | join(", ")')" "$entry 1 1824.41"
+  say "Northwind has no open item left from the order, and no receipt waits that did not wait before:"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  QUIET=1 api 200 '' listUnappliedReceipts -p "legal_entity_id=$LE"
+  expect "the receipts not yet applied" "$(field '[.items[].journal_entry_id] | join(" ")')" "$receipts"
   passed
 }
 # step_close is the financial close (ADR-0058), the story's last step: it

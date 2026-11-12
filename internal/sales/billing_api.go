@@ -16,17 +16,30 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
-// billingRefs reads what the billing documents name by id.
+// billingRefs reads what the billing documents name by id: what every
+// sales document names and, for the posted ones, their journal entries
+// by number.
 func (e *Endpoints) billingRefs(ctx context.Context, docs []BillingDocument) (references, error) {
 	out := make([]named, len(docs))
+	var entries []uuid.UUID
 	for i, b := range docs {
 		items := make([]Item, len(b.Items))
 		for j, it := range b.Items {
 			items[j] = it.Item
 		}
 		out[i] = named{legalEntity: b.LegalEntityID, customer: b.CustomerID, items: items}
+		if b.EntryID != nil {
+			entries = append(entries, *b.EntryID)
+		}
 	}
-	return e.references(ctx, out)
+	refs, err := e.references(ctx, out)
+	if err != nil {
+		return references{}, err
+	}
+	if refs.entries, err = e.Entries.Numbers(ctx, entries); err != nil {
+		return references{}, fmt.Errorf("sales: journal entries of %d billing documents: %w", len(docs), err)
+	}
+	return refs, nil
 }
 
 // billingAPI is a billing document as the API gives it, with what it
@@ -38,7 +51,13 @@ func billingAPI(b BillingDocument, refs references) gen.BillingDocument {
 		CompanyName: le.Name, CustomerID: b.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name,
 		SalesOrderID: b.OrderID, SalesOrderNumber: b.OrderNumber, PaymentTermCode: b.PaymentTermCode, BillingDate: b.BillingDate,
 		Currency: b.Currency, NetAmount: apitypes.Money(b.Net, b.Currency, b.Exponent), Status: b.Status,
+		PostingDate: apitypes.OptDate(b.PostingDate), CustomerInvoiceID: apitypes.OptUUID(b.InvoiceID),
+		CustomerInvoiceNumber: apitypes.OptString(b.InvoiceNumber), JournalEntryID: apitypes.OptUUID(b.EntryID),
 		Items: make([]gen.BillingDocumentItem, len(b.Items))}
+	if b.EntryID != nil { // posted: its invoice's entry's year and number are known with it
+		out.JournalEntryYear.SetTo(int32(*b.EntryYear))
+		out.JournalEntryNumber.SetTo(refs.entries[*b.EntryID])
+	}
 	for i, it := range b.Items {
 		base := itemAPI(it.Item, b.Currency, b.Exponent, refs)
 		out.Items[i] = gen.BillingDocumentItem{ItemNo: base.ItemNo, ItemKey: base.ItemKey, Description: base.Description, Quantity: base.Quantity,
@@ -69,6 +88,19 @@ func (e *Endpoints) CreateBillingDocument(ctx context.Context, req *gen.BillingD
 	}
 	return &gen.BillingDocumentHeaders{ETag: gen.NewOptString(etag.Format(b.Version)), Location: gen.NewOptString("/v1/billing-documents/" + b.ID.String()),
 		Response: out}, nil
+}
+
+// PostBillingDocument implements POST /v1/billing-documents/{id}:post.
+func (e *Endpoints) PostBillingDocument(ctx context.Context, req gen.OptBillingDocumentPost, params gen.PostBillingDocumentParams) (gen.PostBillingDocumentRes, error) {
+	b, err := e.PostBilling(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.Value.PostingDate))
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.billingAnswer(ctx, b)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PostBillingDocumentOKHeaders{ETag: gen.NewOptString(etag.Format(b.Version)), Response: out}, nil
 }
 
 // GetBillingDocument implements GET /v1/billing-documents/{id}.

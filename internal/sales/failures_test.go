@@ -36,6 +36,9 @@ func TestDatabaseFailures(t *testing.T) {
 	created, _ := e.Must(201, "POST", billings, bill(toBill, ""), "")
 	billing := uuid.MustParse(created["id"].(string))
 	e.Must(201, "POST", deliveries(toBill), delivered(today, "1 1 EA", "2 2 EA"), "")
+	// A billing document still to post, one item with a tax code.
+	_, toPost, _ := e.billedOrder(t, []string{e.item(line{quantity: "2", code: "A1"}), e.item(line{account: e.other})}, "1 2 EA", "2 1 EA")
+	postable := uuid.MustParse(toPost)
 	calls := map[string]func(ctx context.Context) error{
 		"confirm a delivery": func(ctx context.Context) error {
 			_, err := h.ConfirmSalesDelivery(ctx, &gen.SalesDeliveryCreate{DeliveryDate: instant(t, "2026-01-03T00:00:00Z"), Items: []gen.SalesDeliveryItemCreate{
@@ -45,6 +48,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"create a billing document": func(ctx context.Context) error {
 			_, err := h.CreateBillingDocument(ctx, &gen.BillingDocumentCreate{SalesOrderID: billedOrder}, gen.CreateBillingDocumentParams{})
+			return err
+		},
+		"post a billing document": func(ctx context.Context) error {
+			_, err := h.PostBillingDocument(ctx, gen.OptBillingDocumentPost{}, gen.PostBillingDocumentParams{ID: postable, IfMatch: `"1"`})
 			return err
 		},
 		"get a billing document": func(ctx context.Context) error {

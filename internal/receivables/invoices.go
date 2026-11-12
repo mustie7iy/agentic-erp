@@ -43,6 +43,27 @@ type Input struct {
 	// the customer's in the company when it posts.
 	PaymentTermCode *string
 	Items           []ItemInput
+	// Source is the document of another context the invoice is entered
+	// from (a billing document of sales, T79b); nil for an invoice a person
+	// enters.
+	Source *Source
+}
+
+// Source names the document an invoice came from, by id and by the number
+// its own context gave it (ADR-0063 §2; ADR-0067 §9). A context that
+// enters invoices in process sets it; the API's request cannot.
+type Source struct {
+	ID     uuid.UUID
+	Number string
+}
+
+// columns are the source as the invoice's row keeps it: both, or neither
+// for an invoice without one (customer_invoice_source).
+func (s *Source) columns() (*uuid.UUID, *string) {
+	if s == nil {
+		return nil, nil
+	}
+	return &s.ID, &s.Number
 }
 
 // checked is an input that passed validation: its company, its customer
@@ -63,7 +84,9 @@ func errTooLarge() *problem.Problem {
 // CreateInvoice enters a customer invoice as a draft, numbered from the
 // company's customer_invoice range of the invoice date's fiscal year, and
 // publishes CustomerInvoiceChanged with its audit record. Nothing is
-// posted.
+// posted. An invoice another context enters in process names the
+// document it came from (Input.Source), once per document
+// (customer_invoice_source_once).
 func (e *Endpoints) CreateInvoice(ctx context.Context, in Input) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -82,11 +105,13 @@ func (e *Endpoints) CreateInvoice(ctx context.Context, in Input) (Invoice, error
 		return Invoice{}, fmt.Errorf("receivables: number a customer invoice: %w", err)
 	}
 	id := uuid.Must(uuid.NewV7())
+	sourceID, sourceNumber := in.Source.columns()
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
-			posting_date, currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, payment_term_code)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)`,
+			posting_date, currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, payment_term_code,
+			source_document_id, source_document_number)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $16, $17)`,
 		p.TenantID, id, number, in.LegalEntityID, in.CustomerID, KindInvoice, in.InvoiceDate, in.PostingDate, in.Currency, c.net, c.tax, c.gross,
-		Draft, p.ID, in.PaymentTermCode); err != nil {
+		Draft, p.ID, in.PaymentTermCode, sourceID, sourceNumber); err != nil {
 		return Invoice{}, fmt.Errorf("receivables: insert customer invoice %s: %w", id, err)
 	}
 	if err := insertItems(ctx, tx, p.TenantID, id, c.items); err != nil {

@@ -19,9 +19,12 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Created is the status of a billing document until it is posted (T79b;
-// ADR-0067 §9).
-const Created = "created"
+// The statuses of a billing document: created, then posted once as a
+// customer invoice (T79b; ADR-0067 §9).
+const (
+	Created = "created"
+	Posted  = "posted"
+)
 
 // BillingRange is the document type billing documents draw their numbers
 // from (configuration number_ranges).
@@ -38,7 +41,10 @@ type BillingItem struct {
 // BillingDocument is a row of sales.billing_document with its items: what
 // is billed of one sales order (ADR-0067 §9). Amounts are minor units of
 // Currency, whose minor-unit digits are Exponent; Net is the sum of the
-// items' amounts. OrderNumber and PaymentTermCode are the order's.
+// items' amounts. OrderNumber and PaymentTermCode are the order's. Once
+// posted it names the date it posted on, the customer invoice it posted
+// as, by id and number, and the journal entry that invoice posted (T79b);
+// they are nil until then.
 type BillingDocument struct {
 	ID              uuid.UUID
 	DocumentNumber  string
@@ -52,6 +58,11 @@ type BillingDocument struct {
 	Exponent        int
 	Net             money.Minor
 	Status          string
+	PostingDate     *time.Time
+	InvoiceID       *uuid.UUID
+	InvoiceNumber   *string
+	EntryYear       *int16
+	EntryID         *uuid.UUID
 	Items           []BillingItem
 	Version         int32
 	CreatedAt       time.Time
@@ -73,7 +84,8 @@ type BillingInput struct {
 const billingSelect = `SELECT b.id, b.document_number, b.legal_entity_id, b.customer_id, b.sales_order_id,
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = b.tenant_id AND o.id = b.sales_order_id),
 		(SELECT o.payment_term_code FROM sales.sales_order o WHERE o.tenant_id = b.tenant_id AND o.id = b.sales_order_id),
-		b.billing_date, b.currency, c.exponent, b.net_amount, b.status,
+		b.billing_date, b.currency, c.exponent, b.net_amount, b.status, b.posting_date, b.customer_invoice_id, b.customer_invoice_number,
+		b.journal_entry_year, b.journal_entry_id,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'item_key', t.item_key, 'description', t.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
 			'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no) ORDER BY i.item_no)
@@ -86,7 +98,7 @@ const billingSelect = `SELECT b.id, b.document_number, b.legal_entity_id, b.cust
 func scanBilling(row pgx.Row) (BillingDocument, error) {
 	var b BillingDocument
 	err := row.Scan(&b.ID, &b.DocumentNumber, &b.LegalEntityID, &b.CustomerID, &b.OrderID, &b.OrderNumber, &b.PaymentTermCode, &b.BillingDate,
-		&b.Currency, &b.Exponent, &b.Net, &b.Status, &b.Items, &b.Version, &b.CreatedAt, &b.CreatedBy, &b.UpdatedAt, &b.UpdatedBy)
+		&b.Currency, &b.Exponent, &b.Net, &b.Status, &b.PostingDate, &b.InvoiceID, &b.InvoiceNumber, &b.EntryYear, &b.EntryID, &b.Items, &b.Version, &b.CreatedAt, &b.CreatedBy, &b.UpdatedAt, &b.UpdatedBy)
 	return b, errs.Wrapf(err, "scan billing document")
 }
 
@@ -97,9 +109,23 @@ func GetBilling(ctx context.Context, id uuid.UUID) (BillingDocument, error) {
 	if err != nil {
 		return BillingDocument{}, err
 	}
+	return billing(ctx, tx, id, false)
+}
+
+// billing reads a billing document of a legal entity the caller may act
+// in, forUpdate under its row lock (ADR-0008). The lock is taken by a
+// statement of its own and the document read by the next, as an order's
+// is (loadOrder): the read then sees what the transaction it waited for
+// left.
+func billing(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (BillingDocument, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return BillingDocument{}, fmt.Errorf("sales: company access for billing document %s: %w", id, err)
+	}
+	if forUpdate {
+		if _, err := tx.Exec(ctx, `SELECT FROM sales.billing_document WHERE id = $1 FOR UPDATE`, id); err != nil {
+			return BillingDocument{}, fmt.Errorf("sales: lock billing document %s: %w", id, err)
+		}
 	}
 	b, err := scanBilling(tx.QueryRow(ctx, billingSelect+` WHERE b.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) || err == nil && !access.Allows(b.LegalEntityID) {
@@ -125,7 +151,7 @@ func GetBilling(ctx context.Context, id uuid.UUID) (BillingDocument, error) {
 // each quantity to the order item's billed quantity and moves the
 // order's version (migration 000279). The audit record and
 // BillingDocumentChanged are written in the request's transaction.
-// Nothing is posted: posting is T79b.
+// Nothing is posted: PostBilling posts it.
 func (e *Endpoints) CreateBilling(ctx context.Context, in BillingInput) (BillingDocument, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {

@@ -13446,9 +13446,23 @@ type BillingDocument struct {
 	Currency string `json:"currency"`
 	// The sum of the items' amounts.
 	NetAmount Money `json:"net_amount"`
-	// `created`: created, not posted. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// `created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Status string `json:"status"`
+	// The date the document posted on, its customer invoice's posting date. Absent until posted.
+	PostingDate OptDate `json:"posting_date"`
+	// The customer invoice the document posted as (`GET /v1/customer-invoices/{id}`): it shows the tax,
+	// the gross amount and the net due date. Absent until posted.
+	CustomerInvoiceID OptUUID `json:"customer_invoice_id"`
+	// The customer invoice's document number. Absent until posted.
+	CustomerInvoiceNumber OptString `json:"customer_invoice_number"`
+	// The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year. Absent until posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number. Absent until posted.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The items, by item number.
 	Items []BillingDocumentItem `json:"items"`
 }
@@ -13551,6 +13565,36 @@ func (s *BillingDocument) GetNetAmount() Money {
 // GetStatus returns the value of Status.
 func (s *BillingDocument) GetStatus() string {
 	return s.Status
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BillingDocument) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetCustomerInvoiceID returns the value of CustomerInvoiceID.
+func (s *BillingDocument) GetCustomerInvoiceID() OptUUID {
+	return s.CustomerInvoiceID
+}
+
+// GetCustomerInvoiceNumber returns the value of CustomerInvoiceNumber.
+func (s *BillingDocument) GetCustomerInvoiceNumber() OptString {
+	return s.CustomerInvoiceNumber
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *BillingDocument) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *BillingDocument) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *BillingDocument) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
 }
 
 // GetItems returns the value of Items.
@@ -13656,6 +13700,36 @@ func (s *BillingDocument) SetNetAmount(val Money) {
 // SetStatus sets the value of Status.
 func (s *BillingDocument) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BillingDocument) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetCustomerInvoiceID sets the value of CustomerInvoiceID.
+func (s *BillingDocument) SetCustomerInvoiceID(val OptUUID) {
+	s.CustomerInvoiceID = val
+}
+
+// SetCustomerInvoiceNumber sets the value of CustomerInvoiceNumber.
+func (s *BillingDocument) SetCustomerInvoiceNumber(val OptString) {
+	s.CustomerInvoiceNumber = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *BillingDocument) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *BillingDocument) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *BillingDocument) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -13924,6 +13998,24 @@ func (s *BillingDocumentPage) SetNextPageToken(val OptString) {
 }
 
 func (*BillingDocumentPage) listBillingDocumentsRes() {}
+
+// Options for posting a billing document.
+// Ref: #/components/schemas/BillingDocumentPost
+type BillingDocumentPost struct {
+	// The posting date of the customer invoice the document posts as; absent: today, the company's date in
+	// its time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *BillingDocumentPost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *BillingDocumentPost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
 
 type BlockBusinessPartnerBadRequest Problem
 
@@ -22507,6 +22599,7 @@ func (*ConflictHeaders) pauseWebhookSubscriptionRes()              {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()               {}
 func (*ConflictHeaders) placeInHierarchyRes()                      {}
 func (*ConflictHeaders) postBankStatementLineRes()                 {}
+func (*ConflictHeaders) postBillingDocumentRes()                   {}
 func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
@@ -29066,6 +29159,12 @@ type CustomerInvoice struct {
 	JournalEntryYear OptInt32 `json:"journal_entry_year"`
 	// The entry's document number. Absent until posted.
 	JournalEntryNumber OptString `json:"journal_entry_number"`
+	// The document the invoice was entered from: the billing document that posted it
+	// (`GET /v1/billing-documents/{id}`, `postBillingDocument`). Absent for an invoice a person entered
+	// (`createCustomerInvoice`).
+	SourceDocumentID OptUUID `json:"source_document_id"`
+	// That document's number; absent with `source_document_id`.
+	SourceDocumentNumber OptString `json:"source_document_number"`
 	// The items, by item number.
 	Items []CustomerInvoiceItem `json:"items"`
 }
@@ -29198,6 +29297,16 @@ func (s *CustomerInvoice) GetJournalEntryYear() OptInt32 {
 // GetJournalEntryNumber returns the value of JournalEntryNumber.
 func (s *CustomerInvoice) GetJournalEntryNumber() OptString {
 	return s.JournalEntryNumber
+}
+
+// GetSourceDocumentID returns the value of SourceDocumentID.
+func (s *CustomerInvoice) GetSourceDocumentID() OptUUID {
+	return s.SourceDocumentID
+}
+
+// GetSourceDocumentNumber returns the value of SourceDocumentNumber.
+func (s *CustomerInvoice) GetSourceDocumentNumber() OptString {
+	return s.SourceDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -29333,6 +29442,16 @@ func (s *CustomerInvoice) SetJournalEntryYear(val OptInt32) {
 // SetJournalEntryNumber sets the value of JournalEntryNumber.
 func (s *CustomerInvoice) SetJournalEntryNumber(val OptString) {
 	s.JournalEntryNumber = val
+}
+
+// SetSourceDocumentID sets the value of SourceDocumentID.
+func (s *CustomerInvoice) SetSourceDocumentID(val OptUUID) {
+	s.SourceDocumentID = val
+}
+
+// SetSourceDocumentNumber sets the value of SourceDocumentNumber.
+func (s *CustomerInvoice) SetSourceDocumentNumber(val OptString) {
+	s.SourceDocumentNumber = val
 }
 
 // SetItems sets the value of Items.
@@ -53673,6 +53792,52 @@ func (o OptBankReconciliationFigures) Or(d BankReconciliationFigures) BankReconc
 	return d
 }
 
+// NewOptBillingDocumentPost returns new OptBillingDocumentPost with value set to v.
+func NewOptBillingDocumentPost(v BillingDocumentPost) OptBillingDocumentPost {
+	return OptBillingDocumentPost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptBillingDocumentPost is optional BillingDocumentPost.
+type OptBillingDocumentPost struct {
+	Value BillingDocumentPost
+	Set   bool
+}
+
+// IsSet returns true if OptBillingDocumentPost was set.
+func (o OptBillingDocumentPost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptBillingDocumentPost) Reset() {
+	var v BillingDocumentPost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptBillingDocumentPost) SetTo(v BillingDocumentPost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptBillingDocumentPost) Get() (v BillingDocumentPost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptBillingDocumentPost) Or(d BillingDocumentPost) BillingDocumentPost {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptBool returns new OptBool with value set to v.
 func NewOptBool(v bool) OptBool {
 	return OptBool{
@@ -62669,6 +62834,69 @@ func (*PostBankStatementLinePreconditionRequired) postBankStatementLineRes() {}
 type PostBankStatementLineUnprocessableEntity Problem
 
 func (*PostBankStatementLineUnprocessableEntity) postBankStatementLineRes() {}
+
+type PostBillingDocumentBadRequest Problem
+
+func (*PostBillingDocumentBadRequest) postBillingDocumentRes() {}
+
+type PostBillingDocumentForbidden Problem
+
+func (*PostBillingDocumentForbidden) postBillingDocumentRes() {}
+
+type PostBillingDocumentNotFound Problem
+
+func (*PostBillingDocumentNotFound) postBillingDocumentRes() {}
+
+// PostBillingDocumentOKHeaders wraps BillingDocument with response headers.
+type PostBillingDocumentOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           BillingDocument
+}
+
+// GetETag returns the value of ETag.
+func (s *PostBillingDocumentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PostBillingDocumentOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PostBillingDocumentOKHeaders) GetResponse() BillingDocument {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PostBillingDocumentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PostBillingDocumentOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PostBillingDocumentOKHeaders) SetResponse(val BillingDocument) {
+	s.Response = val
+}
+
+func (*PostBillingDocumentOKHeaders) postBillingDocumentRes() {}
+
+type PostBillingDocumentPreconditionFailed Problem
+
+func (*PostBillingDocumentPreconditionFailed) postBillingDocumentRes() {}
+
+type PostBillingDocumentPreconditionRequired Problem
+
+func (*PostBillingDocumentPreconditionRequired) postBillingDocumentRes() {}
+
+type PostBillingDocumentUnprocessableEntity Problem
+
+func (*PostBillingDocumentUnprocessableEntity) postBillingDocumentRes() {}
 
 type PostCustomerInvoiceBadRequest Problem
 
@@ -77021,6 +77249,7 @@ func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()              {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()               {}
 func (*TooManyRequestsHeaders) placeInHierarchyRes()                      {}
 func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
+func (*TooManyRequestsHeaders) postBillingDocumentRes()                   {}
 func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
@@ -77770,6 +77999,7 @@ func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()              {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()               {}
 func (*UnauthorizedHeaders) placeInHierarchyRes()                      {}
 func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
+func (*UnauthorizedHeaders) postBillingDocumentRes()                   {}
 func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}

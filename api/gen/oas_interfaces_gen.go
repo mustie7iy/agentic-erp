@@ -1385,6 +1385,10 @@ type PostBankStatementLineRes interface {
 	postBankStatementLineRes()
 }
 
+type PostBillingDocumentRes interface {
+	postBillingDocumentRes()
+}
+
 type PostCustomerInvoiceRes interface {
 	postCustomerInvoiceRes()
 }

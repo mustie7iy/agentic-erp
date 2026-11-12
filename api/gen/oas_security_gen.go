@@ -398,6 +398,7 @@ var operationRolesOidc = map[string][]string{
 	PingWebhookSubscriptionOperation:               []string{},
 	PlaceInHierarchyOperation:                      []string{},
 	PostBankStatementLineOperation:                 []string{},
+	PostBillingDocumentOperation:                   []string{},
 	PostCustomerInvoiceOperation:                   []string{},
 	PostGoodsReceiptOperation:                      []string{},
 	PostJournalEntryOperation:                      []string{},

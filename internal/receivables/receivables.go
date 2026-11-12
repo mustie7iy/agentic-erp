@@ -217,18 +217,24 @@ type Invoice struct {
 	NetDueDate      *time.Time
 	EntryYear       *int16
 	EntryID         *uuid.UUID
-	Items           []Item
-	Version         int32
-	CreatedAt       time.Time
-	CreatedBy       uuid.UUID
-	UpdatedAt       time.Time
-	UpdatedBy       uuid.UUID
+	// SourceDocumentID and SourceDocumentNumber name the document of
+	// another context the invoice was entered from (a billing document of
+	// sales, T79b); nil for an invoice a person entered.
+	SourceDocumentID     *uuid.UUID
+	SourceDocumentNumber *string
+	Items                []Item
+	Version              int32
+	CreatedAt            time.Time
+	CreatedBy            uuid.UUID
+	UpdatedAt            time.Time
+	UpdatedBy            uuid.UUID
 }
 
 // invoiceSelect reads invoices with their items by item number, so every
 // read lists them in the order they were entered.
 const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.customer_id, i.kind, i.invoice_date, i.posting_date, i.currency, c.exponent,
 		i.net_amount, i.tax_amount, i.gross_amount, i.status, i.payment_term_code, i.net_due_date, i.journal_entry_year, i.journal_entry_id,
+		i.source_document_id, i.source_document_number,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'description', t.description, 'account_id', t.account_id,
 			'net_amount', t.net_amount, 'tax_code', t.tax_code, 'tax_amount', t.tax_amount, 'cost_center_id', t.cost_center_id,
 			'profit_center_id', t.profit_center_id) ORDER BY t.item_no)
@@ -239,7 +245,8 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.cust
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
 	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.Kind, &v.InvoiceDate, &v.PostingDate, &v.Currency, &v.Exponent,
-		&v.Net, &v.Tax, &v.Gross, &v.Status, &v.PaymentTermCode, &v.NetDueDate, &v.EntryYear, &v.EntryID, &v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
+		&v.Net, &v.Tax, &v.Gross, &v.Status, &v.PaymentTermCode, &v.NetDueDate, &v.EntryYear, &v.EntryID,
+		&v.SourceDocumentID, &v.SourceDocumentNumber, &v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
 	return v, errs.Wrapf(err, "scan customer invoice")
 }
 

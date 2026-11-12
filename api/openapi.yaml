@@ -16393,7 +16393,7 @@ paths:
       tags:
         - sales
       summary: List billing documents
-      description: "The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the sales order it bills by id and number, its net value and its items. Filtered by company, customer, sales order, status and document number. Sortable by: `billing_date`, `document_number`."
+      description: "The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the sales order it bills by id and number, its net value and its items and, once posted, its customer invoice and journal entry. Filtered by company, customer, sales order, status and document number. Sortable by: `billing_date`, `document_number`."
       x-permission: sales.billing.read
       x-problem-codes:
         - request.invalid_order_by
@@ -16448,7 +16448,7 @@ paths:
       tags:
         - sales
       summary: Create a billing document for a sales order
-      description: "Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of the order billed, at the order's price. The order is one of a company the caller may act in (422 `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests for one order wait for one another and no quantity is billed twice. An item's amount is the order item's net value × the quantity billed so far, this document included, ÷ the quantity ordered, rounded half away from zero to the currency's minor unit, less what earlier documents billed of it: the documents of an item billed in full add up to its net value to the minor unit, the last taking the remainder. A quantity whose amount would round to zero is left for a later document. An order with nothing to bill, because nothing is delivered that is not billed, is refused (422 `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its time zone, and numbered from the company's `billing_document` number range of that date's fiscal year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company without the range). An order's items are not changed in the first version, so an order one of whose billed items names an account that can no longer be posted in the company, or a tax code that is no output tax code of the company with a rate on the billing date, cannot be billed on that date (422 `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document is created `created`; each order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`)."
+      description: "Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of the order billed, at the order's price. The order is one of a company the caller may act in (422 `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests for one order wait for one another and no quantity is billed twice. An item's amount is the order item's net value × the quantity billed so far, this document included, ÷ the quantity ordered, rounded half away from zero to the currency's minor unit, less what earlier documents billed of it: the documents of an item billed in full add up to its net value to the minor unit, the last taking the remainder. A quantity whose amount would round to zero is left for a later document. An order with nothing to bill, because nothing is delivered that is not billed, is refused (422 `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its time zone, and numbered from the company's `billing_document` number range of that date's fiscal year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company without the range). An order's items are not changed in the first version, so an order one of whose billed items names an account that can no longer be posted in the company, or a tax code that is no output tax code of the company with a rate on the billing date, cannot be billed on that date (422 `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document is created `created`; each order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are net; nothing is posted until the document is posted (`postBillingDocument`). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`)."
       x-permission: sales.billing.write
       x-agent: false
       x-problem-codes:
@@ -16506,7 +16506,7 @@ paths:
       tags:
         - sales
       summary: Get a billing document
-      description: "One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number and name, the sales order it bills by id and number with the order's payment term, its billing date, its net value and its items, each with the order item it bills, the quantity billed, the order's unit price, its amount and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      description: "One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number and name, the sales order it bills by id and number with the order's payment term, its billing date, its net value and its items, each with the order item it bills, the quantity billed, the order's unit price, its amount and its revenue account's number and name; once posted (`postBillingDocument`), its posting date, the customer invoice it posted as by id and number and that invoice's journal entry by id, year and number. One of a company the caller may not act in is not found (404), as one that does not exist."
       x-permission: sales.billing.read
       x-problem-codes: []
       parameters:
@@ -16529,6 +16529,129 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/billing-documents/{id}:post":
+    post:
+      operationId: postBillingDocument
+      tags:
+        - sales
+      summary: Post a billing document as a customer invoice
+      description: "Posts a `created` billing document, once (ADR-0067 §9, T79b), at the version the caller read (`If-Match`): a customer invoice is entered in accounts receivable and posted, in the same transaction as the document's change, so either all of it happens or none. The invoice has the document's company, customer and currency, the billing date as its invoice date, which is its tax date, the sales order's payment term, and the document's items one for one, each with its description, account, amount and tax code; it names the billing document as its source (`source_document_id`, `source_document_number`). Accounts receivable calculates the output tax at the billing date's rates and posts the entry (document type `DR`, `source_context` `receivables`): it debits the customer's reconciliation account in the company with the invoice's gross amount, which is the customer's open item (`GET /v1/open-items`) with the order's payment term, and credits each item's account with its amount and output tax per tax code. The invoice's net amount is the document's to the minor unit, and its gross is net and tax exactly. Revenue is recognized as billed. The posting date is the request's, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The document becomes `posted` and names its `posting_date`, its `customer_invoice_id` and `customer_invoice_number` and the invoice's `journal_entry_id`, `journal_entry_year` and `journal_entry_number`; an audit record and BillingDocumentPosted are written with it, beside the invoice's own (CustomerInvoiceChanged, CustomerInvoicePosted). The document's row is read under a lock: of two requests to post one document, one posts it and the other meets another version (412). One that is not `created` is refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted document. What accounts receivable or the ledger refuses leaves the document `created` and nothing posted, and is answered with their code, the document's number leading the detail and the document's own fields named: a customer that is not active, no longer a customer, without data in the company or blocked for posting there (422 `receivables.customer_not_usable`, `customer_id`); an item's account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the first version, so a document refused for an item's account or tax code cannot be posted until the configuration allows it again. A posted billing document is not reversed or cancelled in the first version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`)."
+      x-permission: sales.billing.post
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - receivables.account_not_postable
+        - receivables.amount_not_positive
+        - receivables.amount_too_large
+        - receivables.currency_mismatch
+        - receivables.customer_not_usable
+        - receivables.invalid_status
+        - receivables.items_required
+        - receivables.no_tax_account
+        - receivables.tax_changed
+        - receivables.tax_jurisdiction_not_supported
+        - receivables.unknown_currency
+        - receivables.unknown_payment_term
+        - receivables.unknown_tax_code
+        - request.invalid_amount
+        - request.version_mismatch
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Parameters of postBillingDocument.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingDocumentPost"
+            examples:
+              post:
+                summary: Post on a date
+                value:
+                  posting_date: "2026-11-20"
+      responses:
+        "200":
+          description: "The billing document, posted."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/e-invoices:fetch":
@@ -44479,7 +44602,7 @@ components:
         profit_center_id: {type: string, format: uuid, description: "The profit center entered; absent when none was.", readOnly: true}
         profit_center_code: {type: string, description: "The profit center's code; absent with `profit_center_id`.", readOnly: true}
     CustomerInvoice:
-      description: "A customer invoice (accounts receivable, ADR-0063 §2): the accounting record of an invoice the company issued."
+      description: "A customer invoice (accounts receivable, ADR-0063 §2): the accounting record of an invoice the company issued. One a billing document posted (ADR-0067 §9) names that document as its source."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -44514,6 +44637,8 @@ components:
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
+            source_document_id: {type: string, format: uuid, description: "The document the invoice was entered from: the billing document that posted it (`GET /v1/billing-documents/{id}`, `postBillingDocument`). Absent for an invoice a person entered (`createCustomerInvoice`).", readOnly: true}
+            source_document_number: {type: string, description: "That document's number; absent with `source_document_id`.", readOnly: true}
             items:
               type: array
               items: {$ref: "#/components/schemas/CustomerInvoiceItem"}
@@ -45115,6 +45240,14 @@ components:
       properties:
         sales_order_id: {type: string, format: uuid, description: "The sales order to bill: one of a company the caller may act in."}
         billing_date: {type: string, format: date, description: "The billing date, which the customer invoice it posts as takes as its invoice and tax date; absent: the company's date today in its time zone."}
+    BillingDocumentPost:
+      type: object
+      description: Options for posting a billing document.
+      additionalProperties: false
+      properties:
+        posting_date: {type: string, format: date, description: "The posting date of the customer invoice the document posts as; absent: today, the company's date in its time zone (`companies[].time_zone`)."}
+      examples:
+        - posting_date: "2026-11-20"
     BillingDocumentItem:
       description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the unit price, the account and the tax code are the order item's."
       allOf:
@@ -45124,7 +45257,7 @@ components:
           properties:
             order_item_no: {type: integer, format: int32, description: "The number of the sales order's item this item bills.", readOnly: true}
     BillingDocument:
-      description: "A billing document (sales, ADR-0067 §9): what is billed of one sales order, its delivered quantities not yet billed at the order's prices. Amounts are net. It posts nothing until it is posted as a customer invoice (T79b)."
+      description: "A billing document (sales, ADR-0067 §9): what is billed of one sales order, its delivered quantities not yet billed at the order's prices. Amounts are net. It posts nothing until it is posted (`postBillingDocument`): then it names the customer invoice it posted as, which carries the tax and is the customer's open item, and that invoice's journal entry."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -45146,9 +45279,15 @@ components:
             net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts."}
             status:
               type: string
-              x-extensible-enum: [created]
-              description: "`created`: created, not posted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [created, posted]
+              description: "`created`: created, not posted. `posted`: posted as a customer invoice (`postBillingDocument`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
+            posting_date: {type: string, format: date, description: "The date the document posted on, its customer invoice's posting date. Absent until posted.", readOnly: true}
+            customer_invoice_id: {type: string, format: uuid, description: "The customer invoice the document posted as (`GET /v1/customer-invoices/{id}`): it shows the tax, the gross amount and the net due date. Absent until posted.", readOnly: true}
+            customer_invoice_number: {type: string, description: "The customer invoice's document number. Absent until posted.", readOnly: true}
+            journal_entry_id: {type: string, format: uuid, description: "The journal entry the customer invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
+            journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
+            journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
             items:
               type: array
               items: {$ref: "#/components/schemas/BillingDocumentItem"}

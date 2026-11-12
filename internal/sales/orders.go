@@ -41,13 +41,15 @@ func quotationOrdered() *problem.Problem {
 
 // OrderItem is an item of a sales order: a sales item with the quantities
 // delivered and billed of it so far, decimal strings in the item's unit.
-// Deliveries are the item's deliveries by date (T78c); Orders.Order reads
-// them, the API's reads of an order do not and leave them nil.
+// Deliveries are the item's deliveries by date (T78c) and Billings its
+// posted billings by posting date (T79b); Orders.Order reads them, the
+// API's reads of an order do not and leave them nil.
 type OrderItem struct {
 	Item
 	Delivered  string         `json:"delivered_quantity"`
 	Billed     string         `json:"billed_quantity"`
 	Deliveries []ItemDelivery `json:"deliveries"`
+	Billings   []ItemBilling  `json:"billings"`
 }
 
 // Order is a row of sales.sales_order with its items. Amounts are minor
@@ -103,8 +105,8 @@ func orderQuery(extra string) string {
 
 // orderSelect is what the API's reads of an order take; publishedSelect
 // adds what the other contexts read through Orders: each item's
-// deliveries (T78c).
-var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries)
+// deliveries (T78c) and its posted billings (T79b).
+var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + itemBillings)
 
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
@@ -166,7 +168,8 @@ func GetOrder(ctx context.Context, id uuid.UUID) (Order, error) {
 type Orders struct{}
 
 // Order returns the sales order with its items, each with its deliveries
-// by date (T78c), or ok = false when there is none. Company access is not
+// by date (T78c) and its posted billings by posting date (T79b), or
+// ok = false when there is none. Company access is not
 // applied: callers apply it where it matters.
 func (Orders) Order(ctx context.Context, id uuid.UUID) (Order, bool, error) {
 	tx, _, err := reqctx.Request(ctx)

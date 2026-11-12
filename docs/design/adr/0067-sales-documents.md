@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's to T79a's are there now. The defaults
+records what it built under "As built"; T78a's to T79b's are there now. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -200,6 +200,25 @@ document is created: a refusal by receivables at posting (a blocked
 customer, a closed period, an account or code that lapsed after the
 document was created) leaves the document unposted, and a created
 document is not cancelled in the first version.
+
+**Posting (T79b).** `POST /v1/billing-documents/{id}:post` moves a
+created document to posted once, under its row lock with a state guard
+(ADR-0008). In the same transaction sales enters a customer invoice
+through receivables' published API (`CreateInvoice`) and posts it
+(`PostInvoice`), in process, through a port it declares: the document's
+company, customer and currency, the billing date as invoice date, the
+order's payment term, an item per item of the document with its
+description, account, amount and tax code, and the document as the
+invoice's source. Receivables calculates the tax and posts the entry
+(ADR-0063 §4, §5); sales posts nothing itself. The invoice's net amount
+is the document's to the minor unit and its gross is net and tax
+exactly. The document then names the invoice and the invoice's entry.
+Revenue is recognized as billed (plan default 11; revenue contracts are
+ADR-0068's). What receivables or the ledger refuses fails the whole
+transaction and is answered as a refusal of the document's post, with
+the refusing context's code, the document's number and the document's
+own fields. A posted document is not reversed or cancelled in the first
+version.
 
 ## Alternatives
 - **Quotations and orders in `receivables`**: not taken. 02 §2.2 and 03
@@ -543,3 +562,126 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   down payment requests, pro forma invoices, billing without delivery,
   intercompany billing, the billing due list, the invoice as a document
   or an e-invoice.
+
+### T79b Billing posted through receivables (migration 000280)
+- `internal/sales/billing_post.go` (`PostBilling`, `asBilling`),
+  `billing_api.go` (`PostBillingDocument`); `app.Sales` wires
+  `Invoices` to `app.Receivables` (receivables' `CreateInvoice` and
+  `PostInvoice`, in process) and `Entries` to `ledger.OpenItems` (an
+  entry's number); `internal/layout` allows sales to import
+  `receivables`, which does not import sales.
+- In `internal/receivables`, only the invoice's input and its source:
+  `Input.Source` (`Source{ID, Number}`, nil for an invoice a person
+  enters), written with the invoice in `CreateInvoice`
+  (`invoices.go`); `Invoice.SourceDocumentID` and
+  `SourceDocumentNumber`, read by `invoiceSelect` (`receivables.go`);
+  `source_document_id` and `source_document_number` on the
+  `CustomerInvoice` representation (`api.go`), absent for an invoice a
+  person entered. `createCustomerInvoice`'s request takes no source,
+  and the invoice's events are unchanged. Its tests are unchanged;
+  `source_test.go` is new.
+- Migration 000280: on `receivables.customer_invoice`
+  `source_document_id` and `source_document_number`, both or neither
+  (`customer_invoice_source`), a document invoiced once
+  (`customer_invoice_source_once`); on `sales.billing_document` the
+  status `posted` with `posting_date`, `customer_invoice_id`,
+  `customer_invoice_number`, `journal_entry_year` and
+  `journal_entry_id`, all of them when posted and none before
+  (`billing_document_posted`), a customer invoice one document's
+  (`billing_document_invoice_once`), the trigger
+  `billing_document_posted_once` (only a created document changes, and
+  only by being posted) and the update grant on the columns posting
+  sets. No new table. Schema tests in `db/sales_test.go`
+  (`TestBillingPostingRules`) and `db/receivables_test.go`
+  (`TestCustomerInvoiceSource`).
+- `POST /v1/billing-documents/{id}:post` (`sales.billing.post`,
+  `If-Match`, idempotent by `Idempotency-Key`, human-only; optional
+  `posting_date`): 200 with the document `posted` at version 2, naming
+  `posting_date`, `customer_invoice_id`, `customer_invoice_number`,
+  `journal_entry_id`, `journal_entry_year` and `journal_entry_number`.
+  The entry is receivables' (`DR`, `source_context` `receivables`, the
+  invoice as its source document): Dr the customer's reconciliation
+  account with the gross, Cr each item's account with its amount and
+  tax code, Cr output tax per code. The open item keeps the order's
+  payment term, counted from the billing date.
+- The document's lock is taken by a statement of its own and the
+  document read by the next (`billing`), as the order's is. Of two
+  posts of one document the second waits and then meets version 2: 412
+  `request.version_mismatch`, or 409 `sales.invalid_status` at the new
+  version. A replay with the same `Idempotency-Key` answers the posted
+  document.
+- **The refusals a post can still meet**, T79a having checked the
+  account and the tax code when the document was created (§9): the
+  customer not active, no longer a customer, without data in the
+  company or blocked for posting since (422
+  `receivables.customer_not_usable`, `customer_id`); an item's account
+  that can no longer be posted (422 `receivables.account_not_postable`,
+  `items[i].account_id`) or that asks for a center the item does not
+  carry (the ledger's assignment refusals, `items[i].account_id`); a
+  tax code that is no longer an output tax code of the company with a
+  rate on the billing date (422 `receivables.unknown_tax_code`,
+  `items[i].tax_code`); a posting date in a period that is not open
+  (409 `ledger.period_not_open`); the customer's reconciliation account
+  or an output tax account blocked (422 `ledger.account_not_postable`,
+  `customer_id` or `items`); no `customer_invoice` or `journal_dr`
+  number range (422 `config.no_number_range`). Receivables checks the
+  customer, the accounts and the tax codes when the invoice is entered,
+  before the ledger sees an entry, so a lapsed account or code is
+  answered by receivables' refusal naming the item, not by a ledger
+  error about a line. The invoice's fields are the document's, its
+  items one for one, so its field errors stand; `asBilling` leads the
+  detail with the document's number, turns an item's center into its
+  account and the ledger's lines into what they are to the document
+  (line 0 the customer, lines 1 to n the items, the rest the output
+  tax), and copies the problem rather than change it. Each refusal
+  rolls the invoice entered back with everything else: the document
+  stays `created` at version 1.
+- `BillingDocumentPosted` (`x-webhook`): the document's net value, the
+  invoice's tax and gross, the customer by id and number, the order,
+  the invoice and its entry by id and number, the billing and posting
+  dates. The audit record `sales.billing_document.post`. Receivables'
+  own `CustomerInvoiceChanged` and `CustomerInvoicePosted` and its two
+  audit records are written in the same transaction.
+- `sales.Orders.Order` gives each item's posted billings
+  (`ItemBilling`: the billing document by id and number, its posting
+  date, the amount billed of the item, the customer invoice and its
+  entry; by posting date, then document number), for T81d; a document
+  not yet posted is not among them, and the API's own reads of an order
+  do not read them. Posting does not move the order's version: nothing
+  the order's representation shows changes.
+- Walkthrough `step_billing` (step 56) extended: Ruth posts the
+  document; the customer invoice names it, dated the billing date on
+  NT30, net 1,737.53, tax 86.88, gross 1,824.41; the entry moves 1200,
+  4000 and 2300 by exactly those amounts; Northwind's open item shows
+  1,824.41; a second post (412, then 409) and the ledger's `:reverse`
+  are refused; Tom imports RBC's next statement with Northwind's
+  1,824.41, matches it as incoming and posts it, and Ruth applies it to
+  the invoice. The step compares Northwind's open items and the
+  unapplied receipts at its end with what it found at its start, and
+  reads the statement's sequence and opening balance from RBC's latest
+  statement, so it holds whatever earlier steps left open or imported.
+- **Decided by default:** (1) the posting date is the request's, else
+  the company's date today in its time zone, as for a customer invoice
+  a person posts (ADR-0063 §5): the billing date is the invoice and tax
+  date, not the posting date, so a document billed in a period closed
+  since still posts; (2) `:post` takes `If-Match`, as confirming an
+  order does; (3) a refusal keeps the refusing context's code, which
+  the operation lists, rather than a sales code of its own, and sales
+  does not check before receivables what receivables checks; (4)
+  posting emits `BillingDocumentPosted` alone, not also
+  `BillingDocumentChanged`, as a customer invoice's posting does; (5)
+  the tax and the gross stay the customer invoice's: the billing
+  document shows its net value and names the invoice, and the event
+  carries all three; (6) the invoice's source is an id and a number
+  without a type: billing documents are its only source today; it is
+  set in process only, and is unique, so the database too refuses a
+  second invoice of one document; (7) an invoice item's description is
+  the order item's, and it carries no cost center or profit center
+  (plan, "Later"): the account's default applies, and an account that
+  needs one without a default cannot be billed; (8) `sales.billing.post`
+  alone posts: the clerk needs none of receivables' permissions, the
+  invoice being entered in process; (9) the order's version does not
+  move. Not built, by the plan: revenue account determination, reversal
+  or cancellation of a posted billing document, credit and debit memos
+  from billing, posting to a profit center or segment, cost of goods
+  sold, rebate accruals, a tax date other than the billing date.

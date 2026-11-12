@@ -375,6 +375,19 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   whose components share one account is refused at posting, 422
   `ledger.output_tax_mismatch`, as a manual entry with it is.
 
+### T79b An invoice entered by billing names its source (migration 000280)
+- Week 2's billing posts through this context (§1, §2; ADR-0067 §9):
+  sales calls `Endpoints.CreateInvoice` and `PostInvoice` in process, in
+  the billing document's transaction. `Input.Source` (`Source{ID,
+  Number}`) names the billing document; the invoice keeps it
+  (`source_document_id`, `source_document_number`, both or neither,
+  `customer_invoice_source`; one invoice per document,
+  `customer_invoice_source_once`) and shows it on `CustomerInvoice`.
+  `createCustomerInvoice`'s request takes no source, so an invoice a
+  person enters names none. Nothing else of the context changed: the
+  checks, the tax, the posting and the events are T75a's and T75b's.
+  Receivables does not import sales.
+
 ### T75c Incoming payment applied to a customer's invoices (migration 000272)
 - **The receipt.** A statement credit matched `incoming: true` posts Dr
   the house bank's main account, Cr its `incoming_gl_account`, with
