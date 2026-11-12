@@ -189,6 +189,14 @@ func TestNextLevel(t *testing.T) {
 	}
 }
 
+// start2 starts two runs at the key date and returns their ids.
+func (e env) start2(t *testing.T, key string) (first, second string) {
+	t.Helper()
+	first, _ = e.start(t, key)
+	second, _ = e.start(t, key)
+	return first, second
+}
+
 // In returns e calling the API for tb.
 func (e env) In(tb testing.TB) env {
 	tb.Helper()
@@ -224,7 +232,7 @@ func TestStaleProposal(t *testing.T) {
 		}
 	}
 	t.Run("an item cleared since", func(t *testing.T) {
-		stale(t, a, aTag, "1 of its 3 items were cleared and 0 were dunned by another run")
+		stale(t, a, aTag, "of its 3 items, 1 cleared and 0 dunned by another run")
 		if got := e.dunned(t); got != "" {
 			t.Errorf("recorded levels: got %q, want none", got)
 		}
@@ -241,7 +249,7 @@ func TestStaleProposal(t *testing.T) {
 	})
 	const recorded = "CI-A 1 2026-06-30, CI-USD 1 2026-06-30"
 	t.Run("items dunned by another run since", func(t *testing.T) {
-		stale(t, b, bTag, "1 of its 3 items were cleared and 2 were dunned by another run")
+		stale(t, b, bTag, "of its 3 items, 1 cleared and 2 dunned by another run")
 		if got := e.dunned(t); got != recorded {
 			t.Errorf("recorded levels: got %q, want %q", got, recorded)
 		}
@@ -261,9 +269,10 @@ func TestStaleProposal(t *testing.T) {
 
 // TestConfirmationsSerialize: the confirmations of one company wait for
 // each other: of two proposals with the same items confirmed at once,
-// the second waits for the first, reads what it recorded and is stale;
-// the same run confirmed twice at once is confirmed once (ADR-0065 §8,
-// ADR-0008).
+// the second waits for the first, reads what it recorded and is stale,
+// also where the first left the items' levels as they were (a key date
+// short of the next level's days; the highest level); the same run
+// confirmed twice at once is confirmed once (ADR-0065 §8, ADR-0008).
 func TestConfirmationsSerialize(t *testing.T) {
 	e := setup(t)
 	e.story(t)
@@ -282,6 +291,18 @@ func TestConfirmationsSerialize(t *testing.T) {
 			t.Errorf("got %v and %v, want the first confirmed and the second refused as collections.proposal_stale", first, second)
 		}
 	})
+	// A day later every item stays at level 1: CI-A and CI-USD would rise, but CI-B, 6 days overdue, stays, and its
+	// level tells the two proposals nothing; one confirmed after the other is refused all the same.
+	t.Run("two proposals whose items stay at their level", func(t *testing.T) {
+		stay, twin := e.In(t).start2(t, "2026-07-01")
+		if got, want := e.In(t).proposed(t, twin), "CI-USD 1->2, CI-A 1->2, CI-B 1->1, CI-C 0->1"; got != want {
+			t.Fatalf("proposed: got %q, want %q", got, want)
+		}
+		first, second := apitest.Serialized(t, e.Tenant, e.Tenant.Human, confirm(stay), confirm(twin))
+		if p := problem.From(second); first != nil || p.Code != "collections.proposal_stale" || !strings.Contains(p.Detail, "of its 4 items, 0 cleared and 4 dunned") {
+			t.Errorf("got %v and %v, want the first confirmed and the second refused as collections.proposal_stale for its 4 items", first, second)
+		}
+	})
 	c, _ := e.start(t, "2026-07-15")
 	t.Run("the same run twice", func(t *testing.T) {
 		first, second := apitest.Serialized(t, e.Tenant, e.Tenant.Human, confirm(c), confirm(c))
@@ -289,13 +310,13 @@ func TestConfirmationsSerialize(t *testing.T) {
 			t.Errorf("got %v and %v, want the first confirmed and the second refused as collections.invalid_status", first, second)
 		}
 	})
-	want := "CI-A 1 2026-06-30, CI-A 2 2026-07-15, CI-B 1 2026-06-30, CI-B 2 2026-07-15, CI-C 1 2026-07-15, CI-D 1 2026-07-15, " +
-		"CI-USD 1 2026-06-30, CI-USD 2 2026-07-15"
+	want := "CI-A 1 2026-06-30, CI-A 2 2026-07-01, CI-A 3 2026-07-15, CI-B 1 2026-06-30, CI-B 1 2026-07-01, CI-B 2 2026-07-15, " +
+		"CI-C 1 2026-07-01, CI-C 1 2026-07-15, CI-D 1 2026-07-15, CI-USD 1 2026-06-30, CI-USD 2 2026-07-01, CI-USD 3 2026-07-15"
 	if got := e.dunned(t); got != want {
 		t.Errorf("recorded levels: got %q, want each run's once: %q", got, want)
 	}
-	if n := len(e.issued(t)); n != 4 {
-		t.Errorf("DunningNoticeIssued events: got %d, want 4, two customers' of two confirmed runs", n)
+	if n := len(e.issued(t)); n != 6 {
+		t.Errorf("DunningNoticeIssued events: got %d, want 6, two customers' of three confirmed runs", n)
 	}
 }
 

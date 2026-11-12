@@ -38,9 +38,10 @@ func TestDunningRunRules(t *testing.T) {
 		overdue_amount, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', $3, $4, $5, $6, $7, $1, $1)`
 	const notice = `INSERT INTO collections.dunning_notice (tenant_id, id, dunning_run_id, customer_id, customer_number, level, item_count, overdue_amount)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+	// An item dunned before was dunned as often as its previous level, at least (T76b, 000269).
 	const item = `INSERT INTO collections.dunning_notice_item (tenant_id, dunning_run_id, dunning_notice_id, item_no, fiscal_year, journal_entry_id,
-		line_no, document_number, document_date, net_due_date, days_overdue, currency, amount, amount_lc, previous_level, level)
-		VALUES ($1, $2, $3, $4, 2026, $5, 1, 'DR1', '2026-03-01', '2026-03-31', $6, 'EUR', $7, $8, $9, $10)`
+		line_no, document_number, document_date, net_due_date, days_overdue, currency, amount, amount_lc, previous_level, level, previous_dunnings)
+		VALUES ($1, $2, $3, $4, 2026, $5, 1, 'DR1', '2026-03-01', '2026-03-31', $6, 'EUR', $7, $8, $9::smallint, $10, $9::smallint)`
 	type scene struct{ tenant, run, notice, customer, entry uuid.UUID }
 	proposed := func(s scene) stmt { return step(run, s.tenant, s.run, "proposed", "EUR", 1, 1, 10000) }
 	noticed := func(s scene) stmt { return step(notice, s.tenant, s.notice, s.run, s.customer, "BP1", 1, 1, 10000) }
@@ -203,7 +204,9 @@ func TestDunningRunRules(t *testing.T) {
 // TestDunningRunConfirmation (T76b, migration 000269; ADR-0065 §8): a
 // proposed run moves to confirmed, once, by its status, version and who
 // changed it alone; a dunned item is one of the items its run proposed,
-// at a level from 1 to 9, recorded once per run and fixed.
+// at a level from 1 to 9, recorded once per run and fixed; an item is
+// proposed with the times it was dunned before, at least its previous
+// level and none exactly when it has none.
 func TestDunningRunConfirmation(t *testing.T) {
 	need(t)
 	const run = `INSERT INTO collections.dunning_run (tenant_id, id, legal_entity_id, key_date, status, currency, notice_count, item_count,
@@ -216,7 +219,11 @@ func TestDunningRunConfirmation(t *testing.T) {
 	const confirm = `UPDATE collections.dunning_run SET status = 'confirmed', version = version + 1, updated_by = $1 WHERE id = $2`
 	const dunned = `INSERT INTO collections.dunned_item (tenant_id, fiscal_year, journal_entry_id, line_no, dunning_run_id, level, dunning_date)
 		VALUES ($1, 2026, $2, 1, $3, $4, '2026-06-30')`
-	type scene struct{ tenant, run, notice, entry uuid.UUID }
+	// again is the item in a later run's notice, from a previous level, dunned so many times before.
+	const again = `INSERT INTO collections.dunning_notice_item (tenant_id, dunning_run_id, dunning_notice_id, item_no, fiscal_year, journal_entry_id,
+		line_no, document_number, document_date, net_due_date, days_overdue, currency, amount, amount_lc, previous_level, level, previous_dunnings)
+		VALUES ($1, $2, $3, 1, 2026, $4, 1, 'DR1', '2026-03-01', '2026-03-31', 91, 'EUR', 10000, 10000, $5::smallint, $5::smallint + 1, $6)`
+	type scene struct{ tenant, run, notice, entry, run2, notice2 uuid.UUID }
 	// proposed is a run with one notice of one item.
 	proposed := func(tx pgx.Tx, s scene) error {
 		return all(tx, step(run, s.tenant, s.run), step(notice, s.tenant, s.notice, s.run), step(item, s.tenant, s.run, s.notice, s.entry))
@@ -259,6 +266,18 @@ func TestDunningRunConfirmation(t *testing.T) {
 			return []stmt{step(dunned, s.tenant, s.entry, s.run, 1), step(run, s.tenant, other), step(notice, s.tenant, its, other),
 				step(item, s.tenant, other, its, s.entry), step(dunned, s.tenant, s.entry, other, 1)}
 		}, ""},
+		{"an item proposed as dunned twice, at level 1", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run2), step(notice, s.tenant, s.notice2, s.run2), step(again, s.tenant, s.run2, s.notice2, s.entry, 1, 2)}
+		}, ""},
+		{"an item proposed as never dunned, at a level", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run2), step(notice, s.tenant, s.notice2, s.run2), step(again, s.tenant, s.run2, s.notice2, s.entry, 1, 0)}
+		}, "dunning_notice_item_dunnings_check"},
+		{"an item proposed as dunned, at no level", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run2), step(notice, s.tenant, s.notice2, s.run2), step(again, s.tenant, s.run2, s.notice2, s.entry, 0, 1)}
+		}, "dunning_notice_item_dunnings_check"},
+		{"an item proposed at a higher level than the times it was dunned", func(s scene) []stmt {
+			return []stmt{step(run, s.tenant, s.run2), step(notice, s.tenant, s.notice2, s.run2), step(again, s.tenant, s.run2, s.notice2, s.entry, 2, 1)}
+		}, "dunning_notice_item_dunnings_check"},
 		{"an item recorded at level 0", func(s scene) []stmt {
 			return []stmt{step(dunned, s.tenant, s.entry, s.run, 0)}
 		}, "dunned_item_level_check"},
@@ -274,7 +293,7 @@ func TestDunningRunConfirmation(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			s := scene{tenant: id(), run: id(), notice: id(), entry: id()}
+			s := scene{tenant: id(), run: id(), notice: id(), entry: id(), run2: id(), notice2: id()}
 			err := asApp(t, s.tenant, func(tx pgx.Tx) error {
 				if err := proposed(tx, s); err != nil {
 					t.Fatalf("the proposal: got %v, want no error", err)

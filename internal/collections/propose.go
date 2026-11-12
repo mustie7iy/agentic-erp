@@ -154,8 +154,8 @@ func refsOf(items []overdueItem) []ledger.ItemRef {
 func propose(due []overdueItem, levels []config.DunningLevel, previous map[ledger.ItemRef]dunned) []Notice {
 	var notices []Notice
 	for _, it := range due {
-		before := previous[it.ItemRef].Level
-		level := reach(levels, it.days, int(before))
+		before := previous[it.ItemRef]
+		level := reach(levels, it.days, int(before.Level))
 		if level == 0 {
 			continue
 		}
@@ -165,7 +165,7 @@ func propose(due []overdueItem, levels []config.DunningLevel, previous map[ledge
 		n := &notices[len(notices)-1]
 		n.Items = append(n.Items, Item{ItemNo: int32(len(n.Items) + 1), ItemRef: it.ItemRef, DocumentNumber: it.Number, Reference: it.Reference,
 			DocumentDate: it.DocumentDate, NetDueDate: it.Terms.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency, Amount: it.Amount,
-			AmountLC: it.AmountLC, PreviousLevel: before, Level: int32(level)})
+			AmountLC: it.AmountLC, PreviousLevel: before.Level, Level: int32(level), PreviousDunnings: before.Times})
 	}
 	return notices
 }
@@ -251,21 +251,21 @@ func insertItems(ctx context.Context, tx pgx.Tx, tenant, run uuid.UUID, of []uui
 	nos, years, entries, lines := make([]int32, n), make([]int16, n), make([]uuid.UUID, n), make([]int32, n)
 	numbers, references, dates, dues := make([]string, n), make([]*string, n), make([]time.Time, n), make([]time.Time, n)
 	days, currencies, amounts, local := make([]int32, n), make([]string, n), make([]money.Minor, n), make([]money.Minor, n)
-	previous, levels := make([]int32, n), make([]int32, n)
+	previous, levels, dunnings := make([]int32, n), make([]int32, n), make([]int32, n)
 	for i, it := range items {
 		nos[i], years[i], entries[i], lines[i] = it.ItemNo, it.FiscalYear, it.EntryID, it.LineNo
 		numbers[i], references[i], dates[i], dues[i] = it.DocumentNumber, it.Reference, it.DocumentDate, it.NetDueDate
 		days[i], currencies[i], amounts[i], local[i] = it.DaysOverdue, it.Currency, it.Amount, it.AmountLC
-		previous[i], levels[i] = it.PreviousLevel, it.Level
+		previous[i], levels[i], dunnings[i] = it.PreviousLevel, it.Level, it.PreviousDunnings
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO collections.dunning_notice_item (tenant_id, dunning_run_id, dunning_notice_id, item_no, fiscal_year,
 			journal_entry_id, line_no, document_number, reference, document_date, net_due_date, days_overdue, currency, amount, amount_lc,
-			previous_level, level)
-		SELECT $1, $2, nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv
+			previous_level, level, previous_dunnings)
+		SELECT $1, $2, nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv, pd
 		FROM unnest($3::uuid[], $4::int[], $5::smallint[], $6::uuid[], $7::int[], $8::text[], $9::text[], $10::date[], $11::date[], $12::int[],
-			$13::text[], $14::bigint[], $15::bigint[], $16::int[], $17::int[])
-			AS x(nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv)`,
-		tenant, run, of, nos, years, entries, lines, numbers, references, dates, dues, days, currencies, amounts, local, previous, levels); err != nil {
+			$13::text[], $14::bigint[], $15::bigint[], $16::int[], $17::int[], $18::int[])
+			AS x(nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv, pd)`,
+		tenant, run, of, nos, years, entries, lines, numbers, references, dates, dues, days, currencies, amounts, local, previous, levels, dunnings); err != nil {
 		return fmt.Errorf("collections: write the items of dunning run %s: %w", run, err)
 	}
 	return nil

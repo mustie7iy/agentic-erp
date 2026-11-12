@@ -181,10 +181,11 @@ date) in `collections.dunned_item`, insert-only: item, level, run, date.
 From then on an item's previous level is the highest level recorded for
 it, which the next run reads, so the next run proposes the next level.
 Before confirming, the proposal is compared with the ledger's open items
-again: a proposal with an item cleared since, or with an item whose
-recorded level is no longer the proposal's previous level (another
-proposal of the company was confirmed first), is stale and refused, 409,
-and a new run is proposed. Confirming twice records and publishes once.
+again: a proposal with an item cleared since, or with an item another
+confirmed run of the company has dunned since (its recorded level is no
+longer the proposal's previous level, or it was recorded again at that
+level: As built, T76b), is stale and refused, 409, and a new run is
+proposed. Confirming twice records and publishes once.
 
 ### 9. The collection worklist (T76c)
 
@@ -322,7 +323,17 @@ is a report read and gets a budget test.
   same `Idempotency-Key` answers the first's result. Decided by default,
   as posting a customer invoice twice is answered (ADR-0063 §5).
 - **Stale.** 409 `collections.proposal_stale`, the detail counting the
-  items cleared and the items dunned by another run. The transaction is
+  items cleared and the items dunned by another run. "Dunned by another
+  run" is judged by how often the item was dunned, not by its level
+  (review round 1): a run stores with each item the number of its
+  `dunned_item` rows when it proposed it
+  (`dunning_notice_item.previous_dunnings`, not shown in the API), and a
+  confirmation compares it with the number now. §8's wording, "whose
+  recorded level is no longer the proposal's previous level", would
+  miss an item at the highest level or short of the next level's days,
+  which a confirmation records again at the level it has; two
+  proposals of it would both be confirmed and the customer dunned
+  twice for one key date. The transaction is
   rolled back, so the stale run stays `proposed` and nothing of it is
   recorded; the controller starts a new run. The system does not start
   one itself: a refusal leaves nothing behind (decided by default).
@@ -331,13 +342,14 @@ is a report read and gets a budget test.
 - **Serialized per company.** Two proposals of one company confirmed at
   once wait for each other on a transaction-scoped advisory lock (as
   payments' proposals of a company do), so the second reads what the
-  first recorded and is stale where they share an item. Without it both
-  would pass the comparison and an item would be dunned twice at one
-  level.
+  first recorded and is stale where they share an item, whether the
+  first raised the item's level or left it. Without the lock both would
+  pass the comparison and an item would be dunned twice.
 - **A run without notices** is confirmed too and records nothing
   (decided by default: the controller closes what she started).
 - **Levels read.** `collections.recorded` gives, per item, the highest
-  level and the latest dunning date of `dunned_item`. A run reads it for
+  level, the latest dunning date (the worklist's, T76c) and the number
+  of rows of `dunned_item`. A run reads it for
   the items overdue on its key date and writes it as `previous_level`;
   `reach` then gives the next level. An item at the highest level is
   proposed and recorded again at that level with the later date, so the

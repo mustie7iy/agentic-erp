@@ -31,6 +31,20 @@ CREATE TRIGGER dunning_run_confirmed_once BEFORE UPDATE ON collections.dunning_r
   FOR EACH ROW EXECUTE FUNCTION collections.check_dunning_run_change();
 GRANT UPDATE (status, version, updated_by) ON collections.dunning_run TO erp_app;
 
+-- How often an item had been dunned when a run proposed it: the count of
+-- its rows in dunned_item then. A confirmation compares it with the count
+-- as it is and refuses a proposal another confirmed run has overtaken;
+-- the level alone would not show it, since an item at the highest level,
+-- or short of the next level's days, is dunned again at the level it has.
+-- Each confirmed run raises an item one level at most, so an item is at
+-- no higher a level than the times it was dunned, and one never dunned
+-- is at none. Proposals stored before have the default, 0, as their
+-- previous_level is 0.
+ALTER TABLE collections.dunning_notice_item
+  ADD COLUMN previous_dunnings integer NOT NULL DEFAULT 0,
+  ADD CONSTRAINT dunning_notice_item_dunnings_check
+    CHECK (previous_dunnings >= previous_level AND (previous_dunnings = 0) = (previous_level = 0));
+
 -- A dunned item: an open item of the ledger, named by its journal line,
 -- at the level a confirmed run dunned it at, on the run's key date. It is
 -- one of the items the run proposed (the key into dunning_notice_item).

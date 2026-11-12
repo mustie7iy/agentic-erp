@@ -28,7 +28,8 @@ import (
 // confirmations of one company wait for each other, and each compares its
 // proposal with the ledger's open items and the recorded levels again: a
 // proposal with an item cleared since, or with an item another confirmed
-// run has dunned since, is stale and refused, 409
+// run has dunned since (at a higher level or at the one it had), is stale
+// and refused, 409
 // collections.proposal_stale, and nothing of it is recorded.
 func (e *Endpoints) ConfirmRun(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Run, error) {
 	tx, p, err := reqctx.Request(ctx)
@@ -71,8 +72,8 @@ func (e *Endpoints) ConfirmRun(ctx context.Context, id uuid.UUID, ifMatch func(i
 // markConfirmed moves the run from proposed to confirmed, guarded by its
 // status: a run that is not proposed, or no longer, is refused. It first
 // takes the company's lock, held to the end of the transaction, so that
-// of two proposals of a company confirmed at once the second reads the
-// levels the first recorded and is found stale where they share an item.
+// of two proposals of a company confirmed at once the second reads what
+// the first recorded and is found stale where they share an item.
 func markConfirmed(ctx context.Context, tx pgx.Tx, p reqctx.Principal, run Run) error {
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('collections.dunning:' || $1::text, 0))`, run.LegalEntityID); err != nil {
 		return fmt.Errorf("collections: lock the dunning of company %s: %w", run.LegalEntityID, err)
@@ -99,11 +100,13 @@ func proposal(ctx context.Context, tx pgx.Tx, run uuid.UUID) ([]Notice, error) {
 	return notices, items(ctx, tx, notices)
 }
 
-// fresh compares the proposal with the ledger's open items and the
-// recorded levels as they are now (ADR-0065 §8): an item that is no
-// longer open was cleared since the run proposed it, and one whose
-// recorded level is not the proposal's previous level was dunned by
-// another confirmed run since. Either makes the proposal stale.
+// fresh compares the proposal with the ledger's open items and what is
+// recorded of them now (ADR-0065 §8): an item that is no longer open was
+// cleared since the run proposed it, and one dunned more often than when
+// the run proposed it was dunned by another confirmed run since. Either
+// makes the proposal stale. The times an item was dunned are compared,
+// not its level: a confirmation leaves the level of an item at the
+// highest level, or short of the next level's days, as it was.
 func (e *Endpoints) fresh(ctx context.Context, tx pgx.Tx, run Run, notices []Notice) error {
 	if len(notices) == 0 {
 		return nil // nothing was proposed; and the reader, given no customer, reads every customer's items
@@ -134,7 +137,7 @@ func (e *Endpoints) fresh(ctx context.Context, tx pgx.Tx, run Run, notices []Not
 			switch {
 			case !isOpen[it.ItemRef]:
 				cleared++
-			case levels[it.ItemRef].Level != it.PreviousLevel:
+			case levels[it.ItemRef].Times != it.PreviousDunnings:
 				moved++
 			}
 		}
@@ -142,8 +145,8 @@ func (e *Endpoints) fresh(ctx context.Context, tx pgx.Tx, run Run, notices []Not
 	if cleared+moved == 0 {
 		return nil
 	}
-	return problem.Conflict("collections.proposal_stale", fmt.Sprintf("The proposal is stale: since the run was started, %d of its %d items "+
-		"were cleared and %d were dunned by another run. Start a new run.", cleared, len(refs), moved))
+	return problem.Conflict("collections.proposal_stale", fmt.Sprintf("The proposal is stale: of its %d items, %d cleared and %d dunned by another run "+
+		"since it was started. Start a new run.", len(refs), cleared, moved))
 }
 
 // issued are the events of a confirmed run's notices, DunningNoticeIssued

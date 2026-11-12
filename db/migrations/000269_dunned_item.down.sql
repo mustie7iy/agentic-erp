@@ -1,4 +1,7 @@
 DROP TABLE collections.dunned_item;
+ALTER TABLE collections.dunning_notice_item
+  DROP CONSTRAINT dunning_notice_item_dunnings_check,
+  DROP COLUMN previous_dunnings;
 REVOKE UPDATE (status, version, updated_by) ON collections.dunning_run FROM erp_app;
 DROP TRIGGER dunning_run_confirmed_once ON collections.dunning_run;
 DROP FUNCTION collections.check_dunning_run_change();

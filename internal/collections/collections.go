@@ -135,6 +135,10 @@ type Item struct {
 	AmountLC       money.Minor
 	PreviousLevel  int32
 	Level          int32
+	// PreviousDunnings is how often the item had been dunned when the run
+	// proposed it, which a confirmation compares with how often it has
+	// been by then (ADR-0065 §8).
+	PreviousDunnings int32
 }
 
 // Notice is a row of collections.dunning_notice with its items by item
@@ -201,12 +205,14 @@ func scanNotice(r pgx.CollectableRow) (Notice, error) {
 }
 
 // dunned is what the confirmed runs recorded of an item
-// (collections.dunned_item): the highest level it was dunned at and the
-// latest dunning date. An item no confirmed run took has none, the zero
-// value: level 0, never dunned.
+// (collections.dunned_item): the highest level it was dunned at, the
+// latest dunning date, which the collection worklist shows, and how often
+// it was dunned. An item no confirmed run took has none, the zero value:
+// level 0, never dunned.
 type dunned struct {
 	Level int32
 	Date  time.Time
+	Times int32
 }
 
 // recorded reads what the confirmed runs recorded of the items, by item;
@@ -217,14 +223,14 @@ func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger
 		years[i], entries[i], lines[i] = r.FiscalYear, r.EntryID, r.LineNo
 	}
 	// Read into a map, so the rows' order does not matter.
-	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, max(d.level), max(d.dunning_date)
+	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, max(d.level), max(d.dunning_date), count(*)
 		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)
 		JOIN collections.dunned_item d ON d.fiscal_year = x.fy AND d.journal_entry_id = x.je AND d.line_no = x.ln
 		GROUP BY d.fiscal_year, d.journal_entry_id, d.line_no`, years, entries, lines)
 	out := map[ledger.ItemRef]dunned{}
 	var ref ledger.ItemRef
 	var d dunned
-	_, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo, &d.Level, &d.Date}, func() error {
+	_, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo, &d.Level, &d.Date, &d.Times}, func() error {
 		out[ref] = d
 		return nil
 	})
@@ -243,13 +249,15 @@ func items(ctx context.Context, tx pgx.Tx, notices []Notice) error {
 		at[n.ID], ids[i] = i, n.ID
 	}
 	rows, _ := tx.Query(ctx, `SELECT i.dunning_notice_id, i.item_no, i.fiscal_year, i.journal_entry_id, i.line_no, i.document_number, i.reference,
-			i.document_date, i.net_due_date, i.days_overdue, i.currency, c.exponent, i.amount, i.amount_lc, i.previous_level, i.level
+			i.document_date, i.net_due_date, i.days_overdue, i.currency, c.exponent, i.amount, i.amount_lc, i.previous_level, i.level,
+			i.previous_dunnings
 		FROM collections.dunning_notice_item i JOIN ref.currency c ON c.code = i.currency
 		WHERE i.dunning_notice_id = ANY($1) ORDER BY i.dunning_notice_id, i.item_no`, ids)
 	var notice uuid.UUID
 	var it Item
 	_, err := pgx.ForEachRow(rows, []any{&notice, &it.ItemNo, &it.FiscalYear, &it.EntryID, &it.LineNo, &it.DocumentNumber, &it.Reference,
-		&it.DocumentDate, &it.NetDueDate, &it.DaysOverdue, &it.Currency, &it.Exponent, &it.Amount, &it.AmountLC, &it.PreviousLevel, &it.Level},
+		&it.DocumentDate, &it.NetDueDate, &it.DaysOverdue, &it.Currency, &it.Exponent, &it.Amount, &it.AmountLC, &it.PreviousLevel, &it.Level,
+		&it.PreviousDunnings},
 		func() error {
 			n := &notices[at[notice]]
 			n.Items = append(n.Items, it)

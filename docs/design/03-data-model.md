@@ -4113,7 +4113,8 @@ erDiagram
     bigint amount "above 0"
     bigint amount_lc "in the run's currency, as booked"
     smallint previous_level "0: never dunned"
-    smallint level "1-9" }
+    smallint level "1-9"
+    int previous_dunnings "times dunned when proposed" }
   dunned_item { smallint fiscal_year PK "ledger: the journal line"
     uuid journal_entry_id PK
     int line_no PK
@@ -4151,7 +4152,11 @@ erDiagram
   (`dunning_notice_item_level_check`) that is its previous level or one
   above (`dunning_notice_item_one_level`); insert-only. `previous_level`
   is the highest level `dunned_item` holds for the item when the run is
-  started, 0 for one never dunned.
+  started, 0 for one never dunned, and `previous_dunnings` (T76b) the
+  number of its rows there then, which a confirmation compares with the
+  number as it is to tell that another confirmed run dunned the item
+  since; it is at least the previous level and 0 exactly when that is
+  (`dunning_notice_item_dunnings_check`).
 - `collections.dunned_item` (T76b): an item at the level a confirmed run
   dunned it at, on the run's key date; one of the items that run proposed
   (`dunned_item_proposed_fkey`, into `dunning_notice_item`), once per run
