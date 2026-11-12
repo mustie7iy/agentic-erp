@@ -4118,7 +4118,8 @@ erDiagram
   totals are not negative and a run has at least an item per notice
   (`dunning_run_notice_count_check`, `dunning_run_item_count_check`,
   `dunning_run_overdue_amount_check`). `overdue_amount` is minor units
-  of `currency`, the company's. Proposing is the only write: the
+  of `currency`, the company's. The list reads the tenant's runs by key
+  date (`dunning_run_by_key_date`). Proposing is the only write: the
   application may not update or delete a run (T76b grants what
   confirming sets).
 - `collections.dunning_notice`: one per customer in a run

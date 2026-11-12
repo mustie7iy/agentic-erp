@@ -41,8 +41,9 @@ CREATE TABLE collections.dunning_run (
   PRIMARY KEY (tenant_id, id)
 );
 CREATE TRIGGER dunning_run_touch BEFORE UPDATE ON collections.dunning_run FOR EACH ROW EXECUTE FUNCTION platform.touch();
--- The list: a company's runs by key date.
-CREATE INDEX dunning_run_by_key_date ON collections.dunning_run (tenant_id, legal_entity_id, key_date, id);
+-- The list: the tenant's runs by key date, whichever companies the caller
+-- may act in, in the order its pages are read.
+CREATE INDEX dunning_run_by_key_date ON collections.dunning_run (tenant_id, key_date, id);
 SELECT platform.secure_table('collections.dunning_run'::regclass);
 -- Proposing is the only write: nothing changes a proposal yet, and
 -- nothing is deleted (T76b grants what confirming sets).

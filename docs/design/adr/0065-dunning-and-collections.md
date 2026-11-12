@@ -138,6 +138,12 @@ highest level stays (plan default 6). An item never dunned is at level
 0, so it reaches level 1 however long it is overdue. Amounts in the
 company's currency are the items' as booked; nothing is revalued.
 
+A run reads the items open when it is started, not those that were open
+on the key date: the key date only counts the days overdue. A run at a
+past key date therefore leaves out an item cleared since, and takes one
+posted since with an earlier due date. That is what a controller dunning
+today as of a date wants: nobody is reminded of an item already paid.
+
 ### 5. The size of a run
 
 A run reads every open customer item of the company and writes its

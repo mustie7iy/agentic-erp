@@ -280,8 +280,15 @@ func (v *validator) company(p string, co *Company) {
 	v.paymentMethods(p, co)
 	v.bankStatements(p, co, exp, known)
 	v.companyControlling(p, co)
-	v.companyCash(p, co)
+	v.operations(p, co)
 	v.closes(p, co, exp, known)
+}
+
+// operations checks the company's settings that post nothing and decide
+// what its people are shown to act on: its cash position and forecast
+// (ADR-0051) and its dunning levels (ADR-0065 §2).
+func (v *validator) operations(p string, co *Company) {
+	v.companyCash(p, co)
 	v.dunning(p, co)
 }
 
