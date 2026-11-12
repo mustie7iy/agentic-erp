@@ -49,6 +49,7 @@ type RFQ struct {
 	CompanyName    string
 	Accounts       map[uuid.UUID]ledger.AccountRef // the items' accounts by id
 	Currency       string
+	Exponent       int
 	DueDate        time.Time
 	Status         string
 	Items          []Item
@@ -68,18 +69,18 @@ type RFQSupplier struct {
 	Number, Name string
 }
 
-const rfqSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.currency, r.due_date, r.status, r.version, r.created_at, r.created_by,
+const rfqSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.currency, cu.exponent, r.due_date, r.status, r.version, r.created_at, r.created_by,
 		r.updated_at, r.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_key', i.material_key, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'account_id', i.account_id) ORDER BY i.item_no)
 		 FROM procurement.rfq_item i WHERE i.tenant_id = r.tenant_id AND i.rfq_id = r.id), '[]'),
 		ARRAY(SELECT s.supplier_id FROM procurement.rfq_supplier s WHERE s.tenant_id = r.tenant_id AND s.rfq_id = r.id ORDER BY s.invite_no)
-	FROM procurement.rfq r`
+	FROM procurement.rfq r JOIN ref.currency cu ON cu.code = r.currency`
 
 func scanRFQ(row pgx.Row) (RFQ, error) {
 	var r RFQ
 	var suppliers []uuid.UUID
-	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.Currency, &r.DueDate, &r.Status, &r.Version, &r.CreatedAt, &r.CreatedBy,
+	if err := row.Scan(&r.ID, &r.DocumentNumber, &r.LegalEntityID, &r.Currency, &r.Exponent, &r.DueDate, &r.Status, &r.Version, &r.CreatedAt, &r.CreatedBy,
 		&r.UpdatedAt, &r.UpdatedBy, &r.Items, &suppliers); err != nil {
 		return RFQ{}, fmt.Errorf("scan RFQ: %w", err)
 	}

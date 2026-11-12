@@ -3,12 +3,14 @@ package procurement
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
@@ -120,4 +122,75 @@ func (e *Endpoints) PublishRfq(ctx context.Context, params gen.PublishRfqParams)
 		return nil, err
 	}
 	return &gen.PublishRfqOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: rfqToAPI(r)}, nil
+}
+
+// quotationToAPI shows quotation q beside its RFQ r, whose suppliers are
+// named: each price with the RFQ item it prices and its value, the total
+// and the RFQ items left out.
+func quotationToAPI(r RFQ, q Quotation) gen.SupplierQuotation {
+	priced, unquoted := q.priced(r)
+	supplier := r.Suppliers[slices.Index(r.supplierIDs(), q.SupplierID)]
+	out := gen.SupplierQuotation{ID: q.ID, Version: q.Version, CreatedAt: q.CreatedAt, CreatedBy: q.CreatedBy, UpdatedAt: q.UpdatedAt,
+		UpdatedBy: gen.NewOptUUID(q.UpdatedBy), RfqID: r.ID, RfqDocumentNumber: r.DocumentNumber, SupplierID: q.SupplierID,
+		SupplierNumber: supplier.Number, SupplierName: supplier.Name, SupplierReference: q.Reference, ValidUntil: q.ValidUntil, Status: q.Status,
+		Complete: len(unquoted) == 0, UnquotedItemNos: unquoted, Total: apitypes.Money(total(priced), r.Currency, r.Exponent),
+		Items: make([]gen.SupplierQuotationItem, len(priced))}
+	for i, it := range priced {
+		value, _ := money.Scale(it.UnitPrice, it.Quantity, int64(it.PriceUnit)) // in range: recording refused it otherwise
+		out.Items[i] = gen.SupplierQuotationItem{RfqItemNo: it.No, MaterialKey: it.MaterialKey, Description: it.Description,
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, r.Currency, r.Exponent),
+			PriceUnit: it.PriceUnit, Amount: apitypes.Money(value, r.Currency, r.Exponent)}
+	}
+	return out
+}
+
+// CreateSupplierQuotation implements POST /v1/rfqs/{id}/quotations. The
+// quotation has no address of its own: Location is the RFQ's list of
+// quotations filtered to its supplier, which holds this one alone.
+func (e *Endpoints) CreateSupplierQuotation(ctx context.Context, req *gen.SupplierQuotationCreate, params gen.CreateSupplierQuotationParams) (gen.CreateSupplierQuotationRes, error) {
+	in := NewQuotation{SupplierID: req.SupplierID, Reference: req.SupplierReference, ValidUntil: req.ValidUntil, Prices: make([]PriceInput, len(req.Items))}
+	for i, it := range req.Items {
+		in.Prices[i] = PriceInput{RFQItemNo: it.RfqItemNo, Price: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency, PriceUnit: it.PriceUnit.Value}
+	}
+	r, q, err := e.recordQuotation(ctx, params.ID, in)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.SupplierQuotationHeaders{ETag: gen.NewOptString(etag.Format(q.Version)),
+		Location: gen.NewOptString("/v1/rfqs/" + r.ID.String() + "/quotations?supplier_id=" + q.SupplierID.String()), Response: quotationToAPI(r, q)}, nil
+}
+
+var quotationSort = pagination.Sort{Default: "created_at", Fields: []pagination.Field{
+	{Name: "created_at", Column: "q.created_at", Type: "timestamptz"},
+}}
+
+// ListSupplierQuotations implements GET /v1/rfqs/{id}/quotations.
+func (e *Endpoints) ListSupplierQuotations(ctx context.Context, params gen.ListSupplierQuotationsParams) (gen.ListSupplierQuotationsRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := getRFQ(ctx, tx, params.ID, false)
+	if err != nil {
+		return nil, err
+	}
+	supplier := apitypes.Ptr[uuid.UUID](params.SupplierID)
+	ks, err := e.Pages.Keyset(quotationSort, fmt.Sprintf("listSupplierQuotations|%s|%v", r.ID, supplier),
+		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
+	if err != nil {
+		return nil, err
+	}
+	q, args := ks.SQL(quotationSelect+` WHERE q.rfq_id = $1 AND ($2::uuid IS NULL OR q.supplier_id = $2)`, []any{r.ID, supplier})
+	rows, _ := tx.Query(ctx, q, args...)
+	list, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Quotation, error) { return scanQuotation(row) })
+	if err != nil {
+		return nil, fmt.Errorf("procurement: list supplier quotations of RFQ %s: %w", r.ID, err)
+	}
+	named, err := e.named(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	items, next := apitypes.PageOf(ks, list, func(q Quotation) (string, uuid.UUID) { return timestamp(q.CreatedAt), q.ID },
+		func(q Quotation) gen.SupplierQuotation { return quotationToAPI(named[0], q) })
+	return &gen.SupplierQuotationPage{Items: items, NextPageToken: next}, nil
 }

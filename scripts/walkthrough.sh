@@ -6176,14 +6176,16 @@ step_dunning() {
   passed
 }
 
-# step_rfq is T82a (ADR-0069 §1-§5): Ben creates a request for quotation
-# for two items, inviting Tyrell and the supplier of SAP's down payment
-# (step 3's DP_SUPPLIER), and publishes it. The due date is the request's,
-# two weeks after the company's date today. It keeps the RFQ (RFQ).
+# step_rfq is T82a and T82b (ADR-0069 §1-§5, §7): Ben creates a request
+# for quotation for two items, inviting Tyrell and the supplier of SAP's
+# down payment (step 3's DP_SUPPLIER), and publishes it; he then records
+# the quotation each of them sent, the second cheaper in total. The due
+# date is the request's, two weeks after the company's date today. It
+# keeps the RFQ (RFQ).
 step_rfq() {
-  heading "Step 54 — Sourcing: a request for quotation for two items is created with two suppliers invited and published"
+  heading "Step 54 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total"
   as ben
-  local due expense body
+  local due expense body valid quote line
   due=$(date_add "$(company_day)" 14)
   expense=$(account 6000)
   say "Ben wants prices for the new office's chairs and desks before he commits to a supplier. He creates a request"
@@ -6213,6 +6215,31 @@ step_rfq() {
   api 200 '.items[] | "  RFQ \(.document_number): \(.status), due \(.due_date), \(.items | length) items, \(.suppliers | length) suppliers"' \
     listRfqs -p "legal_entity_id=$LE" -p status=published -p "supplier_id=$SUPPLIER"
   expect "Maple's published RFQs Tyrell is invited to" "$(field '[.items[].id] | join(" ")')" "$RFQ"
+  valid=$(date_add "$(company_day)" 60)
+  line='"quotation \(.supplier_reference) of \(.supplier_number) \(.supplier_name) for RFQ \(.rfq_document_number): \(.status), valid until \(.valid_until), total \(.total.amount) \(.total.currency), complete: \(.complete)", (.items[] | "  item \(.rfq_item_no) \(.material_key): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) = \(.amount.amount) \(.amount.currency)")'
+  say "The quotations come in by e-mail. Ben records each against the RFQ (ADR-0069 §7): the supplier's reference,"
+  say "how long it is valid, and a price for each item, in the RFQ's currency. Tyrell quotes 450.00 a chair and"
+  say "980.00 a desk; each item's value is the RFQ's quantity at that price, and the total is exact to the cent:"
+  api 201 "$line" createSupplierQuotation -p "id=$RFQ" -body "{\"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-Q-118\", \"valid_until\": \"$valid\", \"items\": [
+    {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}},
+    {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"980.00\", \"currency\": \"CAD\"}}]}"
+  expect "Tyrell's quotation" "$(field '"\(.supplier_name) \(.status) \(.complete) \(.total.amount) \(.total.currency) \([.items[].amount.amount] | join(" "))"')" \
+    "Tyrell Office Products recorded true 29760.00 CAD 18000.00 11760.00"
+  say "$DP_NAME quotes 425.00 a chair and prices its desks by threes, 2,850.00 for three:"
+  quote="{\"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"CB-7731\", \"valid_until\": \"$valid\", \"items\": [
+    {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"425.00\", \"currency\": \"CAD\"}},
+    {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"2850.00\", \"currency\": \"CAD\"}, \"price_unit\": 3}]}"
+  api 201 "$line" createSupplierQuotation -p "id=$RFQ" -body "$quote"
+  expect "$DP_NAME's quotation" "$(field '"\(.supplier_name) \(.status) \(.complete) \(.total.amount) \(.total.currency) \([.items[].amount.amount] | join(" "))"')" \
+    "$DP_NAME recorded true 28400.00 CAD 17000.00 11400.00"
+  say "A supplier has one quotation for an RFQ, and only a supplier the RFQ invites has one:"
+  refused 409 procurement.quotation_exists createSupplierQuotation -p "id=$RFQ" -body "$quote"
+  refused 422 procurement.supplier_not_invited createSupplierQuotation -p "id=$RFQ" -body "${quote/$DP_SUPPLIER/$CUSTOMER}"
+  say "The RFQ's quotations, as recorded: $DP_NAME's is the cheaper in total, by 1,360.00:"
+  api 200 '.items[] | "  \(.supplier_reference) of \(.supplier_number) \(.supplier_name): total \(.total.amount) \(.total.currency), complete: \(.complete)"' \
+    listSupplierQuotations -p "id=$RFQ"
+  expect "the RFQ's quotations" "$(field '[.items[] | "\(.supplier_id) \(.total.amount) \(.total.currency)"] | join(", ")')" \
+    "$SUPPLIER 29760.00 CAD, $DP_SUPPLIER 28400.00 CAD"
   passed
 }
 

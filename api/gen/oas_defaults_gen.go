@@ -133,3 +133,11 @@ func (s *SupplierInvoiceCreate) setDefaults() {
 		s.Source.SetTo(val)
 	}
 }
+
+// setDefaults set default value of fields.
+func (s *SupplierQuotationItemInput) setDefaults() {
+	{
+		val := int32(1)
+		s.PriceUnit.SetTo(val)
+	}
+}

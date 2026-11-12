@@ -329,7 +329,8 @@ func TestRFQReplayed(t *testing.T) {
 }
 
 // TestRFQList: the list's filters and its pages in both orders, each RFQ
-// of a page with its own company, accounts and suppliers named; a caller
+// of a page with its company and its own accounts and suppliers named
+// (the RFQs are one company's); a caller
 // sees the RFQs of the companies it may act in, and another company's is
 // answered as missing.
 func TestRFQList(t *testing.T) {
@@ -338,7 +339,8 @@ func TestRFQList(t *testing.T) {
 	first := e.rfq(t, "2026-09-30") // RQ100000, the only one inviting both suppliers
 	one := fmt.Sprintf("%s BP90000001 %s", e.Supplier, tyrell)
 	both := one + fmt.Sprintf(", %s BP90000002 %s", e.Vendor, cabot)
-	second, _ := e.Must(201, "POST", "/v1/rfqs", e.rfqBody("2026-07-31", e.chairsAndDesks(), e.Supplier), "")
+	// RQ100001's items are on the expense account, the others' on the office account.
+	second, _ := e.Must(201, "POST", "/v1/rfqs", e.rfqBody("2026-07-31", items(rfqItem("PAPER", "5", "EA", e.expense, "")), e.Supplier), "")
 	third, _ := e.Must(201, "POST", "/v1/rfqs", e.rfqBody("2026-08-31", e.chairsAndDesks(), e.Supplier), "")
 	e.act(t, "/v1/rfqs/"+id(third), "publish", "")
 	list := func(t *testing.T, c apitest.Client, q string) ([]string, string) {
@@ -360,8 +362,12 @@ func TestRFQList(t *testing.T) {
 			apitest.WantNamed(t, "listed RFQ's company", m, "legal_entity_id", "company_name", `SELECT name FROM tenancy.legal_entity WHERE id = $1`)
 			for _, it := range apitest.List(t, m, "items") {
 				item := it.(map[string]any)
-				if item["account_number"] != "520000" {
-					t.Errorf("RFQ %v item %v account_number: got %v, want 520000", m["document_number"], item["item_no"], item["account_number"])
+				account := "520000"
+				if m["document_number"] == "RQ100001" {
+					account = "510000"
+				}
+				if item["account_number"] != account {
+					t.Errorf("RFQ %v item %v account_number: got %v, want %s", m["document_number"], item["item_no"], item["account_number"], account)
 				}
 				apitest.WantNamed(t, "listed RFQ's item's account", item, "account_id", "account_name", `SELECT name FROM ledger.gl_account WHERE id = $1`)
 			}
@@ -400,8 +406,9 @@ func TestRFQList(t *testing.T) {
 			if tok != "" {
 				t.Errorf("page 2: got next page token %q, want none", tok)
 			}
-			if len(page1) != 2 || len(page2) != 1 {
-				t.Errorf("pages: got %v and %v, want two RFQs and one", page1, page2)
+			want := map[string]string{"due_date": "RQ100001 RQ100002 | RQ100000", "document_number": "RQ100000 RQ100001 | RQ100002"}[order]
+			if got := strings.Join(page1, " ") + " | " + strings.Join(page2, " "); got != want {
+				t.Errorf("pages: got %s, want %s", got, want)
 			}
 		})
 	}

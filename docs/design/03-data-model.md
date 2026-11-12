@@ -1601,6 +1601,9 @@ erDiagram
   purchase_order_item ||--o{ goods_movement_item : received_by
   rfq ||--|{ rfq_item : "asks for"
   rfq ||--|{ rfq_supplier : invites
+  rfq_supplier ||--o| supplier_quotation : quotes
+  supplier_quotation ||--|{ supplier_quotation_item : prices
+  rfq_item ||--o{ supplier_quotation_item : "priced by"
   requisition { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1677,6 +1680,18 @@ erDiagram
   rfq_supplier { uuid rfq_id PK
     uuid supplier_id PK
     int invite_no }
+  supplier_quotation { uuid id PK
+    uuid rfq_id
+    uuid supplier_id
+    text supplier_reference
+    date valid_until
+    text status "recorded"
+    int version }
+  supplier_quotation_item { uuid supplier_quotation_id PK
+    int rfq_item_no PK
+    uuid rfq_id
+    bigint unit_price
+    int price_unit }
 ```
 
 Contract consumption is the sum of insert-only `contract_release` rows (no
@@ -1905,6 +1920,21 @@ changed or deleted. `supplier_id` is the partner context's and
 foreign key across schemas: each supplier must be one an order could be
 placed with in the company, when the RFQ is created and when it is
 published.
+
+A supplier quotation (migration 000277, T82b, ADR-0069 §7) is what an
+invited supplier quoted for a published RFQ, as the buyer recorded it:
+`supplier_quotation` names its RFQ and one of the suppliers the RFQ
+invites (`supplier_quotation_invited`, a foreign key to `rfq_supplier`),
+once per supplier (`supplier_quotation_once`, 409
+`procurement.quotation_exists`), with the supplier's reference and the
+last day it is valid; only a published RFQ takes one (trigger
+`supplier_quotation_of_published`). `supplier_quotation_item` prices one
+item of that RFQ, once per quotation, at a price above zero in minor units
+of the RFQ's currency per `price_unit` of the RFQ item's unit; a quotation
+may leave RFQ items out. Neither table is changed or deleted. The
+quotation's total, the sum of quantity × unit price ÷ price unit over its
+items, is computed on read from its prices and the RFQ's quantities, which
+never change.
 
 An order item carries its expected delivery date (`delivery_date`, optional,
 SAP's EKET-EINDT; migration 000205, T53g, ADR-0051 §5): the one it is

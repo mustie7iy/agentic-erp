@@ -1108,6 +1108,24 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices
 	CreateSupplierInvoice(ctx context.Context, req *SupplierInvoiceCreate, params CreateSupplierInvoiceParams) (CreateSupplierInvoiceRes, error)
+	// CreateSupplierQuotation implements createSupplierQuotation operation.
+	//
+	// Records the quotation an invited supplier gave for a `published` RFQ (409
+	// `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the
+	// supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's
+	// currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of
+	// measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has
+	// one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same
+	// request with its `Idempotency-Key` again answers what it answered. Each item names an item of the
+	// RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422
+	// `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not
+	// `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ
+	// item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's
+	// minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and
+	// number.
+	//
+	// POST /v1/rfqs/{id}/quotations
+	CreateSupplierQuotation(ctx context.Context, req *SupplierQuotationCreate, params CreateSupplierQuotationParams) (CreateSupplierQuotationRes, error)
 	// CreateUpload implements createUpload operation.
 	//
 	// Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to
@@ -3600,6 +3618,15 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
+	// ListSupplierQuotations implements listSupplierQuotations operation.
+	//
+	// The quotations recorded against one RFQ (ADR-0069 §7), oldest first, each with its supplier by id,
+	// number and name, its items beside the RFQ items they price, its total and whether it is complete. An
+	// RFQ of a legal entity the caller cannot act in is answered as missing (404). Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/rfqs/{id}/quotations
+	ListSupplierQuotations(ctx context.Context, params ListSupplierQuotationsParams) (ListSupplierQuotationsRes, error)
 	// ListTaxPeriods implements listTaxPeriods operation.
 	//
 	// The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its

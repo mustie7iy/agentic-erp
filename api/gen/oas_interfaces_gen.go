@@ -325,6 +325,10 @@ type CreateSupplierInvoiceRes interface {
 	createSupplierInvoiceRes()
 }
 
+type CreateSupplierQuotationRes interface {
+	createSupplierQuotationRes()
+}
+
 type CreateUploadRes interface {
 	createUploadRes()
 }
@@ -1235,6 +1239,10 @@ type ListSodRulesRes interface {
 
 type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
+}
+
+type ListSupplierQuotationsRes interface {
+	listSupplierQuotationsRes()
 }
 
 type ListTaxPeriodsRes interface {

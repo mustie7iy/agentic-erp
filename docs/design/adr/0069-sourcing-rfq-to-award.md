@@ -3,8 +3,9 @@
 **Status:** accepted (T82a, 2026-11-12; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on T82a's last commit). It decides
 the slices T82a-T82d (`docs/design/plan-breadth-week2.md`, Lane C). Each
-slice records what it built under "As built"; T82a's is there now. The
-defaults taken are listed at the end for the product owner's digest.
+slice records what it built under "As built"; T82a's and T82b's are
+there now. The defaults taken are listed at the end for the product
+owner's digest.
 
 ## Context
 
@@ -167,6 +168,13 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
    supplier invited by id, number and name, the company by id, code and
    name, an item's account by id, number and name (REVIEW.md; the older
    procurement documents show a company and an account by id alone).
+7. A quotation's validity date is recorded as given: one already past is
+   not refused when it is recorded (the comparison, T82c, leaves an
+   expired quotation unranked).
+8. A quotation is not changed or withdrawn: a wrong one stays, as revised
+   quotations are the "later" leaf's.
+9. A quotation's total is computed from its prices and the RFQ's
+   quantities on each read, never stored.
 
 ## As built
 
@@ -212,3 +220,50 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
 - **Walkthrough.** `step_rfq` (step 54): an RFQ for two items with two
   suppliers invited, a supplier named twice and a past due date refused,
   published once.
+
+### T82b Supplier quotations recorded (migration 000277)
+
+- **Schema.** `procurement.supplier_quotation` (its RFQ and supplier, the
+  supplier's reference, `valid_until`, status `recorded`, version): one
+  per RFQ and supplier (`supplier_quotation_once`), only of a supplier the
+  RFQ invites (`supplier_quotation_invited`, a foreign key to
+  `rfq_supplier`) and only for a published RFQ (trigger
+  `supplier_quotation_of_published`, which reads the RFQ `FOR SHARE`).
+  `procurement.supplier_quotation_item`: a price above zero and a price
+  unit for one item of the quotation's RFQ (foreign keys to the quotation
+  within its RFQ and to `rfq_item`), once per quotation. Neither is
+  changed or deleted (T82d grants what an award sets). The total is not
+  stored. Schema tests in `db/supplier_quotation_test.go`.
+- **API.** `POST /v1/rfqs/{id}/quotations` (`procurement.rfq.manage`,
+  idempotent by its key) reads the RFQ under its row lock, so the
+  quotations of one RFQ are recorded one after another and T82d's award
+  waits for them; a supplier's second quotation is refused (409
+  `procurement.quotation_exists`, from `supplier_quotation_once`), a draft
+  RFQ refuses every quotation (409 `procurement.invalid_status`) and a
+  supplier the RFQ does not invite is refused by `supplier_id` (422
+  `procurement.supplier_not_invited`). A price is refused by its own
+  place: `items[i].rfq_item_no` for an item the RFQ lacks
+  (`procurement.unknown_rfq_item`) or prices twice
+  (`procurement.quotation_item_repeated`), `items[i].unit_price` for
+  another currency or a price not above zero. `GET
+  /v1/rfqs/{id}/quotations` (`procurement.rfq.read`; filter `supplier_id`;
+  cursor paging by `created_at`) lists them. A quotation has no address of
+  its own: the `Location` of a recorded one is the list filtered to its
+  supplier, which holds it alone.
+- **Representation.** Each quotation carries its RFQ's id and number, its
+  supplier by id, number and name, each price beside the RFQ item it
+  prices (material key, description, quantity and unit) with the item's
+  value, `total` (a `Money`, in the RFQ's currency), `complete` and
+  `unquoted_item_nos`.
+- **Total.** Each item's value is the RFQ item's quantity × unit price ÷
+  price unit, rounded half away from zero to the minor unit
+  (`money.Scale`); the total is their sum (`money.Sum`), through
+  `itemsTotal`, as a purchase order's. A quotation whose values or total
+  are out of an amount's range is refused (`procurement.amount_too_large`).
+- **Code.** `internal/procurement/rfq_quotations.go`; handlers in
+  `rfq_api.go`. `RFQ` carries its currency's exponent.
+- **Event.** `SupplierQuotationRecorded` (the supplier by id and number,
+  the company by id and code, the total, `complete`), in `api/asyncapi.yaml`.
+- **Walkthrough.** `step_rfq` extended: a quotation recorded for each of
+  the two suppliers, one of them cheaper in total, a second quotation of a
+  supplier and a supplier not invited refused.
