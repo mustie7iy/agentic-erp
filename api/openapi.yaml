@@ -48436,7 +48436,7 @@ components:
         sales_order_id: {type: string, format: uuid, description: "The sales order to bill: one of a company the caller may act in."}
         billing_date: {type: string, format: date, description: "The billing date, which the customer invoice it posts as takes as its invoice and tax date; absent: the company's date today in its time zone."}
     BillingDocumentItem:
-      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the unit price, the account and the tax code are the order item's."
+      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the unit price, `price_source`, the account and the tax code are the order item's. `conditions` are the order item's too, for its whole ordered quantity: their amounts add up to the order item's net value, of which this item's `net_amount` is the share billed, so a discounted item's amount is less than its quantity at the unit price."
       allOf:
         - $ref: "#/components/schemas/SalesItem"
         - type: object

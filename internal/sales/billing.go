@@ -69,14 +69,17 @@ type BillingInput struct {
 
 // billingSelect names the order by subqueries, not a join, for the
 // reason orderSelect names the quotation by one. An item reads what it
-// names and its price from the order's item, which nothing changes.
+// names, its price, the price's source and the conditions applied to it
+// from the order's item, which nothing changes: the conditions are the
+// order item's, for its whole quantity, and add up to its net value, of
+// which this item's amount is the share billed.
 const billingSelect = `SELECT b.id, b.document_number, b.legal_entity_id, b.customer_id, b.sales_order_id,
 		(SELECT o.document_number FROM sales.sales_order o WHERE o.tenant_id = b.tenant_id AND o.id = b.sales_order_id),
 		(SELECT o.payment_term_code FROM sales.sales_order o WHERE o.tenant_id = b.tenant_id AND o.id = b.sales_order_id),
 		b.billing_date, b.currency, c.exponent, b.net_amount, b.status,
 		(SELECT json_agg(json_build_object('item_no', i.item_no, 'item_key', t.item_key, 'description', t.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
-			'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no) ORDER BY i.item_no)
+			'price_source', t.price_source, 'conditions', t.conditions, 'net_amount', i.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code, 'order_item_no', i.order_item_no) ORDER BY i.item_no)
 		 FROM sales.billing_document_item i JOIN sales.sales_order_item t ON t.tenant_id = i.tenant_id AND t.sales_order_id = i.sales_order_id
 			AND t.item_no = i.order_item_no
 		 WHERE i.tenant_id = b.tenant_id AND i.billing_document_id = b.id),

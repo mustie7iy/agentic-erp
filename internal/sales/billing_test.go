@@ -76,7 +76,7 @@ func TestBillingCreated(t *testing.T) {
 	t.Run("an item is the order's", func(t *testing.T) {
 		its, ordered := items(t, got), items(t, order)
 		for i := range its {
-			for _, f := range []string{"item_key", "description", "price_unit", "account_id", "account_number", "account_name", "tax_code"} {
+			for _, f := range []string{"item_key", "description", "price_unit", "price_source", "account_id", "account_number", "account_name", "tax_code"} {
 				if its[i][f] != ordered[i][f] {
 					t.Errorf("item %d's %s: got %v, want the order item's %v", i+1, f, its[i][f], ordered[i][f])
 				}
@@ -452,6 +452,14 @@ func TestBillingSharesOutTheDiscountedNet(t *testing.T) {
 			got, _ := e.In(t).Must(201, "POST", billings, bill(id, ""), "")
 			if b := billed(t, got); b != want {
 				t.Errorf("items: got %s, want %s", b, want)
+			}
+			// The document's item shows the order item's price, its source and its conditions.
+			line := items(t, got)[0]
+			if line["price_source"] != "price_list" {
+				t.Errorf("the item's price source: got %v, want price_list", line["price_source"])
+			}
+			if c, conditions := applied(t, line), "PR00 Price 3.35 EUR per 1 = 10.05 EUR; K007 Customer discount 5% = -0.50 EUR"; c != conditions {
+				t.Errorf("the item's conditions: got %s, want %s", c, conditions)
 			}
 			if a, net := amount(t, got, "net_amount"), strings.SplitN(want, " = ", 2)[1]; a != net {
 				t.Errorf("net value: got %s, want %s", a, net)
