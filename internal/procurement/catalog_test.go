@@ -209,8 +209,15 @@ func TestCatalogItemContract(t *testing.T) {
 	if got := fmt.Sprint(toner["unit_price"], toner["price_unit"]); got != "map[amount:30.00 currency:EUR] 2" {
 		t.Errorf("the catalog item's price per two: got %s, want the contract item's 30.00 EUR per 2", got)
 	}
-	if ev := events(t, e, "catalog_item_changed"); len(ev) != 2 || ev[0]["contract_id"] != id(active) || ev[0]["contract_item_no"] != float64(1) {
-		t.Errorf("the event's contract item: got %v, want contract %s item 1", ev, id(active))
+	ev := events(t, e, "catalog_item_changed")
+	if len(ev) != 2 {
+		t.Fatalf("catalog_item_changed events: got %d, want 2 (the two items loaded)", len(ev))
+	}
+	if ev[0]["contract_id"] != id(active) {
+		t.Errorf("the event's contract: got %v, want %s", ev[0]["contract_id"], id(active))
+	}
+	if ev[0]["contract_item_no"] != float64(1) {
+		t.Errorf("the event's contract item: got %v, want 1", ev[0]["contract_item_no"])
 	}
 	usd := strings.Replace(e.catalogBody(e.Supplier, "PAPER-USD", "Paper", "5.00", named(id(active), 1)), `"EUR"`, `"USD"`, 1)
 	for _, r := range []struct{ name, body, code, field string }{
