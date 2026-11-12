@@ -58,7 +58,9 @@ tags:
   - name: receivables
     description: "Accounts receivable (ADR-0063): customer invoices."
   - name: collections
-    description: "Dunning and collections (ADR-0065): dunning runs and their notices."
+    description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
+  - name: credit
+    description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -5852,6 +5854,7 @@ paths:
               - receivables
               - assets
               - integration
+              - controlling
         - name: source_document_id
           in: query
           required: false
@@ -5941,6 +5944,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.internal_order_not_parkable
         - ledger.invalid_tax_code
@@ -6165,6 +6169,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -6680,6 +6685,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
@@ -7308,6 +7314,7 @@ paths:
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.key_date_not_period_end
         - ledger.ledger_not_kept
@@ -7431,6 +7438,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -8098,6 +8106,7 @@ paths:
             x-extensible-enum:
               - created
               - released
+              - closed
         - name: responsible_cost_center_id
           in: query
           required: false
@@ -8426,6 +8435,545 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}:settle":
+    post:
+      operationId: settleInternalOrder
+      tags:
+        - controlling
+      summary: Settle an internal order
+      description: "Settles a released internal order's actual costs up to a fiscal period to the receiver of its settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day), which per account credits the order and debits the receiving cost center for the order's unsettled balance, so each account's balance is unchanged and the cost moves from the order to the cost center on the accounts it was posted on. The unsettled balance of an account is the balance of the leading ledger's lines naming the order in every period up to the one named, earlier years included; an earlier settlement's lines are among them, so only what was posted since moves. With nothing unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before the one the order was last settled up to is refused (409 `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so the balance up to an earlier one still holds what it moved; name the same period or a later one, which also moves a cost posted since into a period already settled. `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a settlement does not move it. The order is held under a row lock, so two settlements never move one balance twice and a posting to the order waits for a settlement under way. Refused: an order that is not released (409 `controlling.internal_order_not_released`) or already closed (409 `controlling.internal_order_closed`); an order without a settlement rule (409 `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace the rule); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`). The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not settle an order."
+      x-permission: controlling.order.settle
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - controlling.internal_order_closed
+        - controlling.internal_order_not_released
+        - controlling.period_not_regular
+        - controlling.settlement_period_before_last
+        - controlling.settlement_receiver_not_valid
+        - controlling.settlement_rule_missing
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The period the order is settled up to.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderSettle"
+      responses:
+        "200":
+          description: "What the settlement did: the settlement posted, or that nothing was unsettled."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}/settlements":
+    get:
+      operationId: listInternalOrderSettlements
+      tags:
+        - controlling
+      summary: List an internal order's settlements
+      description: "The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it was posted on, the receiving cost center with its code, the amount moved in the legal entity's local currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`), which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.order.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the order's settlements.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderSettlementPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/internal-orders/{id}:close":
+    post:
+      operationId: closeInternalOrder
+      tags:
+        - controlling
+      summary: Close an internal order
+      description: "Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing needs the order's balance to be zero on every account, in the leading ledger over every fiscal year: an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming the balance: settle it first). An order that was never released (409 `controlling.internal_order_not_released`) or is already closed (409 `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order."
+      x-permission: controlling.order.settle
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - controlling.internal_order_closed
+        - controlling.internal_order_exists
+        - controlling.internal_order_not_released
+        - controlling.internal_order_not_settled
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The internal order, closed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/allocation-cycles:
+    get:
+      operationId: listAllocationCycles
+      tags:
+        - controlling
+      summary: List allocation cycles
+      description: "Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender and its receivers, their codes and percentages. Sortable by: `code`."
+      x-permission: controlling.allocation.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the cycles with this code (one per legal entity).
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,12}$"
+        - name: kind
+          in: query
+          required: false
+          description: Only cycles of this kind.
+          schema:
+            type: string
+            description: "Allocation cycle kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - distribution
+        - name: sender_cost_center_id
+          in: query
+          required: false
+          description: Only the cycles whose sender is this cost center.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of allocation cycles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCyclePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createAllocationCycle
+      tags:
+        - controlling
+      summary: Create an allocation cycle
+      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`: a run moves the sender's primary costs to the receivers on their original accounts. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
+      x-permission: controlling.allocation.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.allocation_cycle_exists
+        - controlling.allocation_cycle_invalid
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The allocation cycle create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocationCycleCreate"
+      responses:
+        "201":
+          description: "Created; the new allocation cycle."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCycle"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/allocation-cycles/{id}":
+    get:
+      operationId: getAllocationCycle
+      tags:
+        - controlling
+      summary: Get an allocation cycle
+      description: "Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.allocation.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The allocation cycle.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCycle"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/allocation-cycles/{id}:run":
+    post:
+      operationId: runAllocationCycle
+      tags:
+        - controlling
+      summary: Run an allocation cycle for a period
+      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day): per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). A sender without costs in the period posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
+      x-permission: controlling.allocation.run
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - controlling.allocation_center_not_valid
+        - controlling.allocation_run_exists
+        - controlling.period_not_regular
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The period the cycle is run for.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocationCycleRun"
+      responses:
+        "200":
+          description: "What the run did: the run posted, or that the sender had no costs in the period."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRunResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/allocation-runs:
+    get:
+      operationId: listAllocationRuns
+      tags:
+        - controlling
+      summary: List allocation runs
+      description: "The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest first: each with its cycle's code, name and kind, the period, the sender with its code, the amount moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.allocation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: allocation_cycle_id
+          in: query
+          required: false
+          description: Only the runs of this cycle.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the runs of periods of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only the runs of this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of allocation runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/allocation-runs/{id}":
+    get:
+      operationId: getAllocationRun
+      tags:
+        - controlling
+      summary: Get an allocation run
+      description: "Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.allocation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The allocation run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/internal-order-balances:
     get:
       operationId: listInternalOrderBalances
@@ -9376,6 +9924,7 @@ paths:
         - ledger.cost_center_required
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -11231,6 +11780,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -11375,6 +11925,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -12106,6 +12657,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -12396,6 +12948,7 @@ paths:
         - ledger.down_payment_tax_shared
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -12552,6 +13105,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -13432,6 +13986,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -13594,6 +14149,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -13995,6 +14551,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
@@ -15077,7 +15634,7 @@ paths:
       tags:
         - receivables
       summary: List customer invoices
-      description: "The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its totals and its items. Filtered by company, customer, status, document number and invoice date. Sortable by: `invoice_date`, `document_number`."
+      description: "The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its totals and its items. Filtered by company, customer, kind, the invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`, `document_number`."
       x-permission: receivables.invoice.read
       x-problem-codes:
         - request.invalid_order_by
@@ -15102,6 +15659,23 @@ paths:
             x-extensible-enum:
               - draft
               - posted
+        - name: kind
+          in: query
+          required: false
+          description: "Only documents of this kind: `invoice` or `credit_memo`."
+          schema:
+            type: string
+            description: "Customer invoice kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - invoice
+              - credit_memo
+        - name: reference_invoice_id
+          in: query
+          required: false
+          description: Only the credit memos naming this invoice (`reference_invoice_id`).
+          schema:
+            type: string
+            format: uuid
         - $ref: "#/components/parameters/DocumentNumber"
         - name: invoice_date_from
           in: query
@@ -15140,7 +15714,7 @@ paths:
       tags:
         - receivables
       summary: Enter a customer invoice
-      description: "Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It is created `draft` with a document number from the company's `customer_invoice` number range of the invoice date's fiscal year; nothing is posted. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise); its data in the company (reconciliation account, payment term) is required only when the invoice posts (`postCustomerInvoice`). A `payment_term_code` is a configured payment term (422 `receivables.unknown_payment_term` naming it); absent, the invoice posts with the customer's term in the company. Each item is a net amount, more than zero, in the invoice's currency on an account that can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`)."
+      description: "Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It is created `draft` with a document number from the company's `customer_invoice` number range of the invoice date's fiscal year; nothing is posted. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise); its data in the company (reconciliation account, payment term) is required only when the invoice posts (`postCustomerInvoice`). A `payment_term_code` is a configured payment term (422 `receivables.unknown_payment_term` naming it); absent, the invoice posts with the customer's term in the company. Each item is a net amount, more than zero, in the invoice's currency on an account that can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind` `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.write
       x-agent: false
       x-problem-codes:
@@ -15159,9 +15733,12 @@ paths:
         - receivables.amount_too_large
         - receivables.currency_mismatch
         - receivables.customer_not_usable
+        - receivables.invalid_reference_invoice
         - receivables.items_required
+        - receivables.reference_not_allowed
         - receivables.tax_jurisdiction_not_supported
         - receivables.unknown_currency
+        - receivables.unknown_kind
         - receivables.unknown_payment_term
         - receivables.unknown_tax_code
         - request.invalid_amount
@@ -15187,6 +15764,22 @@ paths:
                       account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
                       net_amount:
                         amount: "1000.00"
+                        currency: CAD
+                      tax_code: GO5
+              credit_memo:
+                summary: A credit memo naming the invoice it credits
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  kind: credit_memo
+                  reference_invoice_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d61"
+                  invoice_date: "2026-11-12"
+                  currency: CAD
+                  items:
+                    - description: Workshop cancelled
+                      account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+                      net_amount:
+                        amount: "200.00"
                         currency: CAD
                       tax_code: GO5
       responses:
@@ -15254,7 +15847,7 @@ paths:
       tags:
         - receivables
       summary: Post a customer invoice
-      description: "Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's reconciliation account in the company (the customer's company data) with the customer, the invoice's gross amount, and credits each item's account with its net amount, tax code and centers, and output tax, one line per tax code and component on the component's account. The entry has the document type `DR`, the invoice's number as its reference and `source_context` `receivables`; the invoice date is its document date and its tax date. Its debit line is the customer's open item (`GET /v1/open-items`), kept with its payment terms: the term entered with the invoice, else the customer's in the company, counted from the invoice date, so its net due date is the invoice date plus the term's net days. The posting date is the request's, else the one entered with the invoice, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The invoice becomes `posted` and names its `journal_entry_id`, `journal_entry_year`, `journal_entry_number`, `posting_date`, `payment_term_code` and `net_due_date`; an audit record and CustomerInvoicePosted are written with it. A customer that is not active, no longer holds the customer role, has no data in the company or is blocked for posting there is refused (422 `receivables.customer_not_usable`). The tax is calculated again on the invoice date: when the codes no longer give the tax the invoice was entered with, it is refused (409 `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. Human-only (`x-agent: false`)."
+      description: "Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's reconciliation account in the company (the customer's company data) with the customer, the invoice's gross amount, and credits each item's account with its net amount, tax code and centers, and output tax, one line per tax code and component on the component's account. The entry has the document type `DR`, the invoice's number as its reference and `source_context` `receivables`; the invoice date is its document date and its tax date. Its debit line is the customer's open item (`GET /v1/open-items`), kept with its payment terms: the term entered with the invoice, else the customer's in the company, counted from the invoice date, so its net due date is the invoice date plus the term's net days. The posting date is the request's, else the one entered with the invoice, else today, the company's date in its time zone; it must be in an open period (409 `ledger.period_not_open`). The invoice becomes `posted` and names its `journal_entry_id`, `journal_entry_year`, `journal_entry_number`, `posting_date`, `payment_term_code` and `net_due_date`; an audit record and CustomerInvoicePosted are written with it. A customer that is not active, no longer holds the customer role, has no data in the company or is blocked for posting there is refused (422 `receivables.customer_not_usable`). The tax is calculated again on the invoice date: when the codes no longer give the tax the invoice was entered with, it is refused (409 `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it credits the customer's reconciliation account with its gross amount and debits each item's account and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo, counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a lock on the named invoice, so of two credit memos posted at once that together exceed it one is refused. Human-only (`x-agent: false`)."
       x-permission: receivables.invoice.post
       x-agent: false
       x-problem-codes:
@@ -15269,6 +15862,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -15310,6 +15904,7 @@ paths:
         - ledger.zero_amount
         - ledger.zero_tax_base
         - receivables.amount_too_large
+        - receivables.credit_exceeds_invoice
         - receivables.customer_not_usable
         - receivables.invalid_status
         - receivables.no_tax_account
@@ -15364,6 +15959,57 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/collection-worklist:
+    get:
+      operationId: getCollectionWorklist
+      tags:
+        - collections
+      summary: Get a company's collection worklist
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key date is past its net due date; an item due on the key date is not overdue, credit items reduce no overdue amount, and an item without payment terms has no due date. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      x-permission: collections.worklist.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - collections.amount_too_large
+        - collections.invalid_key_date
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: key_date
+          in: query
+          required: true
+          description: "The date the items are overdue on (required): an item due on this date is not overdue. 2100-12-31 at the latest."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the worklist with its totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionWorklist"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
     get:
       operationId: listDunningRuns
@@ -15387,6 +16033,7 @@ paths:
             description: "Dunning run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - proposed
+              - confirmed
         - name: key_date_from
           in: query
           required: false
@@ -15424,11 +16071,12 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per run at most: one never dunned would reach level 1. A notice's level is the highest among its items. A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
         - collections.amount_too_large
+        - collections.invalid_key_date
         - collections.no_dunning_levels
         - collections.run_too_large
         - config.not_bootstrapped
@@ -15506,6 +16154,53 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-runs/{id}:confirm":
+    post:
+      operationId: confirmDunningRun
+      tags:
+        - collections
+      summary: Confirm a dunning run
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.run
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_status
+        - collections.proposal_stale
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The confirmed run."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/dunning-runs/{id}/notices":
     get:
       operationId: listDunningNotices
@@ -15554,6 +16249,245 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/credit-exposure:
+    get:
+      operationId: getCreditExposure
+      tags:
+        - credit
+      summary: Get a customer's credit exposure and check an amount against its limit
+      description: "A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066 §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, in the company's currency as they were booked; credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and billing do not count yet. With a credit limit set for the customer in the company (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it nothing is added. `is_within_limit` says whether the exposure and the amount together are no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing: what a consumer does with the answer is its own. It is computed at the read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one without open items in the company has an exposure of zero. An amount below zero is refused (422 `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner that does not exist."
+      x-permission: credit.limit.read
+      x-snapshot: true
+      x-problem-codes:
+        - credit.amount_too_large
+        - credit.invalid_amount
+        - request.invalid_amount
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: customer_id
+          in: query
+          required: true
+          description: "The customer (required): a business partner."
+          schema:
+            type: string
+            format: uuid
+        - name: amount
+          in: query
+          required: false
+          description: "An amount to check against the limit, in the company's currency: a decimal string with exactly the currency's minor-unit digits, zero or more."
+          schema:
+            type: string
+            pattern: "^-?(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"
+            example: "500.00"
+      responses:
+        "200":
+          description: The customer's exposure, its limit and the check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditExposure"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/credit-limits:
+    get:
+      operationId: listCreditLimits
+      tags:
+        - credit
+      summary: List credit limits
+      description: "The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number` (default)."
+      x-permission: credit.limit.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the limits of this customer.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of credit limits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimitPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCreditLimit
+      tags:
+        - credit
+      summary: Set a customer's credit limit
+      description: "Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it, one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit holds at once: there is no approval of it and no validity period. The customer is a business partner with the customer role and customer data in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit per company: a second is refused (409 `credit.limit_exists`), and the first is found with `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`). Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount against. An audit record and CreditLimitChanged are written with it. A retry with the same `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`)."
+      x-permission: credit.limit.write
+      x-agent: false
+      x-problem-codes:
+        - credit.currency_mismatch
+        - credit.customer_not_set_up
+        - credit.invalid_amount
+        - credit.limit_exists
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The credit limit to set.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerCreditLimitCreate"
+            examples:
+              first_limit:
+                summary: A customer's first limit in a company
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  limit: {amount: "5000.00", currency: CAD}
+      responses:
+        "201":
+          description: "Created; the credit limit."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/credit-limits/{id}":
+    get:
+      operationId: getCreditLimit
+      tags:
+        - credit
+      summary: Get a credit limit
+      description: "One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and name, and the limit in the company's currency. What the customer owes is read with `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: credit.limit.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The credit limit.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCreditLimit
+      tags:
+        - credit
+      summary: Change a credit limit
+      description: "Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another change came first): the new limit holds at once, in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`). The customer, the company and the currency of a limit do not change. A change to the amount the limit already has is refused (422 `credit.nothing_to_change`). The audit record and CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field that changes. A limit of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: credit.limit.write
+      x-agent: false
+      x-problem-codes:
+        - credit.currency_mismatch
+        - credit.invalid_amount
+        - credit.limit_exists
+        - credit.nothing_to_change
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the credit limit.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CustomerCreditLimitUpdate"
+      responses:
+        "200":
+          description: "Updated; the credit limit after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/incoming-payments:
@@ -15631,6 +16565,7 @@ paths:
         - ledger.cost_center_required
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -15797,6 +16732,79 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UnappliedReceiptPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/receivables-aging:
+    get:
+      operationId: getReceivablesAging
+      tags:
+        - receivables
+      summary: Read the aging of a company's customer open items
+      description: "The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on read from the ledger's customer open items of the leading ledger, as they are now (not as they were on the key date): invoices, credit memos, and the customer items manual and migrated entries posted, cleared items and reversed entries left out, special G/L items included. Each item falls in exactly one bucket by its net due date, the baseline date plus the net days of the payment terms it was posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90` by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in the company's local currency (`currency`), as the items were booked, a debit positive: a credit item (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total. `totals` are those of every customer the request selects, on every page, and equal the open items of the company's customer reconciliation accounts. `items` is one row per customer with open items, by customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range` naming `key_date`)."
+      x-permission: receivables.invoice.read
+      x-problem-codes:
+        - receivables.amount_too_large
+        - receivables.key_date_out_of_range
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company whose customer open items to age.
+          schema:
+            type: string
+            format: uuid
+        - name: key_date
+          in: query
+          required: true
+          description: "The date the items are aged on: an item due on it or later is not due."
+          schema:
+            type: string
+            format: date
+        - name: aging_days
+          in: query
+          required: false
+          description: "The overdue buckets' last days past the net due date, ascending, comma-separated: `30,60,90` (the default) ages the items not yet due, 1 to 30, 31 to 60 and 61 to 90 days overdue, and more than 90. Days that do not ascend are refused, 400 `request.invalid_parameter`."
+          schema:
+            type: array
+            items:
+              type: integer
+              format: int32
+              minimum: 1
+              maximum: 3650
+            minItems: 1
+            maxItems: 6
+          style: form
+          explode: false
+          example:
+            - 30
+            - 60
+            - 90
+        - name: customer_id
+          in: query
+          required: false
+          description: Only this customer's items (business partner id); the totals are then that customer's.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: "The aging: its totals and one page of customers."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReceivablesAging"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -18436,6 +19444,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -18582,6 +19591,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -18745,6 +19755,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -18889,6 +19900,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -19057,6 +20069,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -19201,6 +20214,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
@@ -22251,6 +23265,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
@@ -23869,6 +24884,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_closed
         - ledger.internal_order_invalid
         - ledger.invalid_center_status
         - ledger.invalid_clearing_entry
@@ -26001,7 +27017,7 @@ components:
           description: "With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it again, with what it found (ADR-0058 §7)."
         credit_limit:
           $ref: "#/components/schemas/CreditLimit"
-          description: "With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount, what posted credits naming it already credit, and the gross amount of the one refused."
+          description: "With `payables.credit_exceeds_invoice` and `receivables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount, what posted credits naming it already credit, and the gross amount of the one refused."
       examples:
         - type: "https://errors.example.com/request/not-found"
           title: Raise the tier 2 approval limit
@@ -26042,7 +27058,7 @@ components:
                 currency: EUR
     CreditLimit:
       type: object
-      description: "The figures of a credit memo or subsequent credit refused at `:post` because the posted credits naming its invoice, with it, would exceed that invoice's gross amount (422 `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's."
+      description: "The figures of a credit memo or subsequent credit refused at `:post` because the posted credits naming its invoice, with it, would exceed that invoice's gross amount (422 `payables.credit_exceeds_invoice` for a supplier's, `receivables.credit_exceeds_invoice` for a customer credit memo), in the invoice's currency, which is the credit's."
       readOnly: true
       required:
         - invoice_id
@@ -31706,6 +32722,7 @@ components:
             - receivables
             - assets
             - integration
+            - controlling
           readOnly: true
         source_document_id:
           type: string
@@ -31841,7 +32858,7 @@ components:
         internal_order_id:
           type: string
           format: uuid
-          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
+          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
         trading_partner_id:
           type: string
           format: uuid
@@ -34854,6 +35871,440 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    AllocationCycle:
+      description: "An allocation cycle (ADR-0064 §5): one sender cost center of a legal entity and receiver cost centers with fixed percentages adding up to 100, which a run charges the sender's costs of a period to."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - kind
+            - sender_cost_center_id
+            - sender_cost_center_code
+            - receivers
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the cycle belongs to. Immutable."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,12}$"
+              description: "Code, unique in the legal entity. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+              readOnly: true
+            kind:
+              type: string
+              description: "`distribution`: a run moves the sender's primary costs to the receivers on their original accounts. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - distribution
+              readOnly: true
+            sender_cost_center_id:
+              type: string
+              format: uuid
+              description: "The cost center whose costs a run charges to the receivers (`GET /v1/cost-centers/{id}`)."
+              readOnly: true
+            sender_cost_center_code:
+              type: string
+              description: The sender's code.
+              readOnly: true
+            receivers:
+              type: array
+              minItems: 1
+              maxItems: 100
+              description: "The receivers, in the order given when the cycle was created; their percentages add up to 100."
+              readOnly: true
+              items:
+                $ref: "#/components/schemas/AllocationReceiver"
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d01"
+          version: 1
+          created_at: "2026-11-12T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-11-12T09:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000101"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: SHARED-IT
+          name: IT services to the offices
+          kind: distribution
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          sender_cost_center_code: CC-1200
+          receivers:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              cost_center_code: CC-1100
+              percentage: "60.00"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              cost_center_code: CC-2100
+              percentage: "40.00"
+    AllocationReceiver:
+      type: object
+      description: A receiver of an allocation cycle with its share.
+      required:
+        - cost_center_id
+        - cost_center_code
+        - percentage
+      properties:
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The receiving cost center (`GET /v1/cost-centers/{id}`)."
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: The receiving cost center's code.
+          readOnly: true
+        percentage:
+          type: string
+          description: "The receiver's share of the sender's costs in percent, with two decimals."
+          readOnly: true
+      examples:
+        - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1100
+          percentage: "60.00"
+    AllocationCycleCreate:
+      type: object
+      description: The allocation cycle create request.
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - kind
+        - sender_cost_center_id
+        - receivers
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code) the cycle belongs to.
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,12}$"
+          description: "Code, unique in the legal entity."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        kind:
+          type: string
+          description: "`distribution`. Open enumeration; a kind not listed is refused (422)."
+          x-extensible-enum:
+            - distribution
+        sender_cost_center_id:
+          type: string
+          format: uuid
+          description: An active cost center of the legal entity whose costs the cycle's runs charge to the receivers.
+        receivers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: "The receivers: active cost centers of the legal entity other than the sender, each once, with percentages adding up to 100."
+          items:
+            type: object
+            required:
+              - cost_center_id
+              - percentage
+            properties:
+              cost_center_id:
+                type: string
+                format: uuid
+                description: The receiving cost center.
+              percentage:
+                type: string
+                pattern: "^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$"
+                description: "The receiver's share in percent: above 0 and at most 100, with up to two decimals."
+            additionalProperties: false
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: SHARED-IT
+          name: IT services to the offices
+          kind: distribution
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          receivers:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              percentage: "60"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              percentage: "40"
+    AllocationCyclePage:
+      type: object
+      description: One page of allocation cycles.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllocationCycle"
+          description: The allocation cycles on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    AllocationCycleRun:
+      type: object
+      description: The period an allocation cycle is run for.
+      required:
+        - fiscal_year
+        - fiscal_period
+      properties:
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: "The fiscal year of the period, one set up for the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "A regular posting period of the fiscal year: the sender's costs posted in it are charged to the receivers, and the entry is dated its last day."
+      additionalProperties: false
+      examples:
+        - fiscal_year: 2026
+          fiscal_period: 11
+    AllocationRun:
+      type: object
+      description: "A run of an allocation cycle for a fiscal period (ADR-0064 §5): the journal entry that charged the sender's costs of the period to the cycle's receivers. Never changed."
+      required:
+        - id
+        - allocation_cycle_id
+        - allocation_cycle_code
+        - allocation_cycle_name
+        - kind
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - posting_date
+        - sender_cost_center_id
+        - sender_cost_center_code
+        - amount
+        - account_count
+        - journal_entry_id
+        - journal_entry_number
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The run's id.
+          readOnly: true
+        allocation_cycle_id:
+          type: string
+          format: uuid
+          description: "The cycle run (`GET /v1/allocation-cycles/{id}`), whose receivers and percentages the run used."
+          readOnly: true
+        allocation_cycle_code:
+          type: string
+          description: The cycle's code.
+          readOnly: true
+        allocation_cycle_name:
+          type: string
+          description: The cycle's name.
+          readOnly: true
+        kind:
+          type: string
+          description: "The cycle's kind: `distribution`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - distribution
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The cycle's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period run.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: "The period run, and the entry's."
+        posting_date:
+          type: string
+          format: date
+          description: "The entry's posting date: the period's last day."
+          readOnly: true
+        sender_cost_center_id:
+          type: string
+          format: uuid
+          description: "The cycle's sender (`GET /v1/cost-centers/{id}`)."
+          readOnly: true
+        sender_cost_center_code:
+          type: string
+          description: The sender's code.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What the run moved off the sender to the receivers, in the legal entity's local currency: the total of the sender's costs of the period on the accounts charged."
+          readOnly: true
+        account_count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many accounts the run charged.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show each account's credit on the sender and each receiver's share."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: The entry's document number.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the cycle was run (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who ran it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d11"
+          allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+          allocation_cycle_code: SHARED-IT
+          allocation_cycle_name: IT services to the offices
+          kind: distribution
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posting_date: "2026-11-30"
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          sender_cost_center_code: CC-1200
+          amount:
+            amount: "999.99"
+            currency: EUR
+          account_count: 1
+          journal_entry_id: "0192a000-0000-7000-8000-000000000e42"
+          journal_entry_number: "100000043"
+          created_at: "2026-11-30T17:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    AllocationRunResult:
+      type: object
+      description: "What running an allocation cycle for a period did (ADR-0064 §5): the run it posted, or that the sender had no costs in the period."
+      required:
+        - allocation_cycle_id
+        - allocation_cycle_code
+        - allocation_cycle_name
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - posted
+      properties:
+        allocation_cycle_id:
+          type: string
+          format: uuid
+          description: "The cycle (`GET /v1/allocation-cycles/{id}`)."
+          readOnly: true
+        allocation_cycle_code:
+          type: string
+          description: The cycle's code.
+          readOnly: true
+        allocation_cycle_name:
+          type: string
+          description: The cycle's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The cycle's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period run.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period run.
+        posted:
+          type: boolean
+          description: "Whether an entry was posted: false when the sender had no primary costs in the period, so nothing changed and no run is kept."
+          readOnly: true
+        run:
+          $ref: "#/components/schemas/AllocationRun"
+          description: "The run posted. Absent when `posted` is false."
+          readOnly: true
+      examples:
+        - allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+          allocation_cycle_code: SHARED-IT
+          allocation_cycle_name: IT services to the offices
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posted: true
+          run:
+            id: "0192a000-0000-7000-8000-000000000d11"
+            allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+            allocation_cycle_code: SHARED-IT
+            allocation_cycle_name: IT services to the offices
+            kind: distribution
+            legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+            fiscal_year: 2026
+            fiscal_period: 11
+            posting_date: "2026-11-30"
+            sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+            sender_cost_center_code: CC-1200
+            amount:
+              amount: "999.99"
+              currency: EUR
+            account_count: 1
+            journal_entry_id: "0192a000-0000-7000-8000-000000000e42"
+            journal_entry_number: "100000043"
+            created_at: "2026-11-30T17:00:00Z"
+            created_by: "0192a000-0000-7000-8000-000000000101"
+    AllocationRunPage:
+      type: object
+      description: One page of allocation runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllocationRun"
+          description: The allocation runs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     InternalOrder:
       description: "An internal order (ADR-0064 §1): a cost object of the controlling context in one legal entity, collecting the costs of a job or an event. Costs are posted to it once it is released."
       allOf:
@@ -34894,10 +36345,11 @@ components:
               readOnly: true
             status:
               type: string
-              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it; `closed` (`:close`): settled, and no posting any more. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - created
                 - released
+                - closed
               readOnly: true
       examples:
         - id: "0192a000-0000-7000-8000-000000000c01"
@@ -35132,6 +36584,226 @@ components:
       additionalProperties: false
       examples:
         - receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+    InternalOrderSettle:
+      type: object
+      description: "The period an internal order is settled up to."
+      required:
+        - fiscal_year
+        - fiscal_period
+      properties:
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: "The fiscal year of the period, one set up for the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "A regular posting period of the fiscal year: what was posted to the order in it and in every period before it, earlier years included, is settled, and the entry is dated its last day."
+      additionalProperties: false
+      examples:
+        - fiscal_year: 2026
+          fiscal_period: 11
+    InternalOrderSettlement:
+      type: object
+      description: "A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled balance up to a period to the receiving cost center, account by account. Never changed."
+      required:
+        - id
+        - internal_order_id
+        - fiscal_year
+        - fiscal_period
+        - posting_date
+        - receiver_cost_center_id
+        - receiver_cost_center_code
+        - amount
+        - account_count
+        - journal_entry_id
+        - journal_entry_number
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The settlement's id.
+          readOnly: true
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order settled (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period settled up to.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: "The period settled up to, and the entry's."
+        posting_date:
+          type: string
+          format: date
+          description: "The entry's posting date: the period's last day."
+          readOnly: true
+        receiver_cost_center_id:
+          type: string
+          format: uuid
+          description: "The cost center that received the costs (`GET /v1/cost-centers/{id}`): the receiver of the order's settlement rule when it was settled."
+          readOnly: true
+        receiver_cost_center_code:
+          type: string
+          description: The receiving cost center's code.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What moved from the order to the receiver, in the legal entity's local currency: the total of the accounts' balances settled, negative when the order held a credit balance."
+          readOnly: true
+        account_count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many accounts the settlement moved a balance on.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The settlement's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show each account's credit on the order and debit on the receiver."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: The entry's document number.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the order was settled (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who settled it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c11"
+          internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posting_date: "2026-11-30"
+          receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+          receiver_cost_center_code: CC-2100
+          amount:
+            amount: "1500.00"
+            currency: EUR
+          account_count: 1
+          journal_entry_id: "0192a000-0000-7000-8000-000000000e41"
+          journal_entry_number: "100000042"
+          created_at: "2026-11-30T16:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderSettlementResult:
+      type: object
+      description: "What settling an internal order up to a period did (ADR-0064 §3): the settlement it posted, or that nothing was unsettled."
+      required:
+        - internal_order_id
+        - internal_order_code
+        - internal_order_name
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - settled
+      properties:
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order (`GET /v1/internal-orders/{id}`)."
+          readOnly: true
+        internal_order_code:
+          type: string
+          description: The order's code.
+          readOnly: true
+        internal_order_name:
+          type: string
+          description: The order's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The order's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period settled up to.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period settled up to.
+        settled:
+          type: boolean
+          description: "Whether an entry was posted: false when the order had no unsettled balance up to the period, so nothing changed."
+          readOnly: true
+        settlement:
+          $ref: "#/components/schemas/InternalOrderSettlement"
+          description: "The settlement posted. Absent when `settled` is false."
+          readOnly: true
+      examples:
+        - internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+          internal_order_code: TRADEFAIR-26
+          internal_order_name: Trade fair 2026
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          settled: true
+          settlement:
+            id: "0192a000-0000-7000-8000-000000000c11"
+            internal_order_id: "0192a000-0000-7000-8000-000000000c01"
+            fiscal_year: 2026
+            fiscal_period: 11
+            posting_date: "2026-11-30"
+            receiver_cost_center_id: "0192a000-0000-7000-8000-000000000202"
+            receiver_cost_center_code: CC-2100
+            amount:
+              amount: "1500.00"
+              currency: EUR
+            account_count: 1
+            journal_entry_id: "0192a000-0000-7000-8000-000000000e41"
+            journal_entry_number: "100000042"
+            created_at: "2026-11-30T16:00:00Z"
+            created_by: "0192a000-0000-7000-8000-000000000101"
+    InternalOrderSettlementPage:
+      type: object
+      description: One page of an internal order's settlements.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrderSettlement"
+          description: The settlements on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     InternalOrderBalance:
       type: object
       description: "The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the legal entity's local currency."
@@ -43718,10 +45390,16 @@ components:
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company that issued the invoice: a legal entity the caller may act in."}
         customer_id: {type: string, format: uuid, description: "The customer: an active business partner with the customer role."}
-        invoice_date: {type: string, format: date, description: "The invoice date; the tax date its items' tax codes are rated on (ADR-0049 §4)."}
+        kind:
+          type: string
+          x-extensible-enum: [invoice, credit_memo]
+          default: invoice
+          description: "What the document is: `invoice` (absent: an invoice) or `credit_memo`, which credits the customer what was invoiced and posts with the signs turned. Amounts are more than zero whatever the kind, which gives their direction. Fixed once entered. Open enumeration: values may be added within /v1; one this version does not know is refused (422 `receivables.unknown_kind`)."
+        reference_invoice_id: {type: string, format: uuid, description: "The invoice a credit memo credits: a posted invoice of the same company and customer in the memo's currency (`GET /v1/customer-invoices`). The posted credit memos naming an invoice may not exceed its gross amount (`postCustomerInvoice`); absent: the memo names none and has no such limit. Never on an invoice."}
+        invoice_date: {type: string, format: date, description: "The document's date; the tax date its items' tax codes are rated on (ADR-0049 §4), a credit memo's own."}
         posting_date: {type: string, format: date, description: "The posting date the invoice is to post on; absent: decided when it posts."}
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "The invoice's currency (ISO 4217), every item's."}
-        payment_term_code: {type: string, minLength: 1, maxLength: 20, description: "The payment term the invoice posts with: a configured term (`payment_terms` of the configuration); absent: the customer's in the company when the invoice posts."}
+        payment_term_code: {type: string, minLength: 1, maxLength: 20, description: "The payment term the invoice posts with: a configured term (`payment_terms` of the configuration); absent: the customer's in the company when the invoice posts, or, for a credit memo naming an invoice, that invoice's."}
         items:
           type: array
           minItems: 1
@@ -43771,22 +45449,24 @@ components:
             customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
             kind:
               type: string
-              x-extensible-enum: [invoice]
-              description: "What the document is: `invoice`. Its amounts are never negative; the kind gives their direction. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [invoice, credit_memo]
+              description: "What the document is: `invoice`, or `credit_memo`, which credits the customer what was invoiced (Cr customer when posted). Its amounts are never negative; the kind gives their direction. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
+            reference_invoice_id: {type: string, format: uuid, description: "The posted invoice a credit memo credits (`GET /v1/customer-invoices/{id}`). Absent on an invoice and on a credit memo naming none.", readOnly: true}
+            reference_invoice_number: {type: string, description: "That invoice's document number; absent with `reference_invoice_id`.", readOnly: true}
             invoice_date: {type: string, format: date, description: "The invoice date, its tax date.", readOnly: true}
             posting_date: {type: string, format: date, description: "The posting date entered; once posted, the date the invoice posted on. Absent on a draft entered without one.", readOnly: true}
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The invoice's currency (ISO 4217).", readOnly: true}
             net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' net amounts."}
             tax_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' tax."}
-            gross_amount: {$ref: "#/components/schemas/Money", description: "What the customer owes: `net_amount` and `tax_amount`."}
+            gross_amount: {$ref: "#/components/schemas/Money", description: "`net_amount` and `tax_amount`: what the customer owes for an invoice, what the customer is credited by a credit memo."}
             status:
               type: string
               x-extensible-enum: [draft, posted]
-              description: "`draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its debit line is the customer's open item. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on the customer's reconciliation account is the customer's open item, a debit for an invoice and a credit for a credit memo. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             payment_term_code: {type: string, description: "The payment term entered; once posted, the term the invoice posted with (the customer's in the company when none was entered). Absent on a draft entered without one.", readOnly: true}
-            net_due_date: {type: string, format: date, description: "When the invoice's open item is due: the invoice date plus its payment term's net days, as the ledger keeps it with the item. Absent until posted.", readOnly: true}
+            net_due_date: {type: string, format: date, description: "When the document's open item is due, as the ledger keeps it with the item: the invoice date plus its payment term's net days; for a credit memo that names an invoice and no term of its own, when that invoice is due. Absent until posted.", readOnly: true}
             journal_entry_id: {type: string, format: uuid, description: "The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.", readOnly: true}
             journal_entry_year: {type: integer, format: int32, description: "The entry's fiscal year. Absent until posted.", readOnly: true}
             journal_entry_number: {type: string, description: "The entry's document number. Absent until posted.", readOnly: true}
@@ -43836,6 +45516,56 @@ components:
           items: {$ref: "#/components/schemas/CustomerInvoice"}
           description: The customer invoices on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CollectionWorklistCustomer:
+      type: object
+      description: "A customer on a collection worklist: one with items overdue on the key date. Amounts are in the company's currency, as the items were booked."
+      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level]
+      properties:
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        open_amount: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, overdue or not, credit items included; negative when its credits exceed what it owes."}
+        overdue_amount: {$ref: "#/components/schemas/Money", description: "What the customer's items overdue on the key date add up to; credit items do not reduce it."}
+        oldest_due_date: {type: string, format: date, description: "The earliest net due date among the customer's overdue items.", readOnly: true}
+        dunning_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0 when none was dunned.", readOnly: true}
+        last_dunning_date: {type: string, format: date, description: "The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items; absent when none was dunned.", readOnly: true}
+    CollectionWorklist:
+      type: object
+      description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
+      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        key_date: {type: string, format: date, description: "The date the items are overdue on.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of every amount.", readOnly: true}
+        customer_count: {type: integer, format: int32, minimum: 0, description: "The customers on the worklist, on every page together.", readOnly: true}
+        open_amount: {$ref: "#/components/schemas/Money", description: "The sum of `open_amount` of every customer on the worklist."}
+        overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of `overdue_amount` of every customer on the worklist."}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CollectionWorklistCustomer"}
+          description: "The customers on this page, the largest overdue amount first."
+          readOnly: true
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          key_date: "2026-12-31"
+          currency: CAD
+          customer_count: 1
+          open_amount: {amount: "1050.00", currency: CAD}
+          overdue_amount: {amount: "1050.00", currency: CAD}
+          items:
+            - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              customer_name: Northwind Traders
+              open_amount: {amount: "1050.00", currency: CAD}
+              overdue_amount: {amount: "1050.00", currency: CAD}
+              oldest_due_date: "2026-12-11"
+              dunning_level: 1
+              last_dunning_date: "2026-12-31"
     DunningRunCreate:
       type: object
       description: "Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue on the key date."
@@ -43843,7 +45573,7 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in the configuration."}
-        key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue."}
+        key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31 at the latest."}
     DunningRun:
       description: "A dunning run (collections, ADR-0065 §3): a company's customer items overdue on a key date, proposed for dunning."
       allOf:
@@ -43857,8 +45587,8 @@ components:
             key_date: {type: string, format: date, description: "The date the items' days overdue were counted on.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [proposed]
-              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [proposed, confirmed]
+              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date, the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of `overdue_amount`.", readOnly: true}
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
@@ -43906,7 +45636,7 @@ components:
         days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
-        previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at; 0 for an item never dunned.", readOnly: true}
+        previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at when the run was started, the highest a confirmed run recorded for it; 0 for an item never dunned.", readOnly: true}
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The dunning level the item would reach: the last level whose days overdue it has reached, one above `previous_level` at most.", readOnly: true}
     DunningNotice:
       type: object
@@ -43959,6 +45689,98 @@ components:
           items: {$ref: "#/components/schemas/DunningNotice"}
           description: The notices on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CustomerCreditLimitCreate:
+      type: object
+      description: "Set a customer's credit limit in a company."
+      required: [legal_entity_id, customer_id, limit]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company the limit holds in: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer: a business partner with the customer role and customer data in the company."}
+        limit: {$ref: "#/components/schemas/Money", description: "The most the customer may owe the company, in the company's currency; zero or more."}
+    CustomerCreditLimitUpdate:
+      type: object
+      description: "Merge patch of a credit limit: its amount."
+      required: [limit]
+      additionalProperties: false
+      properties:
+        limit: {$ref: "#/components/schemas/Money", description: "The new limit, in the limit's currency; zero or more."}
+      examples:
+        - limit: {amount: "7500.00", currency: CAD}
+    CustomerCreditLimit:
+      description: "A customer's credit limit in a company (credit, ADR-0066 §2): the most the customer may owe it."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, limit]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company the limit holds in.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            limit: {$ref: "#/components/schemas/Money", description: "The limit, in the company's currency."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 1
+          created_at: "2026-11-12T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-12T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          limit: {amount: "5000.00", currency: CAD}
+    CustomerCreditLimitPage:
+      type: object
+      description: One page of credit limits.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CustomerCreditLimit"}
+          description: The credit limits on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CreditExposure:
+      type: object
+      description: "A customer's credit exposure in a company and the check of an amount against its credit limit (credit, ADR-0066 §3-§4). Every amount is in the company's currency."
+      required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, currency, open_item_count, exposure, has_limit, is_within_limit]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of every amount.", readOnly: true}
+        open_item_count: {type: integer, format: int32, minimum: 0, description: "The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which the exposure adds up.", readOnly: true}
+        exposure: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, as they were booked, credit items netted; negative when its credits exceed what it owes."}
+        has_limit: {type: boolean, description: "Whether a credit limit is set for the customer in the company. False: no limit is set, and the customer is not restricted.", readOnly: true}
+        credit_limit_id: {type: string, format: uuid, description: "The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.", readOnly: true}
+        limit: {$ref: "#/components/schemas/Money", description: "The credit limit; absent when none is set."}
+        available: {$ref: "#/components/schemas/Money", description: "The limit less the exposure: what the customer may still come to owe; negative when the exposure exceeds the limit. Absent when no limit is set."}
+        amount: {$ref: "#/components/schemas/Money", description: "The amount checked, as the request gave it; absent when it gave none."}
+        is_within_limit: {type: boolean, description: "Whether the exposure and the amount checked together are no more than the limit; the exposure alone when no amount was given. Always true when no limit is set.", readOnly: true}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          currency: CAD
+          open_item_count: 2
+          exposure: {amount: "1470.00", currency: CAD}
+          has_limit: true
+          credit_limit_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          limit: {amount: "5000.00", currency: CAD}
+          available: {amount: "3530.00", currency: CAD}
+          amount: {amount: "500.00", currency: CAD}
+          is_within_limit: true
     IncomingPaymentCreate:
       type: object
       description: "Apply an incoming payment to a customer's open items, in full and exactly."
@@ -44097,6 +45919,100 @@ components:
           items: {$ref: "#/components/schemas/UnappliedReceipt"}
           description: The receipts on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    ReceivablesAgingBucket:
+      type: object
+      description: "One bucket of the AR aging: the open items in it and their amount in the company's local currency, a credit item negative."
+      required: [bucket, item_count, amount]
+      properties:
+        bucket:
+          type: string
+          x-extensible-enum: [not_due, overdue, no_due_date]
+          description: "`not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          readOnly: true
+        days_from: {type: integer, format: int32, minimum: 1, description: "An overdue bucket's first day past the net due date.", readOnly: true}
+        days_to: {type: integer, format: int32, minimum: 1, description: "An overdue bucket's last day past the net due date; absent on the last overdue bucket.", readOnly: true}
+        item_count: {type: integer, format: int64, minimum: 0, description: "How many open items the bucket holds.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The items' amounts in local currency, added up; 0 for an empty bucket."}
+    ReceivablesAgingCustomer:
+      type: object
+      description: "A customer's row of the AR aging: its open items on the key date, in total and by bucket."
+      required: [customer_id, customer_number, customer_name, item_count, amount, buckets]
+      properties:
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        item_count: {type: integer, format: int64, minimum: 1, description: "How many open items the customer has.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "What the customer owes: its open items in local currency, added up, credit items reducing it; the sum of `buckets`."}
+        buckets:
+          type: array
+          maxItems: 9
+          items: {$ref: "#/components/schemas/ReceivablesAgingBucket"}
+          description: "The customer's items by bucket: every bucket of the report, in its order."
+          readOnly: true
+    ReceivablesAgingTotals:
+      type: object
+      description: "The totals of the AR aging: every customer the request selects, whatever the page."
+      required: [customer_count, item_count, amount, buckets]
+      properties:
+        customer_count: {type: integer, format: int64, minimum: 0, description: "How many customers have open items: the rows of every page together.", readOnly: true}
+        item_count: {type: integer, format: int64, minimum: 0, description: "How many open items they have.", readOnly: true}
+        amount: {$ref: "#/components/schemas/Money", description: "The open items in local currency, added up: the open items of the company's customer reconciliation accounts (of the one customer, with `customer_id`); the sum of `buckets`."}
+        buckets:
+          type: array
+          maxItems: 9
+          items: {$ref: "#/components/schemas/ReceivablesAgingBucket"}
+          description: "The items by bucket: not due, each overdue bucket by its days, without a due date."
+          readOnly: true
+    ReceivablesAging:
+      type: object
+      description: "The AR aging of a company on a key date (ADR-0063 §10): the totals and one page of customers."
+      required: [legal_entity_id, company_code, company_name, key_date, currency, aging_days, totals, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        key_date: {type: string, format: date, description: "The date the items are aged on.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's local currency (ISO 4217), every amount's.", readOnly: true}
+        aging_days:
+          type: array
+          maxItems: 6
+          items: {type: integer, format: int32, minimum: 1}
+          description: "The overdue buckets' last days, as asked for or the default."
+          readOnly: true
+        totals: {$ref: "#/components/schemas/ReceivablesAgingTotals"}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/ReceivablesAgingCustomer"}
+          description: "The customers on this page, by customer id."
+          readOnly: true
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          key_date: "2026-12-31"
+          currency: CAD
+          aging_days: [30]
+          totals:
+            customer_count: 1
+            item_count: 2
+            amount: {amount: "1680.00", currency: CAD}
+            buckets:
+              - {bucket: not_due, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+              - {bucket: overdue, days_from: 1, days_to: 30, item_count: 2, amount: {amount: "1680.00", currency: CAD}}
+              - {bucket: overdue, days_from: 31, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+              - {bucket: no_due_date, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+          items:
+            - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              customer_name: Northwind Traders
+              item_count: 2
+              amount: {amount: "1680.00", currency: CAD}
+              buckets:
+                - {bucket: not_due, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+                - {bucket: overdue, days_from: 1, days_to: 30, item_count: 2, amount: {amount: "1680.00", currency: CAD}}
+                - {bucket: overdue, days_from: 31, item_count: 0, amount: {amount: "0.00", currency: CAD}}
+                - {bucket: no_due_date, item_count: 0, amount: {amount: "0.00", currency: CAD}}
     EInvoiceFetch:
       type: object
       description: A fetch of e-invoices from a provider (ADR-0061 §4).

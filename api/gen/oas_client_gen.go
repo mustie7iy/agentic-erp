@@ -448,6 +448,23 @@ type Invoker interface {
 	//
 	// POST /v1/fiscal-periods/{id}:close
 	CloseFiscalPeriod(ctx context.Context, params CloseFiscalPeriodParams) (CloseFiscalPeriodRes, error)
+	// CloseInternalOrder invokes closeInternalOrder operation.
+	//
+	// Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the
+	// order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting
+	// (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing
+	// needs the order's balance to be zero on every account, in the leading ledger over every fiscal year:
+	// an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming
+	// the balance: settle it first). An order that was never released (409
+	// `controlling.internal_order_not_released`) or is already closed (409
+	// `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval
+	// request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the
+	// caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger
+	// amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order.
+	//
+	// POST /v1/internal-orders/{id}:close
+	CloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (CloseInternalOrderRes, error)
 	// ClosePurchaseOrder invokes closePurchaseOrder operation.
 	//
 	// Closes a released order: no further goods receipts or invoices are expected and both are refused
@@ -485,6 +502,45 @@ type Invoker interface {
 	//
 	// POST /v1/year-closes/{id}/tasks/{code}:complete
 	CompleteYearCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error)
+	// ConfirmDunningRun invokes confirmDunningRun operation.
+	//
+	// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+	// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+	// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+	// with it. From then on a run started for the company reads the recorded level as the item's
+	// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+	// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+	// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+	// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+	// is no longer the run's `previous_level`), the proposal is stale and refused (409
+	// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+	// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+	// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+	// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+	// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+	// not found (404). Human-only (`x-agent: false`).
+	//
+	// POST /v1/dunning-runs/{id}:confirm
+	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
+	// CreateAllocationCycle invokes createAllocationCycle operation.
+	//
+	// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
+	// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
+	// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
+	// original accounts. The code is unique in the legal entity (409
+	// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
+	// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
+	// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
+	// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+	// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
+	// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
+	// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+	// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
+	// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
+	// not create one.
+	//
+	// POST /v1/allocation-cycles
+	CreateAllocationCycle(ctx context.Context, request *AllocationCycleCreate, params CreateAllocationCycleParams) (CreateAllocationCycleRes, error)
 	// CreateAsset invokes createAsset operation.
 	//
 	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -764,6 +820,23 @@ type Invoker interface {
 	//
 	// POST /v1/cost-centers
 	CreateCostCenter(ctx context.Context, request *CostCenterCreate, params CreateCostCenterParams) (CreateCostCenterRes, error)
+	// CreateCreditLimit invokes createCreditLimit operation.
+	//
+	// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
+	// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
+	// holds at once: there is no approval of it and no validity period. The customer is a business partner
+	// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+	// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
+	// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+	// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
+	// amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
+	// `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
+	// Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
+	// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+	// `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
+	//
+	// POST /v1/credit-limits
+	CreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (CreateCreditLimitRes, error)
 	// CreateCustomerInvoice invokes createCustomerInvoice operation.
 	//
 	// Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -784,8 +857,14 @@ type Invoker interface {
 	// items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
 	// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
 	// lines name (one code for every emirate) is refused, 422
-	// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
-	// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
+	// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
+	// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
+	// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
+	// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
+	// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
+	// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
+	// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
+	// invoice entered. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
@@ -809,13 +888,16 @@ type Invoker interface {
 	// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 	// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 	// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-	// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-	// notice's level is the highest among its items. A company without dunning levels is refused (422
-	// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-	// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-	// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-	// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-	// Human-only (`x-agent: false`).
+	// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+	// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+	// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+	// highest level stays there. A notice's level is the highest among its items. A key date after
+	// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+	// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+	// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+	// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+	// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+	// answers the run started. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs
 	CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
@@ -1395,6 +1477,22 @@ type Invoker interface {
 	//
 	// GET /v1/ai-usage
 	GetAiUsage(ctx context.Context, params GetAiUsageParams) (GetAiUsageRes, error)
+	// GetAllocationCycle invokes getAllocationCycle operation.
+	//
+	// Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller
+	// cannot act in is answered as missing (404).
+	//
+	// GET /v1/allocation-cycles/{id}
+	GetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (GetAllocationCycleRes, error)
+	// GetAllocationRun invokes getAllocationRun operation.
+	//
+	// Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered
+	// as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the
+	// caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+	// otherwise).
+	//
+	// GET /v1/allocation-runs/{id}
+	GetAllocationRun(ctx context.Context, params GetAllocationRunParams) (GetAllocationRunRes, error)
 	// GetAnalyticsModel invokes getAnalyticsModel operation.
 	//
 	// The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as
@@ -1776,6 +1874,32 @@ type Invoker interface {
 	//
 	// GET /v1/close-calendar
 	GetCloseCalendar(ctx context.Context, params GetCloseCalendarParams) (GetCloseCalendarRes, error)
+	// GetCollectionWorklist invokes getCollectionWorklist operation.
+	//
+	// The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue
+	// items, the largest overdue amount first (customers with the same amount by `customer_id`), each with
+	// its number and name, what its open items add up to (`open_amount`, credits included), what its
+	// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
+	// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
+	// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
+	// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
+	// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
+	// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
+	// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
+	// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
+	// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
+	// counts what is overdue. Amounts are in the company's currency, as the items were booked.
+	// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
+	// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
+	// company and key date. Each page is computed anew and continues after the last customer's overdue
+	// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
+	// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
+	// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
+	// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
+	// naming `key_date`). A legal entity the caller cannot act in is 404.
+	//
+	// GET /v1/collection-worklist
+	GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error)
 	// GetCompanyAccess invokes getCompanyAccess operation.
 	//
 	// Returns one company access grant.
@@ -1874,6 +1998,38 @@ type Invoker interface {
 	//
 	// GET /v1/cost-centers/{id}
 	GetCostCenter(ctx context.Context, params GetCostCenterParams) (GetCostCenterRes, error)
+	// GetCreditExposure invokes getCreditExposure operation.
+	//
+	// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
+	// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
+	// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
+	// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
+	// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
+	// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
+	// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
+	// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
+	// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
+	// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
+	// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
+	// what a consumer does with the answer is its own. It is computed at the read from one database state
+	// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
+	// without open items in the company has an exposure of zero. An amount below zero is refused (422
+	// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
+	// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
+	// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
+	// cannot act in is 404, as a business partner that does not exist.
+	//
+	// GET /v1/credit-exposure
+	GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error)
+	// GetCreditLimit invokes getCreditLimit operation.
+	//
+	// One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and
+	// name, and the limit in the company's currency. What the customer owes is read with
+	// `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does
+	// not exist.
+	//
+	// GET /v1/credit-limits/{id}
+	GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (GetCreditLimitRes, error)
 	// GetCurrentPrincipal invokes getCurrentPrincipal operation.
 	//
 	// The caller's own principal (ADR-0052 G2): who they are, the companies they may act in, the
@@ -2347,6 +2503,29 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetReceivablesAging invokes getReceivablesAging operation.
+	//
+	// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+	// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+	// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+	// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+	// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+	// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+	// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+	// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+	// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+	// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+	// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+	// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+	// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+	// `totals` are those of every customer the request selects, on every page, and equal the open items of
+	// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+	// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+	// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+	// naming `key_date`).
+	//
+	// GET /v1/receivables-aging
+	GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error)
 	// GetRecommendation invokes getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -2567,6 +2746,23 @@ type Invoker interface {
 	//
 	// GET /v1/agent-sessions/{id}/tool-calls
 	ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (ListAgentToolCallsRes, error)
+	// ListAllocationCycles invokes listAllocationCycles operation.
+	//
+	// Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender
+	// and its receivers, their codes and percentages. Sortable by: `code`.
+	//
+	// GET /v1/allocation-cycles
+	ListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (ListAllocationCyclesRes, error)
+	// ListAllocationRuns invokes listAllocationRuns operation.
+	//
+	// The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest
+	// first: each with its cycle's code, name and kind, the period, the sender with its code, the amount
+	// moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The
+	// amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/allocation-runs
+	ListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (ListAllocationRunsRes, error)
 	// ListApprovalRequests invokes listApprovalRequests operation.
 	//
 	// Approval requests; filter by `status=pending` for everything waiting, by `requested_by=me` for the
@@ -2992,12 +3188,22 @@ type Invoker interface {
 	//
 	// GET /v1/country-packs
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
+	// ListCreditLimits invokes listCreditLimits operation.
+	//
+	// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
+	// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
+	// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
+	// (default).
+	//
+	// GET /v1/credit-limits
+	ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error)
 	// ListCustomerInvoices invokes listCustomerInvoices operation.
 	//
-	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
-	// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
-	// totals and its items. Filtered by company, customer, status, document number and invoice date.
-	// Sortable by: `invoice_date`, `document_number`.
+	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
+	// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
+	// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
+	// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
+	// `document_number`.
 	//
 	// GET /v1/customer-invoices
 	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
@@ -3226,6 +3432,18 @@ type Invoker interface {
 	//
 	// GET /v1/internal-order-balances
 	ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (ListInternalOrderBalancesRes, error)
+	// ListInternalOrderSettlements invokes listInternalOrderSettlements operation.
+	//
+	// The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
+	// was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
+	// currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
+	// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
+	// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
+	// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise).
+	//
+	// GET /v1/internal-orders/{id}/settlements
+	ListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (ListInternalOrderSettlementsRes, error)
 	// ListInternalOrders invokes listInternalOrders operation.
 	//
 	// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its
@@ -3952,8 +4170,22 @@ type Invoker interface {
 	// `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
 	// draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
 	// the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
-	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
-	// Human-only (`x-agent: false`).
+	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A
+	// credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it
+	// credits the customer's reconciliation account with its gross amount and debits each item's account
+	// and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line
+	// is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when
+	// a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo,
+	// counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from
+	// that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term
+	// from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the
+	// gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not
+	// exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the
+	// problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the
+	// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
+	// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
+	// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
+	// refused. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices/{id}:post
 	PostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)
@@ -4737,6 +4969,34 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:rotateSecret
 	RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (RotateWebhookSubscriptionSecretRes, error)
+	// RunAllocationCycle invokes runAllocationCycle operation.
+	//
+	// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
+	// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
+	// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
+	// local currency through the ledger (source context `controlling`, document type `SA`, dated the
+	// period's last day): per account, the sender credited with its cost and each receiver debited with
+	// its share on the same account, so the entry balances per account and every account's balance is
+	// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
+	// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
+	// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
+	// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
+	// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
+	// both post, and two cycles of one sender run at once follow one another: the second moves what the
+	// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
+	// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
+	// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
+	// it); and what the ledger refuses of any entry, among them a period that is not open (409
+	// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
+	// cost posted to the sender in the period after its run stays on the sender. The run is kept
+	// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
+	// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
+	// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Agents may not run a cycle.
+	//
+	// POST /v1/allocation-cycles/{id}:run
+	RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
 	// RunAnalyticsQuery invokes runAnalyticsQuery operation.
 	//
 	// Answers governed metrics (the semantic model in the active configuration version's `analytics`
@@ -4797,6 +5057,40 @@ type Invoker interface {
 	//
 	// POST /v1/balance-carry-forwards
 	RunBalanceCarryForward(ctx context.Context, request *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (RunBalanceCarryForwardRes, error)
+	// SettleInternalOrder invokes settleInternalOrder operation.
+	//
+	// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
+	// settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the
+	// ledger (source context `controlling`, document type `SA`, dated the period's last day), which per
+	// account credits the order and debits the receiving cost center for the order's unsettled balance, so
+	// each account's balance is unchanged and the cost moves from the order to the cost center on the
+	// accounts it was posted on. The unsettled balance of an account is the balance of the leading
+	// ledger's lines naming the order in every period up to the one named, earlier years included; an
+	// earlier settlement's lines are among them, so only what was posted since moves. With nothing
+	// unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before
+	// the one the order was last settled up to is refused (409
+	// `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so
+	// the balance up to an earlier one still holds what it moved; name the same period or a later one,
+	// which also moves a cost posted since into a period already settled. `If-Match` is the order's
+	// version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves
+	// with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a
+	// settlement does not move it. The order is held under a row lock, so two settlements never move one
+	// balance twice and a posting to the order waits for a settlement under way. Refused: an order that is
+	// not released (409 `controlling.internal_order_not_released`) or already closed (409
+	// `controlling.internal_order_closed`); an order without a settlement rule (409
+	// `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or
+	// a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver
+	// that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace
+	// the rule); and what the ledger refuses of any entry, among them a period that is not open (409
+	// `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`).
+	// The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+	// InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing
+	// (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+	// not settle an order.
+	//
+	// POST /v1/internal-orders/{id}:settle
+	SettleInternalOrder(ctx context.Context, request *InternalOrderSettle, params SettleInternalOrderParams) (SettleInternalOrderRes, error)
 	// SignOffPeriodClose invokes signOffPeriodClose operation.
 	//
 	// Signs off a period close and locks its covered ledgers' periods through the period lock (ADR-0058
@@ -5136,6 +5430,19 @@ type Invoker interface {
 	//
 	// PATCH /v1/cost-centers/{id}
 	UpdateCostCenter(ctx context.Context, request *CenterTextsUpdate, params UpdateCostCenterParams) (UpdateCostCenterRes, error)
+	// UpdateCreditLimit invokes updateCreditLimit operation.
+	//
+	// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
+	// change came first): the new limit holds at once, in the limit's currency, zero or more (422
+	// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
+	// The customer, the company and the currency of a limit do not change. A change to the amount the
+	// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
+	// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
+	// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+	// (`x-agent: false`).
+	//
+	// PATCH /v1/credit-limits/{id}
+	UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error)
 	// UpdateEntryTemplate invokes updateEntryTemplate operation.
 	//
 	// Changes an active entry template (409 `ledger.template_retired` otherwise; `EntryTemplateChanged`).
@@ -11188,6 +11495,174 @@ func (c *Client) sendCloseFiscalPeriod(ctx context.Context, params CloseFiscalPe
 	return result, nil
 }
 
+// CloseInternalOrder invokes closeInternalOrder operation.
+//
+// Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the
+// order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting
+// (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing
+// needs the order's balance to be zero on every account, in the leading ledger over every fiscal year:
+// an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming
+// the balance: settle it first). An order that was never released (409
+// `controlling.internal_order_not_released`) or is already closed (409
+// `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval
+// request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the
+// caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger
+// amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order.
+//
+// POST /v1/internal-orders/{id}:close
+func (c *Client) CloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (CloseInternalOrderRes, error) {
+	res, err := c.sendCloseInternalOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendCloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (res CloseInternalOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("closeInternalOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}:close"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CloseInternalOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":close"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CloseInternalOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCloseInternalOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ClosePurchaseOrder invokes closePurchaseOrder operation.
 //
 // Closes a released order: no further goods receipts or invoices are expected and both are refused
@@ -11715,6 +12190,320 @@ func (c *Client) sendCompleteYearCloseTask(ctx context.Context, request OptClose
 
 	stage = "DecodeResponse"
 	result, err := decodeCompleteYearCloseTaskResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ConfirmDunningRun invokes confirmDunningRun operation.
+//
+// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+// with it. From then on a run started for the company reads the recorded level as the item's
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+// is no longer the run's `previous_level`), the proposal is stale and refused (409
+// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+// not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:confirm
+func (c *Client) ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error) {
+	res, err := c.sendConfirmDunningRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (res ConfirmDunningRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmDunningRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/dunning-runs/{id}:confirm"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ConfirmDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/dunning-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":confirm"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ConfirmDunningRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeConfirmDunningRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateAllocationCycle invokes createAllocationCycle operation.
+//
+// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
+// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
+// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
+// original accounts. The code is unique in the legal entity (409
+// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
+// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
+// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
+// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
+// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
+// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
+// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
+// not create one.
+//
+// POST /v1/allocation-cycles
+func (c *Client) CreateAllocationCycle(ctx context.Context, request *AllocationCycleCreate, params CreateAllocationCycleParams) (CreateAllocationCycleRes, error) {
+	res, err := c.sendCreateAllocationCycle(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateAllocationCycle(ctx context.Context, request *AllocationCycleCreate, params CreateAllocationCycleParams) (res CreateAllocationCycleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createAllocationCycle"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateAllocationCycleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/allocation-cycles"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateAllocationCycleRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateAllocationCycleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateAllocationCycleResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -13632,6 +14421,147 @@ func (c *Client) sendCreateCostCenter(ctx context.Context, request *CostCenterCr
 	return result, nil
 }
 
+// CreateCreditLimit invokes createCreditLimit operation.
+//
+// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
+// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
+// holds at once: there is no approval of it and no validity period. The customer is a business partner
+// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
+// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
+// amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
+// `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
+// Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
+// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+// `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-limits
+func (c *Client) CreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (CreateCreditLimitRes, error) {
+	res, err := c.sendCreateCreditLimit(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCreditLimit(ctx context.Context, request *CustomerCreditLimitCreate, params CreateCreditLimitParams) (res CreateCreditLimitRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCreditLimit"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/credit-limits"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCreditLimitOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-limits"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCreditLimitRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCreditLimitOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCreditLimitResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateCustomerInvoice invokes createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -13652,8 +14582,14 @@ func (c *Client) sendCreateCostCenter(ctx context.Context, request *CostCenterCr
 // items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
 // `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
 // lines name (one code for every emirate) is refused, 422
-// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
-// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
+// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
+// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
+// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
+// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
+// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
+// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
+// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
+// invoice entered. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices
 func (c *Client) CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error) {
@@ -13925,13 +14861,16 @@ func (c *Client) sendCreateDownPaymentRequest(ctx context.Context, request *Down
 // net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 // of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 // payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-// notice's level is the highest among its items. A company without dunning levels is refused (422
-// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-// Human-only (`x-agent: false`).
+// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+// highest level stays there. A notice's level is the highest among its items. A key date after
+// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (c *Client) CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error) {
@@ -21276,6 +22215,272 @@ func (c *Client) sendGetAiUsage(ctx context.Context, params GetAiUsageParams) (r
 	return result, nil
 }
 
+// GetAllocationCycle invokes getAllocationCycle operation.
+//
+// Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller
+// cannot act in is answered as missing (404).
+//
+// GET /v1/allocation-cycles/{id}
+func (c *Client) GetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (GetAllocationCycleRes, error) {
+	res, err := c.sendGetAllocationCycle(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (res GetAllocationCycleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAllocationCycle"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAllocationCycleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/allocation-cycles/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAllocationCycleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAllocationCycleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAllocationRun invokes getAllocationRun operation.
+//
+// Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered
+// as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the
+// caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+// otherwise).
+//
+// GET /v1/allocation-runs/{id}
+func (c *Client) GetAllocationRun(ctx context.Context, params GetAllocationRunParams) (GetAllocationRunRes, error) {
+	res, err := c.sendGetAllocationRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAllocationRun(ctx context.Context, params GetAllocationRunParams) (res GetAllocationRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAllocationRun"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-runs/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAllocationRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/allocation-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetAllocationRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAllocationRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetAnalyticsModel invokes getAnalyticsModel operation.
 //
 // The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as
@@ -25332,6 +26537,205 @@ func (c *Client) sendGetCloseCalendar(ctx context.Context, params GetCloseCalend
 	return result, nil
 }
 
+// GetCollectionWorklist invokes getCollectionWorklist operation.
+//
+// The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue
+// items, the largest overdue amount first (customers with the same amount by `customer_id`), each with
+// its number and name, what its open items add up to (`open_amount`, credits included), what its
+// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
+// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
+// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
+// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
+// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
+// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
+// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
+// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
+// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
+// counts what is overdue. Amounts are in the company's currency, as the items were booked.
+// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
+// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
+// company and key date. Each page is computed anew and continues after the last customer's overdue
+// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
+// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
+// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
+// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
+// naming `key_date`). A legal entity the caller cannot act in is 404.
+//
+// GET /v1/collection-worklist
+func (c *Client) GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (GetCollectionWorklistRes, error) {
+	res, err := c.sendGetCollectionWorklist(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (res GetCollectionWorklistRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCollectionWorklist"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/collection-worklist"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCollectionWorklistOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/collection-worklist"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "key_date" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.KeyDate))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCollectionWorklistOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCollectionWorklistResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetCompanyAccess invokes getCompanyAccess operation.
 //
 // Returns one company access grant.
@@ -26480,6 +27884,319 @@ func (c *Client) sendGetCostCenter(ctx context.Context, params GetCostCenterPara
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCreditExposure invokes getCreditExposure operation.
+//
+// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
+// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
+// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
+// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
+// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
+// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
+// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
+// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
+// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
+// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
+// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
+// what a consumer does with the answer is its own. It is computed at the read from one database state
+// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
+// without open items in the company has an exposure of zero. An amount below zero is refused (422
+// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
+// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
+// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
+// cannot act in is 404, as a business partner that does not exist.
+//
+// GET /v1/credit-exposure
+func (c *Client) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error) {
+	res, err := c.sendGetCreditExposure(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCreditExposure(ctx context.Context, params GetCreditExposureParams) (res GetCreditExposureRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditExposure"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-exposure"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCreditExposureOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-exposure"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.CustomerID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "amount" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "amount",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Amount.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCreditExposureOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCreditExposureResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCreditLimit invokes getCreditLimit operation.
+//
+// One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and
+// name, and the limit in the company's currency. What the customer owes is read with
+// `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does
+// not exist.
+//
+// GET /v1/credit-limits/{id}
+func (c *Client) GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (GetCreditLimitRes, error) {
+	res, err := c.sendGetCreditLimit(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCreditLimit(ctx context.Context, params GetCreditLimitParams) (res GetCreditLimitRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCreditLimit"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-limits/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCreditLimitOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/credit-limits/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCreditLimitOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCreditLimitResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -32401,6 +34118,245 @@ func (c *Client) sendGetPurchaseOrderDocument(ctx context.Context, params GetPur
 	return result, nil
 }
 
+// GetReceivablesAging invokes getReceivablesAging operation.
+//
+// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+// `totals` are those of every customer the request selects, on every page, and equal the open items of
+// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+// naming `key_date`).
+//
+// GET /v1/receivables-aging
+func (c *Client) GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error) {
+	res, err := c.sendGetReceivablesAging(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (res GetReceivablesAgingRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getReceivablesAging"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/receivables-aging"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetReceivablesAgingOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/receivables-aging"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "key_date" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "key_date",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.DateToString(params.KeyDate))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "aging_days" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "aging_days",
+			Style:   uri.QueryStyleForm,
+			Explode: false,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.AgingDays != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.AgingDays {
+						if err := func() error {
+							return e.EncodeValue(conv.Int32ToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetReceivablesAgingOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetReceivablesAgingResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetRecommendation invokes getRecommendation operation.
 //
 // Returns one recommendation.
@@ -36416,6 +38372,517 @@ func (c *Client) sendListAgentToolCalls(ctx context.Context, params ListAgentToo
 
 	stage = "DecodeResponse"
 	result, err := decodeListAgentToolCallsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAllocationCycles invokes listAllocationCycles operation.
+//
+// Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender
+// and its receivers, their codes and percentages. Sortable by: `code`.
+//
+// GET /v1/allocation-cycles
+func (c *Client) ListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (ListAllocationCyclesRes, error) {
+	res, err := c.sendListAllocationCycles(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (res ListAllocationCyclesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAllocationCycles"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAllocationCyclesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/allocation-cycles"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Code.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sender_cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sender_cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SenderCostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAllocationCyclesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAllocationCyclesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAllocationRuns invokes listAllocationRuns operation.
+//
+// The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest
+// first: each with its cycle's code, name and kind, the period, the sender with its code, the amount
+// moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The
+// amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/allocation-runs
+func (c *Client) ListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (ListAllocationRunsRes, error) {
+	res, err := c.sendListAllocationRuns(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (res ListAllocationRunsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAllocationRuns"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/allocation-runs"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAllocationRunsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/allocation-runs"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "allocation_cycle_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "allocation_cycle_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.AllocationCycleID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalYear.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriod.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListAllocationRunsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAllocationRunsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -45650,12 +48117,218 @@ func (c *Client) sendListCountryPacks(ctx context.Context, params ListCountryPac
 	return result, nil
 }
 
+// ListCreditLimits invokes listCreditLimits operation.
+//
+// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
+// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
+// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
+// (default).
+//
+// GET /v1/credit-limits
+func (c *Client) ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (ListCreditLimitsRes, error) {
+	res, err := c.sendListCreditLimits(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (res ListCreditLimitsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCreditLimits"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/credit-limits"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCreditLimitsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/credit-limits"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCreditLimitsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCreditLimitsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListCustomerInvoices invokes listCustomerInvoices operation.
 //
-// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
-// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
-// totals and its items. Filtered by company, customer, status, document number and invoice date.
-// Sortable by: `invoice_date`, `document_number`.
+// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
+// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
+// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
+// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
+// `document_number`.
 //
 // GET /v1/customer-invoices
 func (c *Client) ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error) {
@@ -45751,6 +48424,40 @@ func (c *Client) sendListCustomerInvoices(ctx context.Context, params ListCustom
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.Status.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "kind" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Kind.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "reference_invoice_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "reference_invoice_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ReferenceInvoiceID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
 			}
 			return nil
 		}); err != nil {
@@ -50533,6 +53240,216 @@ func (c *Client) sendListInternalOrderBalances(ctx context.Context, params ListI
 
 	stage = "DecodeResponse"
 	result, err := decodeListInternalOrderBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListInternalOrderSettlements invokes listInternalOrderSettlements operation.
+//
+// The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
+// was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
+// currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
+// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
+// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
+// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-orders/{id}/settlements
+func (c *Client) ListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (ListInternalOrderSettlementsRes, error) {
+	res, err := c.sendListInternalOrderSettlements(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (res ListInternalOrderSettlementsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listInternalOrderSettlements"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}/settlements"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListInternalOrderSettlementsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/settlements"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListInternalOrderSettlementsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListInternalOrderSettlementsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -65573,8 +68490,22 @@ func (c *Client) sendPostBankStatementLine(ctx context.Context, request OptState
 // `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
 // draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
 // the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
-// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
-// Human-only (`x-agent: false`).
+// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A
+// credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it
+// credits the customer's reconciliation account with its gross amount and debits each item's account
+// and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line
+// is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when
+// a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo,
+// counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from
+// that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term
+// from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the
+// gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not
+// exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the
+// problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the
+// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
+// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
+// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
+// refused. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices/{id}:post
 func (c *Client) PostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error) {
@@ -74042,6 +76973,188 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 	return result, nil
 }
 
+// RunAllocationCycle invokes runAllocationCycle operation.
+//
+// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
+// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
+// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
+// local currency through the ledger (source context `controlling`, document type `SA`, dated the
+// period's last day): per account, the sender credited with its cost and each receiver debited with
+// its share on the same account, so the entry balances per account and every account's balance is
+// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
+// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
+// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
+// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
+// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
+// both post, and two cycles of one sender run at once follow one another: the second moves what the
+// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
+// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
+// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
+// it); and what the ledger refuses of any entry, among them a period that is not open (409
+// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
+// cost posted to the sender in the period after its run stays on the sender. The run is kept
+// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
+// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
+// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not run a cycle.
+//
+// POST /v1/allocation-cycles/{id}:run
+func (c *Client) RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error) {
+	res, err := c.sendRunAllocationCycle(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendRunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (res RunAllocationCycleRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("runAllocationCycle"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/allocation-cycles/{id}:run"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RunAllocationCycleOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/allocation-cycles/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":run"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeRunAllocationCycleRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RunAllocationCycleOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRunAllocationCycleResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RunAnalyticsQuery invokes runAnalyticsQuery operation.
 //
 // Answers governed metrics (the semantic model in the active configuration version's `analytics`
@@ -74343,6 +77456,194 @@ func (c *Client) sendRunBalanceCarryForward(ctx context.Context, request *Balanc
 
 	stage = "DecodeResponse"
 	result, err := decodeRunBalanceCarryForwardResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// SettleInternalOrder invokes settleInternalOrder operation.
+//
+// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
+// settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the
+// ledger (source context `controlling`, document type `SA`, dated the period's last day), which per
+// account credits the order and debits the receiving cost center for the order's unsettled balance, so
+// each account's balance is unchanged and the cost moves from the order to the cost center on the
+// accounts it was posted on. The unsettled balance of an account is the balance of the leading
+// ledger's lines naming the order in every period up to the one named, earlier years included; an
+// earlier settlement's lines are among them, so only what was posted since moves. With nothing
+// unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before
+// the one the order was last settled up to is refused (409
+// `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so
+// the balance up to an earlier one still holds what it moved; name the same period or a later one,
+// which also moves a cost posted since into a period already settled. `If-Match` is the order's
+// version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves
+// with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a
+// settlement does not move it. The order is held under a row lock, so two settlements never move one
+// balance twice and a posting to the order waits for a settlement under way. Refused: an order that is
+// not released (409 `controlling.internal_order_not_released`) or already closed (409
+// `controlling.internal_order_closed`); an order without a settlement rule (409
+// `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or
+// a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver
+// that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace
+// the rule); and what the ledger refuses of any entry, among them a period that is not open (409
+// `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`).
+// The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+// InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing
+// (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+// not settle an order.
+//
+// POST /v1/internal-orders/{id}:settle
+func (c *Client) SettleInternalOrder(ctx context.Context, request *InternalOrderSettle, params SettleInternalOrderParams) (SettleInternalOrderRes, error) {
+	res, err := c.sendSettleInternalOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendSettleInternalOrder(ctx context.Context, request *InternalOrderSettle, params SettleInternalOrderParams) (res SettleInternalOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("settleInternalOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}:settle"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, SettleInternalOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":settle"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeSettleInternalOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, SettleInternalOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeSettleInternalOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -78425,6 +81726,172 @@ func (c *Client) sendUpdateCostCenter(ctx context.Context, request *CenterTextsU
 
 	stage = "DecodeResponse"
 	result, err := decodeUpdateCostCenterResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// UpdateCreditLimit invokes updateCreditLimit operation.
+//
+// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
+// change came first): the new limit holds at once, in the limit's currency, zero or more (422
+// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
+// The customer, the company and the currency of a limit do not change. A change to the amount the
+// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
+// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
+// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
+//
+// PATCH /v1/credit-limits/{id}
+func (c *Client) UpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (UpdateCreditLimitRes, error) {
+	res, err := c.sendUpdateCreditLimit(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendUpdateCreditLimit(ctx context.Context, request *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (res UpdateCreditLimitRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("updateCreditLimit"),
+		semconv.HTTPRequestMethodKey.String("PATCH"),
+		semconv.URLTemplateKey.String("/v1/credit-limits/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, UpdateCreditLimitOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/credit-limits/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "PATCH", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeUpdateCreditLimitRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, UpdateCreditLimitOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeUpdateCreditLimitResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

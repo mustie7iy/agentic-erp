@@ -537,6 +537,26 @@ func (UnimplementedHandler) CloseFiscalPeriod(ctx context.Context, params CloseF
 	return r, ht.ErrNotImplemented
 }
 
+// CloseInternalOrder implements closeInternalOrder operation.
+//
+// Closes a released internal order (ADR-0064 §3), at the version the caller read (`If-Match`): the
+// order is read under a row lock and moves to `closed` once, for good. A closed order takes no posting
+// (422 `ledger.internal_order_invalid` with the reason `closed` on a journal line naming it). Closing
+// needs the order's balance to be zero on every account, in the leading ledger over every fiscal year:
+// an order with costs not settled yet is refused (409 `controlling.internal_order_not_settled`, naming
+// the balance: settle it first). An order that was never released (409
+// `controlling.internal_order_not_released`) or is already closed (409
+// `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval
+// request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the
+// caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger
+// amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read`
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order.
+//
+// POST /v1/internal-orders/{id}:close
+func (UnimplementedHandler) CloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (r CloseInternalOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ClosePurchaseOrder implements closePurchaseOrder operation.
 //
 // Closes a released order: no further goods receipts or invoices are expected and both are refused
@@ -580,6 +600,51 @@ func (UnimplementedHandler) CompleteCloseTask(ctx context.Context, req OptCloseT
 //
 // POST /v1/year-closes/{id}/tasks/{code}:complete
 func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteYearCloseTaskParams) (r CompleteYearCloseTaskRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ConfirmDunningRun implements confirmDunningRun operation.
+//
+// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+// with it. From then on a run started for the company reads the recorded level as the item's
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+// is no longer the run's `previous_level`), the proposal is stale and refused (409
+// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+// not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:confirm
+func (UnimplementedHandler) ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (r ConfirmDunningRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateAllocationCycle implements createAllocationCycle operation.
+//
+// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
+// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
+// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
+// original accounts. The code is unique in the legal entity (409
+// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
+// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
+// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
+// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
+// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
+// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
+// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
+// not create one.
+//
+// POST /v1/allocation-cycles
+func (UnimplementedHandler) CreateAllocationCycle(ctx context.Context, req *AllocationCycleCreate, params CreateAllocationCycleParams) (r CreateAllocationCycleRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -901,6 +966,26 @@ func (UnimplementedHandler) CreateCostCenter(ctx context.Context, req *CostCente
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCreditLimit implements createCreditLimit operation.
+//
+// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
+// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
+// holds at once: there is no approval of it and no validity period. The customer is a business partner
+// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
+// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
+// amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
+// `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
+// Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
+// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+// `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-limits
+func (UnimplementedHandler) CreateCreditLimit(ctx context.Context, req *CustomerCreditLimitCreate, params CreateCreditLimitParams) (r CreateCreditLimitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateCustomerInvoice implements createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -921,8 +1006,14 @@ func (UnimplementedHandler) CreateCostCenter(ctx context.Context, req *CostCente
 // items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
 // `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
 // lines name (one code for every emirate) is refused, 422
-// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
-// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
+// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
+// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
+// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
+// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
+// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
+// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
+// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
+// invoice entered. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices
 func (UnimplementedHandler) CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (r CreateCustomerInvoiceRes, _ error) {
@@ -952,13 +1043,16 @@ func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *D
 // net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 // of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 // payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-// notice's level is the highest among its items. A company without dunning levels is refused (422
-// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-// Human-only (`x-agent: false`).
+// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+// highest level stays there. A notice's level is the highest among its items. A key date after
+// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (UnimplementedHandler) CreateDunningRun(ctx context.Context, req *DunningRunCreate, params CreateDunningRunParams) (r CreateDunningRunRes, _ error) {
@@ -1691,6 +1785,28 @@ func (UnimplementedHandler) GetAiUsage(ctx context.Context, params GetAiUsagePar
 	return r, ht.ErrNotImplemented
 }
 
+// GetAllocationCycle implements getAllocationCycle operation.
+//
+// Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller
+// cannot act in is answered as missing (404).
+//
+// GET /v1/allocation-cycles/{id}
+func (UnimplementedHandler) GetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (r GetAllocationCycleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAllocationRun implements getAllocationRun operation.
+//
+// Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered
+// as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the
+// caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+// otherwise).
+//
+// GET /v1/allocation-runs/{id}
+func (UnimplementedHandler) GetAllocationRun(ctx context.Context, params GetAllocationRunParams) (r GetAllocationRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetAnalyticsModel implements getAnalyticsModel operation.
 //
 // The governed metrics, their dimensions, the fiscal calendar and what everyday words mean, as
@@ -2150,6 +2266,35 @@ func (UnimplementedHandler) GetCloseCalendar(ctx context.Context, params GetClos
 	return r, ht.ErrNotImplemented
 }
 
+// GetCollectionWorklist implements getCollectionWorklist operation.
+//
+// The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue
+// items, the largest overdue amount first (customers with the same amount by `customer_id`), each with
+// its number and name, what its open items add up to (`open_amount`, credits included), what its
+// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
+// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
+// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
+// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
+// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
+// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
+// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
+// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
+// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
+// counts what is overdue. Amounts are in the company's currency, as the items were booked.
+// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
+// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
+// company and key date. Each page is computed anew and continues after the last customer's overdue
+// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
+// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
+// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
+// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
+// naming `key_date`). A legal entity the caller cannot act in is 404.
+//
+// GET /v1/collection-worklist
+func (UnimplementedHandler) GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (r GetCollectionWorklistRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCompanyAccess implements getCompanyAccess operation.
 //
 // Returns one company access grant.
@@ -2269,6 +2414,44 @@ func (UnimplementedHandler) GetContract(ctx context.Context, params GetContractP
 //
 // GET /v1/cost-centers/{id}
 func (UnimplementedHandler) GetCostCenter(ctx context.Context, params GetCostCenterParams) (r GetCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCreditExposure implements getCreditExposure operation.
+//
+// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
+// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
+// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
+// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
+// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
+// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
+// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
+// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
+// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
+// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
+// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
+// what a consumer does with the answer is its own. It is computed at the read from one database state
+// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
+// without open items in the company has an exposure of zero. An amount below zero is refused (422
+// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
+// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
+// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
+// cannot act in is 404, as a business partner that does not exist.
+//
+// GET /v1/credit-exposure
+func (UnimplementedHandler) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (r GetCreditExposureRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCreditLimit implements getCreditLimit operation.
+//
+// One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and
+// name, and the limit in the company's currency. What the customer owes is read with
+// `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does
+// not exist.
+//
+// GET /v1/credit-limits/{id}
+func (UnimplementedHandler) GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (r GetCreditLimitRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -2868,6 +3051,32 @@ func (UnimplementedHandler) GetPurchaseOrderDocument(ctx context.Context, params
 	return r, ht.ErrNotImplemented
 }
 
+// GetReceivablesAging implements getReceivablesAging operation.
+//
+// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+// `totals` are those of every customer the request selects, on every page, and equal the open items of
+// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+// naming `key_date`).
+//
+// GET /v1/receivables-aging
+func (UnimplementedHandler) GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (r GetReceivablesAgingRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRecommendation implements getRecommendation operation.
 //
 // Returns one recommendation.
@@ -3163,6 +3372,29 @@ func (UnimplementedHandler) ListAgentSessions(ctx context.Context, params ListAg
 //
 // GET /v1/agent-sessions/{id}/tool-calls
 func (UnimplementedHandler) ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (r ListAgentToolCallsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAllocationCycles implements listAllocationCycles operation.
+//
+// Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender
+// and its receivers, their codes and percentages. Sortable by: `code`.
+//
+// GET /v1/allocation-cycles
+func (UnimplementedHandler) ListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (r ListAllocationCyclesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAllocationRuns implements listAllocationRuns operation.
+//
+// The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest
+// first: each with its cycle's code, name and kind, the period, the sender with its code, the amount
+// moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The
+// amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/allocation-runs
+func (UnimplementedHandler) ListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (r ListAllocationRunsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3708,12 +3940,25 @@ func (UnimplementedHandler) ListCountryPacks(ctx context.Context, params ListCou
 	return r, ht.ErrNotImplemented
 }
 
+// ListCreditLimits implements listCreditLimits operation.
+//
+// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
+// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
+// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
+// (default).
+//
+// GET /v1/credit-limits
+func (UnimplementedHandler) ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (r ListCreditLimitsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListCustomerInvoices implements listCustomerInvoices operation.
 //
-// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
-// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
-// totals and its items. Filtered by company, customer, status, document number and invoice date.
-// Sortable by: `invoice_date`, `document_number`.
+// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
+// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
+// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
+// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
+// `document_number`.
 //
 // GET /v1/customer-invoices
 func (UnimplementedHandler) ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (r ListCustomerInvoicesRes, _ error) {
@@ -3999,6 +4244,21 @@ func (UnimplementedHandler) ListIntercompanyDifferences(ctx context.Context, par
 //
 // GET /v1/internal-order-balances
 func (UnimplementedHandler) ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (r ListInternalOrderBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListInternalOrderSettlements implements listInternalOrderSettlements operation.
+//
+// The settlements of one internal order (ADR-0064 §3), latest first: each with its period, the day it
+// was posted on, the receiving cost center with its code, the amount moved in the legal entity's local
+// currency, the number of accounts it moved and its journal entry (`GET /v1/journal-entries/{id}`),
+// which shows the lines. A settlement is never changed. An order of a legal entity the caller cannot
+// act in is answered as missing (404). Sortable by: `posting_date`. The amounts are ledger amounts, so
+// besides `controlling.order.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-orders/{id}/settlements
+func (UnimplementedHandler) ListInternalOrderSettlements(ctx context.Context, params ListInternalOrderSettlementsParams) (r ListInternalOrderSettlementsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -4932,8 +5192,22 @@ func (UnimplementedHandler) PostBankStatementLine(ctx context.Context, req OptSt
 // `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
 // draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
 // the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
-// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
-// Human-only (`x-agent: false`).
+// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A
+// credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it
+// credits the customer's reconciliation account with its gross amount and debits each item's account
+// and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line
+// is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when
+// a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo,
+// counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from
+// that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term
+// from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the
+// gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not
+// exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the
+// problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the
+// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
+// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
+// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
+// refused. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices/{id}:post
 func (UnimplementedHandler) PostCustomerInvoice(ctx context.Context, req OptCustomerInvoicePost, params PostCustomerInvoiceParams) (r PostCustomerInvoiceRes, _ error) {
@@ -5870,6 +6144,37 @@ func (UnimplementedHandler) RotateWebhookSubscriptionSecret(ctx context.Context,
 	return r, ht.ErrNotImplemented
 }
 
+// RunAllocationCycle implements runAllocationCycle operation.
+//
+// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
+// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
+// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
+// local currency through the ledger (source context `controlling`, document type `SA`, dated the
+// period's last day): per account, the sender credited with its cost and each receiver debited with
+// its share on the same account, so the entry balances per account and every account's balance is
+// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
+// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
+// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
+// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
+// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
+// both post, and two cycles of one sender run at once follow one another: the second moves what the
+// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
+// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
+// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
+// it); and what the ledger refuses of any entry, among them a period that is not open (409
+// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
+// cost posted to the sender in the period after its run stays on the sender. The run is kept
+// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
+// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
+// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not run a cycle.
+//
+// POST /v1/allocation-cycles/{id}:run
+func (UnimplementedHandler) RunAllocationCycle(ctx context.Context, req *AllocationCycleRun, params RunAllocationCycleParams) (r RunAllocationCycleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // RunAnalyticsQuery implements runAnalyticsQuery operation.
 //
 // Answers governed metrics (the semantic model in the active configuration version's `analytics`
@@ -5933,6 +6238,43 @@ func (UnimplementedHandler) RunAnalyticsQuery(ctx context.Context, req *Analytic
 //
 // POST /v1/balance-carry-forwards
 func (UnimplementedHandler) RunBalanceCarryForward(ctx context.Context, req *BalanceCarryForwardRequest, params RunBalanceCarryForwardParams) (r RunBalanceCarryForwardRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SettleInternalOrder implements settleInternalOrder operation.
+//
+// Settles a released internal order's actual costs up to a fiscal period to the receiver of its
+// settlement rule (ADR-0064 §3): one journal entry in the legal entity's local currency through the
+// ledger (source context `controlling`, document type `SA`, dated the period's last day), which per
+// account credits the order and debits the receiving cost center for the order's unsettled balance, so
+// each account's balance is unchanged and the cost moves from the order to the cost center on the
+// accounts it was posted on. The unsettled balance of an account is the balance of the leading
+// ledger's lines naming the order in every period up to the one named, earlier years included; an
+// earlier settlement's lines are among them, so only what was posted since moves. With nothing
+// unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before
+// the one the order was last settled up to is refused (409
+// `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so
+// the balance up to an earlier one still holds what it moved; name the same period or a later one,
+// which also moves a cost posted since into a period already settled. `If-Match` is the order's
+// version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves
+// with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a
+// settlement does not move it. The order is held under a row lock, so two settlements never move one
+// balance twice and a posting to the order waits for a settlement under way. Refused: an order that is
+// not released (409 `controlling.internal_order_not_released`) or already closed (409
+// `controlling.internal_order_closed`); an order without a settlement rule (409
+// `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or
+// a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver
+// that is not valid on the period's last day (409 `controlling.settlement_receiver_not_valid`: replace
+// the rule); and what the ledger refuses of any entry, among them a period that is not open (409
+// `ledger.period_not_open`) and a receiver locked for actual costs (422 `ledger.cost_center_invalid`).
+// The settlement is kept (`GET /v1/internal-orders/{id}/settlements`), audited and published as
+// InternalOrderSettled. An order of a legal entity the caller cannot act in is answered as missing
+// (404). The amounts are ledger amounts, so besides `controlling.order.settle` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+// not settle an order.
+//
+// POST /v1/internal-orders/{id}:settle
+func (UnimplementedHandler) SettleInternalOrder(ctx context.Context, req *InternalOrderSettle, params SettleInternalOrderParams) (r SettleInternalOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -6347,6 +6689,22 @@ func (UnimplementedHandler) UpdateContract(ctx context.Context, req *ContractUpd
 //
 // PATCH /v1/cost-centers/{id}
 func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateCostCenterParams) (r UpdateCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCreditLimit implements updateCreditLimit operation.
+//
+// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
+// change came first): the new limit holds at once, in the limit's currency, zero or more (422
+// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
+// The customer, the company and the currency of a limit do not change. A change to the amount the
+// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
+// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
+// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
+//
+// PATCH /v1/credit-limits/{id}
+func (UnimplementedHandler) UpdateCreditLimit(ctx context.Context, req *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (r UpdateCreditLimitRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

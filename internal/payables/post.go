@@ -239,17 +239,8 @@ func requireWithinInvoice(ctx context.Context, tx pgx.Tx, v Invoice, number stri
 	if v.Gross <= gross-credited {
 		return nil
 	}
-	in := func(m money.Minor) problem.Money {
-		return problem.Money{Amount: m.Plain(v.Exponent), Currency: v.Currency}
-	}
-	p := problem.Unprocessable("payables.credit_exceeds_invoice", fmt.Sprintf("Invoice %s, which %s credits (reference_invoice_id), has a gross amount of %s %s, "+
-		"of which posted credits naming it already credit %s; this one's gross_amount of %s would exceed it.",
-		number, v.DocumentNumber, gross.Plain(v.Exponent), v.Currency, credited.Plain(v.Exponent), v.Gross.Plain(v.Exponent)),
-		problem.FieldError{Field: "gross_amount", Code: "credit_exceeds_invoice",
-			Message: "at most what the invoice's gross amount leaves: " + max(gross-credited, 0).Plain(v.Exponent)})
-	p.CreditLimit = &problem.CreditLimit{InvoiceID: *v.ReferenceInvoiceID, InvoiceNumber: number, InvoiceGross: in(gross), Credited: in(credited),
-		Attempted: in(v.Gross)}
-	return p
+	return problem.CreditExceedsInvoice("payables.credit_exceeds_invoice", *v.ReferenceInvoiceID, number, v.DocumentNumber,
+		problem.CreditFigures{Gross: gross, Credited: credited, Attempted: v.Gross, Currency: v.Currency, Exponent: v.Exponent})
 }
 
 // requireNoCorrections refuses to reverse an invoice that posted

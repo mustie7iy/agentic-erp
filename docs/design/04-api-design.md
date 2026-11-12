@@ -325,7 +325,7 @@ code. Costs are posted to a released order on a journal entry line (T60b,
 ADR-0064 §2): `POST /v1/journal-entries` lines take `internal_order_id`
 instead of a cost center, on a primary cost account (422
 `ledger.internal_order_invalid` on `lines[i].internal_order_id`, the field
-error's code `unknown`, `not_in_company`, `not_released`,
+error's code `unknown`, `not_in_company`, `not_released`, `closed`,
 `with_cost_center`, `not_a_cost_account` or
 `cost_center_not_valid_on_date`); the line takes its profit center and
 segment from the order's responsible cost center, and journal entry lines
@@ -367,6 +367,68 @@ otherwise); audited with the receivers before and after. `GET
 /v1/internal-orders/{id}/settlement-rule` (`controlling.order.read`) gives
 the receiver's id and code with the order's code and name and the order's
 version as `ETag`; an order without a rule is answered without a receiver.
+
+An order is settled and closed by two custom methods (ADR-0064 §3, T60e;
+`controlling.order.settle`, `x-agent: false`). `POST
+/v1/internal-orders/{id}:settle` (also `ledger.entry.read`; `If-Match`
+the order's version, which moves with its rule and not with a settlement)
+names a `fiscal_year` and a regular `fiscal_period` (422
+`ledger.no_fiscal_period`, 422 `controlling.period_not_regular`) and
+moves the order's unsettled balance up to that period to its rule's
+receiver in one journal entry dated the period's last day: per account
+the order credited and the receiving cost center debited. It answers 200
+with `settled` and, when an entry was posted, the `settlement` (period,
+posting date, receiver with its code, amount with its currency, number
+of accounts, the entry's id and number); with nothing unsettled it posts
+nothing and `settled` is false, so the action may be repeated. Refused: an
+order not released (409 `controlling.internal_order_not_released`) or
+closed (409 `controlling.internal_order_closed`), without a rule (409
+`controlling.settlement_rule_missing`), a period before the one it was
+last settled up to (409 `controlling.settlement_period_before_last`), a receiver not valid on the
+posting date (409 `controlling.settlement_receiver_not_valid`), and what
+the ledger refuses of the entry (409 `ledger.period_not_open`, 422
+`ledger.cost_center_invalid`, ...). Published as `InternalOrderSettled`.
+`GET /v1/internal-orders/{id}/settlements` (`controlling.order.read` and
+`ledger.entry.read`) pages them, latest first (`posting_date`). `POST
+/v1/internal-orders/{id}:close` (also `ledger.entry.read`; `If-Match`
+the order's version) closes a
+released order whose balance is zero on every account (409
+`controlling.internal_order_not_settled` otherwise), once, published as
+`InternalOrderChanged` (`closed`). A closed order takes no posting (422
+`ledger.internal_order_invalid`, `closed`), and an entry that posted to
+it is not reversed (409 `ledger.internal_order_closed`).
+
+Allocation cycles (ADR-0064 §5, T60f) are the controlling context's.
+`POST /v1/allocation-cycles` (`controlling.allocation.write`, `x-agent:
+false`) defines a cycle of a company: a `kind` (`distribution`), one
+sender cost center and 1 to 100 receivers with percentages (strings, up
+to two decimals) adding up to 100; every field that cannot stand is named
+in one 422 `controlling.allocation_cycle_invalid` (`kind` `unsupported`;
+a center `unknown`, `not_in_company`, `not_active`, `is_sender` or
+`duplicate`; a percentage `invalid`; `receivers` `not_100`), and a code
+used twice in the company is 409 `controlling.allocation_cycle_exists`.
+`GET /v1/allocation-cycles` (`controlling.allocation.read`; filters
+`legal_entity_id`, `code`, `kind`, `sender_cost_center_id`) and `GET
+/v1/allocation-cycles/{id}` show a cycle with its centers' codes. `POST
+/v1/allocation-cycles/{id}:run` (`controlling.allocation.run` and
+`ledger.entry.read`, `x-agent: false`; `If-Match` the cycle's version)
+names a `fiscal_year` and a regular `fiscal_period` and runs the cycle
+for it, synchronously: one journal entry dated the period's last day
+moves the sender's primary costs of the period to the receivers on their
+original accounts, the shares adding up to each account's cost to the
+minor unit. It answers 200 with `posted` and, when an entry was posted,
+the `run` (cycle code, name and kind, period, posting date, sender with
+its code, amount with its currency, number of accounts, the entry's id
+and number); a sender without costs posts nothing, `posted` is false and
+no run is kept. A period already run is 409
+`controlling.allocation_run_exists`; a center not valid on the posting
+date 409 `controlling.allocation_center_not_valid`; what the ledger
+refuses of the entry is its own problem. Published as
+`AllocationRunPosted`. `GET /v1/allocation-runs`
+(`controlling.allocation.read` and `ledger.entry.read`; filters
+`legal_entity_id`, `allocation_cycle_id`, `fiscal_year`, `fiscal_period`;
+latest first by `posting_date`) and `GET /v1/allocation-runs/{id}` show
+the runs.
 
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
@@ -834,8 +896,9 @@ with the month's total against the tenant's cap.
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
 | procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
-| receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, status, document number and invoice date, ADR-0063 §2-§4, T75a); `incoming-payments` (a receipt from a house bank's incoming payments clearing account applied to a customer's open items in full and exactly, written once; filtered by company, customer, document number and posting date) and `unapplied-receipts` (a company's receipts not yet applied, read-only), ADR-0063 §6, T75c | `customer-invoices/{id}:post` (T75b) |
-| collections | `dunning-runs` (started for a company at a key date, `proposed` with their totals; the companies the caller may act in, filtered by company, status and key date, the latest first) and their `notices` (one per customer with its overdue items and the level each would reach, by customer number, filtered by customer and level; ADR-0065 §3-§4, T76a) | none yet (`:confirm` with T76b) |
+| receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, kind, the invoice a credit memo names, status, document number and invoice date, ADR-0063 §2-§4, T75a; credit memos are the same resource with `kind` `credit_memo` and `reference_invoice_id`, §7, T75d); `incoming-payments` (a receipt from a house bank's incoming payments clearing account applied to a customer's open items in full and exactly, written once; filtered by company, customer, document number and posting date) and `unapplied-receipts` (a company's receipts not yet applied, read-only), ADR-0063 §6, T75c; `receivables-aging` (a company's customer open items on a key date per customer and in total, not yet due and in buckets of days overdue, computed on read, read-only; cursor pages of customers), ADR-0063 §10, T75e | `customer-invoices/{id}:post` (T75b) |
+| collections | `collection-worklist` (a company's customers with overdue items on a key date, the largest overdue amount first, with its totals; computed on read, `x-slo-class: report`, `x-snapshot: true`; ADR-0065 §9, T76c), `dunning-runs` (started for a company at a key date, `proposed` with their totals; the companies the caller may act in, filtered by company, status and key date, the latest first) and their `notices` (one per customer with its overdue items and the level each would reach, by customer number, filtered by customer and level; ADR-0065 §3-§4, T76a) | `:confirm` (a proposed run, once; a stale proposal is refused 409, ADR-0065 §8, T76b) |
+| credit | `credit-limits` (a customer's limit in a company, one amount in the company's currency, set and changed by people with `If-Match`; the companies the caller may act in, filtered by company and customer, by customer number), `credit-exposure` (a customer's open items added up as booked, credits netted, its limit, what is available and whether an amount is within the limit; computed on read, `x-snapshot: true`; it changes and blocks nothing; ADR-0066 §2-§4, T77a) | none |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | einvoicing | `e-invoices` (received from the tenant's accredited provider through an `einvoice_provider` connector, ADR-0061 §15, T65a: the companies the caller may act in, filtered by company, connector, status, fetch and when received, newest first); `/{id}/content` (the bytes as received, compared with their hash, human-only, T65b) | `:fetch` (202 with its `Operation`, carried out as the workflow `FetchEInvoices`, T65a; the same fetch scheduled once per period, T65b) |

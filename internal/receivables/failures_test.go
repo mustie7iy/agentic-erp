@@ -54,6 +54,11 @@ func TestDatabaseFailures(t *testing.T) {
 	draft, _ := e.Must(201, "POST", "/v1/customer-invoices", e.invoice(e.customer, "2026-03-10", e.item("100.00", "A1")), "")
 	post := gen.PostCustomerInvoiceParams{ID: uuid.MustParse(draft["id"].(string)), IfMatch: `"1"`}
 	h.Now = func() time.Time { return date(t, "2026-03-15") }
+	// A credit memo naming a posted invoice, to enter, to post and to read.
+	credited := uuid.MustParse(e.post(t, e.entered(t, e.invoice(e.customer, "2026-03-10", e.item("100.00", "A1"))), "2026-03-12")["id"].(string))
+	memo := uuid.MustParse(e.entered(t, e.memo(e.customer, credited.String(), "2026-03-13", e.item("10.00", "A1"))))
+	createMemo := *create
+	createMemo.Kind, createMemo.ReferenceInvoiceID = gen.NewOptString("credit_memo"), gen.NewOptUUID(credited)
 	// A receipt to apply to an invoice, and one applied already.
 	receipt, spent := e.receipt(t, 10000, "2026-03-14"), e.receipt(t, 5000, "2026-03-14")
 	owed := gen.ClearingItemRef{FiscalYear: 2026, JournalEntryID: entryOf(t, e.invoiced(t, e.customer, "100.00", "2026-03-10")), LineNo: 1}
@@ -95,6 +100,24 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.PostCustomerInvoice(ctx, gen.OptCustomerInvoicePost{}, post)
 			return err
 		},
+		"create a credit memo": func(ctx context.Context) error {
+			_, err := h.CreateCustomerInvoice(ctx, &createMemo, gen.CreateCustomerInvoiceParams{})
+			return err
+		},
+		"post a credit memo": func(ctx context.Context) error {
+			_, err := h.PostCustomerInvoice(ctx, gen.NewOptCustomerInvoicePost(gen.CustomerInvoicePost{PostingDate: gen.NewOptDate(date(t, "2026-03-14"))}),
+				gen.PostCustomerInvoiceParams{ID: memo, IfMatch: `"1"`})
+			return err
+		},
+		"get a credit memo": func(ctx context.Context) error {
+			_, err := h.GetCustomerInvoice(ctx, gen.GetCustomerInvoiceParams{ID: memo})
+			return err
+		},
+		"aging": func(ctx context.Context) error {
+			_, err := h.GetReceivablesAging(ctx, gen.GetReceivablesAgingParams{LegalEntityID: e.DE, KeyDate: date(t, "2026-05-15"),
+				CustomerID: gen.NewOptUUID(e.customer)})
+			return err
+		},
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateCustomerInvoice(ctx, create, gen.CreateCustomerInvoiceParams{})
 			return err
@@ -127,6 +150,11 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"receipts": func(ctx context.Context) error {
 			_, err := h.ListUnappliedReceipts(ctx, gen.ListUnappliedReceiptsParams{LegalEntityID: e.DE, PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"aging": func(ctx context.Context) error {
+			_, err := h.GetReceivablesAging(ctx, gen.GetReceivablesAgingParams{LegalEntityID: e.DE, KeyDate: date(t, "2026-05-15"),
+				PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 	} {

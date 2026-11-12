@@ -1600,7 +1600,8 @@ PILOT_SETTINGS='
 | .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999}]'
+    {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
+    {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -5962,14 +5963,31 @@ step_order_budget() {
   passed
 }
 
-# step_order_settlement: an order's settlement rule (ADR-0064 §3, T60d):
-# Carla names the cost center that will receive the trade fair's costs
-# when the order is settled, one receiver taking the whole. The rule is
-# replaced with the order's version.
+# center_costs CENTER ACCOUNT is what the cost center's report shows on the
+# account this year, the debits less the credits, in whole cents of the
+# local currency: jq reads each two-decimal amount as a number and rounds
+# it to whole cents before adding, as the reports' other checks do.
+center_costs() {
+  QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$1" -p page_size=100
+  field "[.items[] | select(.account_id == \"$2\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
+}
+
+# cents_plain CENTS is whole cents, zero or more, as an amount with two
+# decimals.
+cents_plain() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
+
+# step_order_settlement: an order's settlement rule and its settlement
+# (ADR-0064 §3, T60d, T60e): Carla names the cost center that will receive
+# the trade fair's costs when the order is settled, one receiver taking
+# the whole. The rule is replaced with the order's version. She then
+# settles the order up to this period: one entry moves the order's costs
+# to the receiver on the account they were posted on, the order's balance
+# is zero and the cost center's report shows the cost; settling again
+# posts nothing. The settled order is closed and takes no posting.
 step_order_settlement() {
-  heading "Step 51 — An order's settlement rule: the trade fair's order names the cost center that receives its costs, one receiver taking the whole"
+  heading "Step 51 — An order's settlement: the trade fair's order names the cost center that receives its costs, is settled to it on the original account, and is closed"
   as carla
-  local order cc line tag
+  local order cc line tag period expense bank before after settlement entry
   line='"order \(.internal_order_code) \(.internal_order_name): receiver \(.receiver_cost_center_code // "none") (order version \(.version))"'
   QUIET=1 api 200 '' listInternalOrders -p "legal_entity_id=$LE" -p "code=FAIR-$YEAR"
   order=$(field '.items[0].id')
@@ -5991,6 +6009,123 @@ step_order_settlement() {
   refused 412 request.version_mismatch updateInternalOrderSettlementRule -p "id=$order" -if-match "$tag" -body "{\"receiver_cost_center_id\": \"$cc\"}"
   api 200 "$line" getInternalOrderSettlementRule -p "id=$order"
   expect "the rule read again" "$(field .receiver_cost_center_code)" CC-1100
+  tag=$ETAG
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  period=$(field "[.items[] | select(.is_special | not) | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period][0]")
+  before=$(center_costs "$cc" "$expense")
+  say "The order still holds the CAD 1,500.00 Alex posted to it, so it cannot be closed yet:"
+  refused 409 controlling.internal_order_not_settled closeInternalOrder -p "id=$order" -if-match "$tag"
+  say "Carla settles the order up to this period, $YEAR/$period (T60e), at the order's version she read with its rule. One"
+  say "journal entry, dated the period's last day, credits the order and debits the receiving cost center CC-1100 on the"
+  say "account the cost was posted on, so the account's balance is unchanged and the cost moves from the order to the"
+  say "cost center (ADR-0064 §3):"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(.settlement.amount.amount) \(.settlement.amount.currency) to \(.settlement.receiver_cost_center_code) on \(.settlement.account_count) account, entry \(.settlement.journal_entry_number) dated \(.settlement.posting_date)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the settlement moved" "$(field '"\(.settled) \(.settlement.amount.amount) \(.settlement.amount.currency) \(.settlement.receiver_cost_center_code) \(.settlement.account_count)"')" \
+    "true 1500.00 CAD CC-1100 1"
+  settlement=$(field .settlement.id)
+  entry=$(field .settlement.journal_entry_id)
+  api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(if .internal_order_code then "on order \(.internal_order_code)" else "on cost center \(.cost_center_code)" end)"] | join(" / "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the settlement's entry: the order credited, the cost center debited, on one account" \
+    "$(field '[.lines[] | "\(.account_id) \(.amount.amount) \(.internal_order_code // .cost_center_code)"] | join("; ")')" \
+    "$expense -1500.00 FAIR-$YEAR; $expense 1500.00 CC-1100"
+  expect "the entry's source" "$(field .source_context)" controlling
+  say "The order's balance is zero, and the cost center's report shows the cost:"
+  api 200 '"order \(.internal_order_code), \(.fiscal_year): debit \(.totals.debit.amount), credit \(.totals.credit.amount), balance \(.totals.balance.amount) \(.totals.balance.currency)"' \
+    listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the settled order's totals" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount) \(.totals.balance.currency)"')" "1500.00 1500.00 0.00 CAD"
+  after=$(center_costs "$cc" "$expense")
+  say "cost center CC-1100 on account 510000: $(cents_plain $((after - before))) CAD more than before the settlement"
+  expect "the cost the cost center's report gained, in cents" "$((after - before))" 150000
+  say "Settling again finds nothing unsettled and posts nothing:"
+  api 200 '"order \(.internal_order_code) settled up to \(.fiscal_year)/\(.fiscal_period): \(if .settled then "an entry posted" else "nothing to settle" end)"' \
+    settleInternalOrder -p "id=$order" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "a second settlement" "$(field '"\(.settled) \(.settlement // "none")"')" "false none"
+  api 200 '.items[] | "  settlement up to \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) to \(.receiver_cost_center_code), entry \(.journal_entry_number)"' \
+    listInternalOrderSettlements -p "id=$order"
+  expect "the order's settlements" "$(field '[.items[].id] | join(" ")')" "$settlement"
+  say "Carla closes the settled order. A closed order takes no posting:"
+  api 200 '"internal order \(.code): \(.status), version \(.version)"' closeInternalOrder -p "id=$order" -if-match "$tag"
+  expect "the closed order's status" "$(field .status)" closed
+  as alex
+  refused 422 ledger.internal_order_invalid postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+  expect "why a closed order takes no posting" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].internal_order_id closed"
+  passed
+}
+
+# step_distribution: a distribution cycle and its run (ADR-0064 §5, T60f):
+# Sam sets up a cost center for shared services and one for the sales
+# office; Alex posts a cost to the shared one; Carla defines a cycle that
+# sends its costs to the finance office and the sales office at 60 and 40
+# percent and runs it for this period. One entry moves the cost on the
+# account it was posted on, the shares adding up to it to the cent; the
+# centers' reports show the shares, and the period is run once.
+step_distribution() {
+  heading "Step 52 — A distribution cycle: a shared cost center's costs of the period are moved to two others at 60 and 40 percent, on the account they were posted on"
+  local first sender second expense bank cycle tag period entry before_first
+  as sam
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  first=$(field '.items[0].id')
+  say "Sam sets up two more cost centers of Maple, which Carla approves: CC-1200 for the shared services whose costs"
+  say "the offices bear, and CC-1300 for the sales office."
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1200\", \"name\": \"Shared services\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"Costs shared by the offices\"}"
+  sender=$(field .id)
+  center_approved sam
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1300\", \"name\": \"Sales office\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The pilot's sales office\"}"
+  second=$(field .id)
+  center_approved sam
+  as alex
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  say "Alex posts this month's shared supplies, CAD 999.99, to the shared services' cost center:"
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .cost_center_code then " on cost center \(.cost_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Shared supplies\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"999.99\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$sender\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-999.99\", \"currency\": \"CAD\"}}]}"
+  as carla
+  say "Carla defines a distribution cycle (ADR-0064 §5): one sender and receivers with fixed percentages, which must"
+  say "add up to 100:"
+  refused 422 controlling.allocation_cycle_invalid createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"SHARED\", \"name\": \"Shared services to the offices\", \"kind\": \"distribution\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"60\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"30\"}]}"
+  expect "why the cycle is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "receivers not_100"
+  api 201 '"cycle \(.code) \(.name) (\(.kind)): from \(.sender_cost_center_code) to \([.receivers[] | "\(.cost_center_code) \(.percentage) %"] | join(", "))"' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"SHARED\", \"name\": \"Shared services to the offices\", \"kind\": \"distribution\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"60\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"40\"}]}"
+  cycle=$(field .id)
+  tag=$ETAG
+  expect "the cycle's sender and receivers" "$(field '"\(.sender_cost_center_code) \([.receivers[] | "\(.cost_center_code) \(.percentage)"] | join(" "))"')" \
+    "CC-1200 CC-1100 60.00 CC-1300 40.00"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  period=$(field "[.items[] | select(.is_special | not) | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period][0]")
+  before_first=$(center_costs "$first" "$expense")
+  say "She runs the cycle for this period, $YEAR/$period. One journal entry, dated the period's last day, credits the"
+  say "sender with its cost and debits each receiver with its share on the same account. 60 percent of CAD 999.99 is"
+  say "599.994 and 40 percent is 399.996: the shares are rounded so that they add up to the cost to the cent."
+  api 200 '"cycle \(.allocation_cycle_code) run for \(.fiscal_year)/\(.fiscal_period): \(.run.amount.amount) \(.run.amount.currency) from \(.run.sender_cost_center_code) on \(.run.account_count) account, entry \(.run.journal_entry_number) dated \(.run.posting_date)"' \
+    runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the run moved" "$(field '"\(.posted) \(.run.amount.amount) \(.run.amount.currency) \(.run.sender_cost_center_code) \(.run.account_count) \(.run.kind)"')" \
+    "true 999.99 CAD CC-1200 1 distribution"
+  entry=$(field .run.journal_entry_id)
+  api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) on cost center \(.cost_center_code)"] | join(" / "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the run's entry: the sender credited, the receivers debited with their shares, on one account" \
+    "$(field '[.lines[] | "\(.account_id) \(.amount.amount) \(.cost_center_code)"] | join("; ")')" \
+    "$expense -999.99 CC-1200; $expense 599.99 CC-1100; $expense 400.00 CC-1300"
+  say "The centers' reports show the shares; the sender's cost of the period is gone:"
+  say "  CC-1200: $(cents_plain "$(center_costs "$sender" "$expense")") CAD; CC-1100: $(cents_plain $(($(center_costs "$first" "$expense") - before_first))) CAD more than before the run; CC-1300: $(cents_plain "$(center_costs "$second" "$expense")") CAD"
+  expect "the sender's cost left on the account, in cents" "$(center_costs "$sender" "$expense")" 0
+  expect "the first receiver's share, in cents" "$(($(center_costs "$first" "$expense") - before_first))" 59999
+  expect "the second receiver's share, in cents" "$(center_costs "$second" "$expense")" 40000
+  say "A cycle is run once for a period:"
+  refused 409 controlling.allocation_run_exists runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  api 200 '.items[] | "  run of \(.allocation_cycle_code) for \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) from \(.sender_cost_center_code), entry \(.journal_entry_number)"' \
+    listAllocationRuns -p "allocation_cycle_id=$cycle"
+  expect "the cycle's runs" "$(field '.items | length')" 1
   passed
 }
 
@@ -6002,7 +6137,7 @@ step_order_settlement() {
 # invoice, in full and exactly: one entry clears the receipt and the
 # invoice, the customer has no open item left and nothing waits on 1015.
 step_incoming_payment() {
-  heading "Step 52 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
+  heading "Step 53 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
   local customer=$CUSTOMER invoice=$CUSTOMER_INVOICE item st receipt payment clearing body number reference
   [ -n "$customer" ] && [ -n "$invoice" ] && [ -n "$CUSTOMER_INVOICE_ENTRY" ] || fail "step 48's customer invoice is not there"
   as tom
@@ -6077,6 +6212,123 @@ step_incoming_payment() {
   passed
 }
 
+# step_customer_credit is T75d (ADR-0063 §7): Maple invoices Northwind a
+# second time and credits part of it. The credit memo is the customer
+# invoice document with the kind credit_memo, naming the invoice it
+# credits; it posts with the signs turned, as a DG entry. Invoice and memo
+# are Northwind's open items, net what Northwind owes. The credit memos
+# naming an invoice may not exceed its gross amount. The invoice and the
+# memo stay open for step_ar_aging: CREDITED_INVOICE and CREDIT_MEMO are
+# the documents, CREDITED_INVOICE_ENTRY and CREDIT_MEMO_ENTRY their entries.
+step_customer_credit() {
+  heading "Step 54 — Customer credit memos: a second invoice partly credited by a credit memo naming it, posted with the signs turned; invoice and memo are the customer's open items, net what the customer owes"
+  local customer=$CUSTOMER sales invoice number entry memo memo_entry over due item
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  sales=$(account 4000)
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple invoices Northwind Traders for machined parts, CAD 2,000.00 and 5% GST. Ruth enters the invoice and"
+  say "posts it:"
+  item="{\"description\": \"Machined parts\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"@NET@\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}"
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.status), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item/@NET@/2000.00}]}"
+  invoice=$(field .id)
+  number=$(field .document_number)
+  api 200 '"customer invoice \(.document_number): \(.status) as journal entry \(.journal_entry_number), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  expect "the posted invoice" "$(field '"\(.status) \(.gross_amount.amount) \(.net_due_date)"')" "posted 2100.00 $due"
+  say "A fifth of the parts are returned. A posted customer invoice is not reversed; Ruth enters a credit memo, the"
+  say "same document with the kind credit_memo, naming the invoice it credits (T75d). Its amounts are more than"
+  say "zero, the kind gives their direction, and its tax is at its own date's rates:"
+  item=${item/Machined parts/Machined parts returned}
+  api 201 '"\(.kind) \(.document_number) to \(.customer_name), crediting invoice \(.reference_invoice_number): \(.status), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item/@NET@/400.00}]}"
+  memo=$(field .id)
+  expect "the credit memo" "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.reference_invoice_number) \(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.gross_amount.currency)"')" \
+    "credit_memo draft $invoice $number 400.00 20.00 420.00 CAD"
+  say "Ruth posts it. It names no payment term, so its open item keeps its invoice's and is due when the invoice is:"
+  api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date) as journal entry \(.journal_entry_number), terms \(.payment_term_code), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$memo" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the posted credit memo" "$(field '"\(.status) \(.posting_date) \(.payment_term_code) \(.net_due_date) \(.gross_amount.amount)"')" "posted $TODAY NT30 $due 420.00"
+  memo_entry=$(field .journal_entry_id)
+  say "Its entry, document type DG, turns the invoice's signs: it credits Northwind on 1200 Trade receivables with"
+  say "the gross and debits 4000 Sales and 2300 GST/HST payable:"
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$memo_entry"
+  expect "the entry's source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DG receivables $memo"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-420.00 400.00 20.00"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $sales $(account 2300)"
+  expect "the receivable line's partner" "$(field '.lines[0].partner_id')" "$customer"
+  say "Invoice and credit memo are Northwind's open items; together they are what Northwind owes, CAD 1,680.00:"
+  api 200 '(.items[] | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"), "  net: \([.items[].amount.amount | sub("\\."; "") | tonumber] | add | tostring | .[:-2] + "." + .[-2:]) CAD"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.net_due_date)"] | sort | join(", ")')" \
+    "$(printf '%s\n' "$entry 2100.00 CAD $due" "$memo_entry -420.00 CAD $due" | sort | paste -sd, - | sed 's/,/, /g')"
+  expect "what the customer owes" "$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add | tostring | .[:-2] + "." + .[-2:]')" 1680.00
+  say "The credit memos naming an invoice may not exceed its gross amount (plan default 5, as the product owner"
+  say "decided for supplier credit memos). A second memo of CAD 1,680.01 gross would credit 2,100.01 against the"
+  say "invoice's 2,100.00: it is entered, and refused when it posts, with the figures:"
+  QUIET=1 api 201 '' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1680.01\", \"currency\": \"CAD\"}}]}"
+  over=$(field .id)
+  refused 422 receivables.credit_exceeds_invoice postCustomerInvoice -p "id=$over" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the refusal's figures" "$(field '.credit_limit | "\(.invoice_number) \(.invoice_gross.amount) \(.credited.amount) \(.attempted.amount) \(.attempted.currency)"')" \
+    "$number 2100.00 420.00 1680.01 CAD"
+  api 200 '.items[] | "  \(.kind) \(.document_number): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    listCustomerInvoices -p "reference_invoice_id=$invoice" -p kind=credit_memo
+  expect "the credit memos naming the invoice" "$(field '[.items[] | "\(.status) \(.id)"] | sort | join(", ")')" "draft $over, posted $memo"
+  CREDITED_INVOICE=$invoice CREDITED_INVOICE_ENTRY=$entry CREDIT_MEMO=$memo CREDIT_MEMO_ENTRY=$memo_entry
+  passed
+}
+
+# step_ar_aging is T75e (ADR-0063 §10): the aging of Maple's customer open
+# items on a key date, per customer and in total, not yet due and in
+# buckets of days overdue. The invoice and the credit memo of
+# step_customer_credit are Northwind's open items, due together 30 days
+# from today; the key dates are counted from that day, so the step never
+# depends on the day it runs. The totals are the open items of the
+# customer reconciliation account 1200.
+step_ar_aging() {
+  heading "Step 55 — AR aging: the customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue; the credit memo reduces its customer's bucket and total"
+  local customer=$CUSTOMER due later row cents
+  [ -n "$customer" ] && [ -n "$CREDITED_INVOICE_ENTRY" ] && [ -n "$CREDIT_MEMO_ENTRY" ] || fail "step 54's invoice and credit memo are not there"
+  as ruth
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  later=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 45 * 86400 | strftime("%Y-%m-%d")')
+  row='"  \(.customer_number) \(.customer_name): \(.item_count) items, \(.amount.amount) \(.amount.currency)", (.buckets[] | "    \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount.amount) \(.amount.currency)")'
+  say "Ruth reads the aging of Maple's customer open items (T75e). It is computed on read from the ledger's open"
+  say "items on customer reconciliation accounts; each item falls in one bucket by its net due date. On $due,"
+  say "the day Northwind's invoice of step 54 and its credit memo are due, neither is overdue: an item due on the"
+  say "key date is not yet due. The credit memo reduces Northwind's bucket and total to what it owes, CAD 1,680.00:"
+  api 200 '"aging of \(.company_code) \(.company_name) on \(.key_date), in \(.currency), buckets to \(.aging_days | map(tostring) | join(", ")) days", (.items[] | '"$row"')' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$due" -p aging_days=30,60 -p "customer_id=$customer"
+  expect "the report's company and currency" "$(field '"\(.company_code) \(.key_date) \(.currency) \(.aging_days | map(tostring) | join(","))"')" "$CC $due CAD 30,60"
+  expect "Northwind's row" "$(field '.items[] | "\(.customer_id) \(.customer_name) \(.item_count) \(.amount.amount) \(.amount.currency)"')" \
+    "$customer Northwind Traders 2 1680.00 CAD"
+  expect "Northwind's buckets" "$(field '[.items[0].buckets[] | "\(.bucket) \(.days_from // "-") \(.days_to // "-") \(.item_count) \(.amount.amount)"] | join(", ")')" \
+    "not_due - - 2 1680.00, overdue 1 30 0 0.00, overdue 31 60 0 0.00, overdue 61 - 0 0.00, no_due_date - - 0 0.00"
+  expect "the totals with one customer selected" "$(field '.totals | "\(.customer_count) \(.item_count) \(.amount.amount) \(.amount.currency)"')" "1 2 1680.00 CAD"
+  say "Fifteen days later, on $later, both are 15 days overdue and fall in the bucket of 1 to 30 days. Without a"
+  say "customer the report has a row per customer with open items and the totals of them all:"
+  api 200 '"aging of \(.company_code) on \(.key_date)", (.items[] | '"$row"'), "  totals: \(.totals.customer_count) customers, \(.totals.item_count) items, \(.totals.amount.amount) \(.totals.amount.currency)", (.totals.buckets[] | "    \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount.amount) \(.amount.currency)")' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$later" -p aging_days=30,60
+  expect "Northwind's row, 15 days overdue" \
+    "$(field ".items[] | select(.customer_id == \"$customer\") | [.buckets[] | \"\(.bucket) \(.days_from // \"-\") \(.days_to // \"-\") \(.item_count) \(.amount.amount)\"] | join(\", \")")" \
+    "not_due - - 0 0.00, overdue 1 30 2 1680.00, overdue 31 60 0 0.00, overdue 61 - 0 0.00, no_due_date - - 0 0.00"
+  expect "the buckets add up to the total" "$(field '([.totals.buckets[].amount.amount | sub("\\."; "") | tonumber] | add) == (.totals.amount.amount | sub("\\."; "") | tonumber)')" true
+  expect "the customers' rows add up to the total" "$(field '([.items[].amount.amount | sub("\\."; "") | tonumber] | add) == (.totals.amount.amount | sub("\\."; "") | tonumber)')" true
+  cents=$(field '.totals.amount.amount | sub("\\."; "") | tonumber')
+  say "The totals are the open items of the customer reconciliation account 1200, as the open items list ages them:"
+  api 200 '.aging[] | "  open items on 1200, \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount_lc.amount) \(.currency)"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "account_id=$(account 1200)" -p "aging_key_date=$later" -p aging_days=30,60
+  expect "the open items of account 1200" "$(field '[.aging[].amount_lc.amount | sub("\\."; "") | tonumber] | add')" "$cents"
+  say "A key date outside the years 1900 to 2999 is refused, the field named:"
+  refused 422 receivables.key_date_out_of_range getReceivablesAging -p "legal_entity_id=$LE" -p key_date=3000-01-01
+  expect "the field refused" "$(field '.errors[0].field')" key_date
+  passed
+}
+
 # rbc_incoming AMOUNT writes RBC's third camt.053 statement of today: a
 # customer's payment of the amount, from the second statement's closing
 # balance (rbc_receipt's: step 8's closing and Northwind's CAD 25,000.00).
@@ -6096,20 +6348,24 @@ rbc_incoming() {
   } >"$WORK/camt053-incoming.xml"
 }
 
-# step_dunning is T76a (ADR-0065 §2-§5): Ruth posts a second invoice to
-# Northwind; Ada gives Maple its dunning levels
+# step_dunning is T76a and T76b (ADR-0065 §2-§5, §8): Ruth posts a second
+# invoice to Northwind; Ada gives Maple its dunning levels
 # through a tier 2 change, a run before them refused; Ruth starts a
 # dunning run at a key date ten days past the invoice's due date and reads
-# its proposal, one notice for Northwind with the invoice's open item at
-# level 1; a run at the due date itself proposes nothing; the customer's
-# open items are unchanged. The key dates are the requests': nothing here
-# depends on today's date. The step duns its own invoice, so it holds
-# whether or not the invoice of step 48 is still open.
+# its proposal, one notice for Northwind at level 1 with the invoice's open
+# item among its items; a run at the due date itself proposes nothing; the customer's
+# open items are unchanged. She confirms the run, once: a second
+# confirmation is refused, and so is a second proposal of the same key
+# date, stale now that the first recorded the items' levels. A run twenty
+# days later proposes the invoice's item at level 2. The key dates are the
+# requests': nothing here depends on today's date. The step duns its own
+# invoice, so it holds whether or not the invoice of step 48 is still open.
 step_dunning() {
-  heading "Step 53 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items"
-  local customer=$CUSTOMER entry due key base cr request run before
+  heading "Step 56 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items; the run is confirmed once, a stale proposal is refused, and the next run proposes level 2"
+  local customer=$CUSTOMER entry due key later base cr request run before twin twin_tag
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  later=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 60 * 86400 | strftime("%Y-%m-%d")')
   as ruth
   say "Ruth enters and posts another invoice to Northwind Traders, for a spare part, on Northwind's terms, NT30:"
   QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
@@ -6172,6 +6428,137 @@ step_dunning() {
   api 200 '.items[] | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"' \
     listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.net_due_date)"] | join(", ")')" "$before"
+  say "A colleague had started a proposal of her own at the same key date. Ruth confirms hers (T76b, ADR-0065 §8):"
+  say "each item's level and its dunning date, the key date, are recorded, and one event per customer is published,"
+  say "naming the customer by id and number. Nothing is posted, and no letter is sent:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  twin=$(field .id) twin_tag=$ETAG
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  api 200 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice, \(.item_count) item(s), version \(.version)"' \
+    confirmDunningRun -p "id=$run" -if-match "$ETAG"
+  expect "the confirmed run" "$(field '"\(.id) \(.status) \(.version)"')" "$run confirmed 2"
+  # What step_collections reads back: the customer dunned, when, and for how much.
+  DUNNED_CUSTOMER=$customer DUNNING_KEY=$key DUNNING_DUE=$due DUNNED_AMOUNT=$(field '"\(.overdue_amount.amount) \(.overdue_amount.currency)"')
+  say "A run is confirmed once: confirming it again records and publishes nothing."
+  refused 409 collections.invalid_status confirmDunningRun -p "id=$run" -if-match "$ETAG"
+  say "The colleague's proposal still says Northwind's items were never dunned. It is stale, and a new run is started instead:"
+  refused 409 collections.proposal_stale confirmDunningRun -p "id=$twin" -if-match "$twin_tag"
+  QUIET=1 api 200 '' getDunningRun -p "id=$twin"
+  expect "the stale run" "$(field .status)" proposed
+  say "Twenty days later, on $later, the invoice is 30 days overdue: past the second level's 20 days. The next run"
+  say "reads the level recorded for each item and proposes the next one, a level per confirmed run at most:"
+  api 201 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice, \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$later\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level)", (.items[] | "  item \(.item_no): entry \(.document_number) (\(.reference)), \(.days_overdue) days overdue, level \(.previous_level) -> \(.level)")' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Northwind's notice in the second run" "$(field '[.items[] | "\(.customer_id) \(.level)"] | join(", ")')" "$customer 2"
+  expect "the invoice's item in the second run" \
+    "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\") | \"\(.days_overdue) \(.previous_level) \(.level)\"] | join(\", \")")" "30 1 2"
+  passed
+}
+
+# step_collections is T76c (ADR-0065 §9): Ruth reads Maple's collection
+# worklist at the key date of the dunning run she confirmed in
+# step_dunning: Northwind, the customer dunned, leads it with the overdue
+# amount of its notice, the due date of its items, dunning level 1 and
+# the run's key date as its last dunning date; the worklist's totals
+# count every customer listed. On the due date itself nothing of
+# Northwind's is overdue, so it is not listed. The key dates are the
+# requests'.
+step_collections() {
+  heading "Step 57 — The collection worklist: the company's customers with overdue items on a key date, the largest overdue amount first, each with its open and overdue amounts, oldest due date, dunning level and last dunning date"
+  local customer=$DUNNED_CUSTOMER key=$DUNNING_KEY
+  as ruth
+  say "Ruth reads whom to chase: Maple's customers with items overdue on $key, the largest overdue amount first."
+  say "The worklist is computed from the ledger's open items and the dunning levels recorded; it stores nothing:"
+  api 200 '"worklist of \(.company_code) \(.company_name) at \(.key_date): \(.customer_count) customer(s), \(.open_amount.amount) \(.open_amount.currency) open, \(.overdue_amount.amount) \(.overdue_amount.currency) overdue", (.items[] | "  \(.customer_number) \(.customer_name): \(.overdue_amount.amount) \(.overdue_amount.currency) overdue of \(.open_amount.amount) open, oldest due \(.oldest_due_date), dunning level \(.dunning_level), last dunned \(.last_dunning_date // "never")")' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key"
+  expect "the customer leading the worklist" "$(field '.items[0] | "\(.customer_id) \(.customer_name)"')" "$customer Northwind Traders"
+  expect "its overdue amount, the confirmed notice's" "$(field '.items[0] | "\(.overdue_amount.amount) \(.overdue_amount.currency)"')" "$DUNNED_AMOUNT"
+  expect "its oldest due date, dunning level and last dunning date" \
+    "$(field '.items[0] | "\(.oldest_due_date) \(.dunning_level) \(.last_dunning_date)"')" "$DUNNING_DUE 1 $key"
+  expect "the largest overdue amount first" "$(field '[.items[].overdue_amount.amount | tonumber] | . == (sort | reverse)')" true
+  expect "the totals count every customer" "$(field '.customer_count == (.items | length) and .currency == "CAD"')" true
+  expect "its open amount, the overdue amount less the credit memo of step 54" "$(cents "$(field '.items[0].open_amount.amount')")" \
+    "$(($(cents "${DUNNED_AMOUNT% *}") - 42000))"
+  say "Northwind's open amount nets the credit memo of step 54, CAD 420.00, which reduces nothing overdue (ADR-0065 §4),"
+  say "so less is open than overdue. On the due date itself, $DUNNING_DUE, nothing of Northwind's is overdue yet, and a"
+  say "customer with nothing overdue is not on the worklist:"
+  api 200 '"worklist at \(.key_date): \(.customer_count) customer(s), \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$DUNNING_DUE"
+  expect "Northwind on the worklist at the due date" "$(field "[.items[] | select(.customer_id == \"$customer\")] | length")" 0
+  passed
+}
+
+# step_credit_limit is T77a (ADR-0066): Ruth reads what Northwind owes
+# Maple, its credit exposure, which is what its open items add up to;
+# without a limit the customer is not restricted, and the answer says none
+# is set. She sets a limit 500.00 above the exposure, once: a second limit
+# for the customer is refused. An amount of 400.00 is then within the
+# limit and 600.00 is not; the check changes nothing, the open items and
+# the limit are as before. She raises the limit with her version of it,
+# and the larger amount is within it. The amounts follow from the exposure
+# read, so the step holds whatever earlier steps left open.
+step_credit_limit() {
+  heading "Step 58 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
+  local customer=$CUSTOMER exposure limit raised id tag before
+  as ruth
+  say "Ruth looks after Maple's credit as well. Before more is sold to Northwind Traders on account she reads what"
+  say "it owes: its credit exposure, the customer's open items in Maple's currency, credits netted (ADR-0066 §3)."
+  say "No limit is set for it yet, so it is not restricted, and the answer says so:"
+  api 200 '"\(.customer_number) \(.customer_name) in \(.company_code) \(.company_name): exposure \(.exposure.amount) \(.exposure.currency) from \(.open_item_count) open item(s); limit set: \(.has_limit); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "no limit set, and so within it" "$(field '"\(.has_limit) \(.is_within_limit) \(has("limit")) \(has("available")) \(.currency)"')" "false true false false CAD"
+  exposure=$(field .exposure.amount)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  before=$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')
+  expect "the exposure, the customer's open items added up" "$(field '[.items[].amount_lc.amount | tonumber] | add * 100 | round')" \
+    "$(jq -rn --arg x "$exposure" '$x | tonumber * 100 | round')"
+  expect "an exposure above zero" "$(jq -rn --arg x "$exposure" '($x | tonumber) > 0')" true
+  limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 500 }')
+  raised=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
+  say "She sets Northwind's limit in Maple at $limit CAD, 500.00 above what it owes. A limit is one amount per"
+  say "customer and company in the company's currency; it holds at once, and nothing is posted or blocked:"
+  api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  id=$(field .id) tag=$ETAG
+  expect "the limit" "$(field '"\(.customer_id) \(.customer_name) \(.limit.amount) \(.limit.currency) \(.version)"')" "$customer Northwind Traders $limit CAD 1"
+  say "A customer has one limit in a company; a second is refused, and a limit in another currency too:"
+  refused 409 credit.limit_exists createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  refused 422 credit.currency_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "USD"}}'
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the customer's limits in Maple" "$(field '[.items[].id] | join(" ")')" "$id"
+  say "Now the exposure is read against the limit: what is available is the limit less the exposure."
+  api 200 '"exposure \(.exposure.amount) \(.exposure.currency), limit \(.limit.amount), available \(.available.amount); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the exposure against the limit" "$(field '"\(.exposure.amount) \(.has_limit) \(.credit_limit_id) \(.limit.amount) \(.available.amount) \(.available.currency) \(.is_within_limit)"')" \
+    "$exposure true $id $limit 500.00 CAD true"
+  say "Any API consumer, an order entry screen or an agent, asks whether an amount is within the limit: the"
+  say "exposure and the amount together may be no more than it. An order of 400.00 CAD is within Northwind's limit:"
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=400.00
+  expect "400.00 within the limit" "$(field '"\(.amount.amount) \(.amount.currency) \(.is_within_limit)"')" "400.00 CAD true"
+  say "One of 600.00 CAD is not. The check only answers: it blocks nothing and changes nothing."
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
+  expect "600.00 not within the limit" "$(field '"\(.amount.amount) \(.is_within_limit) \(.exposure.amount) \(.available.amount)"')" "600.00 false $exposure 500.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items after the checks" "$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')" "$before"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  expect "the limit after the checks" "$(field '"\(.limit.amount) \(.version)"') $ETAG" "$limit 1 $tag"
+  say "Ruth agrees a higher limit with sales and changes it, with her version of the limit: $raised CAD. The audit"
+  say "trail and the event CreditLimitChanged carry the limit before and after; the event names the customer by"
+  say "id and number, never by name:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
+  expect "the raised limit" "$(field '"\(.limit.amount) \(.version)"')" "$raised 2"
+  say "Her earlier version of it is stale now, and a change with it is refused:"
+  refused 412 request.version_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
+  expect "600.00 within the raised limit" "$(field '"\(.limit.amount) \(.available.amount) \(.is_within_limit)"')" "$raised 1000.00 true"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
+  expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.create"
   passed
 }
 
@@ -8199,7 +8586,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_close'
 
 main() {
   stop_unseen

@@ -2832,6 +2832,829 @@ func (s *AiUsagePrincipal) SetCost(val Money) {
 	s.Cost = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/AllocationCycle
+type AllocationCycle struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Legal entity (company code) the cycle belongs to. Immutable.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code, unique in the legal entity. Immutable.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// `distribution`: a run moves the sender's primary costs to the receivers on their original accounts.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Kind string `json:"kind"`
+	// The cost center whose costs a run charges to the receivers (`GET /v1/cost-centers/{id}`).
+	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
+	// The sender's code.
+	SenderCostCenterCode string `json:"sender_cost_center_code"`
+	// The receivers, in the order given when the cycle was created; their percentages add up to 100.
+	Receivers []AllocationReceiver `json:"receivers"`
+}
+
+// GetID returns the value of ID.
+func (s *AllocationCycle) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *AllocationCycle) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AllocationCycle) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AllocationCycle) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AllocationCycle) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *AllocationCycle) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationCycle) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *AllocationCycle) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *AllocationCycle) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *AllocationCycle) GetKind() string {
+	return s.Kind
+}
+
+// GetSenderCostCenterID returns the value of SenderCostCenterID.
+func (s *AllocationCycle) GetSenderCostCenterID() uuid.UUID {
+	return s.SenderCostCenterID
+}
+
+// GetSenderCostCenterCode returns the value of SenderCostCenterCode.
+func (s *AllocationCycle) GetSenderCostCenterCode() string {
+	return s.SenderCostCenterCode
+}
+
+// GetReceivers returns the value of Receivers.
+func (s *AllocationCycle) GetReceivers() []AllocationReceiver {
+	return s.Receivers
+}
+
+// SetID sets the value of ID.
+func (s *AllocationCycle) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *AllocationCycle) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AllocationCycle) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AllocationCycle) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AllocationCycle) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *AllocationCycle) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationCycle) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *AllocationCycle) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *AllocationCycle) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AllocationCycle) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetSenderCostCenterID sets the value of SenderCostCenterID.
+func (s *AllocationCycle) SetSenderCostCenterID(val uuid.UUID) {
+	s.SenderCostCenterID = val
+}
+
+// SetSenderCostCenterCode sets the value of SenderCostCenterCode.
+func (s *AllocationCycle) SetSenderCostCenterCode(val string) {
+	s.SenderCostCenterCode = val
+}
+
+// SetReceivers sets the value of Receivers.
+func (s *AllocationCycle) SetReceivers(val []AllocationReceiver) {
+	s.Receivers = val
+}
+
+// The allocation cycle create request.
+// Ref: #/components/schemas/AllocationCycleCreate
+type AllocationCycleCreate struct {
+	// Legal entity (company code) the cycle belongs to.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Code, unique in the legal entity.
+	Code string `json:"code"`
+	// Name.
+	Name string `json:"name"`
+	// `distribution`. Open enumeration; a kind not listed is refused (422).
+	Kind string `json:"kind"`
+	// An active cost center of the legal entity whose costs the cycle's runs charge to the receivers.
+	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
+	// The receivers: active cost centers of the legal entity other than the sender, each once, with
+	// percentages adding up to 100.
+	Receivers []AllocationCycleCreateReceiversItem `json:"receivers"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationCycleCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCode returns the value of Code.
+func (s *AllocationCycleCreate) GetCode() string {
+	return s.Code
+}
+
+// GetName returns the value of Name.
+func (s *AllocationCycleCreate) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *AllocationCycleCreate) GetKind() string {
+	return s.Kind
+}
+
+// GetSenderCostCenterID returns the value of SenderCostCenterID.
+func (s *AllocationCycleCreate) GetSenderCostCenterID() uuid.UUID {
+	return s.SenderCostCenterID
+}
+
+// GetReceivers returns the value of Receivers.
+func (s *AllocationCycleCreate) GetReceivers() []AllocationCycleCreateReceiversItem {
+	return s.Receivers
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationCycleCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCode sets the value of Code.
+func (s *AllocationCycleCreate) SetCode(val string) {
+	s.Code = val
+}
+
+// SetName sets the value of Name.
+func (s *AllocationCycleCreate) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AllocationCycleCreate) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetSenderCostCenterID sets the value of SenderCostCenterID.
+func (s *AllocationCycleCreate) SetSenderCostCenterID(val uuid.UUID) {
+	s.SenderCostCenterID = val
+}
+
+// SetReceivers sets the value of Receivers.
+func (s *AllocationCycleCreate) SetReceivers(val []AllocationCycleCreateReceiversItem) {
+	s.Receivers = val
+}
+
+type AllocationCycleCreateReceiversItem struct {
+	// The receiving cost center.
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The receiver's share in percent: above 0 and at most 100, with up to two decimals.
+	Percentage string `json:"percentage"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AllocationCycleCreateReceiversItem) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetPercentage returns the value of Percentage.
+func (s *AllocationCycleCreateReceiversItem) GetPercentage() string {
+	return s.Percentage
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AllocationCycleCreateReceiversItem) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetPercentage sets the value of Percentage.
+func (s *AllocationCycleCreateReceiversItem) SetPercentage(val string) {
+	s.Percentage = val
+}
+
+// AllocationCycleHeaders wraps AllocationCycle with response headers.
+type AllocationCycleHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           AllocationCycle
+}
+
+// GetETag returns the value of ETag.
+func (s *AllocationCycleHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AllocationCycleHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *AllocationCycleHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *AllocationCycleHeaders) GetResponse() AllocationCycle {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AllocationCycleHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AllocationCycleHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *AllocationCycleHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AllocationCycleHeaders) SetResponse(val AllocationCycle) {
+	s.Response = val
+}
+
+func (*AllocationCycleHeaders) createAllocationCycleRes() {}
+
+// One page of allocation cycles.
+// Ref: #/components/schemas/AllocationCyclePage
+type AllocationCyclePage struct {
+	// The allocation cycles on this page.
+	Items []AllocationCycle `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *AllocationCyclePage) GetItems() []AllocationCycle {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AllocationCyclePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *AllocationCyclePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *AllocationCyclePage) SetItems(val []AllocationCycle) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AllocationCyclePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *AllocationCyclePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*AllocationCyclePage) listAllocationCyclesRes() {}
+
+// The period an allocation cycle is run for.
+// Ref: #/components/schemas/AllocationCycleRun
+type AllocationCycleRun struct {
+	// The fiscal year of the period, one set up for the legal entity.
+	FiscalYear int32 `json:"fiscal_year"`
+	// A regular posting period of the fiscal year: the sender's costs posted in it are charged to the
+	// receivers, and the entry is dated its last day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AllocationCycleRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *AllocationCycleRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AllocationCycleRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *AllocationCycleRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// A receiver of an allocation cycle with its share.
+// Ref: #/components/schemas/AllocationReceiver
+type AllocationReceiver struct {
+	// The receiving cost center (`GET /v1/cost-centers/{id}`).
+	CostCenterID uuid.UUID `json:"cost_center_id"`
+	// The receiving cost center's code.
+	CostCenterCode string `json:"cost_center_code"`
+	// The receiver's share of the sender's costs in percent, with two decimals.
+	Percentage string `json:"percentage"`
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *AllocationReceiver) GetCostCenterID() uuid.UUID {
+	return s.CostCenterID
+}
+
+// GetCostCenterCode returns the value of CostCenterCode.
+func (s *AllocationReceiver) GetCostCenterCode() string {
+	return s.CostCenterCode
+}
+
+// GetPercentage returns the value of Percentage.
+func (s *AllocationReceiver) GetPercentage() string {
+	return s.Percentage
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *AllocationReceiver) SetCostCenterID(val uuid.UUID) {
+	s.CostCenterID = val
+}
+
+// SetCostCenterCode sets the value of CostCenterCode.
+func (s *AllocationReceiver) SetCostCenterCode(val string) {
+	s.CostCenterCode = val
+}
+
+// SetPercentage sets the value of Percentage.
+func (s *AllocationReceiver) SetPercentage(val string) {
+	s.Percentage = val
+}
+
+// A run of an allocation cycle for a fiscal period (ADR-0064 §5): the journal entry that charged the
+// sender's costs of the period to the cycle's receivers. Never changed.
+// Ref: #/components/schemas/AllocationRun
+type AllocationRun struct {
+	// The run's id.
+	ID uuid.UUID `json:"id"`
+	// The cycle run (`GET /v1/allocation-cycles/{id}`), whose receivers and percentages the run used.
+	AllocationCycleID uuid.UUID `json:"allocation_cycle_id"`
+	// The cycle's code.
+	AllocationCycleCode string `json:"allocation_cycle_code"`
+	// The cycle's name.
+	AllocationCycleName string `json:"allocation_cycle_name"`
+	// The cycle's kind: `distribution`. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Kind string `json:"kind"`
+	// The cycle's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period run, and the entry's.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The entry's posting date: the period's last day.
+	PostingDate time.Time `json:"posting_date"`
+	// The cycle's sender (`GET /v1/cost-centers/{id}`).
+	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
+	// The sender's code.
+	SenderCostCenterCode string `json:"sender_cost_center_code"`
+	// What the run moved off the sender to the receivers, in the legal entity's local currency: the total
+	// of the sender's costs of the period on the accounts charged.
+	Amount Money `json:"amount"`
+	// How many accounts the run charged.
+	AccountCount int32 `json:"account_count"`
+	// The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show
+	// each account's credit on the sender and each receiver's share.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When the cycle was run (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who ran it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *AllocationRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetAllocationCycleID returns the value of AllocationCycleID.
+func (s *AllocationRun) GetAllocationCycleID() uuid.UUID {
+	return s.AllocationCycleID
+}
+
+// GetAllocationCycleCode returns the value of AllocationCycleCode.
+func (s *AllocationRun) GetAllocationCycleCode() string {
+	return s.AllocationCycleCode
+}
+
+// GetAllocationCycleName returns the value of AllocationCycleName.
+func (s *AllocationRun) GetAllocationCycleName() string {
+	return s.AllocationCycleName
+}
+
+// GetKind returns the value of Kind.
+func (s *AllocationRun) GetKind() string {
+	return s.Kind
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AllocationRun) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *AllocationRun) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *AllocationRun) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetSenderCostCenterID returns the value of SenderCostCenterID.
+func (s *AllocationRun) GetSenderCostCenterID() uuid.UUID {
+	return s.SenderCostCenterID
+}
+
+// GetSenderCostCenterCode returns the value of SenderCostCenterCode.
+func (s *AllocationRun) GetSenderCostCenterCode() string {
+	return s.SenderCostCenterCode
+}
+
+// GetAmount returns the value of Amount.
+func (s *AllocationRun) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAccountCount returns the value of AccountCount.
+func (s *AllocationRun) GetAccountCount() int32 {
+	return s.AccountCount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *AllocationRun) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *AllocationRun) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AllocationRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *AllocationRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *AllocationRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetAllocationCycleID sets the value of AllocationCycleID.
+func (s *AllocationRun) SetAllocationCycleID(val uuid.UUID) {
+	s.AllocationCycleID = val
+}
+
+// SetAllocationCycleCode sets the value of AllocationCycleCode.
+func (s *AllocationRun) SetAllocationCycleCode(val string) {
+	s.AllocationCycleCode = val
+}
+
+// SetAllocationCycleName sets the value of AllocationCycleName.
+func (s *AllocationRun) SetAllocationCycleName(val string) {
+	s.AllocationCycleName = val
+}
+
+// SetKind sets the value of Kind.
+func (s *AllocationRun) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AllocationRun) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *AllocationRun) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *AllocationRun) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetSenderCostCenterID sets the value of SenderCostCenterID.
+func (s *AllocationRun) SetSenderCostCenterID(val uuid.UUID) {
+	s.SenderCostCenterID = val
+}
+
+// SetSenderCostCenterCode sets the value of SenderCostCenterCode.
+func (s *AllocationRun) SetSenderCostCenterCode(val string) {
+	s.SenderCostCenterCode = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *AllocationRun) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAccountCount sets the value of AccountCount.
+func (s *AllocationRun) SetAccountCount(val int32) {
+	s.AccountCount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *AllocationRun) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *AllocationRun) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AllocationRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *AllocationRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+func (*AllocationRun) getAllocationRunRes() {}
+
+// One page of allocation runs.
+// Ref: #/components/schemas/AllocationRunPage
+type AllocationRunPage struct {
+	// The allocation runs on this page.
+	Items []AllocationRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *AllocationRunPage) GetItems() []AllocationRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *AllocationRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *AllocationRunPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *AllocationRunPage) SetItems(val []AllocationRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *AllocationRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *AllocationRunPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*AllocationRunPage) listAllocationRunsRes() {}
+
+// What running an allocation cycle for a period did (ADR-0064 §5): the run it posted, or that the
+// sender had no costs in the period.
+// Ref: #/components/schemas/AllocationRunResult
+type AllocationRunResult struct {
+	// The cycle (`GET /v1/allocation-cycles/{id}`).
+	AllocationCycleID uuid.UUID `json:"allocation_cycle_id"`
+	// The cycle's code.
+	AllocationCycleCode string `json:"allocation_cycle_code"`
+	// The cycle's name.
+	AllocationCycleName string `json:"allocation_cycle_name"`
+	// The cycle's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period run.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period run.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Whether an entry was posted: false when the sender had no primary costs in the period, so nothing
+	// changed and no run is kept.
+	Posted bool `json:"posted"`
+	// The run posted. Absent when `posted` is false.
+	Run OptAllocationRun `json:"run"`
+}
+
+// GetAllocationCycleID returns the value of AllocationCycleID.
+func (s *AllocationRunResult) GetAllocationCycleID() uuid.UUID {
+	return s.AllocationCycleID
+}
+
+// GetAllocationCycleCode returns the value of AllocationCycleCode.
+func (s *AllocationRunResult) GetAllocationCycleCode() string {
+	return s.AllocationCycleCode
+}
+
+// GetAllocationCycleName returns the value of AllocationCycleName.
+func (s *AllocationRunResult) GetAllocationCycleName() string {
+	return s.AllocationCycleName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *AllocationRunResult) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *AllocationRunResult) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *AllocationRunResult) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPosted returns the value of Posted.
+func (s *AllocationRunResult) GetPosted() bool {
+	return s.Posted
+}
+
+// GetRun returns the value of Run.
+func (s *AllocationRunResult) GetRun() OptAllocationRun {
+	return s.Run
+}
+
+// SetAllocationCycleID sets the value of AllocationCycleID.
+func (s *AllocationRunResult) SetAllocationCycleID(val uuid.UUID) {
+	s.AllocationCycleID = val
+}
+
+// SetAllocationCycleCode sets the value of AllocationCycleCode.
+func (s *AllocationRunResult) SetAllocationCycleCode(val string) {
+	s.AllocationCycleCode = val
+}
+
+// SetAllocationCycleName sets the value of AllocationCycleName.
+func (s *AllocationRunResult) SetAllocationCycleName(val string) {
+	s.AllocationCycleName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *AllocationRunResult) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *AllocationRunResult) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *AllocationRunResult) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPosted sets the value of Posted.
+func (s *AllocationRunResult) SetPosted(val bool) {
+	s.Posted = val
+}
+
+// SetRun sets the value of Run.
+func (s *AllocationRunResult) SetRun(val OptAllocationRun) {
+	s.Run = val
+}
+
+// AllocationRunResultHeaders wraps AllocationRunResult with response headers.
+type AllocationRunResultHeaders struct {
+	IdempotentReplayed OptBool
+	Response           AllocationRunResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AllocationRunResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AllocationRunResultHeaders) GetResponse() AllocationRunResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AllocationRunResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AllocationRunResultHeaders) SetResponse(val AllocationRunResult) {
+	s.Response = val
+}
+
+func (*AllocationRunResultHeaders) runAllocationCycleRes() {}
+
 // A cell: a dimension's value, or a measure as an exact decimal with exactly its digits (an amount at
 // its currency's exponent, a count whole, a ratio to 4 digits); null when it cannot be computed, as a
 // ratio over zero.
@@ -20540,6 +21363,66 @@ type CloseFiscalPeriodUnprocessableEntity Problem
 
 func (*CloseFiscalPeriodUnprocessableEntity) closeFiscalPeriodRes() {}
 
+type CloseInternalOrderBadRequest Problem
+
+func (*CloseInternalOrderBadRequest) closeInternalOrderRes() {}
+
+type CloseInternalOrderForbidden Problem
+
+func (*CloseInternalOrderForbidden) closeInternalOrderRes() {}
+
+type CloseInternalOrderNotFound Problem
+
+func (*CloseInternalOrderNotFound) closeInternalOrderRes() {}
+
+// CloseInternalOrderOKHeaders wraps InternalOrder with response headers.
+type CloseInternalOrderOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrder
+}
+
+// GetETag returns the value of ETag.
+func (s *CloseInternalOrderOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CloseInternalOrderOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *CloseInternalOrderOKHeaders) GetResponse() InternalOrder {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CloseInternalOrderOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CloseInternalOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CloseInternalOrderOKHeaders) SetResponse(val InternalOrder) {
+	s.Response = val
+}
+
+func (*CloseInternalOrderOKHeaders) closeInternalOrderRes()   {}
+func (*CloseInternalOrderOKHeaders) releaseInternalOrderRes() {}
+
+type CloseInternalOrderPreconditionFailed Problem
+
+func (*CloseInternalOrderPreconditionFailed) closeInternalOrderRes() {}
+
+type CloseInternalOrderPreconditionRequired Problem
+
+func (*CloseInternalOrderPreconditionRequired) closeInternalOrderRes() {}
+
 // A ledger a period close covers, with its period's live posting status.
 // Ref: #/components/schemas/CloseLedger
 type CloseLedger struct {
@@ -21083,6 +21966,239 @@ func (s *CodeTax) SetTaxCode(val string) {
 // SetTax sets the value of Tax.
 func (s *CodeTax) SetTax(val Money) {
 	s.Tax = val
+}
+
+// A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers
+// with overdue items, the largest overdue amount first, with the totals of every customer listed.
+// Ref: #/components/schemas/CollectionWorklist
+type CollectionWorklist struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items are overdue on.
+	KeyDate time.Time `json:"key_date"`
+	// The company's currency (ISO 4217), the currency of every amount.
+	Currency string `json:"currency"`
+	// The customers on the worklist, on every page together.
+	CustomerCount int32 `json:"customer_count"`
+	// The sum of `open_amount` of every customer on the worklist.
+	OpenAmount Money `json:"open_amount"`
+	// The sum of `overdue_amount` of every customer on the worklist.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The customers on this page, the largest overdue amount first.
+	Items []CollectionWorklistCustomer `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CollectionWorklist) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CollectionWorklist) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CollectionWorklist) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *CollectionWorklist) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CollectionWorklist) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *CollectionWorklist) GetCustomerCount() int32 {
+	return s.CustomerCount
+}
+
+// GetOpenAmount returns the value of OpenAmount.
+func (s *CollectionWorklist) GetOpenAmount() Money {
+	return s.OpenAmount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *CollectionWorklist) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetItems returns the value of Items.
+func (s *CollectionWorklist) GetItems() []CollectionWorklistCustomer {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CollectionWorklist) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CollectionWorklist) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CollectionWorklist) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CollectionWorklist) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *CollectionWorklist) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CollectionWorklist) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *CollectionWorklist) SetCustomerCount(val int32) {
+	s.CustomerCount = val
+}
+
+// SetOpenAmount sets the value of OpenAmount.
+func (s *CollectionWorklist) SetOpenAmount(val Money) {
+	s.OpenAmount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *CollectionWorklist) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *CollectionWorklist) SetItems(val []CollectionWorklistCustomer) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CollectionWorklist) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CollectionWorklist) getCollectionWorklistRes() {}
+
+// A customer on a collection worklist: one with items overdue on the key date. Amounts are in the
+// company's currency, as the items were booked.
+// Ref: #/components/schemas/CollectionWorklistCustomer
+type CollectionWorklistCustomer struct {
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// What the customer's open items add up to, overdue or not, credit items included; negative when its
+	// credits exceed what it owes.
+	OpenAmount Money `json:"open_amount"`
+	// What the customer's items overdue on the key date add up to; credit items do not reduce it.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The earliest net due date among the customer's overdue items.
+	OldestDueDate time.Time `json:"oldest_due_date"`
+	// The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0
+	// when none was dunned.
+	DunningLevel int32 `json:"dunning_level"`
+	// The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items;
+	// absent when none was dunned.
+	LastDunningDate OptDate `json:"last_dunning_date"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CollectionWorklistCustomer) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CollectionWorklistCustomer) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CollectionWorklistCustomer) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetOpenAmount returns the value of OpenAmount.
+func (s *CollectionWorklistCustomer) GetOpenAmount() Money {
+	return s.OpenAmount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *CollectionWorklistCustomer) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetOldestDueDate returns the value of OldestDueDate.
+func (s *CollectionWorklistCustomer) GetOldestDueDate() time.Time {
+	return s.OldestDueDate
+}
+
+// GetDunningLevel returns the value of DunningLevel.
+func (s *CollectionWorklistCustomer) GetDunningLevel() int32 {
+	return s.DunningLevel
+}
+
+// GetLastDunningDate returns the value of LastDunningDate.
+func (s *CollectionWorklistCustomer) GetLastDunningDate() OptDate {
+	return s.LastDunningDate
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CollectionWorklistCustomer) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CollectionWorklistCustomer) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CollectionWorklistCustomer) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetOpenAmount sets the value of OpenAmount.
+func (s *CollectionWorklistCustomer) SetOpenAmount(val Money) {
+	s.OpenAmount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *CollectionWorklistCustomer) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetOldestDueDate sets the value of OldestDueDate.
+func (s *CollectionWorklistCustomer) SetOldestDueDate(val time.Time) {
+	s.OldestDueDate = val
+}
+
+// SetDunningLevel sets the value of DunningLevel.
+func (s *CollectionWorklistCustomer) SetDunningLevel(val int32) {
+	s.DunningLevel = val
+}
+
+// SetLastDunningDate sets the value of LastDunningDate.
+func (s *CollectionWorklistCustomer) SetLastDunningDate(val OptDate) {
+	s.LastDunningDate = val
 }
 
 // Body of a rejection or cancellation decision.
@@ -21665,6 +22781,69 @@ func (s *ConfigVersionPage) SetTotalEstimate(val OptInt64) {
 
 func (*ConfigVersionPage) listConfigVersionsRes() {}
 
+type ConfirmDunningRunBadRequest Problem
+
+func (*ConfirmDunningRunBadRequest) confirmDunningRunRes() {}
+
+type ConfirmDunningRunForbidden Problem
+
+func (*ConfirmDunningRunForbidden) confirmDunningRunRes() {}
+
+type ConfirmDunningRunNotFound Problem
+
+func (*ConfirmDunningRunNotFound) confirmDunningRunRes() {}
+
+// ConfirmDunningRunOKHeaders wraps DunningRun with response headers.
+type ConfirmDunningRunOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *ConfirmDunningRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ConfirmDunningRunOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ConfirmDunningRunOKHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ConfirmDunningRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ConfirmDunningRunOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ConfirmDunningRunOKHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*ConfirmDunningRunOKHeaders) confirmDunningRunRes() {}
+
+type ConfirmDunningRunPreconditionFailed Problem
+
+func (*ConfirmDunningRunPreconditionFailed) confirmDunningRunRes() {}
+
+type ConfirmDunningRunPreconditionRequired Problem
+
+func (*ConfirmDunningRunPreconditionRequired) confirmDunningRunRes() {}
+
+type ConfirmDunningRunUnprocessableEntity Problem
+
+func (*ConfirmDunningRunUnprocessableEntity) confirmDunningRunRes() {}
+
 // ConflictHeaders wraps Problem with response headers.
 type ConflictHeaders struct {
 	RetryAfter OptInt32
@@ -21726,9 +22905,12 @@ func (*ConflictHeaders) checkCloseTaskRes()                        {}
 func (*ConflictHeaders) checkYearCloseTaskRes()                    {}
 func (*ConflictHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
+func (*ConflictHeaders) closeInternalOrderRes()                    {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
+func (*ConflictHeaders) confirmDunningRunRes()                     {}
+func (*ConflictHeaders) createAllocationCycleRes()                 {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -21742,6 +22924,7 @@ func (*ConflictHeaders) createConnectorRes()                       {}
 func (*ConflictHeaders) createConsolidationRunRes()                {}
 func (*ConflictHeaders) createContractRes()                        {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
+func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
@@ -21887,8 +23070,10 @@ func (*ConflictHeaders) reverseGoodsReceiptRes()                   {}
 func (*ConflictHeaders) reverseJournalEntryRes()                   {}
 func (*ConflictHeaders) reverseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*ConflictHeaders) runAllocationCycleRes()                    {}
 func (*ConflictHeaders) runAnalyticsQueryRes()                     {}
 func (*ConflictHeaders) runBalanceCarryForwardRes()                {}
+func (*ConflictHeaders) settleInternalOrderRes()                   {}
 func (*ConflictHeaders) signOffPeriodCloseRes()                    {}
 func (*ConflictHeaders) signOffYearCloseRes()                      {}
 func (*ConflictHeaders) simulateChangeRequestRes()                 {}
@@ -21914,6 +23099,7 @@ func (*ConflictHeaders) updateCloseTaskRes()                       {}
 func (*ConflictHeaders) updateConnectorRes()                       {}
 func (*ConflictHeaders) updateContractRes()                        {}
 func (*ConflictHeaders) updateCostCenterRes()                      {}
+func (*ConflictHeaders) updateCreditLimitRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
 func (*ConflictHeaders) updateLegalEntityRes()                     {}
 func (*ConflictHeaders) updateMemoRecordRes()                      {}
@@ -26921,6 +28107,22 @@ func (s *CountryPackSource) SetRetrieved(val string) {
 	s.Retrieved = val
 }
 
+type CreateAllocationCycleBadRequest Problem
+
+func (*CreateAllocationCycleBadRequest) createAllocationCycleRes() {}
+
+type CreateAllocationCycleForbidden Problem
+
+func (*CreateAllocationCycleForbidden) createAllocationCycleRes() {}
+
+type CreateAllocationCyclePreconditionRequired Problem
+
+func (*CreateAllocationCyclePreconditionRequired) createAllocationCycleRes() {}
+
+type CreateAllocationCycleUnprocessableEntity Problem
+
+func (*CreateAllocationCycleUnprocessableEntity) createAllocationCycleRes() {}
+
 type CreateAssetAcquisitionBadRequest Problem
 
 func (*CreateAssetAcquisitionBadRequest) createAssetAcquisitionRes() {}
@@ -27168,6 +28370,22 @@ func (*CreateCostCenterPreconditionRequired) createCostCenterRes() {}
 type CreateCostCenterUnprocessableEntity Problem
 
 func (*CreateCostCenterUnprocessableEntity) createCostCenterRes() {}
+
+type CreateCreditLimitBadRequest Problem
+
+func (*CreateCreditLimitBadRequest) createCreditLimitRes() {}
+
+type CreateCreditLimitForbidden Problem
+
+func (*CreateCreditLimitForbidden) createCreditLimitRes() {}
+
+type CreateCreditLimitPreconditionRequired Problem
+
+func (*CreateCreditLimitPreconditionRequired) createCreditLimitRes() {}
+
+type CreateCreditLimitUnprocessableEntity Problem
+
+func (*CreateCreditLimitUnprocessableEntity) createCreditLimitRes() {}
 
 type CreateCustomerInvoiceBadRequest Problem
 
@@ -27856,9 +29074,203 @@ type CreateYearCloseUnprocessableEntity Problem
 
 func (*CreateYearCloseUnprocessableEntity) createYearCloseRes() {}
 
+// A customer's credit exposure in a company and the check of an amount against its credit limit
+// (credit, ADR-0066 §3-§4). Every amount is in the company's currency.
+// Ref: #/components/schemas/CreditExposure
+type CreditExposure struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The company's currency (ISO 4217), the currency of every amount.
+	Currency string `json:"currency"`
+	// The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which
+	// the exposure adds up.
+	OpenItemCount int32 `json:"open_item_count"`
+	// What the customer's open items add up to, as they were booked, credit items netted; negative when
+	// its credits exceed what it owes.
+	Exposure Money `json:"exposure"`
+	// Whether a credit limit is set for the customer in the company. False: no limit is set, and the
+	// customer is not restricted.
+	HasLimit bool `json:"has_limit"`
+	// The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.
+	CreditLimitID OptUUID `json:"credit_limit_id"`
+	// The credit limit; absent when none is set.
+	Limit OptMoney `json:"limit"`
+	// The limit less the exposure: what the customer may still come to owe; negative when the exposure
+	// exceeds the limit. Absent when no limit is set.
+	Available OptMoney `json:"available"`
+	// The amount checked, as the request gave it; absent when it gave none.
+	Amount OptMoney `json:"amount"`
+	// Whether the exposure and the amount checked together are no more than the limit; the exposure alone
+	// when no amount was given. Always true when no limit is set.
+	IsWithinLimit bool `json:"is_within_limit"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CreditExposure) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CreditExposure) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CreditExposure) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CreditExposure) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CreditExposure) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CreditExposure) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CreditExposure) GetCurrency() string {
+	return s.Currency
+}
+
+// GetOpenItemCount returns the value of OpenItemCount.
+func (s *CreditExposure) GetOpenItemCount() int32 {
+	return s.OpenItemCount
+}
+
+// GetExposure returns the value of Exposure.
+func (s *CreditExposure) GetExposure() Money {
+	return s.Exposure
+}
+
+// GetHasLimit returns the value of HasLimit.
+func (s *CreditExposure) GetHasLimit() bool {
+	return s.HasLimit
+}
+
+// GetCreditLimitID returns the value of CreditLimitID.
+func (s *CreditExposure) GetCreditLimitID() OptUUID {
+	return s.CreditLimitID
+}
+
+// GetLimit returns the value of Limit.
+func (s *CreditExposure) GetLimit() OptMoney {
+	return s.Limit
+}
+
+// GetAvailable returns the value of Available.
+func (s *CreditExposure) GetAvailable() OptMoney {
+	return s.Available
+}
+
+// GetAmount returns the value of Amount.
+func (s *CreditExposure) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetIsWithinLimit returns the value of IsWithinLimit.
+func (s *CreditExposure) GetIsWithinLimit() bool {
+	return s.IsWithinLimit
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CreditExposure) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CreditExposure) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CreditExposure) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CreditExposure) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CreditExposure) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CreditExposure) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CreditExposure) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetOpenItemCount sets the value of OpenItemCount.
+func (s *CreditExposure) SetOpenItemCount(val int32) {
+	s.OpenItemCount = val
+}
+
+// SetExposure sets the value of Exposure.
+func (s *CreditExposure) SetExposure(val Money) {
+	s.Exposure = val
+}
+
+// SetHasLimit sets the value of HasLimit.
+func (s *CreditExposure) SetHasLimit(val bool) {
+	s.HasLimit = val
+}
+
+// SetCreditLimitID sets the value of CreditLimitID.
+func (s *CreditExposure) SetCreditLimitID(val OptUUID) {
+	s.CreditLimitID = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CreditExposure) SetLimit(val OptMoney) {
+	s.Limit = val
+}
+
+// SetAvailable sets the value of Available.
+func (s *CreditExposure) SetAvailable(val OptMoney) {
+	s.Available = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CreditExposure) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetIsWithinLimit sets the value of IsWithinLimit.
+func (s *CreditExposure) SetIsWithinLimit(val bool) {
+	s.IsWithinLimit = val
+}
+
+func (*CreditExposure) getCreditExposureRes() {}
+
 // The figures of a credit memo or subsequent credit refused at `:post` because the posted credits
 // naming its invoice, with it, would exceed that invoice's gross amount (422
-// `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's.
+// `payables.credit_exceeds_invoice` for a supplier's, `receivables.credit_exceeds_invoice` for a
+// customer credit memo), in the invoice's currency, which is the credit's.
 // Ref: #/components/schemas/CreditLimit
 type CreditLimit struct {
 	// The invoice the credit names (its `reference_invoice_id`).
@@ -28286,6 +29698,306 @@ func (s *CustomerCompanyInput) SetIsPostingBlocked(val OptBool) {
 }
 
 // Merged schema.
+// Ref: #/components/schemas/CustomerCreditLimit
+type CustomerCreditLimit struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company the limit holds in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The limit, in the company's currency.
+	Limit Money `json:"limit"`
+}
+
+// GetID returns the value of ID.
+func (s *CustomerCreditLimit) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CustomerCreditLimit) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CustomerCreditLimit) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CustomerCreditLimit) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CustomerCreditLimit) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CustomerCreditLimit) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerCreditLimit) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CustomerCreditLimit) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CustomerCreditLimit) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerCreditLimit) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CustomerCreditLimit) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CustomerCreditLimit) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetLimit returns the value of Limit.
+func (s *CustomerCreditLimit) GetLimit() Money {
+	return s.Limit
+}
+
+// SetID sets the value of ID.
+func (s *CustomerCreditLimit) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CustomerCreditLimit) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CustomerCreditLimit) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CustomerCreditLimit) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CustomerCreditLimit) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CustomerCreditLimit) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerCreditLimit) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CustomerCreditLimit) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CustomerCreditLimit) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerCreditLimit) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CustomerCreditLimit) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CustomerCreditLimit) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CustomerCreditLimit) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// Set a customer's credit limit in a company.
+// Ref: #/components/schemas/CustomerCreditLimitCreate
+type CustomerCreditLimitCreate struct {
+	// The company the limit holds in: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer: a business partner with the customer role and customer data in the company.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The most the customer may owe the company, in the company's currency; zero or more.
+	Limit Money `json:"limit"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerCreditLimitCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerCreditLimitCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetLimit returns the value of Limit.
+func (s *CustomerCreditLimitCreate) GetLimit() Money {
+	return s.Limit
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerCreditLimitCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerCreditLimitCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CustomerCreditLimitCreate) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// CustomerCreditLimitHeaders wraps CustomerCreditLimit with response headers.
+type CustomerCreditLimitHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CustomerCreditLimit
+}
+
+// GetETag returns the value of ETag.
+func (s *CustomerCreditLimitHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CustomerCreditLimitHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CustomerCreditLimitHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CustomerCreditLimitHeaders) GetResponse() CustomerCreditLimit {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CustomerCreditLimitHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CustomerCreditLimitHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CustomerCreditLimitHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CustomerCreditLimitHeaders) SetResponse(val CustomerCreditLimit) {
+	s.Response = val
+}
+
+func (*CustomerCreditLimitHeaders) createCreditLimitRes() {}
+
+// One page of credit limits.
+// Ref: #/components/schemas/CustomerCreditLimitPage
+type CustomerCreditLimitPage struct {
+	// The credit limits on this page.
+	Items []CustomerCreditLimit `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CustomerCreditLimitPage) GetItems() []CustomerCreditLimit {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CustomerCreditLimitPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CustomerCreditLimitPage) SetItems(val []CustomerCreditLimit) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CustomerCreditLimitPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CustomerCreditLimitPage) listCreditLimitsRes() {}
+
+// Merge patch of a credit limit: its amount.
+// Ref: #/components/schemas/CustomerCreditLimitUpdate
+type CustomerCreditLimitUpdate struct {
+	// The new limit, in the limit's currency; zero or more.
+	Limit Money `json:"limit"`
+}
+
+// GetLimit returns the value of Limit.
+func (s *CustomerCreditLimitUpdate) GetLimit() Money {
+	return s.Limit
+}
+
+// SetLimit sets the value of Limit.
+func (s *CustomerCreditLimitUpdate) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/CustomerInvoice
 type CustomerInvoice struct {
 	// Identifier (UUIDv7).
@@ -28314,10 +30026,16 @@ type CustomerInvoice struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// What the document is: `invoice`. Its amounts are never negative; the kind gives their direction.
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// What the document is: `invoice`, or `credit_memo`, which credits the customer what was invoiced (Cr
+	// customer when posted). Its amounts are never negative; the kind gives their direction. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Kind string `json:"kind"`
+	// The posted invoice a credit memo credits (`GET /v1/customer-invoices/{id}`). Absent on an invoice
+	// and on a credit memo naming none.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// That invoice's document number; absent with `reference_invoice_id`.
+	ReferenceInvoiceNumber OptString `json:"reference_invoice_number"`
 	// The invoice date, its tax date.
 	InvoiceDate time.Time `json:"invoice_date"`
 	// The posting date entered; once posted, the date the invoice posted on. Absent on a draft entered
@@ -28329,17 +30047,20 @@ type CustomerInvoice struct {
 	NetAmount Money `json:"net_amount"`
 	// The sum of the items' tax.
 	TaxAmount Money `json:"tax_amount"`
-	// What the customer owes: `net_amount` and `tax_amount`.
+	// `net_amount` and `tax_amount`: what the customer owes for an invoice, what the customer is credited
+	// by a credit memo.
 	GrossAmount Money `json:"gross_amount"`
-	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its debit line
-	// is the customer's open item. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on
+	// the customer's reconciliation account is the customer's open item, a debit for an invoice and a
+	// credit for a credit memo. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
 	Status string `json:"status"`
 	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
 	// company when none was entered). Absent on a draft entered without one.
 	PaymentTermCode OptString `json:"payment_term_code"`
-	// When the invoice's open item is due: the invoice date plus its payment term's net days, as the
-	// ledger keeps it with the item. Absent until posted.
+	// When the document's open item is due, as the ledger keeps it with the item: the invoice date plus
+	// its payment term's net days; for a credit memo that names an invoice and no term of its own, when
+	// that invoice is due. Absent until posted.
 	NetDueDate OptDate `json:"net_due_date"`
 	// The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -28419,6 +30140,16 @@ func (s *CustomerInvoice) GetCustomerName() string {
 // GetKind returns the value of Kind.
 func (s *CustomerInvoice) GetKind() string {
 	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *CustomerInvoice) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
+}
+
+// GetReferenceInvoiceNumber returns the value of ReferenceInvoiceNumber.
+func (s *CustomerInvoice) GetReferenceInvoiceNumber() OptString {
+	return s.ReferenceInvoiceNumber
 }
 
 // GetInvoiceDate returns the value of InvoiceDate.
@@ -28556,6 +30287,16 @@ func (s *CustomerInvoice) SetKind(val string) {
 	s.Kind = val
 }
 
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *CustomerInvoice) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
+}
+
+// SetReferenceInvoiceNumber sets the value of ReferenceInvoiceNumber.
+func (s *CustomerInvoice) SetReferenceInvoiceNumber(val OptString) {
+	s.ReferenceInvoiceNumber = val
+}
+
 // SetInvoiceDate sets the value of InvoiceDate.
 func (s *CustomerInvoice) SetInvoiceDate(val time.Time) {
 	s.InvoiceDate = val
@@ -28628,14 +30369,26 @@ type CustomerInvoiceCreate struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The customer: an active business partner with the customer role.
 	CustomerID uuid.UUID `json:"customer_id"`
-	// The invoice date; the tax date its items' tax codes are rated on (ADR-0049 §4).
+	// What the document is: `invoice` (absent: an invoice) or `credit_memo`, which credits the customer
+	// what was invoiced and posts with the signs turned. Amounts are more than zero whatever the kind,
+	// which gives their direction. Fixed once entered. Open enumeration: values may be added within /v1;
+	// one this version does not know is refused (422 `receivables.unknown_kind`).
+	Kind OptString `json:"kind"`
+	// The invoice a credit memo credits: a posted invoice of the same company and customer in the memo's
+	// currency (`GET /v1/customer-invoices`). The posted credit memos naming an invoice may not exceed its
+	// gross amount (`postCustomerInvoice`); absent: the memo names none and has no such limit. Never on an
+	// invoice.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// The document's date; the tax date its items' tax codes are rated on (ADR-0049 §4), a credit memo's
+	// own.
 	InvoiceDate time.Time `json:"invoice_date"`
 	// The posting date the invoice is to post on; absent: decided when it posts.
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217), every item's.
 	Currency string `json:"currency"`
 	// The payment term the invoice posts with: a configured term (`payment_terms` of the configuration);
-	// absent: the customer's in the company when the invoice posts.
+	// absent: the customer's in the company when the invoice posts, or, for a credit memo naming an
+	// invoice, that invoice's.
 	PaymentTermCode OptString `json:"payment_term_code"`
 	// The items, numbered in this order from 1.
 	Items []CustomerInvoiceItemCreate `json:"items"`
@@ -28649,6 +30402,16 @@ func (s *CustomerInvoiceCreate) GetLegalEntityID() uuid.UUID {
 // GetCustomerID returns the value of CustomerID.
 func (s *CustomerInvoiceCreate) GetCustomerID() uuid.UUID {
 	return s.CustomerID
+}
+
+// GetKind returns the value of Kind.
+func (s *CustomerInvoiceCreate) GetKind() OptString {
+	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *CustomerInvoiceCreate) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
 }
 
 // GetInvoiceDate returns the value of InvoiceDate.
@@ -28684,6 +30447,16 @@ func (s *CustomerInvoiceCreate) SetLegalEntityID(val uuid.UUID) {
 // SetCustomerID sets the value of CustomerID.
 func (s *CustomerInvoiceCreate) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CustomerInvoiceCreate) SetKind(val OptString) {
+	s.Kind = val
+}
+
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *CustomerInvoiceCreate) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
 }
 
 // SetInvoiceDate sets the value of InvoiceDate.
@@ -31201,7 +32974,8 @@ type DunningNoticeItem struct {
 	Amount Money `json:"amount"`
 	// The same in the company's currency, as it was booked.
 	LocalAmount Money `json:"local_amount"`
-	// The dunning level the item was last dunned at; 0 for an item never dunned.
+	// The dunning level the item was last dunned at when the run was started, the highest a confirmed run
+	// recorded for it; 0 for an item never dunned.
 	PreviousLevel int32 `json:"previous_level"`
 	// The dunning level the item would reach: the last level whose days overdue it has reached, one above
 	// `previous_level` at most.
@@ -31392,7 +33166,9 @@ type DunningRun struct {
 	CompanyName string `json:"company_name"`
 	// The date the items' days overdue were counted on.
 	KeyDate time.Time `json:"key_date"`
-	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open
+	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent.
+	// `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date,
+	// the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Status string `json:"status"`
@@ -31564,7 +33340,8 @@ type DunningRunCreate struct {
 	// The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in
 	// the configuration.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The date the items' days overdue are counted on. An item due on this date is not overdue.
+	// The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31
+	// at the latest.
 	KeyDate time.Time `json:"key_date"`
 }
 
@@ -35100,6 +36877,58 @@ type GetAiUsageForbidden Problem
 
 func (*GetAiUsageForbidden) getAiUsageRes() {}
 
+type GetAllocationCycleBadRequest Problem
+
+func (*GetAllocationCycleBadRequest) getAllocationCycleRes() {}
+
+type GetAllocationCycleForbidden Problem
+
+func (*GetAllocationCycleForbidden) getAllocationCycleRes() {}
+
+type GetAllocationCycleNotFound Problem
+
+func (*GetAllocationCycleNotFound) getAllocationCycleRes() {}
+
+// GetAllocationCycleOKHeaders wraps AllocationCycle with response headers.
+type GetAllocationCycleOKHeaders struct {
+	ETag     OptString
+	Response AllocationCycle
+}
+
+// GetETag returns the value of ETag.
+func (s *GetAllocationCycleOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetAllocationCycleOKHeaders) GetResponse() AllocationCycle {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetAllocationCycleOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetAllocationCycleOKHeaders) SetResponse(val AllocationCycle) {
+	s.Response = val
+}
+
+func (*GetAllocationCycleOKHeaders) getAllocationCycleRes() {}
+
+type GetAllocationRunBadRequest Problem
+
+func (*GetAllocationRunBadRequest) getAllocationRunRes() {}
+
+type GetAllocationRunForbidden Problem
+
+func (*GetAllocationRunForbidden) getAllocationRunRes() {}
+
+type GetAllocationRunNotFound Problem
+
+func (*GetAllocationRunNotFound) getAllocationRunRes() {}
+
 type GetAnalyticsModelBadRequest Problem
 
 func (*GetAnalyticsModelBadRequest) getAnalyticsModelRes() {}
@@ -35662,6 +37491,22 @@ type GetCloseCalendarForbidden Problem
 
 func (*GetCloseCalendarForbidden) getCloseCalendarRes() {}
 
+type GetCollectionWorklistBadRequest Problem
+
+func (*GetCollectionWorklistBadRequest) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistForbidden Problem
+
+func (*GetCollectionWorklistForbidden) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistNotFound Problem
+
+func (*GetCollectionWorklistNotFound) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistUnprocessableEntity Problem
+
+func (*GetCollectionWorklistUnprocessableEntity) getCollectionWorklistRes() {}
+
 type GetCompanyAccessBadRequest Problem
 
 func (*GetCompanyAccessBadRequest) getCompanyAccessRes() {}
@@ -35869,6 +37714,62 @@ func (s *GetCostCenterOKHeaders) SetResponse(val CostCenter) {
 }
 
 func (*GetCostCenterOKHeaders) getCostCenterRes() {}
+
+type GetCreditExposureBadRequest Problem
+
+func (*GetCreditExposureBadRequest) getCreditExposureRes() {}
+
+type GetCreditExposureForbidden Problem
+
+func (*GetCreditExposureForbidden) getCreditExposureRes() {}
+
+type GetCreditExposureNotFound Problem
+
+func (*GetCreditExposureNotFound) getCreditExposureRes() {}
+
+type GetCreditExposureUnprocessableEntity Problem
+
+func (*GetCreditExposureUnprocessableEntity) getCreditExposureRes() {}
+
+type GetCreditLimitBadRequest Problem
+
+func (*GetCreditLimitBadRequest) getCreditLimitRes() {}
+
+type GetCreditLimitForbidden Problem
+
+func (*GetCreditLimitForbidden) getCreditLimitRes() {}
+
+type GetCreditLimitNotFound Problem
+
+func (*GetCreditLimitNotFound) getCreditLimitRes() {}
+
+// GetCreditLimitOKHeaders wraps CustomerCreditLimit with response headers.
+type GetCreditLimitOKHeaders struct {
+	ETag     OptString
+	Response CustomerCreditLimit
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCreditLimitOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCreditLimitOKHeaders) GetResponse() CustomerCreditLimit {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCreditLimitOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCreditLimitOKHeaders) SetResponse(val CustomerCreditLimit) {
+	s.Response = val
+}
+
+func (*GetCreditLimitOKHeaders) getCreditLimitRes() {}
 
 type GetCurrentPrincipalBadRequest Problem
 
@@ -37051,6 +38952,18 @@ func (s *GetPurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 }
 
 func (*GetPurchaseOrderOKHeaders) getPurchaseOrderRes() {}
+
+type GetReceivablesAgingBadRequest Problem
+
+func (*GetReceivablesAgingBadRequest) getReceivablesAgingRes() {}
+
+type GetReceivablesAgingForbidden Problem
+
+func (*GetReceivablesAgingForbidden) getReceivablesAgingRes() {}
+
+type GetReceivablesAgingUnprocessableEntity Problem
+
+func (*GetReceivablesAgingUnprocessableEntity) getReceivablesAgingRes() {}
 
 type GetRecommendationBadRequest Problem
 
@@ -41501,8 +43414,9 @@ type InternalOrder struct {
 	ResponsibleCostCenterID uuid.UUID `json:"responsible_cost_center_id"`
 	// The responsible cost center's code.
 	ResponsibleCostCenterCode string `json:"responsible_cost_center_code"`
-	// `created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration:
-	// clients must accept and preserve values not listed here; values may be added within /v1.
+	// `created`: no posting yet; `released` (`:release`): costs may be posted to it; `closed` (`:close`):
+	// settled, and no posting any more. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Status string `json:"status"`
 }
 
@@ -42218,6 +44132,376 @@ func (s *InternalOrderPage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*InternalOrderPage) listInternalOrdersRes() {}
+
+// The period an internal order is settled up to.
+// Ref: #/components/schemas/InternalOrderSettle
+type InternalOrderSettle struct {
+	// The fiscal year of the period, one set up for the legal entity.
+	FiscalYear int32 `json:"fiscal_year"`
+	// A regular posting period of the fiscal year: what was posted to the order in it and in every period
+	// before it, earlier years included, is settled, and the entry is dated its last day.
+	FiscalPeriod int32 `json:"fiscal_period"`
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettle) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettle) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettle) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettle) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// A settlement of an internal order (ADR-0064 §3): the journal entry that moved the order's unsettled
+// balance up to a period to the receiving cost center, account by account. Never changed.
+// Ref: #/components/schemas/InternalOrderSettlement
+type InternalOrderSettlement struct {
+	// The settlement's id.
+	ID uuid.UUID `json:"id"`
+	// The internal order settled (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The fiscal year of the period settled up to.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period settled up to, and the entry's.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// The entry's posting date: the period's last day.
+	PostingDate time.Time `json:"posting_date"`
+	// The cost center that received the costs (`GET /v1/cost-centers/{id}`): the receiver of the order's
+	// settlement rule when it was settled.
+	ReceiverCostCenterID uuid.UUID `json:"receiver_cost_center_id"`
+	// The receiving cost center's code.
+	ReceiverCostCenterCode string `json:"receiver_cost_center_code"`
+	// What moved from the order to the receiver, in the legal entity's local currency: the total of the
+	// accounts' balances settled, negative when the order held a credit balance.
+	Amount Money `json:"amount"`
+	// How many accounts the settlement moved a balance on.
+	AccountCount int32 `json:"account_count"`
+	// The settlement's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines
+	// show each account's credit on the order and debit on the receiver.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// When the order was settled (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// The principal who settled it.
+	CreatedBy uuid.UUID `json:"created_by"`
+}
+
+// GetID returns the value of ID.
+func (s *InternalOrderSettlement) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlement) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettlement) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettlement) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *InternalOrderSettlement) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetReceiverCostCenterID returns the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlement) GetReceiverCostCenterID() uuid.UUID {
+	return s.ReceiverCostCenterID
+}
+
+// GetReceiverCostCenterCode returns the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlement) GetReceiverCostCenterCode() string {
+	return s.ReceiverCostCenterCode
+}
+
+// GetAmount returns the value of Amount.
+func (s *InternalOrderSettlement) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAccountCount returns the value of AccountCount.
+func (s *InternalOrderSettlement) GetAccountCount() int32 {
+	return s.AccountCount
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *InternalOrderSettlement) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *InternalOrderSettlement) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *InternalOrderSettlement) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *InternalOrderSettlement) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// SetID sets the value of ID.
+func (s *InternalOrderSettlement) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlement) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettlement) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettlement) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *InternalOrderSettlement) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetReceiverCostCenterID sets the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlement) SetReceiverCostCenterID(val uuid.UUID) {
+	s.ReceiverCostCenterID = val
+}
+
+// SetReceiverCostCenterCode sets the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlement) SetReceiverCostCenterCode(val string) {
+	s.ReceiverCostCenterCode = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *InternalOrderSettlement) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAccountCount sets the value of AccountCount.
+func (s *InternalOrderSettlement) SetAccountCount(val int32) {
+	s.AccountCount = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *InternalOrderSettlement) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *InternalOrderSettlement) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *InternalOrderSettlement) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *InternalOrderSettlement) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// One page of an internal order's settlements.
+// Ref: #/components/schemas/InternalOrderSettlementPage
+type InternalOrderSettlementPage struct {
+	// The settlements on this page.
+	Items []InternalOrderSettlement `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *InternalOrderSettlementPage) GetItems() []InternalOrderSettlement {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *InternalOrderSettlementPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *InternalOrderSettlementPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *InternalOrderSettlementPage) SetItems(val []InternalOrderSettlement) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *InternalOrderSettlementPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *InternalOrderSettlementPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*InternalOrderSettlementPage) listInternalOrderSettlementsRes() {}
+
+// What settling an internal order up to a period did (ADR-0064 §3): the settlement it posted, or that
+// nothing was unsettled.
+// Ref: #/components/schemas/InternalOrderSettlementResult
+type InternalOrderSettlementResult struct {
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The fiscal year of the period settled up to.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The period settled up to.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Whether an entry was posted: false when the order had no unsettled balance up to the period, so
+	// nothing changed.
+	Settled bool `json:"settled"`
+	// The settlement posted. Absent when `settled` is false.
+	Settlement OptInternalOrderSettlement `json:"settlement"`
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlementResult) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderSettlementResult) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderSettlementResult) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderSettlementResult) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderSettlementResult) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderSettlementResult) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetSettled returns the value of Settled.
+func (s *InternalOrderSettlementResult) GetSettled() bool {
+	return s.Settled
+}
+
+// GetSettlement returns the value of Settlement.
+func (s *InternalOrderSettlementResult) GetSettlement() OptInternalOrderSettlement {
+	return s.Settlement
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlementResult) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderSettlementResult) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderSettlementResult) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderSettlementResult) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderSettlementResult) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderSettlementResult) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetSettled sets the value of Settled.
+func (s *InternalOrderSettlementResult) SetSettled(val bool) {
+	s.Settled = val
+}
+
+// SetSettlement sets the value of Settlement.
+func (s *InternalOrderSettlementResult) SetSettlement(val OptInternalOrderSettlement) {
+	s.Settlement = val
+}
+
+// InternalOrderSettlementResultHeaders wraps InternalOrderSettlementResult with response headers.
+type InternalOrderSettlementResultHeaders struct {
+	IdempotentReplayed OptBool
+	Response           InternalOrderSettlementResult
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *InternalOrderSettlementResultHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderSettlementResultHeaders) GetResponse() InternalOrderSettlementResult {
+	return s.Response
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *InternalOrderSettlementResultHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderSettlementResultHeaders) SetResponse(val InternalOrderSettlementResult) {
+	s.Response = val
+}
+
+func (*InternalOrderSettlementResultHeaders) settleInternalOrderRes() {}
 
 // The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's
 // legal entity, taking the whole.
@@ -43504,8 +45788,8 @@ type JournalLineInput struct {
 	// an order. The order must be one of the entry's legal entity and released, the account a primary cost
 	// account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's
 	// field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`,
-	// `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its
-	// profit center and segment from the order's responsible cost center on the posting date, and a
+	// `closed`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes
+	// its profit center and segment from the order's responsible cost center on the posting date, and a
 	// different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry
 	// that is posted: a parked entry or an entry template naming an order is refused in this version (422
 	// `ledger.internal_order_not_parkable`).
@@ -46538,6 +48822,22 @@ type ListAgentToolCallsNotFound Problem
 
 func (*ListAgentToolCallsNotFound) listAgentToolCallsRes() {}
 
+type ListAllocationCyclesBadRequest Problem
+
+func (*ListAllocationCyclesBadRequest) listAllocationCyclesRes() {}
+
+type ListAllocationCyclesForbidden Problem
+
+func (*ListAllocationCyclesForbidden) listAllocationCyclesRes() {}
+
+type ListAllocationRunsBadRequest Problem
+
+func (*ListAllocationRunsBadRequest) listAllocationRunsRes() {}
+
+type ListAllocationRunsForbidden Problem
+
+func (*ListAllocationRunsForbidden) listAllocationRunsRes() {}
+
 type ListApprovalRequestsBadRequest Problem
 
 func (*ListApprovalRequestsBadRequest) listApprovalRequestsRes() {}
@@ -46898,6 +49198,14 @@ type ListCountryPacksForbidden Problem
 
 func (*ListCountryPacksForbidden) listCountryPacksRes() {}
 
+type ListCreditLimitsBadRequest Problem
+
+func (*ListCreditLimitsBadRequest) listCreditLimitsRes() {}
+
+type ListCreditLimitsForbidden Problem
+
+func (*ListCreditLimitsForbidden) listCreditLimitsRes() {}
+
 type ListCustomerInvoicesBadRequest Problem
 
 func (*ListCustomerInvoicesBadRequest) listCustomerInvoicesRes() {}
@@ -47085,6 +49393,18 @@ func (*ListInternalOrderBalancesForbidden) listInternalOrderBalancesRes() {}
 type ListInternalOrderBalancesUnprocessableEntity Problem
 
 func (*ListInternalOrderBalancesUnprocessableEntity) listInternalOrderBalancesRes() {}
+
+type ListInternalOrderSettlementsBadRequest Problem
+
+func (*ListInternalOrderSettlementsBadRequest) listInternalOrderSettlementsRes() {}
+
+type ListInternalOrderSettlementsForbidden Problem
+
+func (*ListInternalOrderSettlementsForbidden) listInternalOrderSettlementsRes() {}
+
+type ListInternalOrderSettlementsNotFound Problem
+
+func (*ListInternalOrderSettlementsNotFound) listInternalOrderSettlementsRes() {}
 
 type ListInternalOrdersBadRequest Problem
 
@@ -52042,6 +54362,52 @@ func (o OptAiPolicyUpdateRoutes) Or(d AiPolicyUpdateRoutes) AiPolicyUpdateRoutes
 	return d
 }
 
+// NewOptAllocationRun returns new OptAllocationRun with value set to v.
+func NewOptAllocationRun(v AllocationRun) OptAllocationRun {
+	return OptAllocationRun{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAllocationRun is optional AllocationRun.
+type OptAllocationRun struct {
+	Value AllocationRun
+	Set   bool
+}
+
+// IsSet returns true if OptAllocationRun was set.
+func (o OptAllocationRun) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAllocationRun) Reset() {
+	var v AllocationRun
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAllocationRun) SetTo(v AllocationRun) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAllocationRun) Get() (v AllocationRun, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAllocationRun) Or(d AllocationRun) AllocationRun {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptAnalyticsDefinitionFilter returns new OptAnalyticsDefinitionFilter with value set to v.
 func NewOptAnalyticsDefinitionFilter(v AnalyticsDefinitionFilter) OptAnalyticsDefinitionFilter {
 	return OptAnalyticsDefinitionFilter{
@@ -54336,6 +56702,52 @@ func (o OptInt64) Get() (v int64, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt64) Or(d int64) int64 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInternalOrderSettlement returns new OptInternalOrderSettlement with value set to v.
+func NewOptInternalOrderSettlement(v InternalOrderSettlement) OptInternalOrderSettlement {
+	return OptInternalOrderSettlement{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInternalOrderSettlement is optional InternalOrderSettlement.
+type OptInternalOrderSettlement struct {
+	Value InternalOrderSettlement
+	Set   bool
+}
+
+// IsSet returns true if OptInternalOrderSettlement was set.
+func (o OptInternalOrderSettlement) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInternalOrderSettlement) Reset() {
+	var v InternalOrderSettlement
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInternalOrderSettlement) SetTo(v InternalOrderSettlement) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInternalOrderSettlement) Get() (v InternalOrderSettlement, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInternalOrderSettlement) Or(d InternalOrderSettlement) InternalOrderSettlement {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -62484,8 +64896,9 @@ type Problem struct {
 	// With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it
 	// again, with what it found (ADR-0058 §7).
 	FailingChecks []FailingCheck `json:"failing_checks"`
-	// With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount,
-	// what posted credits naming it already credit, and the gross amount of the one refused.
+	// With `payables.credit_exceeds_invoice` and `receivables.credit_exceeds_invoice` only: the invoice
+	// the refused credit names, its gross amount, what posted credits naming it already credit, and the
+	// gross amount of the one refused.
 	CreditLimit OptCreditLimit `json:"credit_limit"`
 }
 
@@ -65180,6 +67593,321 @@ func (s *ReasonInput) SetReason(val string) {
 	s.Reason = val
 }
 
+// The AR aging of a company on a key date (ADR-0063 §10): the totals and one page of customers.
+// Ref: #/components/schemas/ReceivablesAging
+type ReceivablesAging struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items are aged on.
+	KeyDate time.Time `json:"key_date"`
+	// The company's local currency (ISO 4217), every amount's.
+	Currency string `json:"currency"`
+	// The overdue buckets' last days, as asked for or the default.
+	AgingDays []int32                `json:"aging_days"`
+	Totals    ReceivablesAgingTotals `json:"totals"`
+	// The customers on this page, by customer id.
+	Items []ReceivablesAgingCustomer `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ReceivablesAging) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ReceivablesAging) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ReceivablesAging) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *ReceivablesAging) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ReceivablesAging) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAgingDays returns the value of AgingDays.
+func (s *ReceivablesAging) GetAgingDays() []int32 {
+	return s.AgingDays
+}
+
+// GetTotals returns the value of Totals.
+func (s *ReceivablesAging) GetTotals() ReceivablesAgingTotals {
+	return s.Totals
+}
+
+// GetItems returns the value of Items.
+func (s *ReceivablesAging) GetItems() []ReceivablesAgingCustomer {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReceivablesAging) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ReceivablesAging) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ReceivablesAging) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ReceivablesAging) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *ReceivablesAging) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ReceivablesAging) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAgingDays sets the value of AgingDays.
+func (s *ReceivablesAging) SetAgingDays(val []int32) {
+	s.AgingDays = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ReceivablesAging) SetTotals(val ReceivablesAgingTotals) {
+	s.Totals = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReceivablesAging) SetItems(val []ReceivablesAgingCustomer) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReceivablesAging) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReceivablesAging) getReceivablesAgingRes() {}
+
+// One bucket of the AR aging: the open items in it and their amount in the company's local currency, a
+// credit item negative.
+// Ref: #/components/schemas/ReceivablesAgingBucket
+type ReceivablesAgingBucket struct {
+	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
+	// due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Bucket string `json:"bucket"`
+	// An overdue bucket's first day past the net due date.
+	DaysFrom OptInt32 `json:"days_from"`
+	// An overdue bucket's last day past the net due date; absent on the last overdue bucket.
+	DaysTo OptInt32 `json:"days_to"`
+	// How many open items the bucket holds.
+	ItemCount int64 `json:"item_count"`
+	// The items' amounts in local currency, added up; 0 for an empty bucket.
+	Amount Money `json:"amount"`
+}
+
+// GetBucket returns the value of Bucket.
+func (s *ReceivablesAgingBucket) GetBucket() string {
+	return s.Bucket
+}
+
+// GetDaysFrom returns the value of DaysFrom.
+func (s *ReceivablesAgingBucket) GetDaysFrom() OptInt32 {
+	return s.DaysFrom
+}
+
+// GetDaysTo returns the value of DaysTo.
+func (s *ReceivablesAgingBucket) GetDaysTo() OptInt32 {
+	return s.DaysTo
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingBucket) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingBucket) GetAmount() Money {
+	return s.Amount
+}
+
+// SetBucket sets the value of Bucket.
+func (s *ReceivablesAgingBucket) SetBucket(val string) {
+	s.Bucket = val
+}
+
+// SetDaysFrom sets the value of DaysFrom.
+func (s *ReceivablesAgingBucket) SetDaysFrom(val OptInt32) {
+	s.DaysFrom = val
+}
+
+// SetDaysTo sets the value of DaysTo.
+func (s *ReceivablesAgingBucket) SetDaysTo(val OptInt32) {
+	s.DaysTo = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingBucket) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingBucket) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// A customer's row of the AR aging: its open items on the key date, in total and by bucket.
+// Ref: #/components/schemas/ReceivablesAgingCustomer
+type ReceivablesAgingCustomer struct {
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// How many open items the customer has.
+	ItemCount int64 `json:"item_count"`
+	// What the customer owes: its open items in local currency, added up, credit items reducing it; the
+	// sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The customer's items by bucket: every bucket of the report, in its order.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ReceivablesAgingCustomer) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *ReceivablesAgingCustomer) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *ReceivablesAgingCustomer) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingCustomer) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingCustomer) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingCustomer) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ReceivablesAgingCustomer) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *ReceivablesAgingCustomer) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *ReceivablesAgingCustomer) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingCustomer) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingCustomer) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingCustomer) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
+}
+
+// The totals of the AR aging: every customer the request selects, whatever the page.
+// Ref: #/components/schemas/ReceivablesAgingTotals
+type ReceivablesAgingTotals struct {
+	// How many customers have open items: the rows of every page together.
+	CustomerCount int64 `json:"customer_count"`
+	// How many open items they have.
+	ItemCount int64 `json:"item_count"`
+	// The open items in local currency, added up: the open items of the company's customer reconciliation
+	// accounts (of the one customer, with `customer_id`); the sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The items by bucket: not due, each overdue bucket by its days, without a due date.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *ReceivablesAgingTotals) GetCustomerCount() int64 {
+	return s.CustomerCount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingTotals) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingTotals) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingTotals) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *ReceivablesAgingTotals) SetCustomerCount(val int64) {
+	s.CustomerCount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingTotals) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingTotals) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingTotals) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
+}
+
 // An agent's recommendation on a business object, and what a person decided.
 // Ref: #/components/schemas/Recommendation
 type Recommendation struct {
@@ -66340,45 +69068,6 @@ func (*ReleaseInternalOrderForbidden) releaseInternalOrderRes() {}
 type ReleaseInternalOrderNotFound Problem
 
 func (*ReleaseInternalOrderNotFound) releaseInternalOrderRes() {}
-
-// ReleaseInternalOrderOKHeaders wraps InternalOrder with response headers.
-type ReleaseInternalOrderOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           InternalOrder
-}
-
-// GetETag returns the value of ETag.
-func (s *ReleaseInternalOrderOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *ReleaseInternalOrderOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *ReleaseInternalOrderOKHeaders) GetResponse() InternalOrder {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *ReleaseInternalOrderOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *ReleaseInternalOrderOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *ReleaseInternalOrderOKHeaders) SetResponse(val InternalOrder) {
-	s.Response = val
-}
-
-func (*ReleaseInternalOrderOKHeaders) releaseInternalOrderRes() {}
 
 type ReleaseInternalOrderPreconditionFailed Problem
 
@@ -69460,6 +72149,30 @@ type RotateWebhookSubscriptionSecretUnprocessableEntity Problem
 
 func (*RotateWebhookSubscriptionSecretUnprocessableEntity) rotateWebhookSubscriptionSecretRes() {}
 
+type RunAllocationCycleBadRequest Problem
+
+func (*RunAllocationCycleBadRequest) runAllocationCycleRes() {}
+
+type RunAllocationCycleForbidden Problem
+
+func (*RunAllocationCycleForbidden) runAllocationCycleRes() {}
+
+type RunAllocationCycleNotFound Problem
+
+func (*RunAllocationCycleNotFound) runAllocationCycleRes() {}
+
+type RunAllocationCyclePreconditionFailed Problem
+
+func (*RunAllocationCyclePreconditionFailed) runAllocationCycleRes() {}
+
+type RunAllocationCyclePreconditionRequired Problem
+
+func (*RunAllocationCyclePreconditionRequired) runAllocationCycleRes() {}
+
+type RunAllocationCycleUnprocessableEntity Problem
+
+func (*RunAllocationCycleUnprocessableEntity) runAllocationCycleRes() {}
+
 type RunAnalyticsQueryBadRequest Problem
 
 func (*RunAnalyticsQueryBadRequest) runAnalyticsQueryRes() {}
@@ -69829,9 +72542,11 @@ func (*ServiceUnavailableHeaders) checkCloseTaskRes()                        {}
 func (*ServiceUnavailableHeaders) checkYearCloseTaskRes()                    {}
 func (*ServiceUnavailableHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*ServiceUnavailableHeaders) closeFiscalPeriodRes()                     {}
+func (*ServiceUnavailableHeaders) closeInternalOrderRes()                    {}
 func (*ServiceUnavailableHeaders) closePurchaseOrderRes()                    {}
 func (*ServiceUnavailableHeaders) completeCloseTaskRes()                     {}
 func (*ServiceUnavailableHeaders) completeYearCloseTaskRes()                 {}
+func (*ServiceUnavailableHeaders) createAllocationCycleRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetAcquisitionRes()                {}
 func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
@@ -69957,8 +72672,10 @@ func (*ServiceUnavailableHeaders) reverseGoodsReceiptRes()                   {}
 func (*ServiceUnavailableHeaders) reverseJournalEntryRes()                   {}
 func (*ServiceUnavailableHeaders) reverseSupplierInvoiceRes()                {}
 func (*ServiceUnavailableHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*ServiceUnavailableHeaders) runAllocationCycleRes()                    {}
 func (*ServiceUnavailableHeaders) runAnalyticsQueryRes()                     {}
 func (*ServiceUnavailableHeaders) runBalanceCarryForwardRes()                {}
+func (*ServiceUnavailableHeaders) settleInternalOrderRes()                   {}
 func (*ServiceUnavailableHeaders) signOffPeriodCloseRes()                    {}
 func (*ServiceUnavailableHeaders) signOffYearCloseRes()                      {}
 func (*ServiceUnavailableHeaders) simulateChangeRequestRes()                 {}
@@ -70062,6 +72779,30 @@ func (s *SessionEndHeaders) SetResponse(val SessionEnd) {
 }
 
 func (*SessionEndHeaders) endCurrentSessionRes() {}
+
+type SettleInternalOrderBadRequest Problem
+
+func (*SettleInternalOrderBadRequest) settleInternalOrderRes() {}
+
+type SettleInternalOrderForbidden Problem
+
+func (*SettleInternalOrderForbidden) settleInternalOrderRes() {}
+
+type SettleInternalOrderNotFound Problem
+
+func (*SettleInternalOrderNotFound) settleInternalOrderRes() {}
+
+type SettleInternalOrderPreconditionFailed Problem
+
+func (*SettleInternalOrderPreconditionFailed) settleInternalOrderRes() {}
+
+type SettleInternalOrderPreconditionRequired Problem
+
+func (*SettleInternalOrderPreconditionRequired) settleInternalOrderRes() {}
+
+type SettleInternalOrderUnprocessableEntity Problem
+
+func (*SettleInternalOrderUnprocessableEntity) settleInternalOrderRes() {}
 
 type SignOffPeriodCloseBadRequest Problem
 
@@ -74340,9 +77081,12 @@ func (*TooManyRequestsHeaders) checkCloseTaskRes()                        {}
 func (*TooManyRequestsHeaders) checkYearCloseTaskRes()                    {}
 func (*TooManyRequestsHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
+func (*TooManyRequestsHeaders) closeInternalOrderRes()                    {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
+func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
+func (*TooManyRequestsHeaders) createAllocationCycleRes()                 {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -74356,6 +77100,7 @@ func (*TooManyRequestsHeaders) createConnectorRes()                       {}
 func (*TooManyRequestsHeaders) createConsolidationRunRes()                {}
 func (*TooManyRequestsHeaders) createContractRes()                        {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
+func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
@@ -74409,6 +77154,8 @@ func (*TooManyRequestsHeaders) getAccrualProposalRes()                    {}
 func (*TooManyRequestsHeaders) getAgentSessionRes()                       {}
 func (*TooManyRequestsHeaders) getAiPolicyRes()                           {}
 func (*TooManyRequestsHeaders) getAiUsageRes()                            {}
+func (*TooManyRequestsHeaders) getAllocationCycleRes()                    {}
+func (*TooManyRequestsHeaders) getAllocationRunRes()                      {}
 func (*TooManyRequestsHeaders) getAnalyticsModelRes()                     {}
 func (*TooManyRequestsHeaders) getApprovalRequestRes()                    {}
 func (*TooManyRequestsHeaders) getAssetAcquisitionRes()                   {}
@@ -74435,6 +77182,7 @@ func (*TooManyRequestsHeaders) getCenterChangeRes()                       {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                      {}
 func (*TooManyRequestsHeaders) getClearingRes()                           {}
 func (*TooManyRequestsHeaders) getCloseCalendarRes()                      {}
+func (*TooManyRequestsHeaders) getCollectionWorklistRes()                 {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                      {}
 func (*TooManyRequestsHeaders) getConnectorRes()                          {}
@@ -74443,6 +77191,8 @@ func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
+func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
+func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
@@ -74484,6 +77234,7 @@ func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                      {}
+func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
@@ -74510,6 +77261,8 @@ func (*TooManyRequestsHeaders) listAccountsRes()                          {}
 func (*TooManyRequestsHeaders) listAccrualProposalsRes()                  {}
 func (*TooManyRequestsHeaders) listAgentSessionsRes()                     {}
 func (*TooManyRequestsHeaders) listAgentToolCallsRes()                    {}
+func (*TooManyRequestsHeaders) listAllocationCyclesRes()                  {}
+func (*TooManyRequestsHeaders) listAllocationRunsRes()                    {}
 func (*TooManyRequestsHeaders) listApprovalRequestsRes()                  {}
 func (*TooManyRequestsHeaders) listAssetAcquisitionsRes()                 {}
 func (*TooManyRequestsHeaders) listAssetClassesRes()                      {}
@@ -74549,6 +77302,7 @@ func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
+func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
@@ -74569,6 +77323,7 @@ func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listIncomingPaymentsRes()                  {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
+func (*TooManyRequestsHeaders) listInternalOrderSettlementsRes()          {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
@@ -74688,8 +77443,10 @@ func (*TooManyRequestsHeaders) reverseGoodsReceiptRes()                   {}
 func (*TooManyRequestsHeaders) reverseJournalEntryRes()                   {}
 func (*TooManyRequestsHeaders) reverseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*TooManyRequestsHeaders) runAllocationCycleRes()                    {}
 func (*TooManyRequestsHeaders) runAnalyticsQueryRes()                     {}
 func (*TooManyRequestsHeaders) runBalanceCarryForwardRes()                {}
+func (*TooManyRequestsHeaders) settleInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) signOffPeriodCloseRes()                    {}
 func (*TooManyRequestsHeaders) signOffYearCloseRes()                      {}
 func (*TooManyRequestsHeaders) simulateChangeRequestRes()                 {}
@@ -74715,6 +77472,7 @@ func (*TooManyRequestsHeaders) updateCloseTaskRes()                       {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                       {}
 func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
+func (*TooManyRequestsHeaders) updateCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
 func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -75075,9 +77833,12 @@ func (*UnauthorizedHeaders) checkCloseTaskRes()                        {}
 func (*UnauthorizedHeaders) checkYearCloseTaskRes()                    {}
 func (*UnauthorizedHeaders) clearSupplierInvoiceDownPaymentsRes()      {}
 func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
+func (*UnauthorizedHeaders) closeInternalOrderRes()                    {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
+func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
+func (*UnauthorizedHeaders) createAllocationCycleRes()                 {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
@@ -75091,6 +77852,7 @@ func (*UnauthorizedHeaders) createConnectorRes()                       {}
 func (*UnauthorizedHeaders) createConsolidationRunRes()                {}
 func (*UnauthorizedHeaders) createContractRes()                        {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
+func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
@@ -75144,6 +77906,8 @@ func (*UnauthorizedHeaders) getAccrualProposalRes()                    {}
 func (*UnauthorizedHeaders) getAgentSessionRes()                       {}
 func (*UnauthorizedHeaders) getAiPolicyRes()                           {}
 func (*UnauthorizedHeaders) getAiUsageRes()                            {}
+func (*UnauthorizedHeaders) getAllocationCycleRes()                    {}
+func (*UnauthorizedHeaders) getAllocationRunRes()                      {}
 func (*UnauthorizedHeaders) getAnalyticsModelRes()                     {}
 func (*UnauthorizedHeaders) getApprovalRequestRes()                    {}
 func (*UnauthorizedHeaders) getAssetAcquisitionRes()                   {}
@@ -75170,6 +77934,7 @@ func (*UnauthorizedHeaders) getCenterChangeRes()                       {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                      {}
 func (*UnauthorizedHeaders) getClearingRes()                           {}
 func (*UnauthorizedHeaders) getCloseCalendarRes()                      {}
+func (*UnauthorizedHeaders) getCollectionWorklistRes()                 {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                      {}
 func (*UnauthorizedHeaders) getConnectorRes()                          {}
@@ -75178,6 +77943,8 @@ func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
+func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
+func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
@@ -75219,6 +77986,7 @@ func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                      {}
+func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
@@ -75245,6 +78013,8 @@ func (*UnauthorizedHeaders) listAccountsRes()                          {}
 func (*UnauthorizedHeaders) listAccrualProposalsRes()                  {}
 func (*UnauthorizedHeaders) listAgentSessionsRes()                     {}
 func (*UnauthorizedHeaders) listAgentToolCallsRes()                    {}
+func (*UnauthorizedHeaders) listAllocationCyclesRes()                  {}
+func (*UnauthorizedHeaders) listAllocationRunsRes()                    {}
 func (*UnauthorizedHeaders) listApprovalRequestsRes()                  {}
 func (*UnauthorizedHeaders) listAssetAcquisitionsRes()                 {}
 func (*UnauthorizedHeaders) listAssetClassesRes()                      {}
@@ -75284,6 +78054,7 @@ func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
+func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
@@ -75304,6 +78075,7 @@ func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listIncomingPaymentsRes()                  {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
+func (*UnauthorizedHeaders) listInternalOrderSettlementsRes()          {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}
@@ -75423,8 +78195,10 @@ func (*UnauthorizedHeaders) reverseGoodsReceiptRes()                   {}
 func (*UnauthorizedHeaders) reverseJournalEntryRes()                   {}
 func (*UnauthorizedHeaders) reverseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) rotateWebhookSubscriptionSecretRes()       {}
+func (*UnauthorizedHeaders) runAllocationCycleRes()                    {}
 func (*UnauthorizedHeaders) runAnalyticsQueryRes()                     {}
 func (*UnauthorizedHeaders) runBalanceCarryForwardRes()                {}
+func (*UnauthorizedHeaders) settleInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) signOffPeriodCloseRes()                    {}
 func (*UnauthorizedHeaders) signOffYearCloseRes()                      {}
 func (*UnauthorizedHeaders) simulateChangeRequestRes()                 {}
@@ -75450,6 +78224,7 @@ func (*UnauthorizedHeaders) updateCloseTaskRes()                       {}
 func (*UnauthorizedHeaders) updateConnectorRes()                       {}
 func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
+func (*UnauthorizedHeaders) updateCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
 func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -75994,6 +78769,69 @@ func (*UpdateCostCenterPreconditionRequired) updateCostCenterRes() {}
 type UpdateCostCenterUnprocessableEntity Problem
 
 func (*UpdateCostCenterUnprocessableEntity) updateCostCenterRes() {}
+
+type UpdateCreditLimitBadRequest Problem
+
+func (*UpdateCreditLimitBadRequest) updateCreditLimitRes() {}
+
+type UpdateCreditLimitForbidden Problem
+
+func (*UpdateCreditLimitForbidden) updateCreditLimitRes() {}
+
+type UpdateCreditLimitNotFound Problem
+
+func (*UpdateCreditLimitNotFound) updateCreditLimitRes() {}
+
+// UpdateCreditLimitOKHeaders wraps CustomerCreditLimit with response headers.
+type UpdateCreditLimitOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CustomerCreditLimit
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateCreditLimitOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateCreditLimitOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateCreditLimitOKHeaders) GetResponse() CustomerCreditLimit {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateCreditLimitOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateCreditLimitOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateCreditLimitOKHeaders) SetResponse(val CustomerCreditLimit) {
+	s.Response = val
+}
+
+func (*UpdateCreditLimitOKHeaders) updateCreditLimitRes() {}
+
+type UpdateCreditLimitPreconditionFailed Problem
+
+func (*UpdateCreditLimitPreconditionFailed) updateCreditLimitRes() {}
+
+type UpdateCreditLimitPreconditionRequired Problem
+
+func (*UpdateCreditLimitPreconditionRequired) updateCreditLimitRes() {}
+
+type UpdateCreditLimitUnprocessableEntity Problem
+
+func (*UpdateCreditLimitUnprocessableEntity) updateCreditLimitRes() {}
 
 type UpdateEntryTemplateBadRequest Problem
 

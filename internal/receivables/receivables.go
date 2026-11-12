@@ -10,9 +10,13 @@
 // customer's open item with its payment terms, and credits revenue and
 // output tax. An incoming payment waiting on a house bank's incoming
 // payments clearing account is applied to the customer's open items in
-// full and exactly (T75c, ADR-0063 §6; incoming.go). Credit memos and the
-// aging read follow in T75d and T75e (ADR-0063 §7, §10). An invoice's
-// amounts are never negative: the kind gives their direction.
+// full and exactly (T75c, ADR-0063 §6; incoming.go). A credit memo is the
+// same document with the kind credit_memo, posted with the signs turned;
+// one naming an invoice may not, with the other posted memos naming it,
+// exceed that invoice's gross amount (T75d, ADR-0063 §7; kinds.go). The
+// AR aging is computed on read from the ledger's customer open items
+// (T75e, ADR-0063 §10; aging.go). A document's amounts are never
+// negative: the kind gives their direction.
 //
 // The context reads the ledger (accounts, tax codes, assignments), the
 // partner context (the customer by role and its company data), tenancy
@@ -47,10 +51,6 @@ const (
 	Draft  = "draft"
 	Posted = "posted"
 )
-
-// KindInvoice is the kind of a customer invoice; a credit memo's follows
-// with T75d (ADR-0063 §7).
-const KindInvoice = "invoice"
 
 // NumberRange is the document type customer invoices draw their numbers
 // from (configuration number_ranges).
@@ -170,6 +170,7 @@ type Endpoints struct {
 	Postings      Postings
 	Entries       Entries
 	Receipts      Receipts
+	OpenItems     OpenItems
 	Statements    Statements
 	Accounts      Accounts
 	References    References
@@ -198,17 +199,22 @@ type Item struct {
 // Amounts are minor units of Currency, whose minor-unit digits are
 // Exponent; Gross is Net and Tax.
 type Invoice struct {
-	ID              uuid.UUID
-	DocumentNumber  string
-	LegalEntityID   uuid.UUID
-	CustomerID      uuid.UUID
-	Kind            string
-	InvoiceDate     time.Time
-	PostingDate     *time.Time
-	Currency        string
-	Exponent        int
-	Net, Tax, Gross money.Minor
-	Status          string
+	ID             uuid.UUID
+	DocumentNumber string
+	LegalEntityID  uuid.UUID
+	CustomerID     uuid.UUID
+	Kind           string
+	// ReferenceInvoiceID is the posted invoice a credit memo credits and
+	// ReferenceInvoiceNumber its document number: nil on an invoice and on
+	// a memo naming none.
+	ReferenceInvoiceID     *uuid.UUID
+	ReferenceInvoiceNumber *string
+	InvoiceDate            time.Time
+	PostingDate            *time.Time
+	Currency               string
+	Exponent               int
+	Net, Tax, Gross        money.Minor
+	Status                 string
 	// PaymentTermCode is the payment term entered, nil for none; once
 	// posted, the term the invoice posted with. NetDueDate is its open
 	// item's net due date, and EntryYear and EntryID its journal entry:
@@ -227,7 +233,8 @@ type Invoice struct {
 
 // invoiceSelect reads invoices with their items by item number, so every
 // read lists them in the order they were entered.
-const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.customer_id, i.kind, i.invoice_date, i.posting_date, i.currency, c.exponent,
+const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.customer_id, i.kind, i.reference_invoice_id,
+		(SELECT r.document_number FROM receivables.customer_invoice r WHERE r.tenant_id = i.tenant_id AND r.id = i.reference_invoice_id), i.invoice_date, i.posting_date, i.currency, c.exponent,
 		i.net_amount, i.tax_amount, i.gross_amount, i.status, i.payment_term_code, i.net_due_date, i.journal_entry_year, i.journal_entry_id,
 		coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'description', t.description, 'account_id', t.account_id,
 			'net_amount', t.net_amount, 'tax_code', t.tax_code, 'tax_amount', t.tax_amount, 'cost_center_id', t.cost_center_id,
@@ -238,7 +245,7 @@ const invoiceSelect = `SELECT i.id, i.document_number, i.legal_entity_id, i.cust
 
 func scanInvoice(row pgx.Row) (Invoice, error) {
 	var v Invoice
-	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.Kind, &v.InvoiceDate, &v.PostingDate, &v.Currency, &v.Exponent,
+	err := row.Scan(&v.ID, &v.DocumentNumber, &v.LegalEntityID, &v.CustomerID, &v.Kind, &v.ReferenceInvoiceID, &v.ReferenceInvoiceNumber, &v.InvoiceDate, &v.PostingDate, &v.Currency, &v.Exponent,
 		&v.Net, &v.Tax, &v.Gross, &v.Status, &v.PaymentTermCode, &v.NetDueDate, &v.EntryYear, &v.EntryID, &v.Items, &v.Version, &v.CreatedAt, &v.CreatedBy, &v.UpdatedAt, &v.UpdatedBy)
 	return v, errs.Wrapf(err, "scan customer invoice")
 }

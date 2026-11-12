@@ -406,6 +406,8 @@ func (e *Endpoints) postAll(ctx context.Context, tx pgx.Tx, p reqctx.Principal, 
 		if err := e.deriveTradingPartners(ctx, d.entity.ID, d.lines, !d.collective); err != nil {
 			return nil, err
 		}
+	} else if err := e.holdOrders(ctx, d.lines); err != nil {
+		return nil, err
 	}
 	docNumber, err := e.Numbers.Next(ctx, d.entity.ID, "journal_"+strings.ToLower(d.documentType), year)
 	if err != nil {

@@ -9,10 +9,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -57,6 +57,19 @@ func (e *Endpoints) CreateDunningRun(ctx context.Context, req *gen.DunningRunCre
 	}
 	return &gen.DunningRunHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Location: gen.NewOptString("/v1/dunning-runs/" + r.ID.String()),
 		Response: runToAPI(r, companies)}, nil
+}
+
+// ConfirmDunningRun implements POST /v1/dunning-runs/{id}:confirm.
+func (e *Endpoints) ConfirmDunningRun(ctx context.Context, params gen.ConfirmDunningRunParams) (gen.ConfirmDunningRunRes, error) {
+	r, err := e.ConfirmRun(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	companies, err := e.companies(ctx, []Run{r})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ConfirmDunningRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r, companies)}, nil
 }
 
 // GetDunningRun implements GET /v1/dunning-runs/{id}.
@@ -155,15 +168,10 @@ func (e *Endpoints) ListDunningNotices(ctx context.Context, params gen.ListDunni
 	if err != nil {
 		return nil, fmt.Errorf("collections: page of dunning notices: %w", err)
 	}
-	q, args := ks.SQL(`SELECT id, dunning_run_id, customer_id, customer_number, level, item_count, overdue_amount
-		FROM collections.dunning_notice
-		WHERE dunning_run_id = $1 AND ($2::uuid IS NULL OR customer_id = $2) AND ($3::int IS NULL OR level = $3)`, []any{run.ID, customer, level})
+	q, args := ks.SQL(noticeSelect+` WHERE dunning_run_id = $1 AND ($2::uuid IS NULL OR customer_id = $2) AND ($3::int IS NULL OR level = $3)`,
+		[]any{run.ID, customer, level})
 	rows, _ := tx.Query(ctx, q, args...)
-	notices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Notice, error) {
-		var n Notice
-		err := r.Scan(&n.ID, &n.RunID, &n.CustomerID, &n.CustomerNumber, &n.Level, &n.ItemCount, &n.OverdueAmount)
-		return n, errs.Wrapf(err, "scan dunning notice")
-	})
+	notices, err := pgx.CollectRows(rows, scanNotice)
 	if err != nil {
 		return nil, fmt.Errorf("collections: list the notices of dunning run %s: %w", run.ID, err)
 	}
@@ -190,4 +198,43 @@ func (e *Endpoints) shown(ctx context.Context, tx pgx.Tx, run Run, page []Notice
 		return shown{}, fmt.Errorf("collections: customers of %d dunning notices: %w", len(page), err)
 	}
 	return shown{run: run, customers: names}, nil
+}
+
+// GetCollectionWorklist implements GET /v1/collection-worklist: a
+// company's customers with items overdue on the key date, the largest
+// overdue amount first, one page of them with the worklist's totals.
+func (e *Endpoints) GetCollectionWorklist(ctx context.Context, params gen.GetCollectionWorklistParams) (gen.GetCollectionWorklistRes, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	size, err := pagination.Size(params.PageSize.Value, params.PageSize.Set)
+	if err != nil {
+		return nil, err
+	}
+	w, err := e.WorklistOf(ctx, params.LegalEntityID, params.KeyDate)
+	if err != nil {
+		return nil, err
+	}
+	scope := fmt.Sprintf("getCollectionWorklist|%s|%s", params.LegalEntityID, params.KeyDate.Format(time.DateOnly))
+	page, next, err := e.page(w, scope, size, params.PageToken.Value, params.PageToken.Set)
+	if err != nil {
+		return nil, err
+	}
+	if err := e.describe(ctx, tx, page); err != nil {
+		return nil, err
+	}
+	amount := func(m money.Minor) gen.Money { return apitypes.Money(m, w.Company.LocalCurrency, w.Exponent) }
+	out := &gen.CollectionWorklist{LegalEntityID: w.Company.ID, CompanyCode: w.Company.Code, CompanyName: w.Company.Name, KeyDate: w.KeyDate,
+		Currency: w.Company.LocalCurrency, CustomerCount: int32(len(w.Customers)), OpenAmount: amount(w.Open), OverdueAmount: amount(w.Overdue),
+		Items: make([]gen.CollectionWorklistCustomer, len(page))}
+	for i, c := range page {
+		out.Items[i] = gen.CollectionWorklistCustomer{CustomerID: c.CustomerID, CustomerNumber: c.Number, CustomerName: c.Name,
+			OpenAmount: amount(c.Open), OverdueAmount: amount(c.Overdue), OldestDueDate: c.OldestDue, DunningLevel: c.Level,
+			LastDunningDate: apitypes.OptDate(c.LastDunned)}
+	}
+	if next != "" {
+		out.NextPageToken.SetTo(next)
+	}
+	return out, nil
 }

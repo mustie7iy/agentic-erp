@@ -4,7 +4,7 @@
 `go-reviewer` had no blocking finding on T76a's last commit). It decides
 the collections context and the slices T76a-T76c
 (`docs/design/plan-breadth-week1.md`, Lane B). Each slice records what it
-built under "As built"; T76a's is there now. The defaults taken and the
+built under "As built"; all three are there now. The defaults taken and the
 questions left are listed at the end for the product owner's digest.
 
 ## Context
@@ -181,10 +181,11 @@ date) in `collections.dunned_item`, insert-only: item, level, run, date.
 From then on an item's previous level is the highest level recorded for
 it, which the next run reads, so the next run proposes the next level.
 Before confirming, the proposal is compared with the ledger's open items
-again: a proposal with an item cleared since, or with an item whose
-recorded level is no longer the proposal's previous level (another
-proposal of the company was confirmed first), is stale and refused, 409,
-and a new run is proposed. Confirming twice records and publishes once.
+again: a proposal with an item cleared since, or with an item another
+confirmed run of the company has dunned since (its recorded level is no
+longer the proposal's previous level, or it was recorded again at that
+level: As built, T76b), is stale and refused, 409, and a new run is
+proposed. Confirming twice records and publishes once.
 
 ### 9. The collection worklist (T76c)
 
@@ -227,7 +228,8 @@ is a report read and gets a budget test.
 
 1. Dunning levels are the tenant's configuration, a list of days
    overdue; none is shipped; a change is tier 2 (plan default 6).
-2. A run's key date is required and may be any date.
+2. A run's key date is required and may be any date up to 2100-12-31
+   (the limit is T76b's, As built).
 3. An item is proposed only once it is overdue by the first level's
    days; an item without payment terms is never dunned.
 4. A run with nothing to dun is stored, without notices.
@@ -288,11 +290,141 @@ is a report read and gets a budget test.
   items in one query, not a computed report (07 §7.7 item 7); starting a
   run is bounded by §5. T76c's worklist, computed on read, gets the
   budget.
-- **Walkthrough.** `step_dunning` (step 53): Ruth posts an invoice to
+- **Walkthrough.** `step_dunning` (step 56): Ruth posts an invoice to
   Northwind on NT30; a run before Maple has dunning levels is refused;
   Ada gives Maple its levels through a tier 2 change; a run at a key date
   40 days after the invoice date, ten days past its due date, proposes
-  one notice for Northwind with the invoice's item at level 1; a run at
-  the due date proposes none; the customer's open items are unchanged.
+  one notice for Northwind at level 1, the invoice's item among its
+  items; a run at the due date proposes none; the customer's open items are unchanged.
   The step duns an invoice of its own, so it holds whether or not the
   invoice of step 48 is still open when it runs.
+
+### T76b Dunning run confirmed (migration 000277)
+
+- **Schema.** `collections.dunned_item` (insert-only: the item's journal
+  line, the confirmed run, the level, the dunning date; keyed by item
+  and run, each row one of the items that run proposed); the run's
+  status widened to `confirmed`; the application may update a run's
+  status, version and `updated_by` alone, and the trigger
+  `dunning_run_confirmed_once` lets a proposed run move to confirmed and
+  nothing else. No new permission: `collections.dunning.run` confirms.
+- **Operation.** `POST /v1/dunning-runs/{id}:confirm` with `If-Match`
+  and `Idempotency-Key`, people's (`x-agent: false`), answers the
+  confirmed run. In one transaction (`collections.ConfirmRun`): the
+  company's advisory lock; the run updated `WHERE status = 'proposed'`;
+  the proposal compared with the open items and the recorded levels;
+  the levels recorded; the audit record
+  `collections.dunning_run.confirm`; `DunningRunChanged` (`confirmed`,
+  status before `proposed`) and one `DunningNoticeIssued` per notice, in
+  the order of customer number.
+- **Once.** A run that is not proposed is refused, 409
+  `collections.invalid_status` (the guarded update finds no row), so a
+  second confirmation records and publishes nothing; a retry with the
+  same `Idempotency-Key` answers the first's result. Decided by default,
+  as posting a customer invoice twice is answered (ADR-0063 §5).
+- **Stale.** 409 `collections.proposal_stale`, the detail counting the
+  items cleared and the items dunned by another run. "Dunned by another
+  run" is judged by how often the item was dunned, not by its level
+  (review round 1): a run stores with each item the number of its
+  `dunned_item` rows when it proposed it
+  (`dunning_notice_item.previous_dunnings`, not shown in the API), and a
+  confirmation compares it with the number now. §8's wording, "whose
+  recorded level is no longer the proposal's previous level", would
+  miss an item at the highest level or short of the next level's days,
+  which a confirmation records again at the level it has; two
+  proposals of it would both be confirmed and the customer dunned
+  twice for one key date. The transaction is
+  rolled back, so the stale run stays `proposed` and nothing of it is
+  recorded; the controller starts a new run. The system does not start
+  one itself: a refusal leaves nothing behind (decided by default).
+  Stale runs stay listed as `proposed`; cancelling a run is among the
+  plan's "Later".
+- **Serialized per company.** Two proposals of one company confirmed at
+  once wait for each other on a transaction-scoped advisory lock (as
+  payments' proposals of a company do), so the second reads what the
+  first recorded and is stale where they share an item, whether the
+  first raised the item's level or left it. Without the lock both would
+  pass the comparison and an item would be dunned twice.
+- **A run without notices** is confirmed too and records nothing
+  (decided by default: the controller closes what she started).
+- **Levels read.** `collections.recorded` gives, per item, the highest
+  level, the latest dunning date (the worklist's, T76c) and the number
+  of rows of `dunned_item`. A run reads it for
+  the items overdue on its key date and writes it as `previous_level`;
+  `reach` then gives the next level. An item at the highest level is
+  proposed and recorded again at that level with the later date, so the
+  last dunning date moves while the level stays. An item dunned before is
+  proposed at its level at an earlier key date too, as long as it is
+  overdue then: a level never falls; one not overdue on the key date is
+  never proposed.
+- **Event.** `DunningNoticeIssued` (`x-webhook: true`): the notice, its
+  run, the company (id and code), the customer by id and number, never
+  by name (product owner, 2026-11-05), the dunning date, the notice's
+  level, its items' count and amount in the company's currency. Up to
+  5,000 events are written one by one in the request (§5 bounds a run).
+- **Key date limit** (src `review:T76a`).
+  `ledger.ReceivableItem.DaysOverdue` counts through a `time.Duration`,
+  which holds about 292 years, so a key date further than that past a
+  due date would count wrongly. Collections refuses a key date after
+  2100-12-31 (`collections.LastKeyDate`), 422
+  `collections.invalid_key_date` naming `key_date`; the count is then
+  right for every item due since 1809. `internal/ledger` is unchanged.
+  This replaces default 2 above: a key date may be any date up to that
+  one. No lower limit: an early key date only makes fewer items overdue.
+- **Walkthrough.** `step_dunning` extended: Ruth confirms the run
+  (`confirmed`, version 2); confirming it again is refused; a colleague's
+  proposal of the same key date is refused as stale and stays
+  `proposed`; a run twenty days later, the invoice 30 days overdue,
+  proposes Northwind's notice at level 2 with the invoice's item from
+  level 1 to 2.
+
+### T76c Collection worklist (migration 000278)
+
+- **Operation.** `GET /v1/collection-worklist?legal_entity_id=&key_date=`
+  (both required; `x-slo-class: report`, `x-snapshot: true`; an agent
+  tool), permission `collections.worklist.read`, which the migration
+  seeds; nothing else is stored. A company the caller may not act in is
+  404, as the cash position answers it.
+- **Rows.** `collections.WorklistOf` reads every open customer item of
+  the company (`ledger.OpenItems.Receivable`) and groups them by
+  customer. A customer is listed when one of its items is overdue on the
+  key date as §4 counts it (a debit with payment terms, past its net due
+  date by a day at least; the first dunning level's days do not matter,
+  and a company without dunning levels has a worklist too). Each row:
+  the customer's id, number and name; `open_amount`, all its open items
+  with credits; `overdue_amount`, its overdue items, which credits do
+  not reduce (as a notice's amount); `oldest_due_date` among the overdue
+  items; `dunning_level` and `last_dunning_date`, the highest level and
+  latest date `dunned_item` holds for its open items (0 and absent when
+  none was dunned). Amounts are in the company's currency as booked.
+  Decided by default: the level and date are those of items still open,
+  as they are recorded now, whatever the key date; a cleared item's
+  dunning no longer counts.
+- **Totals.** `customer_count`, `open_amount` and `overdue_amount` of
+  every customer listed, on every page (REVIEW.md, a report without its
+  totals).
+- **Order and paging.** The largest overdue amount first (plan default
+  7), customers with the same amount by id, so the order is total. The
+  cursor is the last row's overdue amount and customer id, signed and
+  bound to the company and key date; the worklist is computed again for
+  each page and the page continues after that place. While nothing
+  changes, nobody is listed twice or left out; a customer whose overdue
+  amount rose between two pages, to before that place, is not read
+  again, and one whose amount fell, to after it, is listed again with
+  its new amount, so a consumer that pages while items are posted or
+  cleared keys its rows by `customer_id` (review round 1). Names and dunning are read for the page's
+  customers only.
+- **Key date.** Required and at most 2100-12-31, as a run's (T76b).
+  The items are those open at the read, not on the key date (§4).
+- **Budget.** 01 §1.3 gets the row: p95 3 s, p99 6 s over 100,000 open
+  customer items, the liquidity forecast's figures for a report computed
+  on read at that volume (decided by default).
+  `TestCollectionWorklistBudget` (2,000 customers with 50 items each,
+  every item dunned once, a page of 100): p95 1.2-1.5 s at a load
+  average of 35-47, 2026-11-12.
+- **Walkthrough.** `step_collections` (step 57): at the key date of the
+  run confirmed in `step_dunning`, Northwind leads Maple's worklist with
+  its notice's overdue amount, its items' due date, level 1 and the key
+  date as last dunning date, its open amount less than that by the
+  credit memo of step 54, which reduces nothing overdue; at the due date
+  it is not listed.

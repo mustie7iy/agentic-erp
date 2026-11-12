@@ -39,6 +39,12 @@ const DocumentType = "DR"
 // receivables.invalid_status. The entry, the invoice's new status, its
 // audit record and CustomerInvoicePosted are written in the request's
 // transaction.
+//
+// A credit memo (T75d, ADR-0063 §7) posts the same way with the signs
+// turned, as a DG entry: Cr the customer, Dr each item's account and
+// output tax, at its own date's rates; its credit line is the customer's
+// open credit item. One naming an invoice posts only within that
+// invoice's gross amount, under that invoice's row lock (creditedInvoice).
 func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(int32) error, postingDate *time.Time) (Invoice, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -66,7 +72,11 @@ func (e *Endpoints) PostInvoice(ctx context.Context, id uuid.UUID, ifMatch func(
 	if err != nil {
 		return Invoice{}, err
 	}
-	in, err := e.posting(ctx, le, v, customer, date)
+	credited, err := creditedInvoice(ctx, tx, v)
+	if err != nil {
+		return Invoice{}, err
+	}
+	in, err := e.posting(ctx, le, v, customer, credited, date)
 	if err != nil {
 		return Invoice{}, err
 	}
@@ -121,10 +131,12 @@ func (e *Endpoints) postableCustomer(ctx context.Context, v Invoice) (partner.Cu
 	return c, nil
 }
 
-// posting is the entry the invoice posts on the date, with the terms its
-// open item keeps.
-func (e *Endpoints) posting(ctx context.Context, le tenancy.Entity, v Invoice, customer partner.Customer, date time.Time) (ledger.Posting, error) {
-	terms, err := e.invoiceTerms(ctx, v, customer)
+// posting is the entry the document posts on the date, with the terms its
+// open item keeps: every amount in its kind's direction (signed), so a
+// credit memo credits the customer and debits its items' accounts and
+// output tax. credited is the invoice a credit memo names, nil for none.
+func (e *Endpoints) posting(ctx context.Context, le tenancy.Entity, v Invoice, customer partner.Customer, credited *Invoice, date time.Time) (ledger.Posting, error) {
+	terms, err := e.invoiceTerms(ctx, v, customer, credited)
 	if err != nil {
 		return ledger.Posting{}, err
 	}
@@ -132,30 +144,40 @@ func (e *Endpoints) posting(ctx context.Context, le tenancy.Entity, v Invoice, c
 	if err != nil {
 		return ledger.Posting{}, err
 	}
-	text := "Customer invoice " + v.DocumentNumber
+	text, documentType := "Customer invoice "+v.DocumentNumber, DocumentType
+	if v.Kind == KindCreditMemo {
+		text, documentType = "Customer credit memo "+v.DocumentNumber, CreditDocumentType
+	}
 	lines := make([]ledger.PostingLine, 0, 1+len(v.Items)+len(taxLines))
-	lines = append(lines, ledger.PostingLine{AccountID: customer.ReconciliationID, Amount: v.Gross, PartnerID: &v.CustomerID, Text: &text})
+	lines = append(lines, ledger.PostingLine{AccountID: customer.ReconciliationID, Amount: signed(v, v.Gross), PartnerID: &v.CustomerID, Text: &text})
 	for _, it := range v.Items {
-		lines = append(lines, ledger.PostingLine{AccountID: it.AccountID, Amount: -it.Net, TaxCode: it.TaxCode, Text: it.Description,
+		lines = append(lines, ledger.PostingLine{AccountID: it.AccountID, Amount: -signed(v, it.Net), TaxCode: it.TaxCode, Text: it.Description,
 			CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID})
 	}
 	// The invoice date is the tax date (ADR-0063 §4): the ledger derives the
 	// entry's tax items from its lines at that date's rates and holds the
 	// tax lines to them (ADR-0049 §7).
-	return ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: DocumentType, DocumentDate: v.InvoiceDate, PostingDate: date,
+	return ledger.Posting{LegalEntityID: v.LegalEntityID, DocumentType: documentType, DocumentDate: v.InvoiceDate, PostingDate: date,
 		TaxDate: &v.InvoiceDate, Currency: v.Currency, Reference: &v.DocumentNumber, HeaderText: &text, SourceContext: "receivables",
 		SourceDocumentID: v.ID, Lines: append(lines, taxLines...), Terms: terms}, nil
 }
 
-// invoiceTerms are the payment terms the invoice's open item keeps: the
-// term entered with the invoice, else the customer's in the company,
-// counted from the invoice date (ADR-0063 §5). Both name a configured
-// term: one entered was checked, the customer's is held by a foreign key,
-// and terms are never removed.
-func (e *Endpoints) invoiceTerms(ctx context.Context, v Invoice, customer partner.Customer) (*ledger.ItemTerms, error) {
-	code := customer.PaymentTermCode
-	if v.PaymentTermCode != nil {
+// invoiceTerms are the payment terms the document's open item keeps: the
+// term entered with it, else the customer's in the company, counted from
+// the invoice date (ADR-0063 §5). A credit memo entered without a term
+// that names an invoice (credited) keeps that invoice's term from that
+// invoice's date, so the credit is due when its invoice is and ages with
+// it (ADR-0063 §7; as a supplier credit memo keeps its invoice's terms).
+// Each names a configured term: one entered was checked, the customer's
+// is held by a foreign key, a posted invoice's was one of these, and
+// terms are never removed.
+func (e *Endpoints) invoiceTerms(ctx context.Context, v Invoice, customer partner.Customer, credited *Invoice) (*ledger.ItemTerms, error) {
+	code, baseline := customer.PaymentTermCode, v.InvoiceDate
+	switch {
+	case v.PaymentTermCode != nil:
 		code = *v.PaymentTermCode
+	case credited != nil:
+		code, baseline = *credited.PaymentTermCode, credited.InvoiceDate // a posted invoice names its term (customer_invoice_posted)
 	}
 	term, ok, err := e.Terms.PaymentTerm(ctx, code)
 	if err == nil && !ok {
@@ -164,15 +186,15 @@ func (e *Endpoints) invoiceTerms(ctx context.Context, v Invoice, customer partne
 	if err != nil {
 		return nil, fmt.Errorf("receivables: payment terms of customer invoice %s: %w", v.DocumentNumber, err)
 	}
-	t := &ledger.ItemTerms{PaymentTermCode: code, BaselineDate: v.InvoiceDate, NetDays: term.NetDays}
+	t := &ledger.ItemTerms{PaymentTermCode: code, BaselineDate: baseline, NetDays: term.NetDays}
 	for _, d := range term.Discounts {
 		t.Discounts = append(t.Discounts, ledger.Discount{Days: d.Days, Percent: d.Percent})
 	}
 	return t, nil
 }
 
-// taxLines credit the invoice's output tax: one line per code and
-// component with tax, on the component's account with the code, in the
+// taxLines credit the invoice's output tax, or debit a credit memo's: one
+// line per code and component with tax, on the component's account with the code, in the
 // calculator's order: the codes as they first appear among the items, each
 // code's components in theirs. The tax is calculated again as
 // it was when the invoice was entered, on the invoice date; when the
@@ -206,7 +228,7 @@ func (e *Endpoints) taxLines(ctx context.Context, le tenancy.Entity, v Invoice) 
 				" has no account its tax posts to in the company's configuration.")
 		}
 		code := t.Code
-		lines = append(lines, ledger.PostingLine{AccountID: *account, Amount: -t.Tax, TaxCode: &code})
+		lines = append(lines, ledger.PostingLine{AccountID: *account, Amount: -signed(v, t.Tax), TaxCode: &code})
 	}
 	return lines, nil
 }
@@ -239,18 +261,19 @@ func markPosted(ctx context.Context, tx pgx.Tx, p reqctx.Principal, v Invoice, e
 // recordPosted adds the audit record of the posting and publishes
 // CustomerInvoicePosted in the same transaction (ADR-0007, ADR-0011). The
 // event names the customer by id and number, never by name (product
-// owner, 2026-11-05), and carries the totals, not the items.
+// owner, 2026-11-05), and carries the totals, not the items; a credit
+// memo's are negative (signed).
 func recordPosted(ctx context.Context, v Invoice, le tenancy.Entity, customer partner.Customer, entry ledger.Entry, terms *ledger.ItemTerms) error {
 	const action = "receivables.customer_invoice.post"
-	amount := func(m money.Minor) any { return money.EventAmount(m, v.Currency, v.Exponent) }
+	amount := func(m money.Minor) any { return money.EventAmount(signed(v, m), v.Currency, v.Exponent) }
 	payload := map[string]any{"customer_invoice_id": v.ID, "document_number": v.DocumentNumber, "legal_entity_id": v.LegalEntityID,
 		"legal_entity_code": le.Code, "customer_id": v.CustomerID, "customer_number": customer.Number, "kind": v.Kind,
-		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "posting_date": v.PostingDate.Format(time.DateOnly),
+		"reference_invoice_id": v.ReferenceInvoiceID, "reference_invoice_number": v.ReferenceInvoiceNumber, "invoice_date": v.InvoiceDate.Format(time.DateOnly), "posting_date": v.PostingDate.Format(time.DateOnly),
 		"net_amount": amount(v.Net), "tax_amount": amount(v.Tax), "gross_amount": amount(v.Gross),
 		"payment_term_code": terms.PaymentTermCode, "net_due_date": terms.NetDueDate().Format(time.DateOnly),
 		"journal_entry_id": entry.ID, "journal_entry_year": entry.FiscalYear, "journal_entry_number": entry.DocumentNumber,
 		"status": v.Status, "status_before": Draft, "version": v.Version}
-	detail := map[string]any{"document_number": v.DocumentNumber, "customer_id": v.CustomerID, "status": v.Status, "status_before": Draft,
+	detail := map[string]any{"document_number": v.DocumentNumber, "customer_id": v.CustomerID, "kind": v.Kind, "status": v.Status, "status_before": Draft,
 		"posting_date": v.PostingDate.Format(time.DateOnly), "gross_amount": amount(v.Gross), "journal_entry_id": entry.ID,
 		"journal_entry_number": entry.DocumentNumber}
 	if err := audit.Record(ctx, action, "receivables.customer_invoice", v.ID, detail,

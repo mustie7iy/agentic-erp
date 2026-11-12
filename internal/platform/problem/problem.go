@@ -90,7 +90,8 @@ type FailingCheck struct {
 
 // CreditLimit are the figures of a credit refused because the credits
 // naming an invoice would exceed its gross amount
-// (payables.credit_exceeds_invoice, product owner 2026-11-10): the
+// (payables.credit_exceeds_invoice, product owner 2026-11-10, and
+// receivables.credit_exceeds_invoice, which mirrors it, ADR-0063 §7): the
 // invoice, its gross, what posted credits naming it already credit, and
 // the gross of the one refused, all in the invoice's currency.
 type CreditLimit struct {
@@ -121,8 +122,8 @@ type Problem struct {
 	// FailingChecks are closing.checks_failing's failing checks (ADR-0058
 	// §7), set by that problem alone.
 	FailingChecks []FailingCheck `json:"failing_checks,omitempty"`
-	// CreditLimit are payables.credit_exceeds_invoice's figures, set by
-	// that problem alone.
+	// CreditLimit are the figures of payables.credit_exceeds_invoice and
+	// receivables.credit_exceeds_invoice, set by those problems alone.
 	CreditLimit *CreditLimit `json:"credit_limit,omitempty"`
 
 	// RetryAfter, in seconds, is sent as the Retry-After header when set.

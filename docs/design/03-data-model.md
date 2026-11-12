@@ -2714,7 +2714,14 @@ per purchase order (`'ledger.gr_ir:' || tenant || ':' || order`), taken in
 one sorted call by every posting that moves a GR/IR position and by a
 reversal of one, after its entry bucket. The lock order is entry buckets,
 then GR/IR orders, then the `period_status` row of each period posted into
-(`FOR SHARE`), then the number range.
+(`FOR SHARE`), then the internal orders the lines name
+(`controlling.internal_order`, `FOR SHARE` through `ledger.CostObjects`;
+a reversal holds the orders its lines carry over), then the lines' centers,
+then the number range. An order's settlement (ADR-0064 As built, T60e)
+takes its order `FOR UPDATE` before it posts, and its close takes it and
+nothing after; a posting holds only its period statuses, `FOR SHARE`,
+while it waits for an order, which the settlement's entry takes `FOR
+SHARE` too, so the order stays acyclic.
 
 Every posting (manual entries, the ports other contexts post through,
 clearings, settlements, reversals and the migration load) reads its
@@ -3349,8 +3356,9 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
-and internal orders with their budgets and settlement rules (ADR-0064;
-T60a, T60b, T60c, T60d).
+internal orders with their budgets, settlement rules and settlements
+(ADR-0064; T60a-T60e), and allocation cycles with their runs (ADR-0064 §5;
+T60f).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3362,7 +3370,12 @@ permission, which agents cannot hold). Migration 000267 adds the order
 master and the permissions `controlling.order.read`,
 `controlling.order.write` and `controlling.order.release` (an approval
 permission). Migration 000274 adds the order's budget and the permission
-`controlling.order.budget`; migration 000275 the order's settlement rule.
+`controlling.order.budget`; migration 000275 the order's settlement rule;
+migration 000282 the order's settlements, the status `closed` and the
+permission `controlling.order.settle` (000280 and 000281 let the journal
+take entries whose `source_context` is `controlling`). Migration 000283
+adds allocation cycles, their receivers and runs and the permissions
+`controlling.allocation.read`, `.write` and `.run`.
 
 ```mermaid
 erDiagram
@@ -3399,7 +3412,7 @@ erDiagram
     text code "unique per company"
     text name
     uuid responsible_cost_center_id "ledger context"
-    text status "created, released" }
+    text status "created, released, closed" }
   internal_order ||--o| order_budget : "budgeted by"
   order_budget { uuid internal_order_id PK
     bigint amount "local currency, minor units, zero or more"
@@ -3407,6 +3420,38 @@ erDiagram
   internal_order ||--o| settlement_rule : "settles to"
   settlement_rule { uuid internal_order_id PK
     uuid receiver_cost_center_id "ledger context" }
+  internal_order ||--o{ order_settlement : "settled by"
+  order_settlement { uuid id PK
+    uuid internal_order_id FK
+    smallint fiscal_year
+    smallint fiscal_period "settled up to"
+    date posting_date
+    uuid receiver_cost_center_id "ledger context"
+    uuid journal_entry_id "ledger context, once"
+    text document_number
+    bigint amount "local currency, minor units"
+    int account_count }
+  allocation_cycle ||--|{ allocation_receiver : "charges"
+  allocation_cycle ||--o{ allocation_run : "run by"
+  allocation_cycle { uuid id PK
+    uuid legal_entity_id "tenancy context"
+    text code "unique per company"
+    text name
+    text kind "distribution"
+    uuid sender_cost_center_id "ledger context" }
+  allocation_receiver { uuid cycle_id PK
+    smallint position PK
+    uuid cost_center_id "ledger context, once per cycle"
+    int share_bp "basis points; a cycle's add up to 10000" }
+  allocation_run { uuid id PK
+    uuid cycle_id FK
+    smallint fiscal_year
+    smallint fiscal_period "once per cycle and period"
+    date posting_date
+    uuid journal_entry_id "ledger context, once"
+    text document_number
+    bigint amount "local currency, minor units"
+    int account_count }
 ```
 
 | Table | Purpose |
@@ -3417,7 +3462,11 @@ erDiagram
 | `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
 | `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
 | `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
-| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`), relayed as every context's (`outbox.Contexts`) |
+| `controlling.order_settlement` | A settlement of an order (ADR-0064 §3, T60e), insert-only (no `UPDATE` or `DELETE` granted): the order (`order_settlement_order`), its company, the fiscal year and regular period settled up to, the posting date (the period's last day), the receiving cost center and the journal entry (the ledger's; no foreign key crosses the schema; an entry is one settlement's, `order_settlement_entry_once`) with its document number, the amount moved in minor units of the company's local currency (the total of the accounts' balances, negative for a credit balance) and the number of accounts. The entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the settlement as its source document: per account the order credited and the receiver debited, so each account's balance is unchanged. The order is read FOR UPDATE from before its balance is read (`ledger.AssignmentBalances.OrderAccountBalances`) until the entry is posted; with nothing unsettled no row is written. A settled order, its balance zero on every account, is closed (`controlling.internal_order.status` `closed`, from `released` alone and for good, `internal_order_lifecycle`): a closed order takes no posting, and the entries that posted to it are no longer reversed |
+| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution`; T60g adds `assessment` with its account) and its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company). It keeps its company, code, kind and sender (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
+| `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle's shares add up to 10,000 and no receiver is its sender, held when the transaction that wrote the cycle or a receiver commits (`allocation_receiver_shares_whole`, `allocation_receiver_not_sender`, raised by deferred constraint triggers on both tables) |
+| `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`, `AllocationCycleChanged`, `AllocationRunPosted`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
 /v1/profit-center-plan-actual`, T56g3) stores nothing: the category's
@@ -4053,6 +4102,17 @@ T75c (migration 000272) applies an incoming payment waiting on a house
 bank's incoming payments clearing account (ADR-0047) to a customer's open
 items, in full and exactly: a document written once, naming the receipt's
 entry and the ledger's clearing entry that cleared receipt and items.
+T75d (migration 000276) adds the kind `credit_memo` and
+`reference_invoice_id`, the posted invoice a credit memo credits: only a
+credit memo names one, a document of the tenant and never itself
+(`customer_invoice_reference_on_credit`, `_reference_fkey`,
+`_reference_not_itself`). That the invoice named is a posted invoice of the
+same company, customer and currency is checked at entry, and that the
+posted credit memos naming it stay within its gross amount at posting,
+under that invoice's row lock (ADR-0063 §7). T75e's AR aging
+(`GET /v1/receivables-aging`) keeps no table: it is computed on read from
+the ledger's customer open items (§3.7, `ledger.OpenItems.Receivable`)
+with the ledger's aging buckets (ADR-0063 §10).
 
 ```mermaid
 erDiagram
@@ -4061,7 +4121,8 @@ erDiagram
     text document_number "customer_invoice range, unique per company"
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner, customer role"
-    text kind "invoice"
+    text kind "invoice, credit_memo"
+    uuid reference_invoice_id "the invoice a credit memo credits, optional"
     date invoice_date "the tax date"
     date posting_date "optional; set when posted"
     char currency
@@ -4160,16 +4221,19 @@ no foreign key out of its schema (02 §2.1). T76a (migration 000273)
 builds the schema with its outbox and inbox and the dunning run: a
 proposal of the customer items of a company overdue on a key date, one
 notice per customer. Nothing changes on the items, which stay the
-ledger's.
+ledger's. T76b (migration 000277) confirms a run: the run's status
+changes, and each item's level and dunning date are recorded in
+`dunned_item`, which the next run reads.
 
 ```mermaid
 erDiagram
   dunning_run ||--o{ dunning_notice : "proposes"
   dunning_notice ||--|{ dunning_notice_item : "has"
+  dunning_notice_item ||--o| dunned_item : "recorded when confirmed"
   dunning_run { uuid id PK
     uuid legal_entity_id "tenancy"
     date key_date
-    text status "proposed"
+    text status "proposed, confirmed"
     char currency "the company's"
     int notice_count
     int item_count
@@ -4196,18 +4260,27 @@ erDiagram
     bigint amount "above 0"
     bigint amount_lc "in the run's currency, as booked"
     smallint previous_level "0: never dunned"
-    smallint level "1-9" }
+    smallint level "1-9"
+    int previous_dunnings "times dunned when proposed" }
+  dunned_item { smallint fiscal_year PK "ledger: the journal line"
+    uuid journal_entry_id PK
+    int line_no PK
+    uuid dunning_run_id PK "the confirmed run"
+    smallint level "1-9"
+    date dunning_date "the run's key date" }
 ```
 
-- `collections.dunning_run`: the status is `proposed` alone
-  (`dunning_run_status_check`), which T76b widens (`confirmed`); the
+- `collections.dunning_run`: the status is `proposed` or `confirmed`
+  (`dunning_run_status_check`); the
   totals are not negative and a run has at least an item per notice
   (`dunning_run_notice_count_check`, `dunning_run_item_count_check`,
   `dunning_run_overdue_amount_check`). `overdue_amount` is minor units
   of `currency`, the company's. The list reads the tenant's runs by key
-  date (`dunning_run_by_key_date`). Proposing is the only write: the
-  application may not update or delete a run (T76b grants what
-  confirming sets).
+  date (`dunning_run_by_key_date`). Confirming is the only change: a
+  proposed run moves to confirmed, once (the trigger
+  `dunning_run_confirmed_once`), and the application may set its status,
+  version and `updated_by` alone, so its company, key date and totals
+  stay; it may not delete a run.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item
@@ -4224,8 +4297,63 @@ erDiagram
   dunned) and not negative in the run's
   (`dunning_notice_item_amount_lc_check`); at a level from 1 to 9
   (`dunning_notice_item_level_check`) that is its previous level or one
-  above (`dunning_notice_item_one_level`); insert-only. T76a writes
-  `previous_level` 0: no level is recorded before T76b.
+  above (`dunning_notice_item_one_level`); insert-only. `previous_level`
+  is the highest level `dunned_item` holds for the item when the run is
+  started, 0 for one never dunned, and `previous_dunnings` (T76b) the
+  number of its rows there then, which a confirmation compares with the
+  number as it is to tell that another confirmed run dunned the item
+  since; it is at least the previous level and 0 exactly when that is
+  (`dunning_notice_item_dunnings_check`).
+- `collections.dunned_item` (T76b): an item at the level a confirmed run
+  dunned it at, on the run's key date; one of the items that run proposed
+  (`dunned_item_proposed_fkey`, into `dunning_notice_item`), once per run
+  (the primary key, which leads with the item: the next run, a
+  confirmation and the worklist read by item), at a level from 1 to 9
+  (`dunned_item_level_check`); insert-only. An item's level is the
+  highest among its rows and its last dunning date the latest; an item at
+  the highest level gets a row per confirmed run that took it.
 - `collections.outbox`, `collections.inbox`: the context's events
-  (`DunningRunChanged`).
-- Permissions `collections.dunning.read` and `.run`.
+  (`DunningRunChanged`, `DunningNoticeIssued`).
+- Permissions `collections.dunning.read` and `.run`, and
+  `collections.worklist.read` (T76c, migration 000278). The collection
+  worklist has no table: it is computed on read from the ledger's open
+  customer items and `dunned_item` (ADR-0065 §9).
+
+## 3.28 Credit management (`credit`)
+
+ADR-0066, T77a (migration 000279). A leaf: it reads the ledger's customer
+open items (§3.7, `ledger.OpenItems.Receivable`), the partner context's
+customers and names and tenancy through its ports, posts nothing and
+keeps no foreign key out of its schema (02 §2.1). It stores a customer's
+credit limit in a company and nothing else: the credit exposure, what
+the customer's open items add up to, is computed from the ledger when it
+is read (ADR-0066 §3), and the check of an amount against the limit
+writes nothing (ADR-0066 §4).
+
+```mermaid
+erDiagram
+  credit_limit { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, one per company"
+    text customer_number "the partner's, fixed"
+    char currency "the company's"
+    bigint amount "in currency, 0 or more"
+    int version }
+```
+
+- `credit.credit_limit`: the most a customer may owe a company, an
+  amount of zero or more (`credit_limit_amount_check`) in a known
+  currency (`credit_limit_currency_fkey`), the company's when the limit
+  was set; one per customer and company (`credit_limit_once`, which the
+  API answers 409 `credit.limit_exists`); with the customer's business
+  partner number (`credit_limit_customer_number_check`), by which the
+  limits are listed (`credit_limit_by_customer_number`). A change sets
+  the amount with the next version (`platform.touch`, which also moves
+  `updated_at`): the application is granted the update of `amount`,
+  `version` and `updated_by` alone, so a limit's customer, company and
+  currency stay, and it is granted no delete. A customer without a row
+  has no limit and is not restricted; a limit of zero is a limit.
+- `credit.outbox`, `credit.inbox`: the context's events
+  (`CreditLimitChanged`).
+- Permissions `credit.limit.read` (limits and the exposure) and
+  `credit.limit.write`.

@@ -2,8 +2,12 @@
 // 02-architecture §2.2, 03-data-model §3.27): dunning runs, which propose
 // per customer the open items overdue on a key date and the dunning level
 // each would reach. A run is a proposal: nothing changes on the items,
-// which stay the ledger's, and nothing is sent. Confirming a run and the
-// collection worklist follow in T76b and T76c (ADR-0065 §8, §9).
+// which stay the ledger's, and nothing is sent. Confirming a run records
+// each item's level and dunning date, which the next run reads, and
+// publishes one event per customer (ADR-0065 §8, T76b). The collection
+// worklist, a company's customers with overdue items, is computed on read
+// from the same open items and the recorded levels and stores nothing
+// (ADR-0065 §9, T76c).
 //
 // The context is a leaf (ADR-0065 §1): it reads the ledger's customer
 // open items, the partner context's names, tenancy and the configuration
@@ -31,9 +35,29 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Proposed is the status of a dunning run that proposed its notices; a
-// run's confirmation follows with T76b (ADR-0065 §8).
-const Proposed = "proposed"
+// The statuses of a dunning run: Proposed, its notices are a proposal;
+// Confirmed, the proposal was confirmed and its items' levels recorded
+// (ADR-0065 §8).
+const (
+	Proposed  = "proposed"
+	Confirmed = "confirmed"
+)
+
+// LastKeyDate is the latest key date a request may name (src review:T76a).
+// The days an item is overdue are counted through a time.Duration
+// (ledger.ReceivableItem.DaysOverdue), which holds about 292 years: with
+// key dates up to here, the count is right for every item due since 1809,
+// and a key date beyond any use is refused instead of counted wrongly.
+var LastKeyDate = time.Date(2100, 12, 31, 0, 0, 0, 0, time.UTC)
+
+// checkKeyDate refuses a key date after LastKeyDate, 422 naming the
+// field.
+func checkKeyDate(d time.Time) error {
+	if d.After(LastKeyDate) {
+		return problem.Invalid("collections.invalid_key_date", "key_date", "The key date may be "+LastKeyDate.Format(time.DateOnly)+" at the latest.")
+	}
+	return nil
+}
 
 // MaxRunItems is the most overdue items one run proposes (ADR-0065 §5): a
 // run is one synchronous request and one transaction, so its size is
@@ -113,6 +137,10 @@ type Item struct {
 	AmountLC       money.Minor
 	PreviousLevel  int32
 	Level          int32
+	// PreviousDunnings is how often the item had been dunned when the run
+	// proposed it, which a confirmation compares with how often it has
+	// been by then (ADR-0065 §8).
+	PreviousDunnings int32
 }
 
 // Notice is a row of collections.dunning_notice with its items by item
@@ -170,6 +198,50 @@ func GetRun(ctx context.Context, id uuid.UUID) (Run, error) {
 	return r, err
 }
 
+const noticeSelect = `SELECT id, dunning_run_id, customer_id, customer_number, level, item_count, overdue_amount FROM collections.dunning_notice`
+
+func scanNotice(r pgx.CollectableRow) (Notice, error) {
+	var n Notice
+	err := r.Scan(&n.ID, &n.RunID, &n.CustomerID, &n.CustomerNumber, &n.Level, &n.ItemCount, &n.OverdueAmount)
+	return n, errs.Wrapf(err, "scan dunning notice")
+}
+
+// dunned is what the confirmed runs recorded of an item
+// (collections.dunned_item): the highest level it was dunned at, the
+// latest dunning date, which the collection worklist shows, and how often
+// it was dunned. An item no confirmed run took has none, the zero value:
+// level 0, never dunned.
+type dunned struct {
+	Level int32
+	Date  time.Time
+	Times int32
+}
+
+// recorded reads what the confirmed runs recorded of the items, by item;
+// an item never dunned is absent.
+func recorded(ctx context.Context, tx pgx.Tx, refs []ledger.ItemRef) (map[ledger.ItemRef]dunned, error) {
+	years, entries, lines := make([]int16, len(refs)), make([]uuid.UUID, len(refs)), make([]int32, len(refs))
+	for i, r := range refs {
+		years[i], entries[i], lines[i] = r.FiscalYear, r.EntryID, r.LineNo
+	}
+	// Read into a map, so the rows' order does not matter.
+	rows, _ := tx.Query(ctx, `SELECT d.fiscal_year, d.journal_entry_id, d.line_no, max(d.level), max(d.dunning_date), count(*)
+		FROM unnest($1::smallint[], $2::uuid[], $3::int[]) AS x(fy, je, ln)
+		JOIN collections.dunned_item d ON d.fiscal_year = x.fy AND d.journal_entry_id = x.je AND d.line_no = x.ln
+		GROUP BY d.fiscal_year, d.journal_entry_id, d.line_no`, years, entries, lines)
+	out := map[ledger.ItemRef]dunned{}
+	var ref ledger.ItemRef
+	var d dunned
+	_, err := pgx.ForEachRow(rows, []any{&ref.FiscalYear, &ref.EntryID, &ref.LineNo, &d.Level, &d.Date, &d.Times}, func() error {
+		out[ref] = d
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("collections: read the dunning levels of %d items: %w", len(refs), err)
+	}
+	return out, nil
+}
+
 // items reads the items of the notices, each notice's by item number, and
 // gives them to their notices.
 func items(ctx context.Context, tx pgx.Tx, notices []Notice) error {
@@ -179,13 +251,15 @@ func items(ctx context.Context, tx pgx.Tx, notices []Notice) error {
 		at[n.ID], ids[i] = i, n.ID
 	}
 	rows, _ := tx.Query(ctx, `SELECT i.dunning_notice_id, i.item_no, i.fiscal_year, i.journal_entry_id, i.line_no, i.document_number, i.reference,
-			i.document_date, i.net_due_date, i.days_overdue, i.currency, c.exponent, i.amount, i.amount_lc, i.previous_level, i.level
+			i.document_date, i.net_due_date, i.days_overdue, i.currency, c.exponent, i.amount, i.amount_lc, i.previous_level, i.level,
+			i.previous_dunnings
 		FROM collections.dunning_notice_item i JOIN ref.currency c ON c.code = i.currency
 		WHERE i.dunning_notice_id = ANY($1) ORDER BY i.dunning_notice_id, i.item_no`, ids)
 	var notice uuid.UUID
 	var it Item
 	_, err := pgx.ForEachRow(rows, []any{&notice, &it.ItemNo, &it.FiscalYear, &it.EntryID, &it.LineNo, &it.DocumentNumber, &it.Reference,
-		&it.DocumentDate, &it.NetDueDate, &it.DaysOverdue, &it.Currency, &it.Exponent, &it.Amount, &it.AmountLC, &it.PreviousLevel, &it.Level},
+		&it.DocumentDate, &it.NetDueDate, &it.DaysOverdue, &it.Currency, &it.Exponent, &it.Amount, &it.AmountLC, &it.PreviousLevel, &it.Level,
+		&it.PreviousDunnings},
 		func() error {
 			n := &notices[at[notice]]
 			n.Items = append(n.Items, it)

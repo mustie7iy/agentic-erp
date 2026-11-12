@@ -44,7 +44,8 @@ pointing its schema at a separate database. Callers do not change.
 | **procurement** | Requisitions, purchase orders, contracts, goods receipts | `PurchaseOrderReleased`, `GoodsReceived` |
 | **payables** | Supplier invoices, matching results, invoice holds | `SupplierInvoicePosted`, `InvoiceHeld` |
 | **receivables** (ADR-0063) | Customer invoices entered without a sales order, with their items and the output tax calculated for them (T75a), and posted as the customer's open items with their payment terms (T75b); incoming payments on a house bank's incoming payments clearing account applied to a customer's open items in full (T75c); credit memos and the aging read planned (T75d, T75e) | `CustomerInvoiceChanged`, `CustomerInvoicePosted`, `IncomingPaymentApplied` |
-| **collections** (ADR-0065, a leaf) | Dunning runs: per company and key date, one notice per customer proposing the open customer items overdue and the dunning level each would reach, from the ledger's customer open items (`ledger.OpenItems.Receivable`) and the company's dunning levels in the configuration, through the ports `OpenItems`, `Partners`, `LegalEntities` and `Settings`; nothing changes on the items (T76a); confirming a run and the collection worklist planned (T76b, T76c) | `DunningRunChanged` |
+| **collections** (ADR-0065, a leaf) | Dunning runs: per company and key date, one notice per customer proposing the open customer items overdue and the dunning level each would reach, from the ledger's customer open items (`ledger.OpenItems.Receivable`) and the company's dunning levels in the configuration, through the ports `OpenItems`, `Partners`, `LegalEntities` and `Settings`; nothing changes on the items (T76a); a run is confirmed once, which records each item's level and dunning date for the next run to read (T76b); the collection worklist, a company's customers with overdue items computed on read from the same open items and the recorded levels (T76c) | `DunningRunChanged`, `DunningNoticeIssued` |
+| **credit** (ADR-0066, a leaf) | Customers' credit limits, one amount per customer and company in the company's currency, set and changed by people with the caller's version; the credit exposure, the customer's open items in the ledger (`ledger.OpenItems.Receivable`) as booked with credits netted, computed on read, and the check of an amount against the limit, which changes and blocks nothing; through the ports `OpenItems`, `Customers`, `Partners` and `LegalEntities` (T77a) | `CreditLimitChanged` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |
 | **workflow** | Approval requests, steps, decisions | `ApprovalCompleted` |
 | **audit** | Audit events (hash-chained) | — (consumes everything) |
@@ -58,7 +59,8 @@ pointing its schema at a separate database. Callers do not change.
 
 Later phases add `sales`, `inventory`, `manufacturing`, `maintenance`,
 `projects` and `hr` with the same rules; `receivables` is built from T75a
-(ADR-0063) and `collections` from T76a (ADR-0065).
+(ADR-0063), `collections` from T76a (ADR-0065) and `credit` from T77a
+(ADR-0066).
 
 Dependencies between contexts point one way (no cycles):
 
@@ -77,6 +79,8 @@ flowchart LR
   partner --> receivables
   ledger --> collections
   partner --> collections
+  ledger --> credit
+  partner --> credit
   payables --> payments
   partner --> payments
   ledger --> payments

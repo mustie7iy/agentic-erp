@@ -36,9 +36,13 @@ type ItemInput struct {
 type Input struct {
 	LegalEntityID uuid.UUID
 	CustomerID    uuid.UUID
-	InvoiceDate   time.Time
-	PostingDate   *time.Time
-	Currency      string
+	// Kind is invoice ("" too) or credit_memo; ReferenceInvoiceID the
+	// posted invoice a credit memo credits, nil for none.
+	Kind               string
+	ReferenceInvoiceID *uuid.UUID
+	InvoiceDate        time.Time
+	PostingDate        *time.Time
+	Currency           string
 	// PaymentTermCode is the payment term the invoice is to post with; nil:
 	// the customer's in the company when it posts.
 	PaymentTermCode *string
@@ -46,10 +50,11 @@ type Input struct {
 }
 
 // checked is an input that passed validation: its company, its customer
-// as the partner context names it, and its items with their tax.
+// as the partner context names it, its kind and its items with their tax.
 type checked struct {
 	le              tenancy.Entity
 	customer        partner.Named
+	kind            string
 	exp             int
 	items           []Item
 	net, tax, gross money.Minor
@@ -83,10 +88,10 @@ func (e *Endpoints) CreateInvoice(ctx context.Context, in Input) (Invoice, error
 	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
-			posting_date, currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, payment_term_code)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15)`,
-		p.TenantID, id, number, in.LegalEntityID, in.CustomerID, KindInvoice, in.InvoiceDate, in.PostingDate, in.Currency, c.net, c.tax, c.gross,
-		Draft, p.ID, in.PaymentTermCode); err != nil {
+			posting_date, currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, payment_term_code, reference_invoice_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $16)`,
+		p.TenantID, id, number, in.LegalEntityID, in.CustomerID, c.kind, in.InvoiceDate, in.PostingDate, in.Currency, c.net, c.tax, c.gross,
+		Draft, p.ID, in.PaymentTermCode, in.ReferenceInvoiceID); err != nil {
 		return Invoice{}, fmt.Errorf("receivables: insert customer invoice %s: %w", id, err)
 	}
 	if err := insertItems(ctx, tx, p.TenantID, id, c.items); err != nil {
@@ -123,16 +128,17 @@ func insertItems(ctx context.Context, tx pgx.Tx, tenant, invoice uuid.UUID, item
 // CustomerInvoiceChanged in the same transaction (ADR-0007, ADR-0011):
 // its status before is null, as it had none. The event names the customer
 // by id and number, never by name (product owner, 2026-11-05), and
-// carries the totals, not the items.
+// carries the totals, not the items; a credit memo's are negative
+// (signed).
 func recordEntry(ctx context.Context, v Invoice, c checked) error {
 	const action = "receivables.customer_invoice.create"
+	amount := func(m money.Minor) any { return money.EventAmount(signed(v, m), v.Currency, v.Exponent) }
 	payload := map[string]any{"customer_invoice_id": v.ID, "document_number": v.DocumentNumber, "legal_entity_id": v.LegalEntityID,
 		"legal_entity_code": c.le.Code, "customer_id": v.CustomerID, "customer_number": c.customer.Number, "kind": v.Kind,
-		"invoice_date": v.InvoiceDate.Format(time.DateOnly), "net_amount": money.EventAmount(v.Net, v.Currency, v.Exponent),
-		"tax_amount": money.EventAmount(v.Tax, v.Currency, v.Exponent), "gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent),
-		"status": v.Status, "status_before": nil, "version": v.Version}
-	detail := map[string]any{"document_number": v.DocumentNumber, "customer_id": v.CustomerID, "status": v.Status,
-		"gross_amount": money.EventAmount(v.Gross, v.Currency, v.Exponent), "items": len(v.Items)}
+		"reference_invoice_id": v.ReferenceInvoiceID, "reference_invoice_number": v.ReferenceInvoiceNumber, "invoice_date": v.InvoiceDate.Format(time.DateOnly), "net_amount": amount(v.Net),
+		"tax_amount": amount(v.Tax), "gross_amount": amount(v.Gross), "status": v.Status, "status_before": nil, "version": v.Version}
+	detail := map[string]any{"document_number": v.DocumentNumber, "customer_id": v.CustomerID, "kind": v.Kind, "status": v.Status,
+		"gross_amount": amount(v.Gross), "items": len(v.Items)}
 	if err := audit.Record(ctx, action, "receivables.customer_invoice", v.ID, detail,
 		outbox.Event{Context: "receivables", Name: "customer_invoice_changed", AggregateType: "receivables.customer_invoice", AggregateID: v.ID,
 			Payload: payload}); err != nil {
@@ -141,8 +147,9 @@ func recordEntry(ctx context.Context, v Invoice, c checked) error {
 	return nil
 }
 
-// validate checks an invoice for entry: a legal entity the caller may act
-// in, a customer that may be invoiced there, a known currency, at least
+// validate checks an invoice or credit memo for entry: a legal entity the
+// caller may act in, a customer that may be invoiced there, a known
+// currency and kind, the invoice a credit memo names, at least
 // one item, each a positive net amount in that currency on a postable
 // account with the centers the ledger asks for, and output tax codes in
 // force on the invoice date, whose tax it calculates; the totals add up.
@@ -156,6 +163,9 @@ func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked,
 		return checked{}, fmt.Errorf("receivables: currency %s: %w", in.Currency, err)
 	}
 	if err := e.knownTerm(ctx, in.PaymentTermCode); err != nil {
+		return checked{}, err
+	}
+	if c.kind, err = documentKind(ctx, tx, in); err != nil {
 		return checked{}, err
 	}
 	if len(in.Items) == 0 {

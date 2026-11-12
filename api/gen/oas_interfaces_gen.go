@@ -141,6 +141,10 @@ type CloseFiscalPeriodRes interface {
 	closeFiscalPeriodRes()
 }
 
+type CloseInternalOrderRes interface {
+	closeInternalOrderRes()
+}
+
 type ClosePurchaseOrderRes interface {
 	closePurchaseOrderRes()
 }
@@ -151,6 +155,14 @@ type CompleteCloseTaskRes interface {
 
 type CompleteYearCloseTaskRes interface {
 	completeYearCloseTaskRes()
+}
+
+type ConfirmDunningRunRes interface {
+	confirmDunningRunRes()
+}
+
+type CreateAllocationCycleRes interface {
+	createAllocationCycleRes()
 }
 
 type CreateAssetAcquisitionRes interface {
@@ -203,6 +215,10 @@ type CreateContractRes interface {
 
 type CreateCostCenterRes interface {
 	createCostCenterRes()
+}
+
+type CreateCreditLimitRes interface {
+	createCreditLimitRes()
 }
 
 type CreateCustomerInvoiceRes interface {
@@ -417,6 +433,14 @@ type GetAiUsageRes interface {
 	getAiUsageRes()
 }
 
+type GetAllocationCycleRes interface {
+	getAllocationCycleRes()
+}
+
+type GetAllocationRunRes interface {
+	getAllocationRunRes()
+}
+
 type GetAnalyticsModelRes interface {
 	getAnalyticsModelRes()
 }
@@ -521,6 +545,10 @@ type GetCloseCalendarRes interface {
 	getCloseCalendarRes()
 }
 
+type GetCollectionWorklistRes interface {
+	getCollectionWorklistRes()
+}
+
 type GetCompanyAccessRes interface {
 	getCompanyAccessRes()
 }
@@ -551,6 +579,14 @@ type GetContractRes interface {
 
 type GetCostCenterRes interface {
 	getCostCenterRes()
+}
+
+type GetCreditExposureRes interface {
+	getCreditExposureRes()
+}
+
+type GetCreditLimitRes interface {
+	getCreditLimitRes()
 }
 
 type GetCurrentPrincipalRes interface {
@@ -717,6 +753,10 @@ type GetPurchaseOrderRes interface {
 	getPurchaseOrderRes()
 }
 
+type GetReceivablesAgingRes interface {
+	getReceivablesAgingRes()
+}
+
 type GetRecommendationRes interface {
 	getRecommendationRes()
 }
@@ -819,6 +859,14 @@ type ListAgentSessionsRes interface {
 
 type ListAgentToolCallsRes interface {
 	listAgentToolCallsRes()
+}
+
+type ListAllocationCyclesRes interface {
+	listAllocationCyclesRes()
+}
+
+type ListAllocationRunsRes interface {
+	listAllocationRunsRes()
 }
 
 type ListApprovalRequestsRes interface {
@@ -977,6 +1025,10 @@ type ListCountryPacksRes interface {
 	listCountryPacksRes()
 }
 
+type ListCreditLimitsRes interface {
+	listCreditLimitsRes()
+}
+
 type ListCustomerInvoicesRes interface {
 	listCustomerInvoicesRes()
 }
@@ -1055,6 +1107,10 @@ type ListIntercompanyDifferencesRes interface {
 
 type ListInternalOrderBalancesRes interface {
 	listInternalOrderBalancesRes()
+}
+
+type ListInternalOrderSettlementsRes interface {
+	listInternalOrderSettlementsRes()
 }
 
 type ListInternalOrdersRes interface {
@@ -1533,12 +1589,20 @@ type RotateWebhookSubscriptionSecretRes interface {
 	rotateWebhookSubscriptionSecretRes()
 }
 
+type RunAllocationCycleRes interface {
+	runAllocationCycleRes()
+}
+
 type RunAnalyticsQueryRes interface {
 	runAnalyticsQueryRes()
 }
 
 type RunBalanceCarryForwardRes interface {
 	runBalanceCarryForwardRes()
+}
+
+type SettleInternalOrderRes interface {
+	settleInternalOrderRes()
 }
 
 type SignOffPeriodCloseRes interface {
@@ -1639,6 +1703,10 @@ type UpdateContractRes interface {
 
 type UpdateCostCenterRes interface {
 	updateCostCenterRes()
+}
+
+type UpdateCreditLimitRes interface {
+	updateCreditLimitRes()
 }
 
 type UpdateEntryTemplateRes interface {

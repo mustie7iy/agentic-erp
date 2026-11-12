@@ -38,6 +38,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/consolidation"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
+	"github.com/mustie7iy/agentic-erp/internal/credit"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
@@ -83,6 +84,7 @@ type (
 	payablesAPI    = payables.Endpoints
 	receivablesAPI = receivables.Endpoints
 	collectionsAPI = collections.Endpoints
+	creditAPI      = credit.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -111,6 +113,7 @@ type handler struct {
 	*payablesAPI
 	*receivablesAPI
 	*collectionsAPI
+	*creditAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -236,6 +239,7 @@ func New(cfg Config) (http.Handler, error) {
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		receivablesAPI: Receivables(cfg),
 		collectionsAPI: Collections(cfg),
+		creditAPI:      Credit(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -247,7 +251,7 @@ func New(cfg Config) (http.Handler, error) {
 		consolAPI:      Consolidation(cfg),
 		einvoicingAPI:  EInvoicing(cfg),
 		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
-			Settings: configuration.Settings{}, Now: cfg.Now},
+			Settings: configuration.Settings{}, Now: cfg.Now, Postings: controllingPostings(), Calendar: calendar()},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
 	}
@@ -414,7 +418,7 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 func Receivables(cfg Config) *receivables.Endpoints {
 	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
 		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
-		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, Statements: receivablesStatements{},
+		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, OpenItems: ledger.OpenItems{}, Statements: receivablesStatements{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
 }
 
@@ -438,6 +442,14 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
 		Settings: configuration.Settings{}}
+}
+
+// Credit is the credit management context as the API wires it (ADR-0066
+// §1): a leaf that reads the ledger's customer open items, the partner
+// context's customers and names and tenancy through its ports.
+func Credit(cfg Config) *credit.Endpoints {
+	return &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
+		Partners: partner.Payees{}}
 }
 
 // uploads is the API's direct-upload service (ADR-0020).
@@ -496,6 +508,14 @@ func postings() ledger.Postings {
 
 // calendar resolves fiscal periods.
 func calendar() ledger.Calendar { return ledger.Calendar{LegalEntities: tenancy.Directory{}} }
+
+// controllingPostings is the ledger's posting port as the controlling
+// context posts through it (ADR-0064 §3): the one context whose lines
+// name internal orders, so it is wired with the cost objects port.
+func controllingPostings() ledger.Postings {
+	return ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+		CostObjects: controlling.CostObjects{}}
+}
 
 // resolver is the configured secret resolver, or the replica's own
 // environment and files.

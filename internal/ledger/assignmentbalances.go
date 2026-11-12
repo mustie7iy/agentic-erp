@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -361,4 +362,73 @@ func (AssignmentBalances) CostCenterValidOn(ctx context.Context, id uuid.UUID, d
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ledger.cost_center_period WHERE cost_center_id = $1 AND retired_by_change_id IS NULL
 		AND daterange(valid_from, valid_to) @> $2::date)`, id, day).Scan(&valid)
 	return valid, errs.Wrapf(err, "ledger: validity of cost center %s on %s", id, day.Format(time.DateOnly))
+}
+
+// CostAccount is an account as an allocation reads it: its number and
+// whether it is a primary cost account (cost_element primary_cost).
+type CostAccount struct {
+	Number      string
+	PrimaryCost bool
+}
+
+// CostAccounts reads the tenant's accounts with the ids, keyed by id
+// (ADR-0064 §5, T60f): a distribution moves the sender's costs on primary
+// cost accounts alone and posts them in account number order. An id that
+// is no account has no entry.
+func (AssignmentBalances) CostAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CostAccount, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, number, cost_element = $2 FROM ledger.gl_account WHERE id = ANY($1)`, ids, config.CostElementPrimaryCost)
+	out := map[uuid.UUID]CostAccount{}
+	var id uuid.UUID
+	var a CostAccount
+	_, err = pgx.ForEachRow(rows, []any{&id, &a.Number, &a.PrimaryCost}, func() error { out[id] = a; return nil })
+	return out, errs.Wrapf(err, "ledger: accounts of an allocation")
+}
+
+// PeriodKey names a fiscal period by its year and number.
+type PeriodKey struct{ FiscalYear, Period int16 }
+
+// OrderAccountBalance is the balance of an internal order on an account,
+// in local currency, debit positive.
+type OrderAccountBalance struct {
+	AccountID     uuid.UUID
+	AccountNumber string
+	Balance       money.Minor
+}
+
+// OrderAccountBalances are the leading ledger's balances of an internal
+// order per account, the accounts whose balance is not zero, by account
+// number (ADR-0064 §3, T60e): the journal lines that name the order in
+// every fiscal period up to upTo, special periods of earlier years
+// included, or in every period when upTo is nil. An order's settlement
+// credits it on the accounts it was charged on, so what is left is what
+// is not settled yet. Read from the lines themselves through the order's
+// index (000270), so it is exact at the read; a caller that posts what
+// it reads holds the order against other postings. A tenant without a
+// leading ledger has none.
+func (AssignmentBalances) OrderAccountBalances(ctx context.Context, le, order uuid.UUID, upTo *PeriodKey) ([]OrderAccountBalance, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	leading, ok, err := ledgerOrLeading(ctx, tx, nil)
+	if err != nil || !ok {
+		return nil, err
+	}
+	var year, period *int16
+	if upTo != nil {
+		year, period = &upTo.FiscalYear, &upTo.Period
+	}
+	rows, _ := tx.Query(ctx, `SELECT s.account_id, a.number, s.balance
+		FROM (SELECT l.tenant_id, l.account_id, sum(l.amount_lc)::bigint FROM ledger.journal_line l
+			WHERE l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.internal_order_id = $3
+				AND ($4::smallint IS NULL OR (l.fiscal_year, l.fiscal_period) <= ($4, $5::smallint))
+			GROUP BY 1, 2 HAVING sum(l.amount_lc) <> 0) AS s(tenant_id, account_id, balance)
+		JOIN ledger.gl_account a ON a.tenant_id = s.tenant_id AND a.id = s.account_id
+		ORDER BY a.number, s.account_id`, le, leading, order, year, period)
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[OrderAccountBalance])
+	return out, errs.Wrapf(err, "ledger: balances by account of internal order %s", order)
 }
