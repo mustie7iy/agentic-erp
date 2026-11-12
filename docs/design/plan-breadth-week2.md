@@ -645,12 +645,13 @@ negative.
   `GET /v1/revenue-recognition-runs/{id}`; event `RevenueRecognized`;
   permission `revenue.recognition.run`; account determination keys
   `contract_liability` and `contract_asset`.
-- **Walkthrough:** `step_revenue_schedule` extended: the order of
-  `step_revenue_contract` is billed in full and posted; the run for the
-  current period posts one entry; the service's revenue account shows
-  the share of the year's days up to the period's end, the goods' account
-  the goods' allocated amount, and the contract liability the rest of
-  what was billed.
+- **Walkthrough:** `step_revenue_schedule` extended: the service of
+  `step_revenue_contract`'s order is confirmed as made available (T78c),
+  so the whole order is delivered; it is billed in full and posted; the
+  run for the current period posts one entry; the service's revenue
+  account shows the share of the year's days up to the period's end, the
+  goods' account the goods' allocated amount, and the contract liability
+  the rest of what was billed.
 - **Acceptance:** per obligation the entry moves the item's revenue
   account by the cumulative revenue recognized less the cumulative
   revenue billed, less what earlier runs posted for it; the contract's
