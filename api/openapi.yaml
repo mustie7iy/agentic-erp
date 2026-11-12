@@ -16600,6 +16600,8 @@ paths:
       x-problem-codes:
         - revenue.contract_exists
         - revenue.foreign_currency
+        # The database's answer to an obligation written under an active contract (performance_obligation_fixed_once_active), which
+        # TestProblemCodes lists for every operation that writes obligations; creating cannot reach it, its contract being a new draft.
         - revenue.invalid_status
         - revenue.order_not_confirmed
       parameters:

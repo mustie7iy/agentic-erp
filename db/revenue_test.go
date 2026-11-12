@@ -242,6 +242,39 @@ func TestRevenueAllocationRules(t *testing.T) {
 	}
 }
 
+// TestRevenueAllocationRevert (T81b, migration 000281's down): the revert
+// is refused, before it changes anything, while an over-time obligation
+// exists, whose service period it would drop.
+func TestRevenueAllocationRevert(t *testing.T) {
+	need(t)
+	down := ""
+	for _, m := range Migrations() {
+		if strings.HasSuffix(m.Name, "_revenue_allocation") {
+			down = m.Down
+		}
+	}
+	if down == "" {
+		t.Fatal("got no migration named …_revenue_allocation in db/migrations, want the one the test is about")
+	}
+	ctx := context.Background()
+	tx, err := testDB.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	tenant, doc := id(), id()
+	if err := all(tx, step(`SELECT set_config('app.tenant_id', $1, true)`, tenant.String()),
+		step(`INSERT INTO revenue.contract (tenant_id, id, legal_entity_id, customer_id, sales_order_id, sales_order_number, currency,
+			transaction_price, status, created_by, updated_by)
+			VALUES ($1, $2, gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'SO1', 'EUR', 100, 'draft', $1, $1)`, tenant, doc),
+		step(`INSERT INTO revenue.performance_obligation (tenant_id, contract_id, obligation_no, order_item_no, description, net_amount,
+			timing, service_from, service_to, standalone_selling_price)
+			VALUES ($1, $2, 1, 1, 'Support', 100, 'over_time', '2026-01-01', '2026-12-31', 100)`, tenant, doc)); err != nil {
+		t.Fatal(err)
+	}
+	failsWith(t, exec(tx, down), "reverting would drop their service periods")
+}
+
 // TestRevenueInbox (T81a, migration 000280; ADR-0068 §4; ADR-0007): the
 // consumer records an event once: a second record of it changes nothing.
 func TestRevenueInbox(t *testing.T) {

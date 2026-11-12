@@ -4489,8 +4489,9 @@ erDiagram
   (ADR-0068 §2). An over-time obligation has a service period, from not
   after to, and a point-in-time obligation none
   (`performance_obligation_service_period`); `allocated_amount` is not
-  negative (`performance_obligation_allocated_check`) and absent until
-  the contract is activated. An obligation is written and changed only
+  negative (`performance_obligation_allocated_check`); the application
+  leaves it absent until it activates the contract (the database holds
+  the activation to the amounts, not a draft to their absence). An obligation is written and changed only
   while its contract is a draft
   (`performance_obligation_fixed_once_active`, which locks the
   contract's row, so a change and the activation wait for one another).
