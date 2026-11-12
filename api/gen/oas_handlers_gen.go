@@ -28828,10 +28828,10 @@ func (s *Server) handleGetCostCenterRequest(args [1]string, argsEscaped bool, w 
 // what a consumer does with the answer is its own. It is computed at the read from one database state
 // (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
 // without open items in the company has an exposure of zero. An amount below zero is refused (422
-// `credit.invalid_amount`, naming `amount`), one without exactly the currency's minor-unit digits is
-// 400 `request.invalid_amount`, as are open items that add up to more than an amount holds (422
-// `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner
-// that does not exist.
+// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
+// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
+// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
+// cannot act in is 404, as a business partner that does not exist.
 //
 // GET /v1/credit-exposure
 func (s *Server) handleGetCreditExposureRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

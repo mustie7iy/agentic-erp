@@ -124,7 +124,10 @@ func TestCreditLimitTouched(t *testing.T) {
 		return tx.QueryRow(ctx, `UPDATE credit.credit_limit SET amount = 75000, version = version + 1, updated_by = $1 WHERE id = $2
 			RETURNING updated_at > '2026-01-01' AND created_at = '2026-01-01' AND version = 2`, tenant, limit).Scan(&moved)
 	})
-	if err != nil || !moved {
-		t.Errorf("got %v and moved %v, want the change to move updated_at alone, at version 2", err, moved)
+	if err != nil {
+		t.Fatalf("got %v, want the amount changed", err)
+	}
+	if !moved {
+		t.Error("the change: got another updated_at, created_at or version, want updated_at moved alone, at version 2")
 	}
 }
