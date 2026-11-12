@@ -349,6 +349,18 @@ func TestApplyRefusals(t *testing.T) {
 			}
 		})
 	}
+	t.Run("an item whose account is blocked for posting", func(t *testing.T) {
+		block := func(blocked bool) {
+			pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = $3, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+				AND account_id = $4`, e.Tenant.ID, e.DE, blocked, e.receivable)
+		}
+		block(true)
+		defer block(false)
+		p := e.In(t).Problem(422, "ledger.account_not_postable", "POST", "/v1/incoming-payments", e.payment(e.customer, receipt, "2026-03-21", invoice), "")
+		if d, _ := p["detail"].(string); field(p) != "items[0]" || !strings.Contains(d, "Item 1's account") {
+			t.Errorf("got field %v and detail %q, want items[0] and the item named", field(p), d)
+		}
+	})
 	t.Run("a company the caller may not act in", func(t *testing.T) {
 		elsewhere := e.As(e.Reader(t, "us-only", e.US)).In(t)
 		if p := elsewhere.Problem(422, "request.reference_not_found", "POST", "/v1/incoming-payments", e.payment(e.customer, receipt, "2026-03-21", invoice), ""); field(p) != "legal_entity_id" {

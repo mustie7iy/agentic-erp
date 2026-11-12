@@ -105,7 +105,7 @@ func (p Postings) ApplyReceipt(ctx context.Context, in ReceiptApplication) (Appl
 		return AppliedReceipt{}, err
 	}
 	if err := e.checkAccounts(ctx, tx, le.ID, lines, false); err != nil {
-		return AppliedReceipt{}, err
+		return AppliedReceipt{}, namingLine(err, len(in.Items))
 	}
 	ledgers, err := itemLedgers(ctx, tx, items)
 	if err != nil {
@@ -229,6 +229,34 @@ func namingItem(err error, field string) error {
 	var p *problem.Problem
 	if errors.As(err, &p) && len(p.Errors) == 0 {
 		p.Errors = []problem.FieldError{{Field: field, Code: "not_applicable", Message: p.Detail}}
+	}
+	return err
+}
+
+// namingLine turns a refusal of one of the entry's lines, which names the
+// line (lines[k]: the receipt's offset, then one per item, then the
+// exchange differences; receiptLines), into one that names what the
+// caller gave: item k of the application as items[k-1], the receipt, or
+// the account determination's exchange difference account, neither of
+// which is a field of the items. The request has no lines.
+func namingLine(err error, items int) error {
+	var p *problem.Problem
+	if !errors.As(err, &p) || len(p.Errors) == 0 {
+		return err
+	}
+	var k int
+	// A field that names no line leaves the refusal as it is.
+	if n, _ := fmt.Sscanf(p.Errors[0].Field, "lines[%d]", &k); n == 1 {
+		reason := p.Errors[0].Message
+		switch {
+		case k == 0:
+			p.Detail, p.Errors = "The receipt's account cannot be posted: "+reason+".", nil
+		case k <= items:
+			p.Detail = "Item " + fmt.Sprint(k) + "'s account cannot be posted: " + reason + "."
+			p.Errors = []problem.FieldError{{Field: fmt.Sprintf("items[%d]", k-1), Code: p.Errors[0].Code, Message: reason}}
+		default:
+			p.Detail, p.Errors = "The exchange difference's account (fx_gain or fx_loss of the account determination) cannot be posted: "+reason+".", nil
+		}
 	}
 	return err
 }

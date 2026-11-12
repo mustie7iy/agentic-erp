@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 )
 
@@ -25,19 +26,25 @@ type PostedLine struct {
 	LineNo       int32
 }
 
-// Lines returns, for each of the entries a matched statement line posted,
-// that line, keyed by the entry's id; an entry no statement line posted
+// Lines returns, for each of the entries (fiscal year and id; LineNo is
+// unused) a matched statement line posted, that line, keyed by the
+// entry's id; an entry no statement line posted
 // is left out. Company access is the caller's to check: it read the
 // entries within the companies it may act in.
-func (StatementPostings) Lines(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]PostedLine, error) {
+func (StatementPostings) Lines(ctx context.Context, entries []ledger.ItemRef) (map[uuid.UUID]PostedLine, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// An entry is one match's (statement_match_journal_entry).
-	rows, _ := tx.Query(ctx, `SELECT m.journal_entry_id, s.id, s.statement_ref, m.line_no FROM payments.statement_match m
-		JOIN payments.bank_statement s ON s.tenant_id = m.tenant_id AND s.id = m.statement_id
-		WHERE m.journal_entry_id = ANY($1)`, entries)
+	years, ids := make([]int16, len(entries)), make([]uuid.UUID, len(entries))
+	for i, e := range entries {
+		years[i], ids[i] = e.FiscalYear, e.EntryID
+	}
+	// An entry is one match's, found by year and id (the index
+	// statement_match_journal_entry).
+	rows, _ := tx.Query(ctx, `SELECT m.journal_entry_id, s.id, s.statement_ref, m.line_no FROM unnest($1::smallint[], $2::uuid[]) AS x(y, je)
+		JOIN payments.statement_match m ON m.journal_entry_year = x.y AND m.journal_entry_id = x.je
+		JOIN payments.bank_statement s ON s.tenant_id = m.tenant_id AND s.id = m.statement_id`, years, ids)
 	out := map[uuid.UUID]PostedLine{}
 	var entry uuid.UUID
 	var line PostedLine

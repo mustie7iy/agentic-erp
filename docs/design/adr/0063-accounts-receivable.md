@@ -421,7 +421,10 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   account with the customer as its partner (422
   `ledger.not_the_customers_item`) and in the receipt's currency (422
   `ledger.mixed_items`). Every refusal of an item names the request's
-  own field, `items[i]`. `offsetItems` offsets them all at their
+  own field, `items[i]`, an account that can no longer be posted
+  included (422 `ledger.account_not_postable`: the item's by its place,
+  the receipt's and the exchange difference's by name, never the entry's
+  line). `offsetItems` offsets them all at their
   original amounts; the transaction-currency total must be zero
   (422 `ledger.clearing_not_balanced`, naming the receipt and the
   difference); `fxLines` books the local and group totals as the

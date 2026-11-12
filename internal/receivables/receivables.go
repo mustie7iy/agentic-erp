@@ -113,11 +113,11 @@ type StatementLine struct {
 	LineNo       int32
 }
 
-// Statements names the statement lines behind the journal entries their
-// postings posted, keyed by entry (payments context, which receivables
+// Statements names the statement lines behind the journal entries
+// (fiscal year and id) their postings posted, keyed by entry (payments context, which receivables
 // does not import: the composition root wires it).
 type Statements interface {
-	Lines(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]StatementLine, error)
+	Lines(ctx context.Context, entries []ledger.ItemRef) (map[uuid.UUID]StatementLine, error)
 }
 
 // Partners names business partners by number and name (partner context).

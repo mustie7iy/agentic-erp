@@ -219,6 +219,7 @@ func TestApplyReceiptRefusals(t *testing.T) {
 	r.Must(201, "POST", "/v1/clearings", clearing(r.de, "2026-03-31", ref{map[string]any{"fiscal_year": 2026, "id": paid.EntryID.String()}, 1},
 		ref{map[string]any{"fiscal_year": 2026, "id": credit.EntryID.String()}, 1}), "")
 	reversed, held := r.owed(t, north, 10000, "EUR", "2026-03-04"), r.owed(t, north, 10000, "EUR", "2026-03-05")
+	tiny := r.owed(t, north, 1, "EUR", "2026-03-06") // 0.01: with the item of 99.99 it is the receipt
 	r.committed(t, func(ctx context.Context) (ledger.Entry, error) {
 		return postings().Reverse(ctx, reversed.EntryID, nil, nil)
 	})
@@ -302,6 +303,32 @@ func TestApplyReceiptRefusals(t *testing.T) {
 			}
 		})
 	}
+	// An account that can no longer be posted is refused by what the caller
+	// named, not by the entry's line: the receipt, or the item.
+	block := func(account uuid.UUID, blocked bool) {
+		pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = $3, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+			AND account_id = $4`, r.ten.ID, r.de, blocked, account)
+	}
+	for name, c := range map[string]struct {
+		account       uuid.UUID
+		detail, field string
+	}{
+		"the receipt's account blocked": {r.incoming, "The receipt's account cannot be posted", ""},
+		"an item's account blocked":     {settleAccount(t, r.env, "2000", "120000"), "Item 1's account cannot be posted", "items[0]"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			block(c.account, true)
+			defer block(c.account, false)
+			p := r.refusal(t, app(receipt, north, tiny, small))
+			field := ""
+			if len(p.Errors) == 1 {
+				field = p.Errors[0].Field
+			}
+			if p.Code != "ledger.account_not_postable" || !strings.Contains(p.Detail, c.detail) || field != c.field || len(p.Errors) > 1 {
+				t.Errorf("got %s (%s) with field errors %+v, want ledger.account_not_postable, %q, field %q", p.Code, p.Detail, p.Errors, c.detail, c.field)
+			}
+		})
+	}
 	t.Run("a closed period", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE ledger.period_status SET status = 'closed', version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
 			AND fiscal_year = 2026 AND period = 3`, r.ten.ID, r.de)
@@ -309,8 +336,8 @@ func TestApplyReceiptRefusals(t *testing.T) {
 			t.Errorf("got %s, want ledger.period_not_open", code)
 		}
 	})
-	if open := receivable(t, r.env, north); len(open) != 4 {
-		t.Errorf("the customer's open items after the refusals: got %d, want the 4 posted and neither cleared nor reversed", len(open))
+	if open := receivable(t, r.env, north); len(open) != 5 {
+		t.Errorf("the customer's open items after the refusals: got %d, want the 5 posted and neither cleared nor reversed", len(open))
 	}
 }
 
@@ -356,6 +383,14 @@ func TestApplyReceiptExchangeDifference(t *testing.T) {
 	if open := receivable(t, r.env, north); len(open) != 0 {
 		t.Errorf("the customer's open items: got %d, want none", len(open))
 	}
+	t.Run("the exchange difference's account blocked", func(t *testing.T) {
+		pgtest.Exec(t, `UPDATE ledger.company_account SET is_posting_blocked = true, version = version + 1 WHERE tenant_id = $1 AND legal_entity_id = $2
+			AND account_id = $3`, r.ten.ID, r.de, loss)
+		p := r.refusal(t, r.application(r.received(t, 10000, "GBP", "2026-04-11"), north, "GBP", "2026-04-11", r.owed(t, north, 10000, "GBP", "2026-03-10")))
+		if p.Code != "ledger.account_not_postable" || !strings.Contains(p.Detail, "exchange difference's account (fx_gain or fx_loss") || len(p.Errors) != 0 {
+			t.Errorf("got %s (%s) with field errors %+v, want ledger.account_not_postable naming the exchange difference's account and no field", p.Code, p.Detail, p.Errors)
+		}
+	})
 }
 
 // TestApplyReceiptParallelLedgers: the application posts to every ledger

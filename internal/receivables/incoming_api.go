@@ -42,10 +42,11 @@ type paymentReferences struct {
 // them.
 func (e *Endpoints) paymentReferences(ctx context.Context, payments []IncomingPayment) (paymentReferences, error) {
 	refs := paymentReferences{companies: map[uuid.UUID]tenancy.Entity{}}
-	var partners, accounts, entries, items, receipts []uuid.UUID
+	var partners, accounts, entries, items []uuid.UUID
+	var receipts []ledger.ItemRef
 	for _, v := range payments {
 		partners, accounts = append(partners, v.CustomerID), append(accounts, v.ReceiptAccountID)
-		entries, receipts = append(entries, v.ReceiptEntryID, v.EntryID), append(receipts, v.ReceiptEntryID)
+		entries, receipts = append(entries, v.ReceiptEntryID, v.EntryID), append(receipts, ledger.ItemRef{FiscalYear: v.ReceiptYear, EntryID: v.ReceiptEntryID})
 		for _, it := range v.Items {
 			items = append(items, it.EntryID)
 		}
@@ -186,9 +187,9 @@ type receiptReferences struct {
 // receiptReferences reads what the receipts name by id, once for all of
 // them.
 func (e *Endpoints) receiptReferences(ctx context.Context, receipts []ledger.Receipt) (receiptReferences, error) {
-	accounts, entries := make([]uuid.UUID, len(receipts)), make([]uuid.UUID, len(receipts))
+	accounts, entries := make([]uuid.UUID, len(receipts)), make([]ledger.ItemRef, len(receipts))
 	for i, r := range receipts {
-		accounts[i], entries[i] = r.AccountID, r.Item.EntryID
+		accounts[i], entries[i] = r.AccountID, r.Item
 	}
 	var refs receiptReferences
 	var err error

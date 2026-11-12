@@ -418,7 +418,7 @@ func Receivables(cfg Config) *receivables.Endpoints {
 // (ADR-0063 §1, As built T75c).
 type receivablesStatements struct{}
 
-func (receivablesStatements) Lines(ctx context.Context, entries []uuid.UUID) (map[uuid.UUID]receivables.StatementLine, error) {
+func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef) (map[uuid.UUID]receivables.StatementLine, error) {
 	lines, err := payments.StatementPostings{}.Lines(ctx, entries)
 	out := make(map[uuid.UUID]receivables.StatementLine, len(lines))
 	for entry, l := range lines {

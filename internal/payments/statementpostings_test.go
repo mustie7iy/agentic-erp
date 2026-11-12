@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/payments"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
@@ -23,7 +24,7 @@ func TestStatementPostings(t *testing.T) {
 		WHERE tenant_id = $1 AND statement_id = $2 AND line_no = 2`, e.Tenant.ID, statement, entry)
 	var got map[uuid.UUID]payments.PostedLine
 	if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) (err error) {
-		got, err = payments.StatementPostings{}.Lines(ctx, []uuid.UUID{entry, other})
+		got, err = payments.StatementPostings{}.Lines(ctx, []ledger.ItemRef{{FiscalYear: 2026, EntryID: entry}, {FiscalYear: 2026, EntryID: other}, {FiscalYear: 2025, EntryID: entry}})
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -37,7 +38,7 @@ func TestStatementPostings(t *testing.T) {
 		t.Error("outside a unit of work: got nil error, want an error")
 	}
 	apitest.EveryFailure(t, e.Tenant, e.Tenant.Human, "statement lines of entries", func(ctx context.Context) error {
-		_, err := payments.StatementPostings{}.Lines(ctx, []uuid.UUID{entry})
+		_, err := payments.StatementPostings{}.Lines(ctx, []ledger.ItemRef{{FiscalYear: 2026, EntryID: entry}})
 		return err
 	})
 }
