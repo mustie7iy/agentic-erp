@@ -442,8 +442,9 @@ func TestDistributionRunsOfOneSender(t *testing.T) {
 			return err
 		}
 	}
-	// The second cycle has the lower lock neither run holds first: each
-	// run locks both cycles in id order, whichever it is for.
+	// The run of the later cycle goes first and holds the earlier cycle's
+	// lock too: each run locks every cycle of the sender in id order,
+	// whichever it is for.
 	a, b := apitest.Serialized(t, p.Tenant, p.Tenant.Human, run(second), run(first))
 	if a != nil || b != nil {
 		t.Fatalf("runs: got %v and %v, want both answered", a, b)

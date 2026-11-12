@@ -89,6 +89,11 @@ func TestDistributionLines(t *testing.T) {
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("a total beyond an amount: got %v, want an overflow", err)
 	}
+	// The most negative amount has no magnitude an amount can hold.
+	_, _, err = distributionLines(sixty, []accountCost{{AccountID: x, Amount: math.MinInt64}})
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("shares of a cost beyond an amount: got %v, want an overflow", err)
+	}
 }
 
 // TestDistributionBeyondAnAmount: a run whose total does not fit in an
