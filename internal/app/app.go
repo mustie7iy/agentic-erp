@@ -414,7 +414,7 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 func Receivables(cfg Config) *receivables.Endpoints {
 	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
 		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
-		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, Statements: receivablesStatements{},
+		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, OpenItems: ledger.OpenItems{}, Statements: receivablesStatements{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
 }
 

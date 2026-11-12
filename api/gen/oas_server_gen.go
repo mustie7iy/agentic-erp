@@ -763,8 +763,14 @@ type Handler interface {
 	// items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
 	// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
 	// lines name (one code for every emirate) is refused, 422
-	// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
-	// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
+	// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
+	// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
+	// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
+	// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
+	// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
+	// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
+	// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
+	// invoice entered. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
@@ -2326,6 +2332,29 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetReceivablesAging implements getReceivablesAging operation.
+	//
+	// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
+	// key date, per customer and in total, not yet due and in buckets of days overdue. It is computed on
+	// read from the ledger's customer open items of the leading ledger, as they are now (not as they were
+	// on the key date): invoices, credit memos, and the customer items manual and migrated entries posted,
+	// cleared items and reversed entries left out, special G/L items included. Each item falls in exactly
+	// one bucket by its net due date, the baseline date plus the net days of the payment terms it was
+	// posted with, as `GET /v1/open-items` ages it with `aging_key_date`: `not_due` when due on the key
+	// date or later, else the `overdue` bucket holding its days past the due date, and `no_due_date` when
+	// it was posted without terms. `aging_days` are the overdue buckets' last days, ascending (`30,60,90`
+	// by default: 1 to 30, 31 to 60, 61 to 90 and more than 90 days); every bucket is given, an empty one
+	// with no items and an amount of 0, in the order not due, overdue by days, no due date. Amounts are in
+	// the company's local currency (`currency`), as the items were booked, a debit positive: a credit item
+	// (a credit memo, a payment on the account) is negative and reduces its customer's bucket and total.
+	// `totals` are those of every customer the request selects, on every page, and equal the open items of
+	// the company's customer reconciliation accounts. `items` is one row per customer with open items, by
+	// customer id, in cursor pages; `customer_id` selects one customer. The company must be one the caller
+	// may act in. The key date is in the years 1900 to 2999 (422 `receivables.key_date_out_of_range`
+	// naming `key_date`).
+	//
+	// GET /v1/receivables-aging
+	GetReceivablesAging(ctx context.Context, params GetReceivablesAgingParams) (GetReceivablesAgingRes, error)
 	// GetRecommendation implements getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -2973,10 +3002,11 @@ type Handler interface {
 	ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (ListCountryPacksRes, error)
 	// ListCustomerInvoices implements listCustomerInvoices operation.
 	//
-	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
-	// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
-	// totals and its items. Filtered by company, customer, status, document number and invoice date.
-	// Sortable by: `invoice_date`, `document_number`.
+	// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
+	// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
+	// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
+	// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
+	// `document_number`.
 	//
 	// GET /v1/customer-invoices
 	ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (ListCustomerInvoicesRes, error)
@@ -3931,8 +3961,22 @@ type Handler interface {
 	// `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
 	// draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
 	// the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
-	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
-	// Human-only (`x-agent: false`).
+	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A
+	// credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it
+	// credits the customer's reconciliation account with its gross amount and debits each item's account
+	// and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line
+	// is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when
+	// a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo,
+	// counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from
+	// that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term
+	// from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the
+	// gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not
+	// exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the
+	// problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the
+	// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
+	// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
+	// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
+	// refused. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices/{id}:post
 	PostCustomerInvoice(ctx context.Context, req OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)

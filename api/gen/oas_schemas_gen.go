@@ -27858,7 +27858,8 @@ func (*CreateYearCloseUnprocessableEntity) createYearCloseRes() {}
 
 // The figures of a credit memo or subsequent credit refused at `:post` because the posted credits
 // naming its invoice, with it, would exceed that invoice's gross amount (422
-// `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's.
+// `payables.credit_exceeds_invoice` for a supplier's, `receivables.credit_exceeds_invoice` for a
+// customer credit memo), in the invoice's currency, which is the credit's.
 // Ref: #/components/schemas/CreditLimit
 type CreditLimit struct {
 	// The invoice the credit names (its `reference_invoice_id`).
@@ -28314,10 +28315,16 @@ type CustomerInvoice struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// What the document is: `invoice`. Its amounts are never negative; the kind gives their direction.
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// What the document is: `invoice`, or `credit_memo`, which credits the customer what was invoiced (Cr
+	// customer when posted). Its amounts are never negative; the kind gives their direction. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Kind string `json:"kind"`
+	// The posted invoice a credit memo credits (`GET /v1/customer-invoices/{id}`). Absent on an invoice
+	// and on a credit memo naming none.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// That invoice's document number; absent with `reference_invoice_id`.
+	ReferenceInvoiceNumber OptString `json:"reference_invoice_number"`
 	// The invoice date, its tax date.
 	InvoiceDate time.Time `json:"invoice_date"`
 	// The posting date entered; once posted, the date the invoice posted on. Absent on a draft entered
@@ -28329,17 +28336,20 @@ type CustomerInvoice struct {
 	NetAmount Money `json:"net_amount"`
 	// The sum of the items' tax.
 	TaxAmount Money `json:"tax_amount"`
-	// What the customer owes: `net_amount` and `tax_amount`.
+	// `net_amount` and `tax_amount`: what the customer owes for an invoice, what the customer is credited
+	// by a credit memo.
 	GrossAmount Money `json:"gross_amount"`
-	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its debit line
-	// is the customer's open item. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on
+	// the customer's reconciliation account is the customer's open item, a debit for an invoice and a
+	// credit for a credit memo. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
 	Status string `json:"status"`
 	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
 	// company when none was entered). Absent on a draft entered without one.
 	PaymentTermCode OptString `json:"payment_term_code"`
-	// When the invoice's open item is due: the invoice date plus its payment term's net days, as the
-	// ledger keeps it with the item. Absent until posted.
+	// When the document's open item is due, as the ledger keeps it with the item: the invoice date plus
+	// its payment term's net days; for a credit memo that names an invoice and no term of its own, when
+	// that invoice is due. Absent until posted.
 	NetDueDate OptDate `json:"net_due_date"`
 	// The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -28419,6 +28429,16 @@ func (s *CustomerInvoice) GetCustomerName() string {
 // GetKind returns the value of Kind.
 func (s *CustomerInvoice) GetKind() string {
 	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *CustomerInvoice) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
+}
+
+// GetReferenceInvoiceNumber returns the value of ReferenceInvoiceNumber.
+func (s *CustomerInvoice) GetReferenceInvoiceNumber() OptString {
+	return s.ReferenceInvoiceNumber
 }
 
 // GetInvoiceDate returns the value of InvoiceDate.
@@ -28556,6 +28576,16 @@ func (s *CustomerInvoice) SetKind(val string) {
 	s.Kind = val
 }
 
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *CustomerInvoice) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
+}
+
+// SetReferenceInvoiceNumber sets the value of ReferenceInvoiceNumber.
+func (s *CustomerInvoice) SetReferenceInvoiceNumber(val OptString) {
+	s.ReferenceInvoiceNumber = val
+}
+
 // SetInvoiceDate sets the value of InvoiceDate.
 func (s *CustomerInvoice) SetInvoiceDate(val time.Time) {
 	s.InvoiceDate = val
@@ -28628,14 +28658,26 @@ type CustomerInvoiceCreate struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The customer: an active business partner with the customer role.
 	CustomerID uuid.UUID `json:"customer_id"`
-	// The invoice date; the tax date its items' tax codes are rated on (ADR-0049 §4).
+	// What the document is: `invoice` (absent: an invoice) or `credit_memo`, which credits the customer
+	// what was invoiced and posts with the signs turned. Amounts are more than zero whatever the kind,
+	// which gives their direction. Fixed once entered. Open enumeration: values may be added within /v1;
+	// one this version does not know is refused (422 `receivables.unknown_kind`).
+	Kind OptString `json:"kind"`
+	// The invoice a credit memo credits: a posted invoice of the same company and customer in the memo's
+	// currency (`GET /v1/customer-invoices`). The posted credit memos naming an invoice may not exceed its
+	// gross amount (`postCustomerInvoice`); absent: the memo names none and has no such limit. Never on an
+	// invoice.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// The document's date; the tax date its items' tax codes are rated on (ADR-0049 §4), a credit memo's
+	// own.
 	InvoiceDate time.Time `json:"invoice_date"`
 	// The posting date the invoice is to post on; absent: decided when it posts.
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217), every item's.
 	Currency string `json:"currency"`
 	// The payment term the invoice posts with: a configured term (`payment_terms` of the configuration);
-	// absent: the customer's in the company when the invoice posts.
+	// absent: the customer's in the company when the invoice posts, or, for a credit memo naming an
+	// invoice, that invoice's.
 	PaymentTermCode OptString `json:"payment_term_code"`
 	// The items, numbered in this order from 1.
 	Items []CustomerInvoiceItemCreate `json:"items"`
@@ -28649,6 +28691,16 @@ func (s *CustomerInvoiceCreate) GetLegalEntityID() uuid.UUID {
 // GetCustomerID returns the value of CustomerID.
 func (s *CustomerInvoiceCreate) GetCustomerID() uuid.UUID {
 	return s.CustomerID
+}
+
+// GetKind returns the value of Kind.
+func (s *CustomerInvoiceCreate) GetKind() OptString {
+	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *CustomerInvoiceCreate) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
 }
 
 // GetInvoiceDate returns the value of InvoiceDate.
@@ -28684,6 +28736,16 @@ func (s *CustomerInvoiceCreate) SetLegalEntityID(val uuid.UUID) {
 // SetCustomerID sets the value of CustomerID.
 func (s *CustomerInvoiceCreate) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CustomerInvoiceCreate) SetKind(val OptString) {
+	s.Kind = val
+}
+
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *CustomerInvoiceCreate) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
 }
 
 // SetInvoiceDate sets the value of InvoiceDate.
@@ -37051,6 +37113,18 @@ func (s *GetPurchaseOrderOKHeaders) SetResponse(val PurchaseOrder) {
 }
 
 func (*GetPurchaseOrderOKHeaders) getPurchaseOrderRes() {}
+
+type GetReceivablesAgingBadRequest Problem
+
+func (*GetReceivablesAgingBadRequest) getReceivablesAgingRes() {}
+
+type GetReceivablesAgingForbidden Problem
+
+func (*GetReceivablesAgingForbidden) getReceivablesAgingRes() {}
+
+type GetReceivablesAgingUnprocessableEntity Problem
+
+func (*GetReceivablesAgingUnprocessableEntity) getReceivablesAgingRes() {}
 
 type GetRecommendationBadRequest Problem
 
@@ -62484,8 +62558,9 @@ type Problem struct {
 	// With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it
 	// again, with what it found (ADR-0058 §7).
 	FailingChecks []FailingCheck `json:"failing_checks"`
-	// With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount,
-	// what posted credits naming it already credit, and the gross amount of the one refused.
+	// With `payables.credit_exceeds_invoice` and `receivables.credit_exceeds_invoice` only: the invoice
+	// the refused credit names, its gross amount, what posted credits naming it already credit, and the
+	// gross amount of the one refused.
 	CreditLimit OptCreditLimit `json:"credit_limit"`
 }
 
@@ -65178,6 +65253,321 @@ func (s *ReasonInput) GetReason() string {
 // SetReason sets the value of Reason.
 func (s *ReasonInput) SetReason(val string) {
 	s.Reason = val
+}
+
+// The AR aging of a company on a key date (ADR-0063 §10): the totals and one page of customers.
+// Ref: #/components/schemas/ReceivablesAging
+type ReceivablesAging struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items are aged on.
+	KeyDate time.Time `json:"key_date"`
+	// The company's local currency (ISO 4217), every amount's.
+	Currency string `json:"currency"`
+	// The overdue buckets' last days, as asked for or the default.
+	AgingDays []int32                `json:"aging_days"`
+	Totals    ReceivablesAgingTotals `json:"totals"`
+	// The customers on this page, by customer id.
+	Items []ReceivablesAgingCustomer `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *ReceivablesAging) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *ReceivablesAging) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *ReceivablesAging) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *ReceivablesAging) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *ReceivablesAging) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAgingDays returns the value of AgingDays.
+func (s *ReceivablesAging) GetAgingDays() []int32 {
+	return s.AgingDays
+}
+
+// GetTotals returns the value of Totals.
+func (s *ReceivablesAging) GetTotals() ReceivablesAgingTotals {
+	return s.Totals
+}
+
+// GetItems returns the value of Items.
+func (s *ReceivablesAging) GetItems() []ReceivablesAgingCustomer {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ReceivablesAging) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *ReceivablesAging) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *ReceivablesAging) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *ReceivablesAging) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *ReceivablesAging) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *ReceivablesAging) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAgingDays sets the value of AgingDays.
+func (s *ReceivablesAging) SetAgingDays(val []int32) {
+	s.AgingDays = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *ReceivablesAging) SetTotals(val ReceivablesAgingTotals) {
+	s.Totals = val
+}
+
+// SetItems sets the value of Items.
+func (s *ReceivablesAging) SetItems(val []ReceivablesAgingCustomer) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ReceivablesAging) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*ReceivablesAging) getReceivablesAgingRes() {}
+
+// One bucket of the AR aging: the open items in it and their amount in the company's local currency, a
+// credit item negative.
+// Ref: #/components/schemas/ReceivablesAgingBucket
+type ReceivablesAgingBucket struct {
+	// `not_due`: due on the key date or later; `overdue`: from `days_from` to `days_to` days past the net
+	// due date (the last overdue bucket without `days_to`); `no_due_date`: posted without payment terms.
+	// Open enumeration: clients must accept and preserve values not listed here; values may be added
+	// within /v1.
+	Bucket string `json:"bucket"`
+	// An overdue bucket's first day past the net due date.
+	DaysFrom OptInt32 `json:"days_from"`
+	// An overdue bucket's last day past the net due date; absent on the last overdue bucket.
+	DaysTo OptInt32 `json:"days_to"`
+	// How many open items the bucket holds.
+	ItemCount int64 `json:"item_count"`
+	// The items' amounts in local currency, added up; 0 for an empty bucket.
+	Amount Money `json:"amount"`
+}
+
+// GetBucket returns the value of Bucket.
+func (s *ReceivablesAgingBucket) GetBucket() string {
+	return s.Bucket
+}
+
+// GetDaysFrom returns the value of DaysFrom.
+func (s *ReceivablesAgingBucket) GetDaysFrom() OptInt32 {
+	return s.DaysFrom
+}
+
+// GetDaysTo returns the value of DaysTo.
+func (s *ReceivablesAgingBucket) GetDaysTo() OptInt32 {
+	return s.DaysTo
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingBucket) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingBucket) GetAmount() Money {
+	return s.Amount
+}
+
+// SetBucket sets the value of Bucket.
+func (s *ReceivablesAgingBucket) SetBucket(val string) {
+	s.Bucket = val
+}
+
+// SetDaysFrom sets the value of DaysFrom.
+func (s *ReceivablesAgingBucket) SetDaysFrom(val OptInt32) {
+	s.DaysFrom = val
+}
+
+// SetDaysTo sets the value of DaysTo.
+func (s *ReceivablesAgingBucket) SetDaysTo(val OptInt32) {
+	s.DaysTo = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingBucket) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingBucket) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// A customer's row of the AR aging: its open items on the key date, in total and by bucket.
+// Ref: #/components/schemas/ReceivablesAgingCustomer
+type ReceivablesAgingCustomer struct {
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// How many open items the customer has.
+	ItemCount int64 `json:"item_count"`
+	// What the customer owes: its open items in local currency, added up, credit items reducing it; the
+	// sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The customer's items by bucket: every bucket of the report, in its order.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *ReceivablesAgingCustomer) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *ReceivablesAgingCustomer) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *ReceivablesAgingCustomer) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingCustomer) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingCustomer) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingCustomer) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *ReceivablesAgingCustomer) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *ReceivablesAgingCustomer) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *ReceivablesAgingCustomer) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingCustomer) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingCustomer) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingCustomer) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
+}
+
+// The totals of the AR aging: every customer the request selects, whatever the page.
+// Ref: #/components/schemas/ReceivablesAgingTotals
+type ReceivablesAgingTotals struct {
+	// How many customers have open items: the rows of every page together.
+	CustomerCount int64 `json:"customer_count"`
+	// How many open items they have.
+	ItemCount int64 `json:"item_count"`
+	// The open items in local currency, added up: the open items of the company's customer reconciliation
+	// accounts (of the one customer, with `customer_id`); the sum of `buckets`.
+	Amount Money `json:"amount"`
+	// The items by bucket: not due, each overdue bucket by its days, without a due date.
+	Buckets []ReceivablesAgingBucket `json:"buckets"`
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *ReceivablesAgingTotals) GetCustomerCount() int64 {
+	return s.CustomerCount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *ReceivablesAgingTotals) GetItemCount() int64 {
+	return s.ItemCount
+}
+
+// GetAmount returns the value of Amount.
+func (s *ReceivablesAgingTotals) GetAmount() Money {
+	return s.Amount
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *ReceivablesAgingTotals) GetBuckets() []ReceivablesAgingBucket {
+	return s.Buckets
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *ReceivablesAgingTotals) SetCustomerCount(val int64) {
+	s.CustomerCount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *ReceivablesAgingTotals) SetItemCount(val int64) {
+	s.ItemCount = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ReceivablesAgingTotals) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *ReceivablesAgingTotals) SetBuckets(val []ReceivablesAgingBucket) {
+	s.Buckets = val
 }
 
 // An agent's recommendation on a business object, and what a person decided.
@@ -74484,6 +74874,7 @@ func (*TooManyRequestsHeaders) getProfitCenterRes()                       {}
 func (*TooManyRequestsHeaders) getPurchaseOrderChangeRes()                {}
 func (*TooManyRequestsHeaders) getPurchaseOrderDocumentRes()              {}
 func (*TooManyRequestsHeaders) getPurchaseOrderRes()                      {}
+func (*TooManyRequestsHeaders) getReceivablesAgingRes()                   {}
 func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
@@ -75219,6 +75610,7 @@ func (*UnauthorizedHeaders) getProfitCenterRes()                       {}
 func (*UnauthorizedHeaders) getPurchaseOrderChangeRes()                {}
 func (*UnauthorizedHeaders) getPurchaseOrderDocumentRes()              {}
 func (*UnauthorizedHeaders) getPurchaseOrderRes()                      {}
+func (*UnauthorizedHeaders) getReceivablesAgingRes()                   {}
 func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}

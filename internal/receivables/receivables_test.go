@@ -24,7 +24,8 @@ var perms = []string{"receivables.invoice.read", "receivables.invoice.write", "r
 // codes A1 (19% to 30 June 2026, 21% from 1 July), A0 (zero-rated), AJ
 // (levying its lines' subdivision) and A2 (two components of 60%) on
 // account 230000, the customer reconciliation account 120000, number
-// ranges for the entries customer invoices post (journal_dr) and for
+// ranges for the entries customer invoices and credit memos post
+// (journal_dr, journal_dg) and for
 // incoming payments and their clearing entries (incoming_payment,
 // journal_dz), house bank MAIN with the main bank account 102000 and the
 // incoming payments clearing account 103000, and a customer set up in the
@@ -57,7 +58,8 @@ func outputCodes(rounding string) func(*config.Config) {
 		de.HouseBank.MainGLAccount, de.HouseBank.IncomingGLAccount = "102000", "103000"
 		for _, y := range fixture.Years() {
 			doc.NumberRanges = append(doc.NumberRanges, config.NumberRange{Company: "2000", DocumentType: "journal_dr", FiscalYear: y, First: 100000, Last: 999999},
-				config.NumberRange{Company: "2000", DocumentType: "journal_dz", FiscalYear: y, First: 100000, Last: 999999})
+				config.NumberRange{Company: "2000", DocumentType: "journal_dz", FiscalYear: y, First: 100000, Last: 999999},
+				config.NumberRange{Company: "2000", DocumentType: "journal_dg", FiscalYear: y, First: 100000, Last: 999999})
 			first := int64(100000)
 			if y != 2026 { // a range may not repeat another year's numbers (config.RangeRepeats)
 				first = 1000000
@@ -257,7 +259,7 @@ func (e env) recorded(t *testing.T, id string, got map[string]any) {
 	}
 	want := map[string]any{"customer_invoice_id": id, "document_number": got["document_number"], "legal_entity_id": e.DE.String(),
 		"legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001", "kind": "invoice",
-		"invoice_date": "2026-03-10", "net_amount": map[string]any{"amount": "143.43", "currency": "EUR"},
+		"reference_invoice_id": nil, "reference_invoice_number": nil, "invoice_date": "2026-03-10", "net_amount": map[string]any{"amount": "143.43", "currency": "EUR"},
 		"tax_amount":   map[string]any{"amount": "25.35", "currency": "EUR"},
 		"gross_amount": map[string]any{"amount": "168.78", "currency": "EUR"}, "status": "draft", "status_before": nil, "version": float64(1)}
 	if a, b := mustJSON(t, payload), mustJSON(t, want); a != b {

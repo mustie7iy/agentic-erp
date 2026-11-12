@@ -1151,14 +1151,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Credit memos",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant enters and posts a credit memo to a customer naming the invoice it credits: an open credit item that clears against the invoice or nets when a payment is applied",
-        "r": "T75d · docs/design/plan-breadth-week1.md §T75d",
+        "r": "T75d · docs/design/plan-breadth-week1.md §T75d · db/migrations/000269 · kind credit_memo and reference_invoice_id on POST /v1/customer-invoices, POST /v1/customer-invoices/{id}:post (422 receivables.credit_exceeds_invoice) · internal/receivables/kinds.go · walkthrough step_customer_credit · ADR-0063 §7 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -1172,14 +1172,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "AR aging report",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller reads the aging of a company's customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue (GET /v1/receivables-aging)",
-        "r": "T75e · docs/design/plan-breadth-week1.md §T75e",
+        "r": "T75e · docs/design/plan-breadth-week1.md §T75e · GET /v1/receivables-aging · internal/receivables/aging.go · ledger.AgingDays, ledger.AgingBucket, ledger.AgingRange (internal/ledger/aging.go) · TestReceivablesAgingBudget (01 §1.3) · walkthrough step_ar_aging · ADR-0063 §10 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

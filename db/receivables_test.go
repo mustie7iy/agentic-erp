@@ -62,7 +62,7 @@ func TestCustomerInvoiceRules(t *testing.T) {
 			return all(tx, invoice(s, s.doc, "CI1", "invoice", 10000, 1900, 11900, "posted"))
 		}, "customer_invoice_posted"},
 		{"of another kind", func(tx pgx.Tx, s scene) error {
-			return all(tx, invoice(s, s.doc, "CI1", "credit_memo", 10000, 1900, 11900, "draft"))
+			return all(tx, invoice(s, s.doc, "CI1", "debit_memo", 10000, 1900, 11900, "draft"))
 		}, "customer_invoice_kind_check"},
 		{"a gross that is not net and tax", func(tx pgx.Tx, s scene) error {
 			return all(tx, invoice(s, s.doc, "CI1", "invoice", 10000, 1900, 11901, "draft"))
@@ -205,6 +205,59 @@ func TestCustomerInvoicePosting(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), company: id(), doc: id(), entry: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestCustomerCreditMemoRules (T75d, migration 000269; ADR-0063 §7): the
+// document is an invoice or a credit memo; only a credit memo names the
+// invoice it credits, a document of the same tenant and never itself; one
+// naming none is allowed.
+func TestCustomerCreditMemoRules(t *testing.T) {
+	need(t)
+	const doc = `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+		currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by, reference_invoice_id)
+		VALUES ($1, $2, $3, $4, gen_random_uuid(), $5, '2026-03-10', 'EUR', 100, 0, 100, 'draft', $1, $1, $6)`
+	type scene struct{ tenant, company, invoice, memo uuid.UUID }
+	var none *uuid.UUID
+	invoice := func(s scene) stmt { return step(doc, s.tenant, s.invoice, "CI1", s.company, "invoice", none) }
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a credit memo naming an invoice", func(tx pgx.Tx, s scene) error {
+			return all(tx, invoice(s), step(doc, s.tenant, s.memo, "CI2", s.company, "credit_memo", &s.invoice))
+		}, ""},
+		{"a credit memo naming none", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(doc, s.tenant, s.memo, "CI2", s.company, "credit_memo", none))
+		}, ""},
+		{"an invoice naming an invoice", func(tx pgx.Tx, s scene) error {
+			return all(tx, invoice(s), step(doc, s.tenant, s.memo, "CI2", s.company, "invoice", &s.invoice))
+		}, "customer_invoice_reference_on_credit"},
+		{"a credit memo naming no document of the tenant", func(tx pgx.Tx, s scene) error {
+			unknown := id()
+			return all(tx, step(doc, s.tenant, s.memo, "CI2", s.company, "credit_memo", &unknown))
+		}, "customer_invoice_reference_fkey"},
+		{"a credit memo naming itself", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(doc, s.tenant, s.memo, "CI2", s.company, "credit_memo", &s.memo))
+		}, "customer_invoice_reference_not_itself"},
+		{"a reference given after entry", func(tx pgx.Tx, s scene) error {
+			return all(tx, invoice(s), step(doc, s.tenant, s.memo, "CI2", s.company, "credit_memo", none),
+				step(`UPDATE receivables.customer_invoice SET reference_invoice_id = $2 WHERE id = $1`, s.memo, s.invoice))
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), company: id(), invoice: id(), memo: id()}
 			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
 			if c.want != "" {
 				failsWith(t, err, c.want)

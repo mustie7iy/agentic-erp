@@ -231,6 +231,7 @@ var operationRolesOidc = map[string][]string{
 	GetPurchaseOrderOperation:                      []string{},
 	GetPurchaseOrderChangeOperation:                []string{},
 	GetPurchaseOrderDocumentOperation:              []string{},
+	GetReceivablesAgingOperation:                   []string{},
 	GetRecommendationOperation:                     []string{},
 	GetRegressionSuiteOperation:                    []string{},
 	GetRequisitionOperation:                        []string{},

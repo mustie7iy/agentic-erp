@@ -185,6 +185,7 @@ const (
 	GetPurchaseOrderOperation                      OperationName = "GetPurchaseOrder"
 	GetPurchaseOrderChangeOperation                OperationName = "GetPurchaseOrderChange"
 	GetPurchaseOrderDocumentOperation              OperationName = "GetPurchaseOrderDocument"
+	GetReceivablesAgingOperation                   OperationName = "GetReceivablesAging"
 	GetRecommendationOperation                     OperationName = "GetRecommendation"
 	GetRegressionSuiteOperation                    OperationName = "GetRegressionSuite"
 	GetRequisitionOperation                        OperationName = "GetRequisition"

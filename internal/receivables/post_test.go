@@ -160,7 +160,7 @@ func (e env) posted(t *testing.T, id string, got map[string]any) {
 	}
 	want := map[string]any{"customer_invoice_id": id, "document_number": got["document_number"], "legal_entity_id": e.DE.String(),
 		"legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001", "kind": "invoice",
-		"invoice_date": "2026-03-10", "posting_date": "2026-03-12", "net_amount": map[string]any{"amount": "148.43", "currency": "EUR"},
+		"reference_invoice_id": nil, "reference_invoice_number": nil, "invoice_date": "2026-03-10", "posting_date": "2026-03-12", "net_amount": map[string]any{"amount": "148.43", "currency": "EUR"},
 		"tax_amount":   map[string]any{"amount": "25.35", "currency": "EUR"},
 		"gross_amount": map[string]any{"amount": "173.78", "currency": "EUR"}, "payment_term_code": "NT30", "net_due_date": "2026-04-09",
 		"journal_entry_id": got["journal_entry_id"], "journal_entry_year": float64(2026), "journal_entry_number": got["journal_entry_number"],
