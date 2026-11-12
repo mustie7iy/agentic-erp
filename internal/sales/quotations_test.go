@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
@@ -179,6 +180,18 @@ func fields(t *testing.T, m, want map[string]any) {
 	}
 }
 
+// refusal checks that err is the problem with the status and code.
+func refusal(t *testing.T, err error, status int, code string) {
+	t.Helper()
+	p := problem.From(err)
+	if p.Code != code {
+		t.Errorf("problem code: got %s (%v), want %s", p.Code, err, code)
+	}
+	if p.Status != status {
+		t.Errorf("status: got %d, want %d", p.Status, status)
+	}
+}
+
 func mustJSON(t *testing.T, v any) string {
 	t.Helper()
 	b, err := json.Marshal(v)
@@ -292,8 +305,11 @@ func TestQuotationCreatedAndReadBack(t *testing.T) {
 	}
 	id, _ := got["id"].(string)
 	read, readTag := e.Must(200, "GET", "/v1/quotations/"+id, "", "")
-	if a, b := mustJSON(t, read), mustJSON(t, got); a != b || readTag != tag {
-		t.Errorf("read back: got %s (%s), want %s (%s)", a, readTag, b, tag)
+	if a, b := mustJSON(t, read), mustJSON(t, got); a != b {
+		t.Errorf("read back: got %s, want %s", a, b)
+	}
+	if readTag != tag {
+		t.Errorf("ETag read back: got %s, want %s", readTag, tag)
 	}
 	if n := e.audits(t, "sales.quotation.create", id); n != 1 {
 		t.Errorf("audit records of the creation: got %d, want 1", n)
@@ -320,13 +336,13 @@ func TestQuotationIdempotent(t *testing.T) {
 	req := apitest.Req{Method: "POST", Path: "/v1/quotations", Body: e.body(e.customer, far, e.item(line{})),
 		Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}
 	first, second := e.API.Do(req), e.API.Do(req)
-	if first.Code != 201 || second.Code != 201 {
-		t.Fatalf("statuses: got %d and %d, want 201 twice: %s", first.Code, second.Code, second.Body)
+	for i, rec := range []*httptest.ResponseRecorder{first, second} {
+		if rec.Code != 201 {
+			t.Fatalf("status of call %d: got %d, want 201: %s", i+1, rec.Code, rec.Body)
+		}
 	}
 	a, b := apitest.JSON(t, first), apitest.JSON(t, second)
-	if a["id"] != b["id"] || a["document_number"] != b["document_number"] {
-		t.Errorf("replay: got %v %v, want the first answer's %v %v", b["id"], b["document_number"], a["id"], a["document_number"])
-	}
+	fields(t, b, map[string]any{"id": a["id"], "document_number": a["document_number"]})
 	if h := second.Header().Get("Idempotent-Replayed"); h != "true" {
 		t.Errorf("Idempotent-Replayed: got %q, want true", h)
 	}
@@ -392,9 +408,7 @@ func TestQuotationRefusals(t *testing.T) {
 				ValidUntil: instant(t, far+"T00:00:00Z"), Currency: "EUR"})
 			return err
 		})
-		if p := problem.From(err); p.Code != "sales.items_required" || p.Status != 422 {
-			t.Errorf("got %v, want 422 sales.items_required", err)
-		}
+		refusal(t, err, 422, "sales.items_required")
 	})
 }
 
@@ -409,8 +423,10 @@ func TestQuotationAnswered(t *testing.T) {
 	e.Problem(412, "request.version_mismatch", "POST", path+":accept", "", `"7"`)
 	req := apitest.Req{Method: "POST", Path: path + ":accept", Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), IfMatch: `"1"`}
 	first, second := e.API.Do(req), e.API.Do(req)
-	if first.Code != 200 || second.Code != 200 {
-		t.Fatalf("statuses: got %d and %d, want 200 twice: %s", first.Code, second.Code, second.Body)
+	for i, rec := range []*httptest.ResponseRecorder{first, second} {
+		if rec.Code != 200 {
+			t.Fatalf("status of call %d: got %d, want 200: %s", i+1, rec.Code, rec.Body)
+		}
 	}
 	a, b := apitest.JSON(t, first), apitest.JSON(t, second)
 	fields(t, a, map[string]any{"status": "accepted", "version": float64(2)})
@@ -468,7 +484,7 @@ func TestQuotationAnswered(t *testing.T) {
 		// The second waits for the first's row lock and then finds the
 		// quotation at another version.
 		slices.Sort(codes)
-		if codes[0] != 200 || codes[1] != 412 {
+		if !slices.Equal(codes, []int{200, 412}) {
 			t.Errorf("statuses: got %v, want one 200 and one 412", codes)
 		}
 		if ev := e.events(t, "quotation_changed", "quotation_id", other); len(ev) != 2 {
@@ -508,9 +524,7 @@ func TestQuotationDatesAreTheCompanys(t *testing.T) {
 		// 03:00 UTC on 11 March is 10 March in Toronto: a day past its validity.
 		h.Now = func() time.Time { return instant(t, "2026-03-11T03:00:00Z") }
 		_, err = h.MarkAccepted(ctx, q.ID, never)
-		if p := problem.From(err); p.Code != "sales.quotation_expired" || p.Status != 409 {
-			t.Errorf("accepted past its validity: got %v, want 409 sales.quotation_expired", err)
-		}
+		refusal(t, err, 409, "sales.quotation_expired")
 		rejected, err := h.MarkRejected(ctx, q.ID, never)
 		if err == nil && rejected.Status != sales.Rejected {
 			t.Errorf("rejected past its validity: got status %s, want rejected", rejected.Status)

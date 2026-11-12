@@ -3,6 +3,7 @@ package sales_test
 import (
 	"context"
 	"fmt"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
-	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/sales"
 )
 
@@ -87,8 +87,11 @@ func TestOrderFromQuotation(t *testing.T) {
 			if q := quantity(t, its[i], "quantity"); q != want.ordered {
 				t.Errorf("ordered: got %s, want %s", q, want.ordered)
 			}
-			if d, b := quantity(t, its[i], "delivered_quantity"), quantity(t, its[i], "billed_quantity"); d != want.none || b != want.none {
-				t.Errorf("delivered and billed: got %s and %s, want %s twice", d, b, want.none)
+			if d := quantity(t, its[i], "delivered_quantity"); d != want.none {
+				t.Errorf("delivered: got %s, want %s", d, want.none)
+			}
+			if b := quantity(t, its[i], "billed_quantity"); b != want.none {
+				t.Errorf("billed: got %s, want %s", b, want.none)
 			}
 			copied := map[string]any{}
 			for k, v := range its[i] {
@@ -103,8 +106,11 @@ func TestOrderFromQuotation(t *testing.T) {
 	}
 	id, _ := got["id"].(string)
 	read, readTag := e.Must(200, "GET", "/v1/sales-orders/"+id, "", "")
-	if a, b := mustJSON(t, read), mustJSON(t, got); a != b || readTag != tag {
-		t.Errorf("read back: got %s (%s), want %s (%s)", a, readTag, b, tag)
+	if a, b := mustJSON(t, read), mustJSON(t, got); a != b {
+		t.Errorf("read back: got %s, want %s", a, b)
+	}
+	if readTag != tag {
+		t.Errorf("ETag read back: got %s, want %s", readTag, tag)
 	}
 	if n := e.audits(t, "sales.sales_order.create", id); n != 1 {
 		t.Errorf("audit records of the creation: got %d, want 1", n)
@@ -133,7 +139,7 @@ func TestOrderFromQuotation(t *testing.T) {
 		wg.Wait()
 		// The second waits for the first's lock on the quotation and then finds its order.
 		slices.Sort(codes)
-		if codes[0] != 201 || codes[1] != 409 {
+		if !slices.Equal(codes, []int{201, 409}) {
 			t.Errorf("statuses: got %v, want one 201 and one 409", codes)
 		}
 		var n int
@@ -159,10 +165,7 @@ func TestOrderCreatedDirectly(t *testing.T) {
 	if a := amount(t, got, "net_amount"); a != "28.03 EUR" {
 		t.Errorf("net value: got %s, want 28.03 EUR (25.03 and 3.00)", a)
 	}
-	if got["payment_term_code"] != "NT14" || got["quotation_id"] != nil || got["quotation_number"] != nil || got["status"] != "draft" {
-		t.Errorf("got term %v, quotation %v %v, status %v, want NT14, no quotation and draft", got["payment_term_code"], got["quotation_id"],
-			got["quotation_number"], got["status"])
-	}
+	fields(t, got, map[string]any{"payment_term_code": "NT14", "quotation_id": nil, "quotation_number": nil, "status": "draft"})
 	var nets []string
 	for _, it := range items(t, got) {
 		nets = append(nets, amount(t, it, "net_amount"))
@@ -176,18 +179,26 @@ func TestOrderCreatedDirectly(t *testing.T) {
 			t.Errorf("payment term: got %v, want the customer's NT30", own["payment_term_code"])
 		}
 		ev := e.events(t, "sales_order_changed", "sales_order_id", own["id"].(string))
-		if len(ev) != 1 || ev[0]["quotation_id"] != nil || ev[0]["payment_term_code"] != "NT30" {
-			t.Errorf("its event: got %v, want one without a quotation on NT30", ev)
+		if len(ev) != 1 {
+			t.Fatalf("its events: got %d, want 1", len(ev))
 		}
+		fields(t, ev[0], map[string]any{"quotation_id": nil, "payment_term_code": "NT30"})
 	})
 	t.Run("idempotent", func(t *testing.T) {
 		req := apitest.Req{Method: "POST", Path: "/v1/sales-orders", Body: e.direct(e.customer, "", e.item(line{price: "77.00"})),
 			Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey()}
 		first, second := e.API.Do(req), e.API.Do(req)
-		a, b := apitest.JSON(t, first), apitest.JSON(t, second)
-		if first.Code != 201 || second.Code != 201 || a["id"] != b["id"] || second.Header().Get("Idempotent-Replayed") != "true" {
-			t.Errorf("replay: got %d %v then %d %v (Idempotent-Replayed %q), want 201 twice with one id, replayed", first.Code, a["id"], second.Code,
-				b["id"], second.Header().Get("Idempotent-Replayed"))
+		if first.Code != 201 {
+			t.Fatalf("first status: got %d, want 201: %s", first.Code, first.Body)
+		}
+		if second.Code != 201 {
+			t.Fatalf("second status: got %d, want 201: %s", second.Code, second.Body)
+		}
+		if a, b := apitest.JSON(t, first)["id"], apitest.JSON(t, second)["id"]; a != b {
+			t.Errorf("replay: got order %v, want the first's %v", b, a)
+		}
+		if h := second.Header().Get("Idempotent-Replayed"); h != "true" {
+			t.Errorf("Idempotent-Replayed: got %q, want true", h)
 		}
 	})
 }
@@ -255,6 +266,16 @@ func TestOrderRefusals(t *testing.T) {
 	if n != 0 {
 		t.Errorf("orders after the refusals: got %d, want none", n)
 	}
+	t.Run("no items", func(t *testing.T) {
+		// The contract refuses an empty list before the handler; the port refuses it too.
+		eur := "EUR"
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := endpoints(t, time.Now()).MakeOrder(ctx, sales.OrderInput{LegalEntityID: &e.DE, CustomerID: &e.customer, Currency: &eur,
+				Items: []sales.ItemInput{}})
+			return err
+		})
+		refusal(t, err, 422, "sales.items_required")
+	})
 	t.Run("the term given with a quotation", func(t *testing.T) {
 		got, _ := e.In(t).Must(201, "POST", "/v1/sales-orders", with(`"payment_term_code": "NT14"`), "")
 		if got["payment_term_code"] != "NT14" {
@@ -281,15 +302,21 @@ func TestOrderConfirmed(t *testing.T) {
 	e.Problem(412, "request.version_mismatch", "POST", path, "", `"7"`)
 	req := apitest.Req{Method: "POST", Path: path, Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), IfMatch: `"1"`}
 	first, second := e.API.Do(req), e.API.Do(req)
-	if first.Code != 200 || second.Code != 200 {
-		t.Fatalf("statuses: got %d and %d, want 200 twice: %s", first.Code, second.Code, second.Body)
+	for i, rec := range []*httptest.ResponseRecorder{first, second} {
+		if rec.Code != 200 {
+			t.Fatalf("status of call %d: got %d, want 200: %s", i+1, rec.Code, rec.Body)
+		}
 	}
 	a, b := apitest.JSON(t, first), apitest.JSON(t, second)
-	if a["status"] != "confirmed" || a["version"] != float64(2) || first.Header().Get("ETag") != `"2"` {
-		t.Errorf("confirmed: got status %v, version %v, ETag %s, want confirmed, 2 and \"2\"", a["status"], a["version"], first.Header().Get("ETag"))
+	fields(t, a, map[string]any{"status": "confirmed", "version": float64(2)})
+	if tag := first.Header().Get("ETag"); tag != `"2"` {
+		t.Errorf("ETag: got %s, want \"2\"", tag)
 	}
-	if mustJSON(t, a) != mustJSON(t, b) || second.Header().Get("Idempotent-Replayed") != "true" {
-		t.Errorf("replay: got %v (Idempotent-Replayed %q), want the first answer %v replayed", b, second.Header().Get("Idempotent-Replayed"), a)
+	if mustJSON(t, a) != mustJSON(t, b) {
+		t.Errorf("replay: got %v, want the first answer %v", b, a)
+	}
+	if h := second.Header().Get("Idempotent-Replayed"); h != "true" {
+		t.Errorf("Idempotent-Replayed: got %q, want true", h)
 	}
 	if n := e.audits(t, "sales.sales_order.confirm", id); n != 1 {
 		t.Errorf("audit records of the confirmation: got %d, want 1", n)
@@ -298,9 +325,7 @@ func TestOrderConfirmed(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("SalesOrderChanged events: got %d, want 2 (created, confirmed)", len(events))
 	}
-	if ev := events[1]; ev["status"] != "confirmed" || ev["status_before"] != "draft" || ev["version"] != float64(2) || ev["customer_number"] != "BP70000001" {
-		t.Errorf("the confirmation's event: got %v, want confirmed from draft at version 2 naming BP70000001", ev)
-	}
+	fields(t, events[1], map[string]any{"status": "confirmed", "status_before": "draft", "version": float64(2), "customer_number": "BP70000001"})
 	t.Run("confirmed once", func(t *testing.T) {
 		e.In(t).Problem(409, "sales.invalid_status", "POST", path, "", `"2"`)
 	})
@@ -317,7 +342,7 @@ func TestOrderConfirmed(t *testing.T) {
 		wg.Wait()
 		// The second waits for the first's row lock and then finds the order at another version.
 		slices.Sort(codes)
-		if codes[0] != 200 || codes[1] != 412 {
+		if !slices.Equal(codes, []int{200, 412}) {
 			t.Errorf("statuses: got %v, want one 200 and one 412", codes)
 		}
 		if ev := e.events(t, "sales_order_changed", "sales_order_id", other); len(ev) != 2 {
@@ -416,18 +441,44 @@ func TestOrdersPublishedRead(t *testing.T) {
 		if !ok {
 			t.Fatal("got no order, want the order created")
 		}
-		if o.Status != sales.Draft || o.Net != 2503 || o.Currency != "EUR" || o.Exponent != 2 || o.PaymentTermCode != "NT30" || o.CustomerID != e.customer ||
-			o.QuotationID == nil || o.QuotationID.String() != quotation || len(o.Items) != 1 {
-			t.Fatalf("the order: got %+v, want a draft of 25.03 EUR on NT30 from the quotation with one item", o)
+		if len(o.Items) != 1 {
+			t.Fatalf("items: got %d, want 1", len(o.Items))
 		}
 		it := o.Items[0]
-		if it.Quantity != "2.5" || it.Unit != "KG" || it.UnitPrice != 1001 || it.PriceUnit != 1 || it.Net != 2503 || it.AccountID != e.revenue ||
-			it.Delivered != "0" || it.Billed != "0" || it.TaxCode == nil || *it.TaxCode != "A1" || it.ItemKey == nil || *it.ItemKey != "BRACKET-M8" {
-			t.Errorf("its item: got %+v, want 2.5 KG at 10.01 = 25.03 on the revenue account with A1, nothing delivered or billed", it)
+		text := func(p *string) any {
+			if p == nil {
+				return nil
+			}
+			return *p
+		}
+		id := func(p *uuid.UUID) any {
+			if p == nil {
+				return nil
+			}
+			return p.String()
+		}
+		for _, c := range []struct {
+			name      string
+			got, want any
+		}{
+			{"status", o.Status, sales.Draft}, {"net value", int64(o.Net), int64(2503)}, {"currency", o.Currency, "EUR"}, {"exponent", o.Exponent, 2},
+			{"payment term", o.PaymentTermCode, "NT30"}, {"customer", o.CustomerID, e.customer}, {"quotation", id(o.QuotationID), quotation},
+			{"quotation number", text(o.QuotationNumber), created["quotation_number"]},
+			{"item's quantity", it.Quantity, "2.5"}, {"item's unit", it.Unit, "KG"}, {"item's unit price", int64(it.UnitPrice), int64(1001)},
+			{"item's price unit", it.PriceUnit, int32(1)}, {"item's net value", int64(it.Net), int64(2503)}, {"item's account", it.AccountID, e.revenue},
+			{"item's delivered quantity", it.Delivered, "0"}, {"item's billed quantity", it.Billed, "0"}, {"item's tax code", text(it.TaxCode), "A1"},
+			{"item's key", text(it.ItemKey), "BRACKET-M8"},
+		} {
+			if c.got != c.want {
+				t.Errorf("%s: got %v, want %v", c.name, c.got, c.want)
+			}
 		}
 		_, ok, err = sales.Orders{}.Order(ctx, uuid.New())
-		if err != nil || ok {
-			t.Errorf("an unknown order: got ok %v and %v, want none", ok, err)
+		if err != nil {
+			return err
+		}
+		if ok {
+			t.Error("an unknown order: got one, want none")
 		}
 		return nil
 	})
@@ -469,14 +520,4 @@ func TestOrderDatedInTheCompanysZone(t *testing.T) {
 			}
 		})
 	}
-	t.Run("no items", func(t *testing.T) {
-		// The contract refuses an empty list before the handler; the port refuses it too.
-		err := e.inRequest(t, func(ctx context.Context) error {
-			_, err := h.MakeOrder(ctx, sales.OrderInput{LegalEntityID: &e.DE, CustomerID: &e.customer, Currency: &currency, Items: []sales.ItemInput{}})
-			return err
-		})
-		if p := problem.From(err); p.Code != "sales.items_required" || p.Status != 422 {
-			t.Errorf("got %v, want 422 sales.items_required", err)
-		}
-	})
 }

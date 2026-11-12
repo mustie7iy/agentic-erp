@@ -70412,7 +70412,7 @@ type SalesOrder struct {
 	// The quotation the order was created from (`GET /v1/quotations/{id}`); absent for an order created
 	// directly.
 	QuotationID OptUUID `json:"quotation_id"`
-	// The quotation's document number; absent with `quotation_id`.
+	// The quotation's document number; absent, as `quotation_id` is, for an order created directly.
 	QuotationNumber OptString `json:"quotation_number"`
 	// The day the order was created: the company's date in its time zone.
 	OrderDate time.Time `json:"order_date"`

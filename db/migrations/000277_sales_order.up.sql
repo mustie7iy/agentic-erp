@@ -98,7 +98,6 @@ CREATE TABLE sales.sales_order_item (
   CONSTRAINT sales_order_item_quantities CHECK (billed_quantity >= 0 AND billed_quantity <= delivered_quantity AND delivered_quantity <= quantity)
 );
 SELECT platform.secure_table('sales.sales_order_item'::regclass);
-REVOKE UPDATE ON sales.sales_order_item FROM erp_app;
 
 -- Reading sales orders, creating them and confirming them (ADR-0067 §7).
 INSERT INTO ref.permission (code, description, is_approval) VALUES

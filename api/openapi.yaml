@@ -44735,7 +44735,7 @@ components:
             customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
             customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
             quotation_id: {type: string, format: uuid, description: "The quotation the order was created from (`GET /v1/quotations/{id}`); absent for an order created directly.", readOnly: true}
-            quotation_number: {type: string, description: "The quotation's document number; absent with `quotation_id`.", readOnly: true}
+            quotation_number: {type: string, description: "The quotation's document number; absent, as `quotation_id` is, for an order created directly.", readOnly: true}
             order_date: {type: string, format: date, description: "The day the order was created: the company's date in its time zone.", readOnly: true}
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217).", readOnly: true}
             payment_term_code: {type: string, description: "The payment term the order is billed with: the one given with it, else the customer's in the company when it was created.", readOnly: true}
