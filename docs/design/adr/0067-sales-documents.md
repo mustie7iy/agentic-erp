@@ -612,9 +612,10 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   document.
 - **The refusals a post can still meet**, T79a having checked the
   account and the tax code when the document was created (§9): the
-  customer not active, no longer a customer, without data in the
-  company or blocked for posting since (422
-  `receivables.customer_not_usable`, `customer_id`); an item's account
+  customer not active, no longer a customer or blocked for posting
+  since (422 `receivables.customer_not_usable`, `customer_id`; without
+  a field when its data in the company is gone, which receivables
+  finds only as it posts); an item's account
   that can no longer be posted (422 `receivables.account_not_postable`,
   `items[i].account_id`) or that asks for a center the item does not
   carry (the ledger's assignment refusals, `items[i].account_id`); a
@@ -632,8 +633,8 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   items one for one, so its field errors stand; `asBilling` leads the
   detail with the document's number, turns an item's center into its
   account and the ledger's lines into what they are to the document
-  (line 0 the customer, lines 1 to n the items, the rest the output
-  tax), and copies the problem rather than change it. Each refusal
+  (line 0 the customer, lines 1 to n the items with the field refused
+  of them, the rest the output tax), and copies the problem rather than change it. Each refusal
   rolls the invoice entered back with everything else: the document
   stays `created` at version 1.
 - `BillingDocumentPosted` (`x-webhook`): the document's net value, the

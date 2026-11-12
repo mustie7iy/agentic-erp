@@ -71831,17 +71831,18 @@ func (s *Server) handlePostBankStatementLineRequest(args [2]string, argsEscaped 
 // refused (409 `sales.invalid_status`); a retry with the same `Idempotency-Key` answers the posted
 // document. What accounts receivable or the ledger refuses leaves the document `created` and nothing
 // posted, and is answered with their code, the document's number leading the detail and the document's
-// own fields named: a customer that is not active, no longer a customer, without data in the company
-// or blocked for posting there (422 `receivables.customer_not_usable`, `customer_id`); an item's
-// account that can no longer be posted (422 `receivables.account_not_postable`, `items[i].account_id`)
-// or asks for a cost center the item does not carry (422 `ledger.cost_center_required`,
-// `items[i].account_id`); a tax code that is no longer an output tax code of the company with a rate
-// on the billing date (422 `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the
-// `customer_invoice` or `journal_dr` number range (422 `config.no_number_range`). An order's items are
-// not changed in the first version, so a document refused for an item's account or tax code cannot be
-// posted until the configuration allows it again. A posted billing document is not reversed or
-// cancelled in the first version: the ledger's `reverseJournalEntry` refuses its entry (409
-// `ledger.entry_owned_elsewhere`). Human-only (`x-agent: false`).
+// own fields named: a customer that is not active, no longer a customer or blocked for posting in the
+// company (422 `receivables.customer_not_usable`, `customer_id`) or whose data in the company is no
+// longer there (the same code, without a field); an item's account that can no longer be posted (422
+// `receivables.account_not_postable`, `items[i].account_id`) or asks for a cost center the item does
+// not carry (422 `ledger.cost_center_required`, `items[i].account_id`); a tax code that is no longer
+// an output tax code of the company with a rate on the billing date (422
+// `receivables.unknown_tax_code`, `items[i].tax_code`); a company without the `customer_invoice` or
+// `journal_dr` number range (422 `config.no_number_range`). An order's items are not changed in the
+// first version, so a document refused for an item's account or tax code cannot be posted until the
+// configuration allows it again. A posted billing document is not reversed or cancelled in the first
+// version: the ledger's `reverseJournalEntry` refuses its entry (409 `ledger.entry_owned_elsewhere`).
+// Human-only (`x-agent: false`).
 //
 // POST /v1/billing-documents/{id}:post
 func (s *Server) handlePostBillingDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

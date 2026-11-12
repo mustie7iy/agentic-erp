@@ -75,7 +75,8 @@ func (e *Endpoints) PostBilling(ctx context.Context, id uuid.UUID, ifMatch func(
 		return BillingDocument{}, err
 	}
 	if b.Status != Created {
-		return BillingDocument{}, problem.Conflict("sales.invalid_status", "Billing document "+b.DocumentNumber+" is "+b.Status+"; only a created one is posted.")
+		return BillingDocument{}, problem.Conflict("sales.invalid_status",
+			"Billing document "+b.DocumentNumber+" is "+b.Status+"; only a created one is posted.")
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, b.LegalEntityID) // a stored document's legal entity exists
 	if err != nil {
@@ -156,12 +157,14 @@ func asBilling(err error, b BillingDocument) error {
 	for k := range refused.Errors {
 		f := &refused.Errors[k]
 		var line int
+		// Sscanf's error says only that the field names no line, which n tells too.
 		if n, _ := fmt.Sscanf(f.Field, "lines[%d]", &line); n != 1 {
 			f.Field = itemField(f.Field)
 			continue
 		}
+		_, rest, _ := strings.Cut(f.Field, "]") // what of the line was refused: ".account_id", or nothing
 		var name string
-		f.Field, name = billingLine(line, len(b.Items))
+		f.Field, name = billingLine(line, len(b.Items), rest)
 		if rest, ok := strings.CutPrefix(detail, fmt.Sprintf("Line %d", line+1)); ok {
 			detail = name + rest
 		}
@@ -174,13 +177,15 @@ func asBilling(err error, b BillingDocument) error {
 // document of so many items, as its field and as a detail names it: line
 // 0 debits the customer on the reconciliation account, lines 1 to items
 // credit the items in their order, the lines after them the output tax
-// on the items (receivables.PostInvoice).
-func billingLine(k, items int) (field, name string) {
+// on the items (receivables.PostInvoice). rest is what of the line was
+// refused (".account_id"), which an item has too, but for its centers
+// (itemField).
+func billingLine(k, items int, rest string) (field, name string) {
 	switch {
 	case k == 0:
 		return "customer_id", "The customer's line"
 	case k <= items:
-		return fmt.Sprintf("items[%d]", k-1), fmt.Sprintf("Item %d", k)
+		return itemField(fmt.Sprintf("items[%d]%s", k-1, rest)), fmt.Sprintf("Item %d", k)
 	}
 	return "items", "The output tax on the items"
 }
