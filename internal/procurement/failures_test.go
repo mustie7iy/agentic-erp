@@ -30,7 +30,7 @@ func endpoints() *procurement.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &procurement.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Accounts: ledger.Accounts{},
 		Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{},
-		Approvals: fixture.Approvals(), Invoices: payables.Invoices{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
+		Approvals: fixture.Approvals(), Invoices: payables.Invoices{}, SupplierNames: partner.Payees{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
 			Settings: configuration.Settings{}}}
 }
 
@@ -110,7 +110,7 @@ type failureFixture struct {
 	plant, org                                    string
 	draftReq, pendingReq, approvedReq             map[string]any
 	contract, active, draftPO, released, closable map[string]any
-	gr                                            map[string]any
+	gr, catalogItem                               map[string]any
 	sup                                           gen.OptUUID
 }
 
@@ -140,6 +140,7 @@ func newFailureFixture(t *testing.T, e env) failureFixture {
 	_, f.gr = e.receipt(t, id(f.released), "1:2:EA")
 	f.closable = e.order(t, items(item(e.office, "1", "EA", "1.00", "EUR", "")), "")
 	e.act(t, "/v1/purchase-orders/"+id(f.closable), "release", "")
+	f.catalogItem = e.catalogItem(t, e.Supplier, "FAIL-1", "P", "1.00", fmt.Sprintf(`, "contract_id": %q, "contract_item_no": 1`, id(f.active)))
 	return f
 }
 
@@ -219,6 +220,24 @@ func failureCalls(e env, h *procurement.Endpoints, f failureFixture) map[string]
 		},
 		"terminate contract": func(ctx context.Context) error {
 			_, err := h.TerminateContract(ctx, &gen.ReasonInput{Reason: "r"}, gen.TerminateContractParams{ID: u(f.active), IfMatch: "*"})
+			return err
+		},
+		"create catalog item": func(ctx context.Context) error {
+			_, err := h.CreateCatalogItem(ctx, &gen.CatalogItemCreate{LegalEntityID: e.DE, SupplierID: e.Supplier, ItemKey: "FAIL-" + uuid.NewString()[:8],
+				Description: "P", Unit: "EA", UnitPrice: gen.Money{Amount: "1.00", Currency: "EUR"}, ContractID: gen.NewOptUUID(u(f.active)),
+				ContractItemNo: gen.NewOptInt32(1)}, gen.CreateCatalogItemParams{})
+			return err
+		},
+		"get catalog item": func(ctx context.Context) error {
+			_, err := h.GetCatalogItem(ctx, gen.GetCatalogItemParams{ID: u(f.catalogItem)})
+			return err
+		},
+		"list catalog items": func(ctx context.Context) error {
+			_, err := h.ListCatalogItems(ctx, gen.ListCatalogItemsParams{LegalEntityID: e.DE, Text: gen.NewOptString("p")})
+			return err
+		},
+		"retire catalog item": func(ctx context.Context) error {
+			_, err := h.RetireCatalogItem(ctx, gen.RetireCatalogItemParams{ID: u(f.catalogItem), IfMatch: "*"})
 			return err
 		},
 		"create order": func(ctx context.Context) error {
@@ -350,6 +369,10 @@ func TestDatabaseFailures(t *testing.T) {
 				_, err := h.ListGoodsReceipts(ctx, gen.ListGoodsReceiptsParams{PageSize: zero})
 				return err
 			},
+			"catalog items": func(ctx context.Context) error {
+				_, err := h.ListCatalogItems(ctx, gen.ListCatalogItemsParams{LegalEntityID: e.DE, PageSize: zero})
+				return err
+			},
 		} {
 			t.Run("page size 0 "+name, func(t *testing.T) {
 				if err := apitest.InRequest(t, e.Tenant, e.Tenant.Human, call); err == nil {
@@ -468,7 +491,8 @@ func TestEdges(t *testing.T) {
 		blocked, items(item(e.office, "1", "EA", "1.00", "EUR", ""))), "")
 	// Constraint translations.
 	for name, code := range map[string]string{"purchase_order_one_per_requisition": "procurement.requisition_ordered",
-		"contract_item_material_key": "procurement.duplicate_material_key", "requisition_item_uom_code_fkey": "procurement.unknown_unit",
+		"contract_item_material_key": "procurement.duplicate_material_key",
+		"catalog_item_active_key":    "procurement.catalog_item_exists", "catalog_item_uom_code_fkey": "procurement.unknown_unit", "requisition_item_uom_code_fkey": "procurement.unknown_unit",
 		"goods_movement_item_tenant_id_purchase_order_id_po_item_no_fkey": "procurement.unknown_order_item",
 		"requisition_item_account_assignment":                             "procurement.invalid_account_assignment",
 		"purchase_order_item_account_assignment":                          "procurement.invalid_account_assignment"} {

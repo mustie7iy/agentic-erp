@@ -177,6 +177,10 @@ type CreateCashExportRes interface {
 	createCashExportRes()
 }
 
+type CreateCatalogItemRes interface {
+	createCatalogItemRes()
+}
+
 type CreateChangeRequestRes interface {
 	createChangeRequestRes()
 }
@@ -503,6 +507,10 @@ type GetCashPositionRes interface {
 
 type GetCashSnapshotRes interface {
 	getCashSnapshotRes()
+}
+
+type GetCatalogItemRes interface {
+	getCatalogItemRes()
 }
 
 type GetCenterChangeRes interface {
@@ -907,6 +915,10 @@ type ListCashSnapshotFlowsRes interface {
 
 type ListCashSnapshotsRes interface {
 	listCashSnapshotsRes()
+}
+
+type ListCatalogItemsRes interface {
+	listCatalogItemsRes()
 }
 
 type ListCenterChangesRes interface {
@@ -1499,6 +1511,10 @@ type RequestBankAccountEndRes interface {
 
 type ResumeWebhookSubscriptionRes interface {
 	resumeWebhookSubscriptionRes()
+}
+
+type RetireCatalogItemRes interface {
+	retireCatalogItemRes()
 }
 
 type RetireEntryTemplateRes interface {

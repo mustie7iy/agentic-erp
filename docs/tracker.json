@@ -4329,14 +4329,14 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Catalog connector (punch-out)",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A catalog manager loads a supplier's catalog items in a company (item key, description, unit, price, optionally the contract item that prices it), and a requester searches the company's catalog by text and supplier; its ADR (POST /v1/catalog-items, GET /v1/catalog-items)",
-        "r": "T84a · docs/design/plan-breadth-week2.md §T84a",
+        "r": "T84a · docs/design/plan-breadth-week2.md §T84a · db/migrations/000276 · procurement.catalog_item · POST /v1/catalog-items · GET /v1/catalog-items · GET /v1/catalog-items/{id} · POST /v1/catalog-items/{id}:retire · CatalogItemChanged · procurement.catalog.read, .manage · TestCatalogSearchBudget · walkthrough step_catalog · ADR-0071 §1-§5 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

@@ -50,7 +50,7 @@ type Suppliers interface {
 }
 
 // SupplierNames reads suppliers' numbers and names (partner context), for
-// the contract expiry job's events.
+// the contract expiry job's events and for catalog items.
 type SupplierNames interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
 }
@@ -100,6 +100,9 @@ type Endpoints struct {
 	Approvals     Opener
 	Invoices      Invoices
 	Postings      Postings
+	// SupplierNames reads the numbers and names catalog items show beside
+	// their supplier's id and their events name the supplier by (ADR-0071).
+	SupplierNames SupplierNames
 	// Now dates requisitions in their company's time zone (T72n5); nil
 	// means the wall clock. Tests fix it.
 	Now func() time.Time

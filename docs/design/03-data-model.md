@@ -1598,6 +1598,7 @@ erDiagram
   requisition |o--o| purchase_order : "ordered as"
   contract |o--o{ purchase_order : "priced by"
   goods_movement ||--|{ goods_movement_item : contains
+  contract_item |o--o{ catalog_item : "prices orders of"
   purchase_order_item ||--o{ goods_movement_item : received_by
   requisition { uuid id PK
     text document_number
@@ -1627,6 +1628,20 @@ erDiagram
     text status
     uuid renewal_of_id
     date expiry_alerted_on }
+  catalog_item { uuid id PK
+    uuid legal_entity_id
+    uuid supplier_id
+    text item_key
+    text description
+    text uom_code
+    char currency
+    bigint unit_price
+    int price_unit
+    uuid contract_id
+    int contract_item_no
+    text status "active | retired"
+    text search_text "generated"
+    int version }
   contract_release { uuid contract_id PK
     uuid purchase_order_id PK
     bigint value }
@@ -1874,6 +1889,28 @@ given, else, on an order created from a requisition, the requisition's
 `needed_by`; a released order's item changes it through an order change
 (`check_order_item_editable` leaves it free, as quantity and price). The
 liquidity forecast expects the item's open value invoiced on it.
+
+A company's catalog is `procurement.catalog_item` (migration 000276, T84a,
+ADR-0071): a supplier's item in a legal entity with an `item_key` (1 to 40
+characters, no white space around it, `catalog_item_item_key_check`), a
+`description` (up to 200 characters, not white space alone), a unit of the
+reference data, a known currency, a positive `unit_price` in minor units
+per `price_unit` and a status, `active` or `retired`. The key is the
+supplier's once among the company's active items
+(`catalog_item_active_key`, a partial unique index, so a retired item
+frees its key). `contract_id` and `contract_item_no` name the contract
+item that prices an order of it, both or neither
+(`catalog_item_contract_item_both`), an item the contract has
+(`catalog_item_contract_item_fkey`); that the contract is active, of the
+same company and supplier and in the item's currency and unit is checked
+when the item is loaded. `search_text` is the key and the description in
+lower case, generated, which the search matches a text in;
+`catalog_item_by_key` is the order the search's pages are read in. The
+legal entity is tenancy's and the supplier the partner context's, with no
+foreign key across schemas. The application inserts an item and
+afterwards updates its `status`, `version`, `updated_by` and `updated_at`
+alone (column privileges): what an item offers is not changed, and an
+item is never deleted.
 
 ## 3.9 Accounts payable (`payables`)
 

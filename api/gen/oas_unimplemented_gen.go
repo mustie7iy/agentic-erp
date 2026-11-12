@@ -786,6 +786,25 @@ func (UnimplementedHandler) CreateCashExport(ctx context.Context, req *CashExpor
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCatalogItem implements createCatalogItem operation.
+//
+// Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its
+// item key, description, unit and price per `price_unit`, in the price's currency. The supplier must
+// be one that can be ordered from in the company, as a purchase order's must be (422
+// `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active
+// items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
+// `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
+// contract of the company and the supplier in the item's currency (422
+// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
+// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+// afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
+// published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
+//
+// POST /v1/catalog-items
+func (UnimplementedHandler) CreateCatalogItem(ctx context.Context, req *CatalogItemCreate, params CreateCatalogItemParams) (r CreateCatalogItemRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateChangeRequest implements createChangeRequest operation.
 //
 // Creates a change request in status `draft`.
@@ -2097,6 +2116,16 @@ func (UnimplementedHandler) GetCashPosition(ctx context.Context, params GetCashP
 //
 // GET /v1/cash-snapshots/{id}
 func (UnimplementedHandler) GetCashSnapshot(ctx context.Context, params GetCashSnapshotParams) (r GetCashSnapshotRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCatalogItem implements getCatalogItem operation.
+//
+// One catalog item (ADR-0071, T84a), active or retired, with its supplier's number and name. One of a
+// company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/catalog-items/{id}
+func (UnimplementedHandler) GetCatalogItem(ctx context.Context, params GetCatalogItemParams) (r GetCatalogItemRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3471,6 +3500,21 @@ func (UnimplementedHandler) ListCashSnapshotFlows(ctx context.Context, params Li
 //
 // GET /v1/cash-snapshots
 func (UnimplementedHandler) ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (r ListCashSnapshotsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCatalogItems implements listCatalogItems operation.
+//
+// The catalog items of one company (ADR-0071 §3, T84a), each as `getCatalogItem` gives it: with its
+// supplier's number and name, its item key, description, unit and price and, when it names one, the
+// contract item that prices an order of it. `legal_entity_id` is required: a catalog is a company's,
+// and a company the caller may not act in has no items to show. `text` finds the items whose item key
+// or description contains it, whatever the case; `supplier_id` those of one supplier. Without `status`
+// only `active` items are returned; `status=retired` returns the retired ones. Sortable by: `item_key`
+// (default), `created_at`; items with the same key are in the order of their ids, so pages are stable.
+//
+// GET /v1/catalog-items
+func (UnimplementedHandler) ListCatalogItems(ctx context.Context, params ListCatalogItemsParams) (r ListCatalogItemsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5716,6 +5760,18 @@ func (UnimplementedHandler) RequestBankAccountEnd(ctx context.Context, req *Bank
 //
 // POST /v1/webhook-subscriptions/{id}:resume
 func (UnimplementedHandler) ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (r ResumeWebhookSubscriptionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RetireCatalogItem implements retireCatalogItem operation.
+//
+// Takes an `active` item out of the catalog (status `retired`), once (409 `procurement.invalid_status`
+// for a retired one), at the version read (`If-Match`). A retired item is still read by its id and
+// found by a search with `status=retired`; its item key is free for a new item of the supplier.
+// `CatalogItemChanged` is published.
+//
+// POST /v1/catalog-items/{id}:retire
+func (UnimplementedHandler) RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (r RetireCatalogItemRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

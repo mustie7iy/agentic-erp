@@ -6175,6 +6175,49 @@ step_dunning() {
   passed
 }
 
+# step_catalog: catalog items (ADR-0071, T84a). Priya, the purchasing
+# manager, loads items of Tyrell into Maple's catalog; Ben, a requester,
+# finds them by a word of their description. The catalog is the tenant's
+# own table: nothing is fetched from a supplier's system.
+step_catalog() {
+  heading "Step 54 — Catalog items: two items of a supplier loaded into the company's catalog and found by a search on a word of their description; a retired item is no longer found"
+  as priya
+  local chair desk arm
+  say "Priya loads Tyrell's items into Maple's catalog, one at a time: an item key, a description, a unit and one"
+  say "price each (ADR-0071). The supplier must be one Maple can order from, as a purchase order's must be."
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chair, mesh back\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}}"
+  chair=$(field .id)
+  expect "the chair in the catalog" "$(field '"\(.status) \(.supplier_id) \(.unit_price.amount) \(.unit_price.currency)"')" "active $SUPPLIER 450.00 CAD"
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"DESK-OAK\", \"description\": \"Standing desk, oak, with office cable tray\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"890.00\", \"currency\": \"CAD\"}}"
+  desk=$(field .id)
+  QUIET=1 api 201 '' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"ARM-01\", \"description\": \"Monitor arm for an office desk\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"75.00\", \"currency\": \"CAD\"}}"
+  arm=$(field .id)
+  say "An item key is the supplier's once among Maple's active items:"
+  refused 409 procurement.catalog_item_exists createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"CHAIR-ERGO\", \"description\": \"Another chair\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  say "Tyrell no longer makes the monitor arm. Priya retires it, at the version she read; an item is retired once:"
+  QUIET=1 api 200 '' getCatalogItem -p "id=$arm"
+  api 200 '"catalog item \(.item_key): \(.status), version \(.version)"' retireCatalogItem -p "id=$arm" -if-match "$ETAG"
+  expect "the arm's status" "$(field .status)" retired
+  refused 409 procurement.invalid_status retireCatalogItem -p "id=$arm" -if-match "$ETAG"
+  as ben
+  say "Ben needs furniture for a new colleague. He searches Maple's catalog for a word, whatever its case; the"
+  say "search reads item keys and descriptions and returns active items, each with its supplier's number and name:"
+  api 200 '.items[] | "  \(.item_key) \(.description): \(.unit_price.amount) \(.unit_price.currency) per \(.unit), from \(.supplier_number) \(.supplier_name)"' \
+    listCatalogItems -p "legal_entity_id=$LE" -p text=Office
+  expect "the items found by a word of their description" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$chair active, $desk active"
+  expect "each with its supplier's name" "$(field '[.items[].supplier_name] | unique | length')" 1
+  api 200 '.items[] | "  \(.item_key) \(.description)"' listCatalogItems -p "legal_entity_id=$LE" -p text=chair -p "supplier_id=$SUPPLIER"
+  expect "the chair found by text and supplier" "$(field '[.items[].id] | join(" ")')" "$chair"
+  say "The retired arm is found only when retired items are asked for:"
+  api 200 '.items[] | "  \(.item_key) \(.description): \(.status)"' listCatalogItems -p "legal_entity_id=$LE" -p text=office -p status=retired
+  expect "the retired items" "$(field '[.items[].id] | join(" ")')" "$arm"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8199,7 +8242,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_catalog step_close'
 
 main() {
   stop_unseen

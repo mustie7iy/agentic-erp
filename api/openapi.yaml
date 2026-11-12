@@ -10730,6 +10730,202 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/catalog-items:
+    get:
+      operationId: listCatalogItems
+      tags:
+        - procurement
+      summary: Search a company's catalog
+      description: "The catalog items of one company (ADR-0071 §3, T84a), each as `getCatalogItem` gives it: with its supplier's number and name, its item key, description, unit and price and, when it names one, the contract item that prices an order of it. `legal_entity_id` is required: a catalog is a company's, and a company the caller may not act in has no items to show. `text` finds the items whose item key or description contains it, whatever the case; `supplier_id` those of one supplier. Without `status` only `active` items are returned; `status=retired` returns the retired ones. Sortable by: `item_key` (default), `created_at`; items with the same key are in the order of their ids, so pages are stable."
+      x-permission: procurement.catalog.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: The company whose catalog is searched (legal entity id).
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/SupplierId"
+        - name: text
+          in: query
+          required: false
+          description: "Only items whose item key or description contains this text, whatever the case."
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 100
+        - name: status
+          in: query
+          required: false
+          description: "Only items in this status; `active` when absent."
+          schema:
+            type: string
+            description: "Catalog item status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - active
+              - retired
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of catalog items.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogItemPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCatalogItem
+      tags:
+        - procurement
+      summary: Load a catalog item
+      description: "Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its item key, description, unit and price per `price_unit`, in the price's currency. The supplier must be one that can be ordered from in the company, as a purchase order's must be (422 `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with `contract_item_no` names the contract item that prices an order of the item: an item of an `active` contract of the company and the supplier in the item's currency (422 `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the catalog item keeps its own price, which a requisition takes. What an item offers is not changed afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is published. The catalog is the tenant's own data: nothing is fetched from a supplier's system."
+      x-permission: procurement.catalog.manage
+      x-problem-codes:
+        - procurement.catalog_item_exists
+        - procurement.currency_mismatch
+        - procurement.invalid_amount
+        - procurement.invalid_contract
+        - procurement.invalid_contract_item
+        - procurement.invalid_item_key
+        - procurement.legal_entity_not_active
+        - procurement.supplier_not_usable
+        - procurement.unknown_currency
+        - procurement.unknown_unit
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The catalog item to load.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CatalogItemCreate"
+      responses:
+        "201":
+          description: "Created; the new catalog item."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/catalog-items/{id}":
+    get:
+      operationId: getCatalogItem
+      tags:
+        - procurement
+      summary: Get a catalog item
+      description: "One catalog item (ADR-0071, T84a), active or retired, with its supplier's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: procurement.catalog.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The catalog item.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/catalog-items/{id}:retire":
+    post:
+      operationId: retireCatalogItem
+      tags:
+        - procurement
+      summary: Retire a catalog item
+      description: "Takes an `active` item out of the catalog (status `retired`), once (409 `procurement.invalid_status` for a retired one), at the version read (`If-Match`). A retired item is still read by its id and found by a search with `status=retired`; its item key is free for a new item of the supplier. `CatalogItemChanged` is published."
+      x-permission: procurement.catalog.manage
+      x-problem-codes:
+        - procurement.catalog_item_exists
+        - procurement.invalid_status
+        - procurement.unknown_unit
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: The catalog item after retireCatalogItem.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CatalogItem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/contracts:
     get:
       operationId: listContracts
@@ -37292,6 +37488,79 @@ components:
                 currency: EUR
               extensions:
                 cost_object_hint: MKT-2026
+    CatalogItemCreate:
+      type: object
+      description: "Load one item of a supplier into a company's catalog. It is created `active`."
+      required: [legal_entity_id, supplier_id, item_key, description, unit, unit_price]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company whose catalog the item is loaded into: an active legal entity the caller may act in."}
+        supplier_id: {type: string, format: uuid, description: "The supplier (business partner id): one that can be ordered from in the company."}
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "The supplier's or the company's key of the item, without leading or trailing white space; the supplier's once among the company's active items."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What the item is; a requisition item from it takes this description."}
+        unit: {type: string, pattern: "^[A-Z0-9]{1,6}$", description: "Unit of measure code (reference data) the item is ordered in."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency; positive."}
+        price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "Quantity the unit price refers to."}
+        contract_id: {type: string, format: uuid, description: "The contract whose item `contract_item_no` prices an order of the item; given with `contract_item_no`."}
+        contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of `contract_id`, in the catalog item's unit; given with `contract_id`."}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          item_key: CHAIR-ERGO-01
+          description: Office chair, ergonomic
+          unit: EA
+          unit_price: {amount: "450.00", currency: CAD}
+    CatalogItem:
+      description: "A catalog item (procurement, ADR-0071): a supplier's item in a company's catalog, with one price."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, supplier_id, supplier_number, supplier_name, item_key, description, unit, unit_price, price_unit, status]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company whose catalog the item is in.", readOnly: true}
+            supplier_id: {type: string, format: uuid, description: "The supplier (`GET /v1/business-partners/{id}`).", readOnly: true}
+            supplier_number: {type: string, description: "The supplier's business partner number.", readOnly: true}
+            supplier_name: {type: string, description: "The supplier's name, as it is now.", readOnly: true}
+            item_key: {type: string, description: "The item's key, the supplier's once among the company's active items.", readOnly: true}
+            description: {type: string, description: "What the item is.", readOnly: true}
+            unit: {type: string, description: "Unit of measure code the item is ordered in.", readOnly: true}
+            unit_price: {$ref: "#/components/schemas/Money", description: "The price per `price_unit`, in its own currency."}
+            price_unit: {type: integer, format: int32, minimum: 1, description: "Quantity the unit price refers to.", readOnly: true}
+            contract_id: {type: string, format: uuid, description: "The contract whose item prices an order of the item (`GET /v1/contracts/{id}`); absent when it names none.", readOnly: true}
+            contract_number: {type: string, description: "That contract's document number; absent when the item names no contract.", readOnly: true}
+            contract_item_no: {type: integer, format: int32, minimum: 1, description: "The item of that contract; absent when the item names no contract.", readOnly: true}
+            status:
+              type: string
+              x-extensible-enum: [active, retired]
+              description: "`active`: offered and found by the search; `retired`: no longer offered. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 1
+          created_at: "2026-11-18T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-18T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_number: BP100057
+          supplier_name: Tyrell Office Supply
+          item_key: CHAIR-ERGO-01
+          description: Office chair, ergonomic
+          unit: EA
+          unit_price: {amount: "450.00", currency: CAD}
+          price_unit: 1
+          status: active
+    CatalogItemPage:
+      type: object
+      description: One page of catalog items.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CatalogItem"}
+          description: The catalog items on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ContractItem:
       type: object
       description: A contract item.
