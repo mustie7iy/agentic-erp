@@ -339,20 +339,22 @@ func (UnimplementedHandler) BlockPrincipal(ctx context.Context, req *ReasonInput
 // description, unit, account and price) in the line's quantity, due on the line's delivery date. The
 // contract and the line are read under their row locks, so of two call-offs of one line one creates
 // the order and the other finds the line called off (409 `procurement.schedule_line_called_off`,
-// naming the order), while the same request with its `Idempotency-Key` again answers the same line and
-// order. The contract must be a scheduling agreement (409 `procurement.not_a_scheduling_agreement`)
-// that is `active` (409 `procurement.invalid_status`) and valid on the legal entity's date today (409
-// `procurement.agreement_not_valid`, naming the validity, that date and the zone); a line number the
-// agreement lacks is answered as missing (404). What the order's own checks refuse is refused as
-// there, naming the order's field: the agreement's supplier no longer one an order can be placed with
-// (422 `procurement.supplier_not_usable`, `supplier_id`), the item's account no longer postable (422
-// `procurement.account_not_postable`, `items[0].account_id`), a validation rule of the tenant (422
-// `request.rule_refused`). The order is a draft and from there any purchase order: it is changed,
-// released (the release strategy and its approvals apply, and the release consumes the agreement's
-// target value, refused with 409 `procurement.contract_exceeded` when the order exceeds what remains),
-// received and invoiced as one created directly; a line whose order is cancelled stays called off. An
-// agent needs autonomy level 2: a call-off reserves the line. Audited, and published as
-// ScheduleLineCalledOff, which names the supplier by id and number, and ScheduleLineChanged.
+// naming the order; a line called off is refused so whatever `If-Match` carries, since both callers
+// read the same version), while the same request with its `Idempotency-Key` again answers the same
+// line and order. The contract must be a scheduling agreement (409
+// `procurement.not_a_scheduling_agreement`) that is `active` (409 `procurement.invalid_status`) and
+// valid on the legal entity's date today (409 `procurement.agreement_not_valid`, naming the validity,
+// that date and the zone); a line number the agreement lacks is answered as missing (404). What the
+// order's own checks refuse is refused as there, naming the order's field: the agreement's supplier no
+// longer one an order can be placed with (422 `procurement.supplier_not_usable`, `supplier_id`), the
+// item's account no longer postable (422 `procurement.account_not_postable`, `items[0].account_id`), a
+// validation rule of the tenant (422 `request.rule_refused`). The order is a draft and from there any
+// purchase order: it is changed, released (the release strategy and its approvals apply, and the
+// release consumes the agreement's target value, refused with 409 `procurement.contract_exceeded` when
+// the order exceeds what remains), received and invoiced as one created directly; a line whose order
+// is cancelled stays called off. An agent needs autonomy level 2: a call-off reserves the line.
+// Audited, and published as ScheduleLineCalledOff, which names the supplier by id and number, and
+// ScheduleLineChanged.
 //
 // POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff
 func (UnimplementedHandler) CallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (r CallOffScheduleLineRes, _ error) {

@@ -49,9 +49,9 @@ func (c Contract) callOffOrder(l ScheduleLine, day time.Time) NewOrder {
 			DeliveryDate: &l.DeliveryDate}}}
 }
 
-// callable reads line no of agreement c under its row lock at the version
-// the caller read: a line not yet called off, of an agreement valid on
-// its legal entity's date today, which it returns.
+// callable reads line no of agreement c under its row lock: a line not
+// yet called off, at the version the caller read, of an agreement valid
+// on its legal entity's date today, which it returns.
 func (e *Endpoints) callable(ctx context.Context, tx pgx.Tx, c Contract, no int32, ifMatch func(int32) error) (ScheduleLine, time.Time, error) {
 	l, err := scanScheduleLine(tx.QueryRow(ctx, scheduleLineSelect+` WHERE l.contract_id = $1 AND l.line_no = $2 FOR UPDATE OF l`, c.ID, no))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -60,12 +60,15 @@ func (e *Endpoints) callable(ctx context.Context, tx pgx.Tx, c Contract, no int3
 	if err != nil {
 		return ScheduleLine{}, time.Time{}, fmt.Errorf("procurement: read schedule line %d of contract %s: %w", no, c.ID, err)
 	}
-	if err := ifMatch(l.Version); err != nil {
-		return ScheduleLine{}, time.Time{}, err
-	}
+	// Before the version: a line changes only by its call-off, so the
+	// loser of two call-offs at the version both read is told what
+	// happened and which order, not to read again and retry.
 	if l.OrderID != nil {
 		return ScheduleLine{}, time.Time{}, problem.Conflict("procurement.schedule_line_called_off",
 			fmt.Sprintf("Schedule line %d of scheduling agreement %s was called off as purchase order %s.", l.No, c.DocumentNumber, *l.OrderNumber))
+	}
+	if err := ifMatch(l.Version); err != nil {
+		return ScheduleLine{}, time.Time{}, err
 	}
 	today, zone, err := e.todayOf(ctx, c.LegalEntityID)
 	if err != nil {
@@ -82,7 +85,10 @@ func (e *Endpoints) callable(ctx context.Context, tx pgx.Tx, c Contract, no int3
 // callOff calls off line no of scheduling agreement contract, once: the
 // contract and the line are read under their row locks, so two call-offs
 // run one after the other and the second finds the line called off
-// (409); the line's update is guarded by the state it leaves. A call-off
+// (409). The locks are what make a call-off happen once; the update
+// names the state it expects, and the database refuses a second
+// call-off of a line whatever the writer (schedule_line_called_off_once).
+// A call-off
 // reserves the line for its order, more than a draft proposes (ADR-0036):
 // the operation is not marked x-autonomy: propose, so an agent needs
 // level 2 before it gets here.

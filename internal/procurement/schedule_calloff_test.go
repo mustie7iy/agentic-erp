@@ -85,10 +85,12 @@ func TestCallOffScheduleLine(t *testing.T) {
 			}
 		})
 	}
-	// Once: a second call-off names the order.
-	p := e.Problem(409, "procurement.schedule_line_called_off", "POST", callOff(path, 1), "", "*")
-	if got := fmt.Sprint(p["detail"]); !strings.Contains(got, "PO100000") {
-		t.Errorf("second call-off's detail: got %q, want the order PO100000 named", got)
+	// Once: a second call-off names the order, also at the version the first one read.
+	for _, tag := range []string{"*", `"1"`, `"2"`} {
+		p := e.Problem(409, "procurement.schedule_line_called_off", "POST", callOff(path, 1), "", tag)
+		if got := fmt.Sprint(p["detail"]); !strings.Contains(got, "PO100000") {
+			t.Errorf("second call-off's detail with If-Match %s: got %q, want the order PO100000 named", tag, got)
+		}
 	}
 	// The agreement's value is consumed when the order is released, by the order's value.
 	before, _ := e.Must(200, "GET", path, "", "")
@@ -105,6 +107,22 @@ func TestCallOffScheduleLine(t *testing.T) {
 	if code, r := e.receipt(t, id(o), "1:3:BOX"); code != 201 {
 		t.Errorf("goods receipt of the call-off order: got %d %v, want 201", code, r)
 	}
+}
+
+// TestCallOffOrderCancelled: a line whose order is cancelled stays called
+// off and names that order; it is not reopened.
+func TestCallOffOrderCancelled(t *testing.T) {
+	e := setupIn2026(t)
+	_, path := e.scheduled(t)
+	l, _ := e.Must(200, "POST", callOff(path, 1), "", "*")
+	order := "/v1/purchase-orders/" + fmt.Sprint(l["purchase_order_id"])
+	cancelled := e.act(t, order, "cancel", "")
+	want(t, "cancelled call-off order", cancelled, map[string]any{"status": "cancelled"})
+	page, _ := e.Must(200, "GET", path+"/schedule-lines?status=called_off", "", "")
+	if got, want := listed(t, page, "purchase_order_id"), fmt.Sprint(l["purchase_order_id"]); got != want {
+		t.Errorf("orders of the lines called off: got %s, want the cancelled order %s", got, want)
+	}
+	e.Problem(409, "procurement.schedule_line_called_off", "POST", callOff(path, 1), "", "*")
 }
 
 // TestCallOffRecorded: a call-off is audited once on the line, beside the
@@ -286,23 +304,25 @@ func TestCallOffReplayed(t *testing.T) {
 	}
 }
 
-// calling calls line no of the contract off through the handler.
-func calling(h *procurement.Endpoints, contract uuid.UUID, no int32) func(ctx context.Context) error {
+// calling calls line no of the contract off through the handler, at the
+// version tag.
+func calling(h *procurement.Endpoints, contract uuid.UUID, no int32, tag string) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		_, err := h.CallOffScheduleLine(ctx, gen.CallOffScheduleLineParams{ID: contract, LineNo: no, IfMatch: "*"})
+		_, err := h.CallOffScheduleLine(ctx, gen.CallOffScheduleLineParams{ID: contract, LineNo: no, IfMatch: tag})
 		return err
 	}
 }
 
-// TestCallOffOnce: two call-offs of one line at once serialize on the
-// contract's row lock; the second finds the line called off and is
-// refused, and one order exists.
+// TestCallOffOnce: two call-offs of one line at once, both at the version
+// their callers read, serialize on the contract's row lock; the second
+// finds the line called off and is told so, not that the line changed,
+// and one order exists.
 func TestCallOffOnce(t *testing.T) {
 	e := setupIn2026(t)
 	h := endpoints()
 	h.Now = func() time.Time { return time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC) }
 	c, path := e.scheduled(t)
-	first, second := apitest.Serialized(t, e.Tenant, e.Tenant.Human, calling(h, uuidOf(c), 1), calling(h, uuidOf(c), 1))
+	first, second := apitest.Serialized(t, e.Tenant, e.Tenant.Human, calling(h, uuidOf(c), 1, `"1"`), calling(h, uuidOf(c), 1, `"1"`))
 	if first != nil {
 		t.Fatalf("first call-off: %v", first)
 	}
@@ -329,7 +349,7 @@ func TestCallOffDatabaseFailures(t *testing.T) {
 	h := endpoints()
 	h.Now = func() time.Time { return time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC) }
 	c, _ := e.scheduled(t)
-	call := calling(h, uuidOf(c), 1)
+	call := calling(h, uuidOf(c), 1, "*")
 	if err := call(context.Background()); err == nil {
 		t.Error("outside a unit of work: got nil error, want an error")
 	}

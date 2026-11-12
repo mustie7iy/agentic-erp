@@ -77,8 +77,9 @@ agreed by other means is recorded as agreed). Lines are numbered 1 to n
 per agreement in the order entered and are listed by delivery date. A
 line's **value** is quantity × the item's unit price ÷ price unit,
 rounded half away from zero (`money.Scale`); it is computed on read and
-not stored, since an active contract's items do not change. A line is
-not changed or deleted in the first version.
+not stored, since an active contract's items do not change. What a line
+asks for is not changed and a line is not deleted in the first version;
+it is called off once (§4).
 
 Entering a line reads the contract under its row lock (ADR-0008), so the
 lines of one agreement are entered, and later called off, one after
@@ -101,10 +102,12 @@ second ordering path, and receipts, GR/IR and invoices know nothing of
 schedule lines.
 
 A line is called off **once**: the contract and the line are read under
-their row locks and the line's update is guarded by its state (not yet
-called off), so of two call-offs one creates the order and the other is
-refused (409), and the same request with its `Idempotency-Key` again
-answers the same line and order. The agreement must be active and valid
+their row locks, so of two call-offs one creates the order and the other
+finds the line called off and is refused (409, naming the order), also
+when both carry the version they read: a called-off line is refused as
+called off before its version is compared. The same request with its
+`Idempotency-Key` again answers the same line and order. The database
+refuses a second call-off of a line whatever the writer. The agreement must be active and valid
 on the company's date today. The caller needs `procurement.order.create`,
 as for creating the order directly.
 
