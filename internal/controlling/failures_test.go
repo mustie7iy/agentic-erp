@@ -57,6 +57,9 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	unsettledID, _ := c.ruledOrder(t, "UNSETTLED", c.c.Sales)
 	c.charge(t, unsettledID, "2026-05-10", c.office, "10.00")
 	settledID, settledPath := c.ruledOrder(t, "SETTLED", c.c.Sales)
+	// UNSETTLED was settled before, so that its next settlement reads its last.
+	c.charge(t, unsettledID, "2026-04-10", c.office, "10.00")
+	c.Must(200, "POST", "/v1/internal-orders/"+unsettledID+":settle", settleBody(2026, 4), `"3"`)
 	for _, m := range []int{5, 6} {
 		c.charge(t, settledID, fmt.Sprintf("2026-%02d-10", m), c.office, "10.00")
 		c.Must(200, "POST", settledPath+":settle", settleBody(2026, m), `"3"`)

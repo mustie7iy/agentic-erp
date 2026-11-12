@@ -383,13 +383,15 @@ of accounts, the entry's id and number); with nothing unsettled it posts
 nothing and `settled` is false, so the action may be repeated. Refused: an
 order not released (409 `controlling.internal_order_not_released`) or
 closed (409 `controlling.internal_order_closed`), without a rule (409
-`controlling.settlement_rule_missing`), a receiver not valid on the
+`controlling.settlement_rule_missing`), a period before the one it was
+last settled up to (409 `controlling.settlement_period_before_last`), a receiver not valid on the
 posting date (409 `controlling.settlement_receiver_not_valid`), and what
 the ledger refuses of the entry (409 `ledger.period_not_open`, 422
 `ledger.cost_center_invalid`, ...). Published as `InternalOrderSettled`.
 `GET /v1/internal-orders/{id}/settlements` (`controlling.order.read` and
 `ledger.entry.read`) pages them, latest first (`posting_date`). `POST
-/v1/internal-orders/{id}:close` (`If-Match` the order's version) closes a
+/v1/internal-orders/{id}:close` (also `ledger.entry.read`; `If-Match`
+the order's version) closes a
 released order whose balance is zero on every account (409
 `controlling.internal_order_not_settled` otherwise), once, published as
 `InternalOrderChanged` (`closed`). A closed order takes no posting (422

@@ -440,8 +440,14 @@ adding up to 100, all active and of one company.
   published (`InternalOrderSettled`); the answer carries it with its
   entry's id and number. Because the settlement's own lines are in the
   period, the order's balance up to it is zero afterwards and a second
-  settlement posts nothing; a cost posted later into a settled period is
-  unsettled again and moves with the next settlement.
+  settlement of that period posts nothing; a cost posted later into a
+  settled period is unsettled again and moves with the next settlement.
+  A period **before** the one the order was last settled up to is
+  refused (409 `controlling.settlement_period_before_last`, review round
+  1): that settlement's credit is dated its own period, so the balance up
+  to an earlier period still holds what it moved and settling it would
+  move the same cost twice. The last period is read from the order's
+  settlements under the order's lock.
 - **`GET /v1/internal-orders/{id}/settlements`**: the order's
   settlements, latest first, by cursor (`posting_date`), each with the
   receiver's code, the amount with its currency and the entry.
@@ -491,8 +497,9 @@ adding up to 100, all active and of one company.
      settlement does not move the version.
   3. Settling and closing are a person's (`x-agent: false`), as the
      other order writes (§1), under the one permission the plan adds.
-     Settling and reading settlements also need `ledger.entry.read`,
-     since they show ledger amounts, as the budget does.
+     Settling, closing and reading settlements also need
+     `ledger.entry.read`, since they show ledger amounts, as the budget
+     does (a close's refusal names the balance left).
   4. The receiver is checked on the period's last day before anything is
      posted (409 `controlling.settlement_receiver_not_valid`: replace
      the rule); a receiver locked for actual costs, a closed period and
@@ -505,6 +512,10 @@ adding up to 100, all active and of one company.
      center moves the cost between profit centers.
   8. A settlement is not reversed (plan, Later): the ledger refuses to
      reverse an entry another context posted.
+  9. An order is settled up to the period of its last settlement or a
+     later one, never an earlier one (SAP's settlement likewise does not
+     go back before the last settlement period; stated from memory, for
+     the specialist to confirm).
 - **Known limits, for a specialist** (question 2 below): the entry is in
   local currency and its group amount is converted at the settlement
   date's rate, so an order's balance in group currency need not be zero

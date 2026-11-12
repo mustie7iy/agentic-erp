@@ -438,7 +438,9 @@ type Handler interface {
 	// `controlling.internal_order_not_released`) or is already closed (409
 	// `controlling.internal_order_closed`) is refused. Closed directly by permission, with no approval
 	// request. Audited, and published as InternalOrderChanged (`closed`). An order of a legal entity the
-	// caller cannot act in is answered as missing (404). Agents may not close an order.
+	// caller cannot act in is answered as missing (404). The refusal of an unsettled order names a ledger
+	// amount, so besides `controlling.order.settle` the caller needs `ledger.entry.read`
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not close an order.
 	//
 	// POST /v1/internal-orders/{id}:close
 	CloseInternalOrder(ctx context.Context, params CloseInternalOrderParams) (CloseInternalOrderRes, error)
@@ -4664,12 +4666,16 @@ type Handler interface {
 	// accounts it was posted on. The unsettled balance of an account is the balance of the leading
 	// ledger's lines naming the order in every period up to the one named, earlier years included; an
 	// earlier settlement's lines are among them, so only what was posted since moves. With nothing
-	// unsettled no entry is posted and `settled` is false: settling again changes nothing. `If-Match` is
-	// the order's version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the
-	// version moves with the rule, so an order whose receiver was replaced since the caller read it is
-	// refused (412); a settlement does not move it. The order is held under a row lock, so two settlements
-	// never move one balance twice and a posting to the order waits for a settlement under way. Refused:
-	// an order that is not released (409 `controlling.internal_order_not_released`) or already closed (409
+	// unsettled no entry is posted and `settled` is false: settling again changes nothing. A period before
+	// the one the order was last settled up to is refused (409
+	// `controlling.settlement_period_before_last`): that settlement's entry is dated its own period, so
+	// the balance up to an earlier one still holds what it moved; name the same period or a later one,
+	// which also moves a cost posted since into a period already settled. `If-Match` is the order's
+	// version, as `GET /v1/internal-orders/{id}` or its settlement rule's `GET` gave it: the version moves
+	// with the rule, so an order whose receiver was replaced since the caller read it is refused (412); a
+	// settlement does not move it. The order is held under a row lock, so two settlements never move one
+	// balance twice and a posting to the order waits for a settlement under way. Refused: an order that is
+	// not released (409 `controlling.internal_order_not_released`) or already closed (409
 	// `controlling.internal_order_closed`); an order without a settlement rule (409
 	// `controlling.settlement_rule_missing`); a fiscal year not set up (422 `ledger.no_fiscal_period`) or
 	// a period that is no regular posting period of it (422 `controlling.period_not_regular`); a receiver

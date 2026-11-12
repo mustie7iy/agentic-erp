@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,7 +103,8 @@ func TestInternalOrderSettlement(t *testing.T) {
 	p := setup(t)
 	it := p.Account(t, "2000", "530000")
 	id, path := p.ruledOrder(t, "FAIR-26", p.c.Sales)
-	p.charge(t, id, "2026-05-10", p.office, "100.00")
+	p.charge(t, id, "2026-04-10", p.office, "40.00")
+	p.charge(t, id, "2026-05-10", p.office, "60.00")
 	p.charge(t, id, "2026-06-15", p.office, "7.00")
 	p.charge(t, id, "2026-06-16", it, "50.00")
 
@@ -143,15 +145,22 @@ func TestInternalOrderSettlement(t *testing.T) {
 		want(t, "the entry's number and date", fmt.Sprint(entry["document_number"], " ", entry["posting_date"], " ", entry["fiscal_period"]),
 			fmt.Sprint(s["journal_entry_number"], " 2026-05-31 5"))
 		got, _ := balances(t, p.Client, id, "&fiscal_period_to=5")
-		wantList(t, "the order up to May", got, []string{"520000 " + p.accountName(t, p.office) + "/5 100.00 100.00 0.00 EUR", "totals 100.00 100.00 0.00 EUR"})
+		office := "520000 " + p.accountName(t, p.office)
+		wantList(t, "the order up to May", got, []string{office + "/4 40.00 0.00 40.00 EUR", office + "/5 60.00 100.00 -40.00 EUR", "totals 100.00 100.00 0.00 EUR"})
 		wantList(t, "the receiver's costs", p.centerCosts(t, p.c.Sales), []string{"520000 10000"})
 	})
 	t.Run("settling again with nothing new posts nothing", func(t *testing.T) {
 		again, _ := p.Must(200, "POST", path+":settle", settleBody(2026, 5), `"3"`)
 		want(t, "settled again", settledLine(again), "nothing")
 		want(t, "the period it named", fmt.Sprint(again["fiscal_year"], "/", again["fiscal_period"]), "2026/5")
-		earlier, _ := p.Must(200, "POST", path+":settle", settleBody(2026, 4), `"3"`)
-		want(t, "settled up to April, before any cost", settledLine(earlier), "nothing")
+		// Up to April, the balance still holds the cost May's settlement
+		// moved, whose credit is dated May: settling it would move it twice.
+		m := p.Problem(409, "controlling.settlement_period_before_last", "POST", path+":settle", settleBody(2026, 4), `"3"`)
+		want(t, "why an earlier period is refused", m["detail"],
+			any("The internal order is already settled up to 2026/5; settle it up to that period or a later one."))
+		page, _ := p.Must(200, "GET", path+"/settlements", "", "")
+		want(t, "settlements kept", len(apitest.List(t, page, "items")), 1)
+		wantList(t, "the receiver's costs, moved once", p.centerCosts(t, p.c.Sales), []string{"520000 10000"})
 		want(t, "settlements published", len(p.events(t, "internal_order_settled")), 1)
 	})
 	t.Run("each account's balance moves on its own account", func(t *testing.T) {
@@ -268,6 +277,15 @@ func TestInternalOrderSettlementReceiver(t *testing.T) {
 		p.charge(t, locked, "2026-05-10", p.office, "10.00")
 		p.Problem(422, "ledger.cost_center_invalid", "POST", lockedPath+":settle", settleBody(2026, 5), `"3"`)
 	})
+	t.Run("a period that is not open is the ledger's refusal", func(t *testing.T) {
+		p := p.in(t)
+		closed, closedPath := p.ruledOrder(t, "MARCH", p.c.Sales)
+		p.charge(t, closed, "2026-03-10", p.office, "10.00")
+		page, _ := p.Must(200, "GET", fmt.Sprintf("/v1/fiscal-periods?legal_entity_id=%s&fiscal_year=2026&order_by=period&page_size=3", p.DE), "", "")
+		march := page["items"].([]any)[2].(map[string]any)
+		p.Must(200, "POST", "/v1/fiscal-periods/"+march["id"].(string)+":close", "", fmt.Sprintf(`"%v"`, march["version"]))
+		p.Problem(409, "ledger.period_not_open", "POST", closedPath+":settle", settleBody(2026, 3), `"3"`)
+	})
 	var kept int
 	pgtest.Scan(t, `SELECT count(*) FROM controlling.order_settlement WHERE tenant_id = $1`, []any{p.Tenant.ID}, &kept)
 	want(t, "settlements kept", kept, 0)
@@ -294,6 +312,7 @@ func TestInternalOrderSettlementAccess(t *testing.T) {
 	for _, c := range []struct{ permission, method, path, body string }{
 		{"controlling.order.settle", "POST", path + ":settle", settleBody(2026, 5)}, {"controlling.order.settle", "POST", path + ":close", ""},
 		{"ledger.entry.read", "POST", path + ":settle", settleBody(2026, 5)}, {"ledger.entry.read", "GET", path + "/settlements", ""},
+		{"ledger.entry.read", "POST", path + ":close", ""},
 		{"controlling.order.read", "GET", path + "/settlements", ""},
 	} {
 		t.Run(c.method+" "+strings.TrimPrefix(c.path, path)+" without "+c.permission, func(t *testing.T) {
@@ -370,6 +389,10 @@ func TestInternalOrderSettlementLockOrder(t *testing.T) {
 
 	t.Run("a posting waiting for the order does not stop the settlement's entry", func(t *testing.T) {
 		locked, post := make(chan struct{}), make(chan struct{})
+		// Deferred too, so that a failed wait does not leave the settlement
+		// holding its transaction and the order.
+		goOn := sync.OnceFunc(func() { close(post) })
+		defer goOn()
 		settlePID, settlement := apitest.Started(t, p.Tenant, p.Tenant.Human, func(ctx context.Context) error {
 			tx, _, err := reqctx.Request(ctx)
 			if err != nil {
@@ -392,7 +415,7 @@ func TestInternalOrderSettlementLockOrder(t *testing.T) {
 		}
 		postPID, posting := apitest.Started(t, p.Tenant, p.Tenant.Human, p.chargeOrder(order, "2026-05-20", 2000))
 		apitest.WaitBlocked(t, <-postPID, holder, posting, "the posting to the order")
-		close(post)
+		goOn()
 		if err := <-settlement; err != nil {
 			t.Fatalf("the settlement: %v", err)
 		}

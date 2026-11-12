@@ -2,6 +2,7 @@ package controlling
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -108,6 +109,9 @@ func (e *Endpoints) SettleInternalOrder(ctx context.Context, req *gen.InternalOr
 	if err != nil {
 		return nil, err
 	}
+	if err := notBeforeLastSettlement(ctx, tx, o.ID, period); err != nil {
+		return nil, err
+	}
 	res := gen.InternalOrderSettlementResult{InternalOrderID: o.ID, InternalOrderCode: o.Code, InternalOrderName: o.Name, LegalEntityID: le.ID,
 		FiscalYear: req.FiscalYear, FiscalPeriod: req.FiscalPeriod}
 	unsettled, err := e.Ledger.OrderAccountBalances(ctx, le.ID, o.ID, &ledger.PeriodKey{FiscalYear: period.FiscalYear, Period: period.Number})
@@ -124,6 +128,30 @@ func (e *Endpoints) SettleInternalOrder(ctx context.Context, req *gen.InternalOr
 	res.Settled = true
 	res.Settlement.SetTo(settlementToAPI(le.LocalCurrency, exp)(s))
 	return &gen.InternalOrderSettlementResultHeaders{Response: res}, recordSettlement(ctx, o, le.LocalCurrency, exp, s)
+}
+
+// notBeforeLastSettlement refuses a settlement up to a period before the
+// one the order was last settled up to. An earlier settlement's credit is
+// dated its own period's last day, so the order's balance up to an
+// earlier period still holds what that settlement moved, and settling it
+// would move the same cost a second time. Read under the order's lock,
+// which every settlement holds. The same period or a later one is taken:
+// what was posted since is unsettled there.
+func notBeforeLastSettlement(ctx context.Context, tx pgx.Tx, order uuid.UUID, period ledger.FiscalPeriod) error {
+	var year, number int16
+	err := tx.QueryRow(ctx, `SELECT fiscal_year, fiscal_period FROM controlling.order_settlement WHERE internal_order_id = $1
+		ORDER BY fiscal_year DESC, fiscal_period DESC LIMIT 1`, order).Scan(&year, &number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("controlling: last settlement of internal order %s: %w", order, err)
+	}
+	if period.FiscalYear < year || (period.FiscalYear == year && period.Number < number) {
+		return problem.Conflict("controlling.settlement_period_before_last", fmt.Sprintf("The internal order is already settled up to %d/%d;"+
+			" settle it up to that period or a later one.", year, number))
+	}
+	return nil
 }
 
 // settle posts the order's unsettled balances to the rule's receiver on
