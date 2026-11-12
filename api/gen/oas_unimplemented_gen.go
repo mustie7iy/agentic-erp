@@ -1032,6 +1032,22 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 	return r, ht.ErrNotImplemented
 }
 
+// CreateInternalOrder implements createInternalOrder operation.
+//
+// Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
+// controlling context, to which costs are posted once it is released (`:release`). The code is unique
+// in the legal entity (409 `controlling.internal_order_exists`). The responsible cost center must be
+// an active cost center of the legal entity (422 `controlling.internal_order_cost_center_invalid`,
+// whose field error's code says why: `unknown`, `not_in_company`, `not_active`). A legal entity the
+// caller cannot act in is answered as missing (422 `request.reference_not_found`). Created directly by
+// permission, with no approval request. Audited, and published as InternalOrderChanged. Agents may not
+// create one.
+//
+// POST /v1/internal-orders
+func (UnimplementedHandler) CreateInternalOrder(ctx context.Context, req *InternalOrderCreate, params CreateInternalOrderParams) (r CreateInternalOrderRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateLegalEntity implements createLegalEntity operation.
 //
 // Creates a legal entity in status `inactive`.
@@ -2381,6 +2397,16 @@ func (UnimplementedHandler) GetHierarchy(ctx context.Context, params GetHierarch
 //
 // GET /v1/hierarchies/{id}/nodes/{node_id}
 func (UnimplementedHandler) GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (r GetHierarchyNodeRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetInternalOrder implements getInternalOrder operation.
+//
+// Returns one internal order with its responsible cost center's code. An order of a legal entity the
+// caller cannot act in is answered as missing (404).
+//
+// GET /v1/internal-orders/{id}
+func (UnimplementedHandler) GetInternalOrder(ctx context.Context, params GetInternalOrderParams) (r GetInternalOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3798,6 +3824,33 @@ func (UnimplementedHandler) ListHouseBanks(ctx context.Context, params ListHouse
 //
 // GET /v1/consolidation-runs/{id}/differences
 func (UnimplementedHandler) ListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (r ListIntercompanyDifferencesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListInternalOrderBalances implements listInternalOrderBalances operation.
+//
+// The actual costs of one internal order in a fiscal year, per account and fiscal period (ADR-0064
+// §2), in the order's legal entity's local currency, exact at the moment of the read: the leading
+// ledger's journal lines that name the order (`internal_order_id` on a journal entry line), their
+// debits and credits added up, a reversal's lines included. Rows are in the order of the account
+// number, then the period. The totals are the whole selection's on every page, whatever the page. An
+// order that does not exist, or of a legal entity the caller cannot act in, is answered as missing
+// (422 `request.reference_not_found` on `internal_order_id`). The actuals are ledger amounts, so
+// besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the trial balance
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-order-balances
+func (UnimplementedHandler) ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (r ListInternalOrderBalancesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListInternalOrders implements listInternalOrders operation.
+//
+// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its
+// responsible cost center's code. Sortable by: `code`.
+//
+// GET /v1/internal-orders
+func (UnimplementedHandler) ListInternalOrders(ctx context.Context, params ListInternalOrdersParams) (r ListInternalOrdersRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5233,6 +5286,19 @@ func (UnimplementedHandler) RejectVarianceComment(ctx context.Context, req *Reas
 //
 // POST /v1/contracts/{id}:release
 func (UnimplementedHandler) ReleaseContract(ctx context.Context, params ReleaseContractParams) (r ReleaseContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ReleaseInternalOrder implements releaseInternalOrder operation.
+//
+// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
+// (`If-Match`): the order is read under a row lock and moves to `released` once. An order already
+// released is refused (409 `controlling.internal_order_released`). Releasing is a person's decision:
+// `controlling.order.release` is an approval permission, which agents cannot hold. Audited, and
+// published as InternalOrderChanged.
+//
+// POST /v1/internal-orders/{id}:release
+func (UnimplementedHandler) ReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (r ReleaseInternalOrderRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

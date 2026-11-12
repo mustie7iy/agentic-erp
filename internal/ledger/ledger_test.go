@@ -14,6 +14,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
+	orders "github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
@@ -64,7 +65,8 @@ func deps() configuration.Dependencies {
 func endpoints() *ledger.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
 	return &ledger.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, PartnerNames: app.LedgerPartners{}, PersonNames: app.LedgerPeople{},
-		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: fixture.Approvals(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{}}
+		CostObjects: orders.CostObjects{},
+		Numbers:     configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: fixture.Approvals(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{}}
 }
 
 // changes is the center changes' approval handler as the API wires it.

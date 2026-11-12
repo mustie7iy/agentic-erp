@@ -15,17 +15,18 @@ import (
 // with its code; the list filters by center; JournalEntryPosted carries
 // them.
 
-// centeredLine is a line of a journal entry body with the centers given
-// ("": none).
+// centeredLine is a line of a journal entry body with the centers and the
+// internal order given ("": none).
 type centeredLine struct {
-	account, amount, partner, cc, pc, seg string
+	account, amount, partner, cc, pc, seg, order string
 }
 
 func centeredEntry(le uuid.UUID, date string, lines ...centeredLine) string {
 	parts := make([]string, len(lines))
 	for i, l := range lines {
 		p := fmt.Sprintf(`{"account_id": %q, "amount": {"amount": %q, "currency": "EUR"}`, l.account, l.amount)
-		for field, v := range map[string]string{"partner_id": l.partner, "cost_center_id": l.cc, "profit_center_id": l.pc, "segment_id": l.seg} {
+		for field, v := range map[string]string{"partner_id": l.partner, "cost_center_id": l.cc, "profit_center_id": l.pc, "segment_id": l.seg,
+			"internal_order_id": l.order} {
 			if v != "" {
 				p += fmt.Sprintf(`, %q: %q`, field, v)
 			}

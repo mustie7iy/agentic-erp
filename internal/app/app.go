@@ -334,7 +334,7 @@ func Configuration(cfg Config) configuration.Dependencies {
 // Ledger is the ledger context as the API wires it, for the recurring
 // entries' activity to park with the same ports (ADR-0056).
 func Ledger(cfg Config) *ledger.Endpoints {
-	return &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{},
+	return &ledger.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, CostObjects: controlling.CostObjects{},
 		Numbers: configuration.Numbers{}, Orders: procurement.Orders{}, Approvals: opener(), Settings: configuration.Settings{}, TaxReturns: taxfiling.Holds{},
 		PartnerNames: LedgerPartners{}, Now: cfg.Now, People: identity.Actors{}, PersonNames: LedgerPeople{}}
 }

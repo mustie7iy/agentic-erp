@@ -70,7 +70,7 @@ tags:
   - name: einvoicing
     description: "E-invoicing (ADR-0061): e-invoices received from the tenant's accredited provider."
   - name: controlling
-    description: "Controlling (ADR-0050): plan categories, plan lines by batch and plan against actual by cost center."
+    description: "Controlling (ADR-0050, ADR-0064): plan categories, plan lines by batch and plan against actual by cost center; internal orders and their actual costs."
   - name: tax
     description: "Tax filing (ADR-0049): the companies' registrations with tax authorities, their filing periods and their draft returns."
   - name: workflow
@@ -5939,6 +5939,8 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.internal_order_not_parkable
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
@@ -6161,6 +6163,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -6368,6 +6371,8 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.internal_order_not_parkable
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
@@ -6513,6 +6518,8 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.internal_order_not_parkable
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
@@ -6671,6 +6678,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_parked_status
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
@@ -6814,6 +6822,8 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.internal_order_not_parkable
         - ledger.invalid_schedule
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -6935,6 +6945,8 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.internal_order_not_parkable
         - ledger.invalid_schedule
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
@@ -7080,6 +7092,8 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.internal_order_not_parkable
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -7292,6 +7306,7 @@ paths:
         - ledger.automatic_account
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.key_date_not_period_end
         - ledger.ledger_not_kept
         - ledger.legal_entity_not_active
@@ -7414,6 +7429,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -8047,6 +8063,260 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/internal-orders:
+    get:
+      operationId: listInternalOrders
+      tags:
+        - controlling
+      summary: List internal orders
+      description: "Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its responsible cost center's code. Sortable by: `code`."
+      x-permission: controlling.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the orders with this code (one per legal entity).
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,12}$"
+        - name: status
+          in: query
+          required: false
+          description: Only orders in this status.
+          schema:
+            type: string
+            description: "Internal order status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - created
+              - released
+        - name: responsible_cost_center_id
+          in: query
+          required: false
+          description: Only the orders this cost center is responsible for.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of internal orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createInternalOrder
+      tags:
+        - controlling
+      summary: Create an internal order
+      description: "Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the controlling context, to which costs are posted once it is released (`:release`). The code is unique in the legal entity (409 `controlling.internal_order_exists`). The responsible cost center must be an active cost center of the legal entity (422 `controlling.internal_order_cost_center_invalid`, whose field error's code says why: `unknown`, `not_in_company`, `not_active`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). Created directly by permission, with no approval request. Audited, and published as InternalOrderChanged. Agents may not create one."
+      x-permission: controlling.order.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.internal_order_cost_center_invalid
+        - controlling.internal_order_exists
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The internal order create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InternalOrderCreate"
+      responses:
+        "201":
+          description: "Created; the new internal order."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/internal-orders/{id}":
+    get:
+      operationId: getInternalOrder
+      tags:
+        - controlling
+      summary: Get an internal order
+      description: "Returns one internal order with its responsible cost center's code. An order of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.order.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The internal order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/internal-orders/{id}:release":
+    post:
+      operationId: releaseInternalOrder
+      tags:
+        - controlling
+      summary: Release an internal order
+      description: "Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `released` once. An order already released is refused (409 `controlling.internal_order_released`). Releasing is a person's decision: `controlling.order.release` is an approval permission, which agents cannot hold. Audited, and published as InternalOrderChanged."
+      x-permission: controlling.order.release
+      x-agent: false
+      x-problem-codes:
+        - controlling.internal_order_exists
+        - controlling.internal_order_released
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The internal order, released."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/internal-order-balances:
+    get:
+      operationId: listInternalOrderBalances
+      x-slo-class: report
+      tags:
+        - controlling
+      summary: List an internal order's actual costs
+      description: "The actual costs of one internal order in a fiscal year, per account and fiscal period (ADR-0064 §2), in the order's legal entity's local currency, exact at the moment of the read: the leading ledger's journal lines that name the order (`internal_order_id` on a journal entry line), their debits and credits added up, a reversal's lines included. Rows are in the order of the account number, then the period. The totals are the whole selection's on every page, whatever the page. An order that does not exist, or of a legal entity the caller cannot act in, is answered as missing (422 `request.reference_not_found` on `internal_order_id`). The actuals are ledger amounts, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the trial balance (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.order.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: internal_order_id
+          in: query
+          required: true
+          description: The internal order (required).
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: true
+          description: Fiscal year (required).
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period_from
+          in: query
+          required: false
+          description: "Only periods from this one (default 1)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - name: fiscal_period_to
+          in: query
+          required: false
+          description: "Only periods up to this one (default 16); before `fiscal_period_from`: 400 `request.invalid_parameter`."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the order's actual costs, with the selection's totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InternalOrderBalancePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/plan-categories:
@@ -8931,6 +9201,7 @@ paths:
         - ledger.cost_center_required
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -9257,6 +9528,7 @@ paths:
         - config.not_bootstrapped
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.no_exchange_rate
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
@@ -9616,6 +9888,7 @@ paths:
         - config.not_bootstrapped
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.no_exchange_rate
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
@@ -10212,6 +10485,7 @@ paths:
         - config.not_bootstrapped
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.no_exchange_rate
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
@@ -10782,6 +11056,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -10925,6 +11200,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -11107,6 +11383,7 @@ paths:
         - config.number_range_exhausted
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.no_fiscal_period
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
@@ -11255,6 +11532,7 @@ paths:
         - config.number_range_exhausted
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.no_exchange_rate
         - ledger.no_fiscal_period
         - ledger.profit_center_invalid
@@ -11497,6 +11775,7 @@ paths:
       x-problem-codes:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.segment_mismatch
@@ -11652,6 +11931,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -11941,6 +12221,7 @@ paths:
         - ledger.down_payment_tax_shared
         - ledger.duplicate_item
         - ledger.entry_reversed
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -12096,6 +12377,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -12975,6 +13257,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
         - ledger.mixed_items
@@ -13136,6 +13419,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
         - ledger.mixed_items
@@ -13536,6 +13820,7 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.entry_reversed
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.legal_entity_not_active
         - ledger.mixed_items
@@ -14688,6 +14973,7 @@ paths:
         - config.number_range_exhausted
         - ledger.cost_center_invalid
         - ledger.cost_center_required
+        - ledger.internal_order_invalid
         - ledger.no_fiscal_period
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
@@ -16094,6 +16380,8 @@ paths:
         - ledger.cost_center_invalid
         - ledger.cost_center_required
         - ledger.currency_mismatch
+        - ledger.internal_order_invalid
+        - ledger.internal_order_not_parkable
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
         - ledger.jurisdiction_not_levied
@@ -16861,6 +17149,7 @@ paths:
         - config.not_bootstrapped
         - config.number_range_exhausted
         - ledger.cost_center_invalid
+        - ledger.internal_order_invalid
         - ledger.no_fiscal_period
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
@@ -17411,6 +17700,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -17556,6 +17846,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -17718,6 +18009,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -17861,6 +18153,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -18028,6 +18321,7 @@ paths:
         - ledger.cost_center_required
         - ledger.currency_mismatch
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.jurisdiction_not_levied
         - ledger.jurisdiction_required
@@ -18171,6 +18465,7 @@ paths:
         - ledger.entry_is_copy
         - ledger.entry_owned_elsewhere
         - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_invalid
         - ledger.item_already_cleared
         - ledger.item_reserved
         - ledger.legal_entity_not_active
@@ -21220,6 +21515,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_invalid
         - ledger.invalid_tax_code
         - ledger.invalid_tax_document
         - ledger.invalid_validity
@@ -22837,6 +23133,7 @@ paths:
         - ledger.hierarchy_change_invalid
         - ledger.hierarchy_exists
         - ledger.hierarchy_node_exists
+        - ledger.internal_order_invalid
         - ledger.invalid_center_status
         - ledger.invalid_clearing_entry
         - ledger.invalid_tax_code
@@ -30514,6 +30811,15 @@ components:
           type: string
           description: "Code of the segment, set with `segment_id`."
           readOnly: true
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "The internal order the line's cost is posted to (ADR-0064 §2), as entered (JournalLineInput `internal_order_id`) or copied from the line a reversal reverses; absent when it has none. A line with an order carries no cost center."
+          readOnly: true
+        internal_order_code:
+          type: string
+          description: "Code of the internal order, set with `internal_order_id`."
+          readOnly: true
         trading_partner:
           $ref: "#/components/schemas/TradingPartner"
           description: "The line's trading partner (ADR-0059 §4): the tenant's company on the other side of an intercompany transaction, as entered (JournalLineInput `trading_partner_id`) or copied from the line a reversal or clearing offsets; absent when it has none."
@@ -30796,6 +31102,10 @@ components:
           type: string
           format: uuid
           description: "Segment of the line: derived from the profit center, so one given must be its profit center's (422 `ledger.segment_mismatch`)."
+        internal_order_id:
+          type: string
+          format: uuid
+          description: "Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a cost center: a line on a primary cost account carries exactly one real cost object, a cost center or an order. The order must be one of the entry's legal entity and released, the account a primary cost account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`, `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its profit center and segment from the order's responsible cost center on the posting date, and a different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry that is posted: a parked entry or an entry template naming an order is refused in this version (422 `ledger.internal_order_not_parkable`)."
         trading_partner_id:
           type: string
           format: uuid
@@ -33808,6 +34118,254 @@ components:
           format: int64
           description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
           minimum: 0
+    InternalOrder:
+      description: "An internal order (ADR-0064 §1): a cost object of the controlling context in one legal entity, collecting the costs of a job or an event. Costs are posted to it once it is released."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - responsible_cost_center_id
+            - responsible_cost_center_code
+            - status
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the order belongs to. Immutable."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,12}$"
+              description: "Code, unique in the legal entity. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+              readOnly: true
+            responsible_cost_center_id:
+              type: string
+              format: uuid
+              description: "The cost center responsible for the order (`GET /v1/cost-centers/{id}`): lines posted to the order take its profit center and segment."
+              readOnly: true
+            responsible_cost_center_code:
+              type: string
+              description: The responsible cost center's code.
+              readOnly: true
+            status:
+              type: string
+              description: "`created`: no posting yet; `released` (`:release`): costs may be posted to it. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - created
+                - released
+              readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000c01"
+          version: 2
+          created_at: "2026-11-11T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-11-11T10:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000102"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: TRADEFAIR-26
+          name: Trade fair 2026
+          responsible_cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          responsible_cost_center_code: CC-1100
+          status: released
+    InternalOrderCreate:
+      type: object
+      description: "A new internal order."
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - responsible_cost_center_id
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code) the order belongs to.
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,12}$"
+          description: Code, unique in the legal entity.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        responsible_cost_center_id:
+          type: string
+          format: uuid
+          description: An active cost center of the legal entity, responsible for the order.
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: TRADEFAIR-26
+          name: Trade fair 2026
+          responsible_cost_center_id: "0192a000-0000-7000-8000-000000000201"
+    InternalOrderPage:
+      type: object
+      description: One page of internal orders.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrder"
+          description: The internal orders on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    InternalOrderBalance:
+      type: object
+      description: "The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the legal entity's local currency."
+      required:
+        - account_id
+        - account_number
+        - account_name
+        - fiscal_period
+        - debit
+        - credit
+        - balance
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: Account.
+          readOnly: true
+        account_number:
+          type: string
+          description: The account's number.
+          readOnly: true
+        account_name:
+          type: string
+          description: The account's name.
+          readOnly: true
+        fiscal_period:
+          type: integer
+          format: int32
+          description: Fiscal period.
+          minimum: 1
+          maximum: 16
+          readOnly: true
+        debit:
+          $ref: "#/components/schemas/Money"
+          description: Debit total in local currency.
+          readOnly: true
+        credit:
+          $ref: "#/components/schemas/Money"
+          description: Credit total in local currency (positive).
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: "Debit less credit: the order's actual cost on the account in the period."
+          readOnly: true
+      examples:
+        - account_id: "0192a000-0000-7000-8000-000000000301"
+          account_number: "6100"
+          account_name: Marketing expenses
+          fiscal_period: 11
+          debit:
+            amount: "1500.00"
+            currency: CAD
+          credit:
+            amount: "0.00"
+            currency: CAD
+          balance:
+            amount: "1500.00"
+            currency: CAD
+    InternalOrderBalanceTotals:
+      type: object
+      description: "The totals of an internal order's actual costs over the whole selection, in the legal entity's local currency."
+      required:
+        - debit
+        - credit
+        - balance
+      properties:
+        debit:
+          $ref: "#/components/schemas/Money"
+          description: Debit total.
+          readOnly: true
+        credit:
+          $ref: "#/components/schemas/Money"
+          description: Credit total (positive).
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Money"
+          description: "Debit less credit: the order's actual costs."
+          readOnly: true
+    InternalOrderBalancePage:
+      type: object
+      description: "One page of an internal order's actual costs per account and period, with the order, the selection and its totals on every page."
+      required:
+        - items
+        - internal_order_id
+        - internal_order_code
+        - internal_order_name
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period_from
+        - fiscal_period_to
+        - totals
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InternalOrderBalance"
+          description: The rows on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        internal_order_id:
+          type: string
+          format: uuid
+          description: The internal order.
+          readOnly: true
+        internal_order_code:
+          type: string
+          description: The order's code.
+          readOnly: true
+        internal_order_name:
+          type: string
+          description: The order's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The order's legal entity.
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          description: Fiscal year of the selection.
+          readOnly: true
+        fiscal_period_from:
+          type: integer
+          format: int32
+          description: First period of the selection.
+          readOnly: true
+        fiscal_period_to:
+          type: integer
+          format: int32
+          description: Last period of the selection.
+          readOnly: true
+        totals:
+          $ref: "#/components/schemas/InternalOrderBalanceTotals"
+          description: "The whole selection's totals, the same on every page."
+          readOnly: true
     PlanCategory:
       description: "A plan category (ADR-0050 §8, SAP's category for planning): plan values of one kind, such as the budget (`PLAN`) or a forecast, open or locked."
       allOf:

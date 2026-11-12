@@ -353,12 +353,13 @@ channels:
   controlling:
     address: 'erp.{cell}.controlling.{tenant}.{event}'
     title: Controlling events
-    description: Plan categories and plan batches (ADR-0050 §8).
+    description: Plan categories and plan batches (ADR-0050 §8), and internal orders (ADR-0064).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       PlanCategoryChanged: {$ref: '#/components/messages/PlanCategoryChanged'}
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
+      InternalOrderChanged: {$ref: '#/components/messages/InternalOrderChanged'}
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
@@ -627,6 +628,7 @@ operations:
     messages:
       - $ref: '#/channels/controlling/messages/PlanCategoryChanged'
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
+      - $ref: '#/channels/controlling/messages/InternalOrderChanged'
   publishAssetsEvents:
     action: send
     title: Asset accounting publishes
@@ -3238,6 +3240,25 @@ components:
         - name: applied
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000602, source: /erp/eu-1/controlling, type: com.example.erp.controlling.plan_batch_applied.v1, subject: 0192a000-0000-7000-8000-000000000b01, time: '2026-10-27T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {plan_batch_id: 0192a000-0000-7000-8000-000000000b01, plan_category_id: 0192a000-0000-7000-8000-000000000a01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, fiscal_year: 2027, batch_key: budget-2027-v1, line_count: 12, replaced_count: 0, cost_center_ids: [0192a000-0000-7000-8000-000000000201], profit_center_ids: []}
+    InternalOrderChanged:
+      name: InternalOrderChanged
+      title: Internal order changed
+      summary: An internal order was created or released.
+      description: |
+        Emitted by `internal-orders` (POST, `created`) and its `:release`
+        (`released`), ADR-0064 §1: costs may be posted to a released
+        order. Subject is the internal order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_changed.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderChangedV1'}
+      examples:
+        - name: released
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000603, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, responsible_cost_center_id: 0192a000-0000-7000-8000-000000000201, responsible_cost_center_code: CC-1100, status: released, change: released}
     TaxReturnPrepared:
       name: TaxReturnPrepared
       x-webhook: true
@@ -3939,6 +3960,7 @@ components:
               profit_center_code: {type: string, description: 'Code of the profit center, set with profit_center_id.'}
               segment_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s segment, its profit center''s. Absent on lines without one.'}
               segment_code: {type: string, description: 'Code of the segment, set with segment_id.'}
+              internal_order_id: {$ref: '#/components/schemas/Uuid', description: 'The internal order the line''s cost is posted to (ADR-0064 §2), `controlling.internal_order.id`. Absent on lines without one.'}
               trading_partner_id: {$ref: '#/components/schemas/Uuid', description: 'The line''s trading partner (ADR-0059 §4), a legal entity of the tenant other than the entry''s. Absent on lines without one.'}
     JournalEntryReversedV1:
       type: object
@@ -4578,6 +4600,18 @@ components:
         replaced_count: {type: integer, description: "The earlier lines of its centers it marked replaced (kept, never deleted)."}
         cost_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The cost centers whose plan the batch replaced.}
         profit_center_ids: {type: array, items: {$ref: '#/components/schemas/Uuid'}, description: The profit centers whose plan the batch replaced.}
+    InternalOrderChangedV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, responsible_cost_center_id, responsible_cost_center_code, status, change]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        responsible_cost_center_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.cost_center.id`.'}
+        responsible_cost_center_code: {type: string}
+        status: {type: string, description: 'The status after the change. Open enum: created, released.'}
+        change: {type: string, description: 'Open enum: created, released.'}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]

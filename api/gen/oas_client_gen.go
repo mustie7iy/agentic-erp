@@ -874,6 +874,19 @@ type Invoker interface {
 	//
 	// POST /v1/hierarchies
 	CreateHierarchy(ctx context.Context, request *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
+	// CreateInternalOrder invokes createInternalOrder operation.
+	//
+	// Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
+	// controlling context, to which costs are posted once it is released (`:release`). The code is unique
+	// in the legal entity (409 `controlling.internal_order_exists`). The responsible cost center must be
+	// an active cost center of the legal entity (422 `controlling.internal_order_cost_center_invalid`,
+	// whose field error's code says why: `unknown`, `not_in_company`, `not_active`). A legal entity the
+	// caller cannot act in is answered as missing (422 `request.reference_not_found`). Created directly by
+	// permission, with no approval request. Audited, and published as InternalOrderChanged. Agents may not
+	// create one.
+	//
+	// POST /v1/internal-orders
+	CreateInternalOrder(ctx context.Context, request *InternalOrderCreate, params CreateInternalOrderParams) (CreateInternalOrderRes, error)
 	// CreateLegalEntity invokes createLegalEntity operation.
 	//
 	// Creates a legal entity in status `inactive`.
@@ -1950,6 +1963,13 @@ type Invoker interface {
 	//
 	// GET /v1/hierarchies/{id}/nodes/{node_id}
 	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
+	// GetInternalOrder invokes getInternalOrder operation.
+	//
+	// Returns one internal order with its responsible cost center's code. An order of a legal entity the
+	// caller cannot act in is answered as missing (404).
+	//
+	// GET /v1/internal-orders/{id}
+	GetInternalOrder(ctx context.Context, params GetInternalOrderParams) (GetInternalOrderRes, error)
 	// GetJournalEntry invokes getJournalEntry operation.
 	//
 	// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
@@ -3061,6 +3081,27 @@ type Invoker interface {
 	//
 	// GET /v1/consolidation-runs/{id}/differences
 	ListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (ListIntercompanyDifferencesRes, error)
+	// ListInternalOrderBalances invokes listInternalOrderBalances operation.
+	//
+	// The actual costs of one internal order in a fiscal year, per account and fiscal period (ADR-0064
+	// §2), in the order's legal entity's local currency, exact at the moment of the read: the leading
+	// ledger's journal lines that name the order (`internal_order_id` on a journal entry line), their
+	// debits and credits added up, a reversal's lines included. Rows are in the order of the account
+	// number, then the period. The totals are the whole selection's on every page, whatever the page. An
+	// order that does not exist, or of a legal entity the caller cannot act in, is answered as missing
+	// (422 `request.reference_not_found` on `internal_order_id`). The actuals are ledger amounts, so
+	// besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the trial balance
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/internal-order-balances
+	ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (ListInternalOrderBalancesRes, error)
+	// ListInternalOrders invokes listInternalOrders operation.
+	//
+	// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its
+	// responsible cost center's code. Sortable by: `code`.
+	//
+	// GET /v1/internal-orders
+	ListInternalOrders(ctx context.Context, params ListInternalOrdersParams) (ListInternalOrdersRes, error)
 	// ListJournalEntries invokes listJournalEntries operation.
 	//
 	// Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
@@ -4214,6 +4255,16 @@ type Invoker interface {
 	//
 	// POST /v1/contracts/{id}:release
 	ReleaseContract(ctx context.Context, params ReleaseContractParams) (ReleaseContractRes, error)
+	// ReleaseInternalOrder invokes releaseInternalOrder operation.
+	//
+	// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
+	// (`If-Match`): the order is read under a row lock and moves to `released` once. An order already
+	// released is refused (409 `controlling.internal_order_released`). Releasing is a person's decision:
+	// `controlling.order.release` is an approval permission, which agents cannot hold. Audited, and
+	// published as InternalOrderChanged.
+	//
+	// POST /v1/internal-orders/{id}:release
+	ReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (ReleaseInternalOrderRes, error)
 	// ReleasePaymentRun invokes releasePaymentRun operation.
 	//
 	// The F110 release step, a direct human transition (not an approval request), as an operation
@@ -14367,6 +14418,143 @@ func (c *Client) sendCreateHierarchy(ctx context.Context, request *HierarchyCrea
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateHierarchyResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateInternalOrder invokes createInternalOrder operation.
+//
+// Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
+// controlling context, to which costs are posted once it is released (`:release`). The code is unique
+// in the legal entity (409 `controlling.internal_order_exists`). The responsible cost center must be
+// an active cost center of the legal entity (422 `controlling.internal_order_cost_center_invalid`,
+// whose field error's code says why: `unknown`, `not_in_company`, `not_active`). A legal entity the
+// caller cannot act in is answered as missing (422 `request.reference_not_found`). Created directly by
+// permission, with no approval request. Audited, and published as InternalOrderChanged. Agents may not
+// create one.
+//
+// POST /v1/internal-orders
+func (c *Client) CreateInternalOrder(ctx context.Context, request *InternalOrderCreate, params CreateInternalOrderParams) (CreateInternalOrderRes, error) {
+	res, err := c.sendCreateInternalOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateInternalOrder(ctx context.Context, request *InternalOrderCreate, params CreateInternalOrderParams) (res CreateInternalOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createInternalOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/internal-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateInternalOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/internal-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateInternalOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateInternalOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateInternalOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -27860,6 +28048,138 @@ func (c *Client) sendGetHierarchyNode(ctx context.Context, params GetHierarchyNo
 
 	stage = "DecodeResponse"
 	result, err := decodeGetHierarchyNodeResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetInternalOrder invokes getInternalOrder operation.
+//
+// Returns one internal order with its responsible cost center's code. An order of a legal entity the
+// caller cannot act in is answered as missing (404).
+//
+// GET /v1/internal-orders/{id}
+func (c *Client) GetInternalOrder(ctx context.Context, params GetInternalOrderParams) (GetInternalOrderRes, error) {
+	res, err := c.sendGetInternalOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetInternalOrder(ctx context.Context, params GetInternalOrderParams) (res GetInternalOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getInternalOrder"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetInternalOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetInternalOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetInternalOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -48222,6 +48542,481 @@ func (c *Client) sendListIntercompanyDifferences(ctx context.Context, params Lis
 	return result, nil
 }
 
+// ListInternalOrderBalances invokes listInternalOrderBalances operation.
+//
+// The actual costs of one internal order in a fiscal year, per account and fiscal period (ADR-0064
+// §2), in the order's legal entity's local currency, exact at the moment of the read: the leading
+// ledger's journal lines that name the order (`internal_order_id` on a journal entry line), their
+// debits and credits added up, a reversal's lines included. Rows are in the order of the account
+// number, then the period. The totals are the whole selection's on every page, whatever the page. An
+// order that does not exist, or of a legal entity the caller cannot act in, is answered as missing
+// (422 `request.reference_not_found` on `internal_order_id`). The actuals are ledger amounts, so
+// besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the trial balance
+// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/internal-order-balances
+func (c *Client) ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (ListInternalOrderBalancesRes, error) {
+	res, err := c.sendListInternalOrderBalances(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (res ListInternalOrderBalancesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listInternalOrderBalances"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/internal-order-balances"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListInternalOrderBalancesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/internal-order-balances"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "internal_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "internal_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.InternalOrderID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_year" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_year",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.Int32ToString(params.FiscalYear))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_from" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_from",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodFrom.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "fiscal_period_to" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "fiscal_period_to",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.FiscalPeriodTo.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListInternalOrderBalancesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListInternalOrderBalancesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListInternalOrders invokes listInternalOrders operation.
+//
+// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its
+// responsible cost center's code. Sortable by: `code`.
+//
+// GET /v1/internal-orders
+func (c *Client) ListInternalOrders(ctx context.Context, params ListInternalOrdersParams) (ListInternalOrdersRes, error) {
+	res, err := c.sendListInternalOrders(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListInternalOrders(ctx context.Context, params ListInternalOrdersParams) (res ListInternalOrdersRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listInternalOrders"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/internal-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListInternalOrdersOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/internal-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "code" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "code",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Code.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "responsible_cost_center_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "responsible_cost_center_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.ResponsibleCostCenterID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "include" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "include",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Include.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListInternalOrdersOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListInternalOrdersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListJournalEntries invokes listJournalEntries operation.
 //
 // Posted journal entries of one ledger, the leading ledger unless `ledger_id` names another: a
@@ -67257,6 +68052,167 @@ func (c *Client) sendReleaseContract(ctx context.Context, params ReleaseContract
 
 	stage = "DecodeResponse"
 	result, err := decodeReleaseContractResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReleaseInternalOrder invokes releaseInternalOrder operation.
+//
+// Releases a `created` internal order for posting (ADR-0064 §1), at the version the caller read
+// (`If-Match`): the order is read under a row lock and moves to `released` once. An order already
+// released is refused (409 `controlling.internal_order_released`). Releasing is a person's decision:
+// `controlling.order.release` is an approval permission, which agents cannot hold. Audited, and
+// published as InternalOrderChanged.
+//
+// POST /v1/internal-orders/{id}:release
+func (c *Client) ReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (ReleaseInternalOrderRes, error) {
+	res, err := c.sendReleaseInternalOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReleaseInternalOrder(ctx context.Context, params ReleaseInternalOrderParams) (res ReleaseInternalOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseInternalOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/internal-orders/{id}:release"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReleaseInternalOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/internal-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":release"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReleaseInternalOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReleaseInternalOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

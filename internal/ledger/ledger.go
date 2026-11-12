@@ -82,9 +82,12 @@ type Endpoints struct {
 	LegalEntities LegalEntities
 	Partners      Partners
 	PartnerNames  PartnerNames // names a revaluation's partners (T73i2)
-	Numbers       Numbers
-	Orders        OrderNumbers
-	Approvals     Opener // opens the unlock requests of locked periods
+	// CostObjects answers for the internal orders lines name (ADR-0064 §2).
+	// nil on the posting paths of other contexts, whose lines name none.
+	CostObjects CostObjects
+	Numbers     Numbers
+	Orders      OrderNumbers
+	Approvals   Opener // opens the unlock requests of locked periods
 	// Settings gives each company's time zone (T72n4).
 	Settings Settings
 	// TaxReturns holds a manual entry's tax date to the periods no tax

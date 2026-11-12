@@ -15,7 +15,8 @@ import (
 
 // AssignmentBalances is what the ledger publishes to the controlling
 // context for plan values and plan against actual (ADR-0050 §7, §8, T56g,
-// T56g3): what a plan may name, the cost or profit centers of a hierarchy
+// T56g3) and for internal orders (ADR-0064 §1, §2: the cost center an order
+// names and the order's actuals): what a plan may name, the cost or profit centers of a hierarchy
 // node, and the actuals by cost or profit center and account, read as the
 // center reports read them (costCenterBalances, profitCenterBalances). It
 // runs in the request's transaction under row-level security (ADR-0003);
@@ -110,6 +111,32 @@ func planLocks(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, costCen
 		return nil
 	})
 	return out, errs.Wrapf(err, "ledger: plan locks of the cost centers of %s in %d", le, year)
+}
+
+// CostCenterRef is a cost center as the controlling context names it on an
+// internal order (ADR-0064 §1): its company, its code and whether it is
+// active (approved, not pending or rejected).
+type CostCenterRef struct {
+	LegalEntityID uuid.UUID
+	Code          string
+	Active        bool
+}
+
+// CostCenterRefs reads the tenant's cost centers with the ids, keyed by
+// id; an id that is no cost center has no entry. An active cost center
+// stays one (a center change never takes a status back), so the read
+// takes no lock.
+func (AssignmentBalances) CostCenterRefs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CostCenterRef, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, legal_entity_id, code, status = $2 FROM ledger.cost_center WHERE id = ANY($1)`, ids, CenterActive)
+	out := map[uuid.UUID]CostCenterRef{}
+	var id uuid.UUID
+	var c CostCenterRef
+	_, err = pgx.ForEachRow(rows, []any{&id, &c.LegalEntityID, &c.Code, &c.Active}, func() error { out[id] = c; return nil })
+	return out, errs.Wrapf(err, "ledger: cost centers named by the controlling context")
 }
 
 // CostCenters are the cost centers a plan against actual is limited to,
@@ -210,6 +237,90 @@ func actuals(ctx context.Context, k reportKind, q ActualsQuery) ([]AssignmentAct
 	})
 	if err != nil {
 		return nil, fmt.Errorf("ledger: %s actuals of %s in %d: %w", k.table, q.LegalEntityID, q.FiscalYear, err)
+	}
+	return out, nil
+}
+
+// OrderActualKey is the key of a row of an internal order's actuals: an
+// account, by its number, and a fiscal period. Rows come in its order.
+type OrderActualKey struct {
+	AccountNumber string
+	AccountID     uuid.UUID
+	Period        int16
+}
+
+// OrderActual is what was posted to an internal order on an account in a
+// period, in local currency: the debits, the credits (positive) and the
+// debits less the credits.
+type OrderActual struct {
+	OrderActualKey
+	AccountName            string
+	Debit, Credit, Balance money.Minor
+}
+
+// OrderActualsQuery asks for the actuals of an internal order of a legal
+// entity in a range of periods of a fiscal year: the rows with keys after
+// After (nil: from the first), at most Limit.
+type OrderActualsQuery struct {
+	LegalEntityID, OrderID uuid.UUID
+	FiscalYear             int16
+	PeriodFrom, PeriodTo   int16
+	After                  *OrderActualKey
+	Limit                  int
+}
+
+// OrderActuals are a page of an order's actuals and the totals of the
+// whole selection, whatever the page.
+type OrderActuals struct {
+	Rows                   []OrderActual
+	Debit, Credit, Balance money.Minor
+}
+
+// orderLines are the leading ledger's lines of an internal order in the
+// periods asked for ($1-$6), found by the order's partial index (000270).
+const orderLines = ` FROM ledger.journal_line l WHERE l.legal_entity_id = $1 AND l.ledger_id = $2 AND l.internal_order_id = $3
+	AND l.fiscal_year = $4 AND l.fiscal_period BETWEEN $5 AND $6`
+
+// orderSums are a selection of lines' debits, credits and balance.
+const orderSums = `coalesce(sum(l.amount_lc) FILTER (WHERE l.amount_lc > 0), 0)::bigint, coalesce(-sum(l.amount_lc) FILTER (WHERE l.amount_lc < 0), 0)::bigint,
+	coalesce(sum(l.amount_lc), 0)::bigint`
+
+// OrderActuals reads the leading ledger's actuals of an internal order by
+// account and period (ADR-0064 §2, T60b): the journal lines that name the
+// order, a reversal's included, read from the lines themselves, so they
+// are exact at the read. A tenant without a leading ledger has none.
+func (AssignmentBalances) OrderActuals(ctx context.Context, q OrderActualsQuery) (OrderActuals, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return OrderActuals{}, err
+	}
+	leading, ok, err := ledgerOrLeading(ctx, tx, nil)
+	if err != nil || !ok {
+		return OrderActuals{}, err
+	}
+	var out OrderActuals
+	if err := tx.QueryRow(ctx, `SELECT `+orderSums+orderLines, q.LegalEntityID, leading, q.OrderID, q.FiscalYear, q.PeriodFrom, q.PeriodTo).
+		Scan(&out.Debit, &out.Credit, &out.Balance); err != nil {
+		return OrderActuals{}, fmt.Errorf("ledger: total actuals of internal order %s in %d: %w", q.OrderID, q.FiscalYear, err)
+	}
+	var number *string
+	var account *uuid.UUID
+	var period *int16
+	if q.After != nil {
+		number, account, period = &q.After.AccountNumber, &q.After.AccountID, &q.After.Period
+	}
+	rows, _ := tx.Query(ctx, `SELECT a.number, s.account_id, s.fiscal_period, a.name, s.debit, s.credit, s.balance
+		FROM (SELECT l.tenant_id, l.account_id, l.fiscal_period, `+orderSums+orderLines+` GROUP BY 1, 2, 3) AS s(tenant_id, account_id, fiscal_period, debit, credit, balance)
+		JOIN ledger.gl_account a ON a.tenant_id = s.tenant_id AND a.id = s.account_id
+		WHERE $7::text IS NULL OR (a.number, s.account_id, s.fiscal_period) > ($7, $8::uuid, $9::smallint)
+		ORDER BY a.number, s.account_id, s.fiscal_period LIMIT $10`,
+		q.LegalEntityID, leading, q.OrderID, q.FiscalYear, q.PeriodFrom, q.PeriodTo, number, account, period, q.Limit)
+	out.Rows, err = pgx.CollectRows(rows, func(r pgx.CollectableRow) (OrderActual, error) {
+		var a OrderActual
+		return a, errs.Wrapf(r.Scan(&a.AccountNumber, &a.AccountID, &a.Period, &a.AccountName, &a.Debit, &a.Credit, &a.Balance), "scan internal order actual")
+	})
+	if err != nil {
+		return OrderActuals{}, fmt.Errorf("ledger: actuals of internal order %s in %d: %w", q.OrderID, q.FiscalYear, err)
 	}
 	return out, nil
 }

@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -32,8 +34,43 @@ import (
 // posting date (a different one given is refused), else, for a P&L line
 // with profit center accounting on, the company's default; the segment is
 // always the profit center's.
+//
+// An internal order is the second real cost object (ADR-0064 §2, T60b): a
+// primary cost line names a cost center or an order, never both. The order
+// master is the controlling context's, so the ledger asks it through
+// CostObjects (assignOrders) before the derivation; the line then takes
+// its profit center and segment from the order's responsible cost center
+// in its period on the posting date, and keeps no cost center of its own.
+
+// CostObjects is what the ledger asks the controlling context about the
+// internal orders its lines name (ADR-0064 §2), as it asks the partner
+// context through Partners: the order master is controlling's, and the
+// journal line names an order without a foreign key.
+type CostObjects interface {
+	// Orders reads the orders with the ids, keyed by id; an id that is no
+	// order has no entry. hold keeps them until the transaction ends, so
+	// that a status change waits for a posting under way and a posting
+	// after it sees it.
+	Orders(ctx context.Context, ids []uuid.UUID, hold bool) (map[uuid.UUID]CostOrder, error)
+}
+
+// CostOrder is an internal order as a posting reads it: its company, its
+// code, whether it takes postings (released) and its responsible cost
+// center.
+type CostOrder struct {
+	LegalEntityID uuid.UUID
+	Code          string
+	Postable      bool
+	CostCenterID  uuid.UUID
+}
 
 func init() {
+	// The database's part of the rule (000268): the application refuses
+	// the line first (assignOrders).
+	problem.RegisterConstraint("journal_line_one_cost_object", func() *problem.Problem {
+		return problem.Unprocessable("ledger.internal_order_invalid", "A line names both a cost center and an internal order.",
+			problem.FieldError{Field: "lines.internal_order_id", Code: reasonWithCostCenter, Message: reasonTexts[reasonWithCostCenter]})
+	})
 	problem.RegisterConstraint("journal_line_cost_center_fkey", func() *problem.Problem {
 		return problem.Unprocessable("ledger.cost_center_invalid", "A line's cost center is not a cost center of the line's legal entity.",
 			problem.FieldError{Field: "lines.cost_center_id", Code: reasonNotInCompany, Message: "a cost center of the legal entity"})
@@ -73,6 +110,14 @@ const (
 	reasonRevenueNotAllowed = "revenue_not_allowed"
 	reasonNotAllowed        = "not_allowed" // a cost center on an account whose cost element is none
 	reasonLocked            = "locked"      // a profit center's lock
+	// Of ledger.internal_order_invalid (ADR-0064 §2), beside reasonUnknown
+	// and reasonNotInCompany.
+	reasonNotReleased      = "not_released"
+	reasonWithCostCenter   = "with_cost_center"
+	reasonNotACostAccount  = "not_a_cost_account"
+	reasonCenterNotOnDate  = "cost_center_not_valid_on_date"
+	internalOrderInvalid   = "ledger.internal_order_invalid"
+	internalOrderFieldName = "internal_order_id"
 )
 
 var reasonTexts = map[string]string{
@@ -85,6 +130,10 @@ var reasonTexts = map[string]string{
 	reasonRevenueNotAllowed: "is of a category that takes no revenue",
 	reasonNotAllowed:        "cannot be posted on an account that takes no cost object (cost element none)",
 	reasonLocked:            "is locked on the posting date",
+	reasonNotReleased:       "is not released for posting",
+	reasonWithCostCenter:    "cannot be named beside a cost center: a line carries one real cost object",
+	reasonNotACostAccount:   "can be posted only on a primary cost account",
+	reasonCenterNotOnDate:   "has a responsible cost center that is not valid on the posting date, so the line's profit center cannot be derived",
 }
 
 // assignRules are a company's controlling as a posting in one fiscal year
@@ -170,18 +219,121 @@ func readAssignRules(ctx context.Context, tx pgx.Tx, le uuid.UUID, year int16, l
 	return r, errs.Wrapf(err, "ledger: controlled accounts of %s", le)
 }
 
-// entered reports whether the line gives a center of its own.
+// entered reports whether the line gives a center or an order of its own.
 func entered(l Line) bool {
-	return l.CostCenterID != nil || l.ProfitCenterID != nil || l.SegmentID != nil
+	return l.CostCenterID != nil || l.ProfitCenterID != nil || l.SegmentID != nil || l.InternalOrderID != nil
+}
+
+// assignOrders checks the internal orders the lines name with the
+// controlling context (ADR-0064 §2) and notes each one's responsible cost
+// center on its line for the derivation: an order must be known, of the
+// posting's company and released, and its line names no cost center (422
+// ledger.internal_order_invalid, naming the line and why). The orders are
+// held until the transaction ends. A posting whose lines name none asks
+// nothing.
+func (e *Endpoints) assignOrders(ctx context.Context, le uuid.UUID, lines []Line) error {
+	ids := centerIDs(lines, func(l Line) *uuid.UUID { return l.InternalOrderID })
+	if len(ids) == 0 {
+		return nil
+	}
+	orders, err := e.costOrders(ctx, ids, true)
+	if err != nil {
+		return err
+	}
+	for i := range lines {
+		l := &lines[i]
+		if l.InternalOrderID == nil {
+			continue
+		}
+		o, known := orders[*l.InternalOrderID]
+		if reason := orderState(known, o.LegalEntityID == le, o.Postable, l.CostCenterID != nil); reason != "" {
+			return orderRefused(i, reason)
+		}
+		l.orderCenter = &o.CostCenterID
+	}
+	return nil
+}
+
+// costOrders asks the controlling context for the orders. A posting path
+// wired without the port (another context's, whose lines name no order)
+// is an error rather than a line posted unchecked.
+func (e *Endpoints) costOrders(ctx context.Context, ids []uuid.UUID, hold bool) (map[uuid.UUID]CostOrder, error) {
+	if e.CostObjects == nil {
+		return nil, errors.New("ledger: a line names an internal order where the cost objects port is not wired")
+	}
+	orders, err := e.CostObjects.Orders(ctx, ids, hold)
+	return orders, errs.Wrapf(err, "ledger: internal orders of the lines")
+}
+
+// orderState is why an order cannot be posted on a line: unknown, not the
+// company's, not released, or named beside a cost center; "" when it can.
+func orderState(known, inCompany, postable, withCostCenter bool) string {
+	switch {
+	case !known:
+		return reasonUnknown
+	case !inCompany:
+		return reasonNotInCompany
+	case !postable:
+		return reasonNotReleased
+	case withCostCenter:
+		return reasonWithCostCenter
+	}
+	return ""
+}
+
+// orderRefused is the refusal of line i's internal order for the reason.
+func orderRefused(i int, reason string) error {
+	return centerRefused(internalOrderInvalid, i, internalOrderFieldName, "The internal order", reason)
+}
+
+// nameLines names what the entries' lines refer to by id alone, as it is
+// now: their trading partners (nameTradingPartners) and their internal
+// orders, by code (ADR-0064 §2). The controlling context is asked only
+// when a line names an order.
+func (e *Endpoints) nameLines(ctx context.Context, reps ...*gen.JournalEntry) error {
+	if err := e.nameTradingPartners(ctx, entryTradingPartners(reps...)); err != nil {
+		return err
+	}
+	var ids []uuid.UUID
+	for _, rep := range reps {
+		for _, l := range rep.Lines {
+			if id, ok := l.InternalOrderID.Get(); ok && !slices.Contains(ids, id) {
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	orders, err := e.costOrders(ctx, ids, false)
+	if err != nil {
+		return err
+	}
+	for _, rep := range reps {
+		for i := range rep.Lines {
+			if o, ok := orders[rep.Lines[i].InternalOrderID.Value]; ok {
+				rep.Lines[i].InternalOrderCode = gen.NewOptString(o.Code)
+			}
+		}
+	}
+	return nil
 }
 
 // deriveCostCenters refuses a cost center on an account that takes none
-// and gives a primary cost line without one the account's default, while
-// cost center accounting applies; without a default the line is refused.
+// and an internal order on an account that is not a primary cost account,
+// and gives a primary cost line without either the account's default
+// cost center, while cost center accounting applies; without a default
+// the line is refused.
 func (r assignRules) deriveCostCenters(lines []Line, found []lineCenters) error {
 	for i := range lines {
 		l, a := &lines[i], r.accounts[lines[i].AccountID]
 		switch {
+		case l.InternalOrderID != nil:
+			// The order is the line's cost object: it takes no default
+			// cost center, and an order collects costs only.
+			if a.element != config.CostElementPrimaryCost {
+				return orderRefused(i, reasonNotACostAccount)
+			}
 		case l.CostCenterID != nil && a.element == config.CostElementNone:
 			return centerRefused("ledger.cost_center_invalid", i, "cost_center_id", "The cost center", reasonNotAllowed)
 		case l.CostCenterID != nil || a.element != config.CostElementPrimaryCost || !r.costOn:
@@ -208,12 +360,13 @@ type assignedCostCenter struct {
 }
 
 // checkLineCostCenters validates each line's cost center on the posting date
-// (validCostCenter) and gives a line without a profit center its cost
+// (validCostCenter), or reads its internal order's responsible one
+// (orderCostCenter), and gives a line without a profit center that cost
 // center's; a different one given is refused (422
 // ledger.profit_center_mismatch), as the cost center's profit center wins
 // (SAP).
 func checkLineCostCenters(ctx context.Context, tx pgx.Tx, le uuid.UUID, date time.Time, lines []Line, r assignRules, found []lineCenters, lock bool) error {
-	centers, err := readCostCenters(ctx, tx, centerIDs(lines, func(l Line) *uuid.UUID { return l.CostCenterID }), lock)
+	centers, err := readCostCenters(ctx, tx, centerIDs(lines, derivingCenter), lock)
 	if err != nil {
 		return err
 	}
@@ -222,11 +375,12 @@ func checkLineCostCenters(ctx context.Context, tx pgx.Tx, le uuid.UUID, date tim
 		return err
 	}
 	for i := range lines {
-		l := &lines[i]
-		if l.CostCenterID == nil {
+		l, f := &lines[i], &found[i]
+		cc := derivingCenter(*l)
+		if cc == nil {
 			continue
 		}
-		attr, err := validCostCenter(i, centers[*l.CostCenterID], le, date, r.accounts[l.AccountID].element, found[i].ccDefault, revenue)
+		attr, err := derivingAttrs(i, *l, centers[*cc], le, date, r.accounts[l.AccountID].element, f.ccDefault, revenue)
 		if err != nil {
 			return err
 		}
@@ -234,7 +388,7 @@ func checkLineCostCenters(ctx context.Context, tx pgx.Tx, le uuid.UUID, date tim
 		case attr.ProfitCenterID == uuid.Nil:
 		case l.ProfitCenterID == nil:
 			pc := attr.ProfitCenterID
-			l.ProfitCenterID, found[i].pcDefault = &pc, found[i].ccDefault
+			l.ProfitCenterID, f.pcDefault = &pc, f.ccDefault
 		case *l.ProfitCenterID != attr.ProfitCenterID:
 			return problem.Unprocessable("ledger.profit_center_mismatch", fmt.Sprintf("Line %d: the profit center differs from its cost center's "+
 				"on the posting date, which the line takes.", i+1),
@@ -242,6 +396,41 @@ func checkLineCostCenters(ctx context.Context, tx pgx.Tx, le uuid.UUID, date tim
 		}
 	}
 	return nil
+}
+
+// derivingCenter is the cost center a line's profit center derives from:
+// its own, or its internal order's responsible one (a line has one or the
+// other, assignOrders).
+func derivingCenter(l Line) *uuid.UUID { return cmp.Or(l.CostCenterID, l.orderCenter) }
+
+// derivingAttrs are the attributes, on the posting date, of the cost
+// center line i's profit center derives from: its internal order's
+// responsible one (orderCostCenter), or its own, validated for the line
+// (validCostCenter).
+func derivingAttrs(i int, l Line, c *assignedCostCenter, le uuid.UUID, date time.Time, element config.CostElement, fromDefault bool,
+	revenue map[string]bool) (CostCenterAttrs, error) {
+	if l.orderCenter != nil {
+		return orderCostCenter(i, c, date)
+	}
+	return validCostCenter(i, c, le, date, element, fromDefault, revenue)
+}
+
+// orderCostCenter returns the attributes, on the posting date, of the
+// responsible cost center of line i's internal order, for the line's
+// profit center. The center's locks are its own postings': the order is
+// the line's cost object, so only a center with no period on the date
+// (ended, not begun, or unknown to the ledger) refuses the line, which
+// would have no profit center to take.
+func orderCostCenter(i int, c *assignedCostCenter, date time.Time) (CostCenterAttrs, error) {
+	var spans []span[CostCenterAttrs]
+	if c != nil {
+		spans = c.spans
+	}
+	attr, ok := spanOn(spans, date, false)
+	if !ok {
+		return CostCenterAttrs{}, orderRefused(i, reasonCenterNotOnDate)
+	}
+	return attr, nil
 }
 
 // validCostCenter returns the attributes of the cost center in force on
@@ -495,4 +684,19 @@ func periodLock(lock bool) string {
 		return periodsForShare
 	}
 	return noLock
+}
+
+// refuseParkedOrders refuses a parked entry or an entry template whose
+// line names an internal order (ADR-0064 §2, As built): a kept line has no
+// column for one in the first version, so the order would be lost when the
+// entry is posted. An order is named on an entry that is posted at once.
+func refuseParkedOrders(lines []Line) error {
+	for i, l := range lines {
+		if l.InternalOrderID != nil {
+			return problem.Unprocessable("ledger.internal_order_not_parkable", fmt.Sprintf("Line %d names an internal order, which a parked entry "+
+				"or an entry template cannot keep yet; post the entry directly.", i+1),
+				problem.FieldError{Field: fmt.Sprintf("lines[%d].internal_order_id", i), Code: "not_parkable", Message: "no internal order on a parked entry or a template"})
+		}
+	}
+	return nil
 }
