@@ -94,6 +94,7 @@ info:
     - name: receivables
     - name: collections
     - name: sales
+    - name: revenue
     - name: credit
     - name: payments
     - name: workflow
@@ -450,6 +451,14 @@ channels:
       SalesOrderDelivered: {$ref: '#/components/messages/SalesOrderDelivered'}
       BillingDocumentChanged: {$ref: '#/components/messages/BillingDocumentChanged'}
       BillingDocumentPosted: {$ref: '#/components/messages/BillingDocumentPosted'}
+  revenue:
+    address: 'erp.{cell}.revenue.{tenant}.{event}'
+    title: Revenue recognition events
+    description: Revenue contracts (ADR-0068 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      RevenueContractChanged: {$ref: '#/components/messages/RevenueContractChanged'}
   credit:
     address: 'erp.{cell}.credit.{tenant}.{event}'
     title: Credit management events
@@ -746,6 +755,12 @@ operations:
       - $ref: '#/channels/sales/messages/SalesOrderDelivered'
       - $ref: '#/channels/sales/messages/BillingDocumentChanged'
       - $ref: '#/channels/sales/messages/BillingDocumentPosted'
+  publishRevenueEvents:
+    action: send
+    title: Revenue recognition publishes
+    channel: {$ref: '#/channels/revenue'}
+    messages:
+      - $ref: '#/channels/revenue/messages/RevenueContractChanged'
   publishCreditEvents:
     action: send
     title: Credit management publishes
@@ -4170,6 +4185,39 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001104, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, status: created, status_before: null, version: 1}
+    RevenueContractChanged:
+      name: RevenueContractChanged
+      x-webhook: true
+      title: Revenue contract changed
+      summary: A revenue contract was created, changed or activated.
+      description: |
+        Emitted at each change of a revenue contract (ADR-0068 §5, T81a,
+        T81b): when it is created (`draft`, status_before null), by the
+        system when its sales order is confirmed or by a person for a
+        confirmed order that had none (the event's `actorid` says which);
+        when a person changes its obligations' timing, service periods or
+        stand-alone selling prices (`draft`, status_before `draft`); and
+        when it is activated (`active`, status_before `draft`), which
+        allocates its transaction price and fixes its obligations.
+        It carries the contract's transaction price, the order's net value
+        without tax, and the number of its performance obligations, not the
+        obligations, and names the customer by id and number, never by name.
+        `GET /v1/revenue-contracts/{id}` returns the contract at `version`
+        or later. Subject is the contract id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.revenue.revenue_contract_changed.v1}
+      payload: {$ref: '#/components/schemas/RevenueContractChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001101, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: draft, status_before: null, version: 1}
+        - name: activated
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: active, status_before: draft, version: 3}
     BillingDocumentPosted:
       name: BillingDocumentPosted
       x-webhook: true
@@ -5010,6 +5058,22 @@ components:
         status: {type: string, description: "The document's status after the change. Open enum: created."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         version: {type: integer, description: "The document's version after the change."}
+    RevenueContractChangedV1:
+      type: object
+      required: [revenue_contract_id, sales_order_id, sales_order_number, legal_entity_id, legal_entity_code, customer_id, customer_number, transaction_price, obligation_count, status, status_before, version]
+      properties:
+        revenue_contract_id: {$ref: '#/components/schemas/Uuid', description: '`revenue.contract.id`.'}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The confirmed sales order the contract stands for: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose contract it is.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        transaction_price: {$ref: '#/components/schemas/Money', description: "The contract's transaction price: the sales order's net value, without tax, in the company's local currency."}
+        obligation_count: {type: integer, description: "The contract's performance obligations, one per item of the sales order."}
+        status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
+        version: {type: integer, description: "The contract's version after the change."}
     BillingDocumentPostedV1:
       type: object
       required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, billing_date, posting_date, net_amount, tax_amount, gross_amount, customer_invoice_id, customer_invoice_number, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]

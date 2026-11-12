@@ -2745,35 +2745,35 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Revenue contracts and performance obligations",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
-        "t": "A revenue accountant creates a revenue contract for a confirmed sales order, with one performance obligation per order item, and reads it back with its transaction price; the revenue context and its ADR (POST /v1/revenue-contracts)",
-        "r": "T81a · docs/design/plan-breadth-week2.md §T81a",
-        "src": "po:2026-11-10 · design:01 §1.2",
+        "s": "D",
+        "t": "A revenue accountant creates a revenue contract for a confirmed sales order, with one performance obligation per order item, and reads it back with its transaction price; every confirmed sales order gets its contract automatically, once; the revenue context and its ADR (POST /v1/revenue-contracts)",
+        "r": "T81a · docs/design/plan-breadth-week2.md §T81a · db/migrations/000298 · revenue.contract, performance_obligation · POST /v1/revenue-contracts · GET /v1/revenue-contracts · GET /v1/revenue-contracts/{id} · RevenueContractChanged · revenue.contract.read, .write · the consumer revenue-contracts of SalesOrderChanged (revenue.inbox) · walkthrough step_revenue_contract · ADR-0068 §1-§6 and As built",
+        "src": "po:2026-11-10 · po:2026-11-12 · design:01 §1.2",
         "c": []
        },
        {
         "s": "T",
-        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications, contracts in a foreign currency, contracts without a sales order or created automatically, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
-        "r": "docs/design/plan-breadth-week2.md §T81a, Later",
-        "src": "po:2026-11-10 · design:01 §1.2",
+        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications, contracts in a foreign currency, contracts without a sales order, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week2.md §T81a, Later · contracts created automatically are built with T81a (product owner 2026-11-12, ADR-0068 §4)",
+        "src": "po:2026-11-10 · po:2026-11-12 · design:01 §1.2",
         "c": []
        }
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Price allocation",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The revenue accountant sets per obligation whether it is satisfied at a point in time or over time, with its service period, and its stand-alone selling price, and activates the contract: the transaction price is allocated to the obligations in proportion to those prices",
-        "r": "T81b · docs/design/plan-breadth-week2.md §T81b",
+        "r": "T81b · docs/design/plan-breadth-week2.md §T81b · db/migrations/000299 · performance_obligation.service_from, service_to, allocated_amount · PATCH /v1/revenue-contracts/{id} · POST /v1/revenue-contracts/{id}:activate · revenue.contract.activate · money.Allocate · walkthrough step_revenue_contract · ADR-0068 §7 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

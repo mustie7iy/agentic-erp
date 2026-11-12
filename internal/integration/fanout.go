@@ -100,13 +100,8 @@ func parseEvent(m outbox.Message) (ev fanEvent, offered bool, err error) {
 	if _, found := slices.BinarySearch(webhookEvents, ev.typ); !found {
 		return ev, false, nil
 	}
-	// erp.<cell>.<context>.<tenant>.<event>
-	parts := strings.Split(m.Subject, ".")
-	if len(parts) != 5 || parts[2] != eventContext(ev.typ) {
-		return ev, true, fmt.Errorf("%w: subject is not erp.<cell>.<context>.<tenant>.<event> of the type's context", errRefused)
-	}
-	if ev.tenant, err = uuid.Parse(parts[3]); err != nil || parts[3] != m.Header["ce-tenantid"] {
-		return ev, true, fmt.Errorf("%w: the subject's tenant %q is not the event's tenantid %q", errRefused, parts[3], m.Header["ce-tenantid"])
+	if ev.tenant, err = m.Tenant(eventContext(ev.typ)); err != nil {
+		return ev, true, fmt.Errorf("%w: %w", errRefused, err)
 	}
 	if ev.id, err = uuid.Parse(m.Header["ce-id"]); err != nil {
 		return ev, true, fmt.Errorf("%w: id: %w", errRefused, err)

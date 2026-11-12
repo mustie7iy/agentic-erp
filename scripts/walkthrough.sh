@@ -7271,6 +7271,139 @@ step_price_list() {
   expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
   passed
 }
+# step_revenue_contract is T81a (ADR-0068 §3-§4): Sally confirms a second
+# sales order, of two items, goods and a support service for the fiscal
+# year; the revenue context reads the order's event and creates its
+# revenue contract by itself. Nora, the revenue accountant, reads it: a
+# draft with the order's net value, without tax, as its transaction price
+# and one performance obligation per order item, each satisfied at a
+# point in time with the item's net value as its stand-alone selling
+# price. A request for the same order is refused, since an order has one
+# contract, and so is one for an order that is not confirmed. T81b
+# (ADR-0068 §7): Nora sets the support service to over time for the fiscal
+# year with a stand-alone selling price above its order value and
+# activates the contract; the transaction price is allocated to the two
+# obligations in proportion to their stand-alone selling prices, the
+# amounts adding up to it to the cent; an active contract is fixed. The
+# contract of step 63's order, activated with the prices it started with,
+# is allocated the order's item values. Nothing is posted. REVENUE_ORDER
+# and REVENUE_CONTRACT are the order and its active contract for later
+# steps.
+step_revenue_contract() {
+  heading "Step 67 — Revenue contracts: a confirmed sales order gets its revenue contract by itself, one performance obligation per order item, the order's net value without tax as its transaction price; one contract per order; the price allocated in proportion to stand-alone selling prices when the contract is activated; nothing posted"
+  local customer=$CUSTOMER sales item1 item2 order number contract open i draft year first
+  [ -n "$SALES_ORDER" ] || fail "step 63's sales order is not there"
+  as ada
+  say "Ada adds Nora, the revenue accountant, to the team:"
+  person nora "Nora Revenue" finance_staff
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  sales=$(account 4000)
+  say "Northwind orders 120 more brackets and a year of support for them. Sally creates the order directly and"
+  say "confirms it. The order's amounts are net: the GST is calculated when it is billed (ADR-0067 §3)."
+  item1="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.50\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  item2="{\"item_key\": \"SUPPORT-1Y\", \"description\": \"Support for the fiscal year\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"1200.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name): \(.status), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount)")' \
+    createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [$item1, $item2]}"
+  order=$(field .id)
+  number=$(field .document_number)
+  expect "the order's net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "2700.00 CAD"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  expect "the confirmed order" "$(field .status)" confirmed
+  as nora
+  say "Confirming the order published SalesOrderChanged through the sales context's outbox. The revenue context"
+  say "reads it from the event bus and creates the order's revenue contract, once per order (ADR-0068 §4): nobody"
+  say "asks for it, and the sales context does not know of it. Nora finds it by its order:"
+  for i in $(seq 1 240); do
+    QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$order"
+    if [ "$(field '.items | length')" = 1 ]; then break; fi
+    sleep 0.25
+  done
+  api 200 '.items[] | "revenue contract of sales order \(.sales_order_number), \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), transaction price \(.transaction_price.amount) \(.transaction_price.currency)", (.obligations[] | "  obligation \(.obligation_no) (order item \(.order_item_no)) \(.item_key // "-") \(.description): \(.timing), order value \(.net_amount.amount), stand-alone selling price \(.standalone_selling_price.amount) \(.standalone_selling_price.currency)")' \
+    listRevenueContracts -p "sales_order_id=$order"
+  expect "the order's revenue contracts (after $i checks)" "$(field '.items | length')" 1
+  contract=$(field '.items[0].id')
+  expect "the contract's order, customer, currency and status" \
+    "$(field '.items[0] | "\(.sales_order_id) \(.sales_order_number) \(.customer_id) \(.currency) \(.status) \(.version)"')" "$order $number $customer CAD draft 1"
+  say "Its transaction price is the order's net value, without the GST the order will be billed with; it has one"
+  say "performance obligation per order item, each starting as satisfied at a point in time with the item's net"
+  say "value as its stand-alone selling price. What is a distinct obligation, when it is satisfied and what its"
+  say "stand-alone selling price is are Nora's judgement, not the system's (ADR-0068 §2):"
+  expect "the transaction price, the order's net value" "$(field '.items[0].transaction_price | "\(.amount) \(.currency)"')" "2700.00 CAD"
+  expect "each obligation's order item, timing, order value and stand-alone selling price" \
+    "$(field '[.items[0].obligations[] | "\(.obligation_no)=\(.order_item_no) \(.timing) \(.net_amount.amount) \(.standalone_selling_price.amount)"] | join(", ")')" \
+    "1=1 point_in_time 1500.00 1500.00, 2=2 point_in_time 1200.00 1200.00"
+  say "Read back by its id, it is the same contract; the system created it, not a person:"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), version \(.version), transaction price \(.transaction_price.amount) \(.transaction_price.currency), \(.obligations | length) obligations"' \
+    getRevenueContract -p "id=$contract"
+  expect "the contract read back" "$(field '"\(.id) \(.status) \(.version) \(.transaction_price.amount) \(.obligations | length)"')" "$contract draft 1 2700.00 2"
+  if cut -f1 "$WORK/names" | grep -qx "$(field .created_by)"; then fail "the contract was created by a person, not by the system"; fi
+  say "A person can ask for the contract of a confirmed order that has none yet (one confirmed before contracts were"
+  say "created by themselves). This order has its contract, and an order has one, so Nora's request is refused:"
+  refused 409 revenue.contract_exists createRevenueContract -body "{\"sales_order_id\": \"$order\"}"
+  QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$order"
+  expect "the order's revenue contracts" "$(field '[.items[].id] | join(" ")')" "$contract"
+  say "An order that is not confirmed has no contract and gets none on request:"
+  as sally
+  QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [$item1]}"
+  draft=$(field .id)
+  as nora
+  refused 422 revenue.order_not_confirmed createRevenueContract -body "{\"sales_order_id\": \"$draft\"}"
+  expect "the field refused" "$(field '.errors[0].field')" sales_order_id
+  say "The brackets are goods; the support is a service Northwind receives over the fiscal year. That is Nora's"
+  say "judgement to make: she sets the support's obligation to over time with its service period. She also knows that"
+  say "Maple sells a year of support on its own for 1300.00, above the 1200.00 on this order, and enters that as the"
+  say "obligation's stand-alone selling price (ADR-0068 §2, §7):"
+  year=$(company_day)
+  year=${year:0:4}
+  QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), version \(.version)", (.obligations[] | "  obligation \(.obligation_no) \(.description): \(.timing)" + (if .service_from then " from \(.service_from) to \(.service_to)" else "" end) + ", stand-alone selling price \(.standalone_selling_price.amount) \(.standalone_selling_price.currency)")' \
+    updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
+    -body "{\"obligations\": [{\"obligation_no\": 2, \"timing\": \"over_time\", \"service_from\": \"$year-01-01\", \"service_to\": \"$year-12-31\", \"standalone_selling_price\": {\"amount\": \"1300.00\", \"currency\": \"CAD\"}}]}"
+  expect "the obligations after the change" \
+    "$(field '[.obligations[] | "\(.timing) \(.service_from // "-") \(.service_to // "-") \(.standalone_selling_price.amount)"] | join(", ")')" \
+    "point_in_time - - 1500.00, over_time $year-01-01 $year-12-31 1300.00"
+  expect "the draft's version and allocated amounts" "$(field '"\(.status) \(.version) " + ([.obligations[] | .allocated_amount.amount // "-"] | join(" "))')" "draft 2 - -"
+  say "An over-time obligation needs its service period: setting the brackets to over time without one is refused."
+  refused 422 revenue.service_period_required updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
+    -body '{"obligations": [{"obligation_no": 1, "timing": "over_time"}]}'
+  expect "the field refused" "$(field '.errors[0].field')" "obligations[0].service_from"
+  say "Nora activates the contract. The system allocates the transaction price to the obligations in proportion to"
+  say "their stand-alone selling prices, 1500.00 and 1300.00: 2700.00 x 1500 / 2800 is 1446.428..., 2700.00 x 1300 / 2800"
+  say "is 1253.571...; the whole cents leave one cent over, which goes to the larger remainder, the brackets'. That"
+  say "arithmetic is all the system does:"
+  QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), version \(.version), transaction price \(.transaction_price.amount) \(.transaction_price.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description): order value \(.net_amount.amount), stand-alone selling price \(.standalone_selling_price.amount), allocated \(.allocated_amount.amount) \(.allocated_amount.currency)")' \
+    activateRevenueContract -p "id=$contract" -if-match "$ETAG"
+  expect "the active contract" "$(field '"\(.status) \(.version)"')" "active 3"
+  expect "the allocated amounts" "$(field '[.obligations[] | .allocated_amount.amount] | join(" ")')" "1446.43 1253.57"
+  expect "the allocated amounts' sum in cents, the transaction price's" \
+    "$(field '[.obligations[] | .allocated_amount.amount | sub("\\."; "") | tonumber] | add')" "$(field '.transaction_price.amount | sub("\\."; "") | tonumber')"
+  say "The two amounts add up to the transaction price, 2700.00, to the cent, and differ from the order's item values,"
+  say "1500.00 and 1200.00, as the proportion gives. An active contract is fixed: a change is refused, and so is a"
+  say "second activation."
+  refused 409 revenue.invalid_status updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
+    -body '{"obligations": [{"obligation_no": 1, "standalone_selling_price": {"amount": "1.00", "currency": "CAD"}}]}'
+  QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+  refused 409 revenue.invalid_status activateRevenueContract -p "id=$contract" -if-match "$ETAG"
+  say "The order of step 63 got its contract the same way when Sally confirmed it. Nobody changed its obligations, so"
+  say "they have the prices they started with, the order items' net values, and activating it allocates those values:"
+  QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$SALES_ORDER"
+  expect "the revenue contracts of step 63's order" "$(field '.items | length')" 1
+  first=$(field '.items[0].id')
+  QUIET=1 api 200 '' getRevenueContract -p "id=$first"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), transaction price \(.transaction_price.amount) \(.transaction_price.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description): order value \(.net_amount.amount), allocated \(.allocated_amount.amount) \(.allocated_amount.currency)")' \
+    activateRevenueContract -p "id=$first" -if-match "$ETAG"
+  expect "the allocated amounts, the order's item values" \
+    "$(field '[.obligations[] | "\(.net_amount.amount)=\(.allocated_amount.amount)"] | join(" ")')" "1500.00=1500.00 237.53=237.53"
+  REVENUE_ORDER=$order
+  REVENUE_CONTRACT=$contract
+  say "A revenue contract posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9295,7 +9428,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_close'
 
 main() {
   stop_unseen

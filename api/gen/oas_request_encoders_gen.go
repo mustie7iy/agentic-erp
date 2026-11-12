@@ -1078,6 +1078,20 @@ func encodeCreateRequisitionRequest(
 	return nil
 }
 
+func encodeCreateRevenueContractRequest(
+	req *RevenueContractCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateRfqRequest(
 	req *RfqCreate,
 	r *http.Request,
@@ -2729,6 +2743,20 @@ func encodeUpdatePurchaseOrderChangeRequest(
 
 func encodeUpdateRequisitionRequest(
 	req *RequisitionUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateRevenueContractRequest(
+	req *RevenueContractUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

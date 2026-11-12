@@ -493,3 +493,34 @@ func TestRelayedSeesEachBatch(t *testing.T) {
 		t.Errorf("batches seen with the tenant: got %v, want [platform]", seen)
 	}
 }
+
+// TestMessageTenant: a bus message is for the tenant its subject names,
+// which must be its tenantid; a subject of another form or of another
+// context's stream, and one that disagrees with the tenantid, have none.
+func TestMessageTenant(t *testing.T) {
+	tenant := uuid.New()
+	msg := func(subject, tenantid string) outbox.Message {
+		return outbox.Message{Subject: subject, Header: map[string]string{"ce-tenantid": tenantid}}
+	}
+	got, err := msg("erp.eu-1.sales."+tenant.String()+".sales_order_changed", tenant.String()).Tenant("sales")
+	if err != nil {
+		t.Fatalf("a sales event of the tenant: got %v, want no error", err)
+	}
+	if got != tenant {
+		t.Errorf("tenant: got %s, want %s", got, tenant)
+	}
+	for name, c := range map[string]struct {
+		m    outbox.Message
+		want string
+	}{
+		"subject of another form":  {msg("erp.eu-1."+tenant.String(), tenant.String()), "subject is not"},
+		"another context's stream": {msg("erp.eu-1.payables."+tenant.String()+".sales_order_changed", tenant.String()), "subject is not"},
+		"another tenant's subject": {msg("erp.eu-1.sales."+uuid.NewString()+".sales_order_changed", tenant.String()), "is not the event's tenantid"},
+		"tenant not a uuid":        {msg("erp.eu-1.sales.x.sales_order_changed", "x"), "is not the event's tenantid"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := c.m.Tenant("sales")
+			pgtest.WantErr(t, err, c.want)
+		})
+	}
+}

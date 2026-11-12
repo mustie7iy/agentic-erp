@@ -177,6 +177,27 @@ func (UnimplementedHandler) ActivateOrgUnit(ctx context.Context, params Activate
 	return r, ht.ErrNotImplemented
 }
 
+// ActivateRevenueContract implements activateRevenueContract operation.
+//
+// Activates a `draft` revenue contract (ADR-0068 §7, T81b), at the version the caller read
+// (`If-Match`): the contract is read under a row lock and moves to `active` once. Its transaction
+// price is allocated to its performance obligations in proportion to their stand-alone selling prices:
+// an obligation's share is the transaction price × its stand-alone selling price ÷ the sum of the
+// stand-alone selling prices, rounded so that the shares (`allocated_amount`) add up to the
+// transaction price exactly; a minor unit left by the rounding goes to the obligations with the
+// largest remainders, the earlier one first, so the same contract always allocates the same way. With
+// the prices a contract starts with, the order items' net values, each share is its order item's
+// value. Activating fixes the obligations and their amounts: a later change or a second activation is
+// refused (409 `revenue.invalid_status`). The system does the arithmetic only: the obligations, their
+// timing and their stand-alone selling prices are the person's judgement as they stand. Nothing is
+// posted. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key`
+// answers the active contract. Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-contracts/{id}:activate
+func (UnimplementedHandler) ActivateRevenueContract(ctx context.Context, params ActivateRevenueContractParams) (r ActivateRevenueContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // AddHierarchyNode implements addHierarchyNode operation.
 //
 // Adds a node below the node, which may hold centers, at most 12 levels deep; the code is unique in
@@ -1563,6 +1584,30 @@ func (UnimplementedHandler) CreateRegressionSuite(ctx context.Context, req *Regr
 //
 // POST /v1/requisitions
 func (UnimplementedHandler) CreateRequisition(ctx context.Context, req *RequisitionCreate, params CreateRequisitionParams) (r CreateRequisitionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateRevenueContract implements createRevenueContract operation.
+//
+// Creates the revenue contract of a confirmed sales order that has none yet (ADR-0068 §3-§4, T81a).
+// Every sales order gets its revenue contract by itself shortly after it is confirmed: the revenue
+// context reads the order's SalesOrderChanged event and creates the contract, once. This operation
+// creates the same contract on request, for an order confirmed before that was so or whose event has
+// not been read yet; either way an order has one contract, and a request for an order that has one is
+// refused (409 `revenue.contract_exists`; `GET /v1/revenue-contracts?sales_order_id=` finds it). The
+// order is one of a company the caller may act in (422 `request.reference_not_found` naming
+// `sales_order_id`), `confirmed` (422 `revenue.order_not_confirmed`) and in its company's local
+// currency (422 `revenue.foreign_currency`: contracts in a foreign currency are not supported yet).
+// The contract is created `draft`. Its transaction price is the order's net value, without tax. It has
+// one performance obligation per order item, numbered as the items are, each starting as satisfied at
+// a point in time (`point_in_time`) with the order item's net value as its stand-alone selling price:
+// what is a distinct obligation, when it is satisfied and its stand-alone selling price are a person's
+// judgement, which the system does not make. Nothing is posted. Audited, and published as
+// RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract created.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/revenue-contracts
+func (UnimplementedHandler) CreateRevenueContract(ctx context.Context, req *RevenueContractCreate, params CreateRevenueContractParams) (r CreateRevenueContractRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3447,6 +3492,21 @@ func (UnimplementedHandler) GetRevaluationRun(ctx context.Context, params GetRev
 	return r, ht.ErrNotImplemented
 }
 
+// GetRevenueContract implements getRevenueContract operation.
+//
+// One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number
+// and name, the sales order it stands for by id and number, its transaction price (the order's net
+// value, without tax) and its performance obligations, each with the order item it is for, its timing,
+// an over-time obligation's service period, its stand-alone selling price and, once the contract is
+// `active`, its allocated amount. `created_by` is the person who asked for it, or the system's
+// principal when the order's confirmation created it. One of a company the caller may not act in is
+// not found (404), as one that does not exist.
+//
+// GET /v1/revenue-contracts/{id}
+func (UnimplementedHandler) GetRevenueContract(ctx context.Context, params GetRevenueContractParams) (r GetRevenueContractRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRfq implements getRfq operation.
 //
 // Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot
@@ -5121,6 +5181,19 @@ func (UnimplementedHandler) ListRequisitions(ctx context.Context, params ListReq
 //
 // GET /v1/revaluation-runs
 func (UnimplementedHandler) ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (r ListRevaluationRunsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListRevenueContracts implements listRevenueContracts operation.
+//
+// The revenue contracts of the companies the caller may act in (ADR-0068 §3, T81a), each as
+// `getRevenueContract` gives it: with its company's code and name, its customer's number and name, the
+// sales order it stands for by id and number, its transaction price and its performance obligations.
+// Filtered by company, customer, sales order and status; `sales_order_id` finds the one contract of an
+// order. Sortable by: `sales_order_number`.
+//
+// GET /v1/revenue-contracts
+func (UnimplementedHandler) ListRevenueContracts(ctx context.Context, params ListRevenueContractsParams) (r ListRevenueContractsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -7438,6 +7511,31 @@ func (UnimplementedHandler) UpdatePurchaseOrderChange(ctx context.Context, req *
 //
 // PATCH /v1/requisitions/{id}
 func (UnimplementedHandler) UpdateRequisition(ctx context.Context, req *RequisitionUpdate, params UpdateRequisitionParams) (r UpdateRequisitionRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateRevenueContract implements updateRevenueContract operation.
+//
+// Sets, on a `draft` revenue contract, what a person judges about its performance obligations
+// (ADR-0068 §2, §7, T81b), at the version the caller read (`If-Match`): per obligation whether it is
+// satisfied at a point in time or over time (`timing`), an over-time obligation's service period
+// (`service_from`, `service_to`) and its stand-alone selling price. The system makes none of these
+// judgements and checks only their form. Each element of `obligations` names an obligation of the
+// contract by its number (422 `revenue.unknown_obligation` naming `obligations[i].obligation_no`),
+// once (422 `revenue.obligation_repeated`); a field left out stays as it is. `timing` is
+// `point_in_time` or `over_time` (422 `revenue.unknown_timing`). Afterwards an `over_time` obligation
+// has both days of its service period (422 `revenue.service_period_required` naming the day missing),
+// `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time`
+// obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting
+// it back); a stand-alone selling price is in the contract's currency (422
+// `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is
+// read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`).
+// Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and
+// published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as
+// the first answered it. Human-only (`x-agent: false`).
+//
+// PATCH /v1/revenue-contracts/{id}
+func (UnimplementedHandler) UpdateRevenueContract(ctx context.Context, req *RevenueContractUpdate, params UpdateRevenueContractParams) (r UpdateRevenueContractRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

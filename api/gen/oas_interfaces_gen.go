@@ -41,6 +41,10 @@ type ActivateOrgUnitRes interface {
 	activateOrgUnitRes()
 }
 
+type ActivateRevenueContractRes interface {
+	activateRevenueContractRes()
+}
+
 type AddHierarchyNodeRes interface {
 	addHierarchyNodeRes()
 }
@@ -343,6 +347,10 @@ type CreateRegressionSuiteRes interface {
 
 type CreateRequisitionRes interface {
 	createRequisitionRes()
+}
+
+type CreateRevenueContractRes interface {
+	createRevenueContractRes()
 }
 
 type CreateRfqRes interface {
@@ -831,6 +839,10 @@ type GetRequisitionRes interface {
 
 type GetRevaluationRunRes interface {
 	getRevaluationRunRes()
+}
+
+type GetRevenueContractRes interface {
+	getRevenueContractRes()
 }
 
 type GetRfqComparisonRes interface {
@@ -1343,6 +1355,10 @@ type ListRequisitionsRes interface {
 
 type ListRevaluationRunsRes interface {
 	listRevaluationRunsRes()
+}
+
+type ListRevenueContractsRes interface {
+	listRevenueContractsRes()
 }
 
 type ListRfqsRes interface {
@@ -1875,6 +1891,10 @@ type UpdatePurchaseOrderRes interface {
 
 type UpdateRequisitionRes interface {
 	updateRequisitionRes()
+}
+
+type UpdateRevenueContractRes interface {
+	updateRevenueContractRes()
 }
 
 type UpdateRoleRes interface {
