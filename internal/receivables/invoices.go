@@ -25,10 +25,13 @@ type Amount struct{ Value, Currency string }
 
 // ItemInput is an invoice item as a client sends it.
 type ItemInput struct {
-	Description                  *string
-	AccountID                    uuid.UUID
-	Net                          Amount
-	TaxCode                      *string
+	Description *string
+	AccountID   uuid.UUID
+	Net         Amount
+	TaxCode     *string
+	// TaxJurisdiction is the subdivision the item's tax is levied in (the
+	// emirate, AE-DU), with a code that levies its lines' subdivision.
+	TaxJurisdiction              *string
 	CostCenterID, ProfitCenterID *uuid.UUID
 }
 
@@ -109,16 +112,18 @@ func insertItems(ctx context.Context, tx pgx.Tx, tenant, invoice uuid.UUID, item
 	n := len(items)
 	nos, descriptions, accounts, nets := make([]int32, n), make([]*string, n), make([]uuid.UUID, n), make([]money.Minor, n)
 	codes, taxes, costCenters, profitCenters := make([]*string, n), make([]money.Minor, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
+	jurisdictions := make([]*string, n)
 	for i, it := range items {
 		nos[i], descriptions[i], accounts[i], nets[i] = it.ItemNo, it.Description, it.AccountID, it.Net
 		codes[i], taxes[i], costCenters[i], profitCenters[i] = it.TaxCode, it.Tax, it.CostCenterID, it.ProfitCenterID
+		jurisdictions[i] = it.TaxJurisdiction
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO receivables.customer_invoice_item (tenant_id, customer_invoice_id, item_no, description, account_id,
-			net_amount, tax_code, tax_amount, cost_center_id, profit_center_id)
-		SELECT $1, $2, n, d, ac, na, tc, ta, cc, pc
-		FROM unnest($3::int[], $4::text[], $5::uuid[], $6::bigint[], $7::text[], $8::bigint[], $9::uuid[], $10::uuid[])
-			AS x(n, d, ac, na, tc, ta, cc, pc)`,
-		tenant, invoice, nos, descriptions, accounts, nets, codes, taxes, costCenters, profitCenters); err != nil {
+			net_amount, tax_code, tax_amount, cost_center_id, profit_center_id, tax_jurisdiction)
+		SELECT $1, $2, n, d, ac, na, tc, ta, cc, pc, tj
+		FROM unnest($3::int[], $4::text[], $5::uuid[], $6::bigint[], $7::text[], $8::bigint[], $9::uuid[], $10::uuid[], $11::text[])
+			AS x(n, d, ac, na, tc, ta, cc, pc, tj)`,
+		tenant, invoice, nos, descriptions, accounts, nets, codes, taxes, costCenters, profitCenters, jurisdictions); err != nil {
 		return fmt.Errorf("receivables: write items of customer invoice %s: %w", invoice, err)
 	}
 	return nil
@@ -152,7 +157,9 @@ func recordEntry(ctx context.Context, v Invoice, c checked) error {
 // currency and kind, the invoice a credit memo names, at least
 // one item, each a positive net amount in that currency on a postable
 // account with the centers the ledger asks for, and output tax codes in
-// force on the invoice date, whose tax it calculates; the totals add up.
+// force on the invoice date, whose tax it calculates, each item naming
+// the jurisdiction its code levies exactly where the code levies its
+// lines' subdivision; the totals add up.
 func (e *Endpoints) validate(ctx context.Context, tx pgx.Tx, in Input) (checked, error) {
 	var c checked
 	var err error
@@ -258,7 +265,8 @@ func (e *Endpoints) parties(ctx context.Context, in Input) (tenancy.Entity, part
 
 // item checks one item: a net amount in the invoice's currency with its
 // minor-unit digits, more than zero, on an account postable in the legal
-// entity. Its tax code is checked with the tax (outputTax).
+// entity. Its tax code and jurisdiction are checked with the tax
+// (outputTax).
 func (e *Endpoints) item(ctx context.Context, le tenancy.Entity, code string, exp, i int, it ItemInput) (Item, error) {
 	field := fmt.Sprintf("items[%d]", i)
 	if it.Net.Currency != code {
@@ -280,7 +288,7 @@ func (e *Endpoints) item(ctx context.Context, le tenancy.Entity, code string, ex
 		return Item{}, problem.Invalid("receivables.account_not_postable", field+".account_id", "The account cannot be posted in this legal entity.")
 	}
 	return Item{ItemNo: int32(i + 1), Description: it.Description, AccountID: it.AccountID, Net: net, TaxCode: it.TaxCode,
-		CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID}, nil
+		TaxJurisdiction: it.TaxJurisdiction, CostCenterID: it.CostCenterID, ProfitCenterID: it.ProfitCenterID}, nil
 }
 
 // assignments checks the items' centers against the ledger as the posting

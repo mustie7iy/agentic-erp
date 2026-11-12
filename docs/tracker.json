@@ -1108,6 +1108,13 @@
       "c": [
        {
         "s": "D",
+        "t": "A UAE customer invoice's item names the emirate its tax is levied in (product owner 2026-11-12, row 16): tax_jurisdiction on the item (ISO 3166-2, AE-DU), required with an output code that levies its lines' subdivision (422 receivables.tax_jurisdiction_required) and refused with any other (422 receivables.tax_jurisdiction_not_levied), held to the code by the ledger's own check; the posting carries it to the item's line and posts the tax per code, jurisdiction and component, so the entry's tax items are per emirate for the VAT 201's boxes 1a-1g; credit memos alike. Sales documents and billing through receivables (T79b) still name none",
+        "r": "db/migrations/000296 · receivables.customer_invoice_item.tax_jurisdiction · ledger.PostingLine.TaxJurisdiction · ledger.TaxCode.CheckJurisdiction · POST /v1/customer-invoices · TestItemJurisdiction · TestPostJurisdictions · TestPostJurisdictionNoLongerLevied · TestCustomerInvoiceItemJurisdiction · ADR-0063 As built (The emirate on the item) · ADR-0049 §7 As built · tests only: the walkthrough has no UAE customer invoice",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
+        "s": "D",
         "t": "An AR accountant enters a customer invoice without a sales order (customer, items by revenue account with output tax code) and reads it back with its calculated tax and totals; the receivables context and its ADR",
         "r": "T75a · docs/design/plan-breadth-week1.md §T75a · db/migrations/000265 · receivables.customer_invoice, customer_invoice_item · POST /v1/customer-invoices · GET /v1/customer-invoices · GET /v1/customer-invoices/{id} · CustomerInvoiceChanged · receivables.invoice.read, .write, .post · walkthrough step_customer_invoice · ADR-0063 §1-§4, §8, §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",

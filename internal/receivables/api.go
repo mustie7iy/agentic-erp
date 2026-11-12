@@ -95,7 +95,7 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 		account := refs.accounts[it.AccountID]
 		item := gen.CustomerInvoiceItem{ItemNo: it.ItemNo, Description: apitypes.OptString(it.Description), AccountID: it.AccountID,
 			AccountNumber: account.Number, AccountName: account.Name, NetAmount: m(it.Net), TaxCode: apitypes.OptString(it.TaxCode),
-			TaxAmount: m(it.Tax), GrossAmount: m(it.Net + it.Tax), // within the invoice's gross, which was checked
+			TaxJurisdiction: apitypes.OptString(it.TaxJurisdiction), TaxAmount: m(it.Tax), GrossAmount: m(it.Net + it.Tax), // within the invoice's gross, which was checked
 			CostCenterID: apitypes.OptUUID(it.CostCenterID), ProfitCenterID: apitypes.OptUUID(it.ProfitCenterID)}
 		if it.CostCenterID != nil {
 			item.CostCenterCode = apitypes.OptText(refs.centers[*it.CostCenterID].Code)
@@ -117,7 +117,7 @@ func (e *Endpoints) CreateCustomerInvoice(ctx context.Context, req *gen.Customer
 	for i, it := range req.Items {
 		in.Items[i] = ItemInput{Description: apitypes.Ptr[string](it.Description), AccountID: it.AccountID,
 			Net: Amount{Value: it.NetAmount.Amount, Currency: it.NetAmount.Currency}, TaxCode: apitypes.Ptr[string](it.TaxCode),
-			CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID), ProfitCenterID: apitypes.Ptr[uuid.UUID](it.ProfitCenterID)}
+			TaxJurisdiction: apitypes.Ptr[string](it.TaxJurisdiction), CostCenterID: apitypes.Ptr[uuid.UUID](it.CostCenterID), ProfitCenterID: apitypes.Ptr[uuid.UUID](it.ProfitCenterID)}
 	}
 	v, err := e.CreateInvoice(ctx, in)
 	if err != nil {

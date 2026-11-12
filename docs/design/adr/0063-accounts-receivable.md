@@ -125,7 +125,9 @@ code for every emirate, ADR-0049 §7) needs a jurisdiction per item, which
 neither the item nor `ledger.Posting`'s lines carry yet (ADR-0049 §7 As
 built says so of postings that build their own lines). The first version
 refuses such a code at entry rather than enter a document it could not
-post correctly. This is a gap for the UAE company, listed below.
+post correctly. This is a gap for the UAE company, listed below. (Closed
+by the product owner's decision of 2026-11-12: an item names its
+jurisdiction; As built, "The emirate on the item".)
 
 ### 5. Posting: the customer's open item (T75b)
 `POST /v1/customer-invoices/{id}:post` moves a draft to posted once, under
@@ -249,7 +251,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
 - **The emirate on a customer invoice's items** (product owner; scope):
   §4 refuses the UAE's one-code-for-every-emirate output codes. Entering
   UAE customer invoices needs a jurisdiction per item and on the posting's
-  lines; not built, no leaf added.
+  lines; not built, no leaf added. **Decided 2026-11-12** (product owner):
+  the item carries the emirate; As built, "The emirate on the item".
 
 ## As built
 
@@ -702,3 +705,64 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   statement, direct debits, refunds. Credit memos are T75d; the netting
   of a customer's credit items is built and tested here with credits
   posted through the ledger's port.
+
+### The emirate on the item (product owner 2026-11-12; migration 000296)
+- A customer invoice's item names the subdivision its tax is levied in,
+  `tax_jurisdiction` (ISO 3166-2, `AE-DU`), as a journal line does
+  (ADR-0049 §7): the field, its name and its rules are the ledger's, held
+  by the same check (`ledger.TaxCode.CheckJurisdiction`, which the
+  ledger's lines and receivables' items share). An item whose output
+  code's component levies its lines' subdivision (the UAE pack's `S5`, one
+  code for every emirate) must name one, 422
+  `receivables.tax_jurisdiction_required`; it is a subdivision of the
+  component's country and, where the component lists the subdivisions it
+  accepts (the emirate guard), one of them; an item of any other code, or
+  of none, names none, 422 `receivables.tax_jurisdiction_not_levied`. Each
+  refusal names `items[i].tax_jurisdiction`. A value that has not the
+  form of a subdivision's code is refused by the contract's pattern, 400
+  `request.invalid_body`. `receivables.tax_jurisdiction_not_supported` is
+  gone with the refusal it named; §4's last paragraph and "Defaults
+  chosen" 5 no longer hold.
+- `receivables.customer_invoice_item.tax_jurisdiction` (000296): nullable,
+  only with a tax code and in the form of a subdivision's code
+  (`customer_invoice_item_tax_jurisdiction`; `TestCustomerInvoiceItemJurisdiction`).
+  That the code levies it is the context's check when the invoice is
+  entered and again when it posts (a draft whose jurisdiction the
+  configuration no longer accepts is refused then and entered again), and
+  the ledger's on the posted lines.
+- Posting: the item's line carries its code and jurisdiction
+  (`ledger.PostingLine.TaxJurisdiction`, new on the posting port), and the
+  output tax posts one line per code, jurisdiction and component
+  (`taxGroups`), so the entry's tax items are per emirate and the VAT
+  201's boxes 1a-1g select them as they select a manual sales entry's. A
+  credit memo posts the same with the signs turned.
+- **Decided by default:** (1) the invoice's tax stays its code's, rounded
+  as the company's tax settings say over the whole invoice and shared out
+  over the items (§4); a code's tax in an emirate is the sum of its
+  items' shares there, not a calculation of its own, so the emirates' tax
+  adds up to the invoice's `tax_amount` exactly. The ledger holds each
+  emirate's tax lines to its base lines within one minor unit per base
+  line (ADR-0049 §7), which shares keep, each being its item's exact tax
+  rounded down or up. (2) The jurisdiction is entered, not derived from
+  the customer's address or the company's establishment: ADR-0049 §11
+  reads boxes 1a-1g by the emirate each sale names, and nothing in the
+  configuration says which establishment made a sale. (3) The events
+  carry totals, not items (§9), so neither names the jurisdiction. (4)
+  The down migration drops the column: a posted invoice keeps its
+  jurisdictions on its journal lines; a draft naming one is refused by
+  the previous version's posting (422 `ledger.jurisdiction_required`).
+- Rolling upgrade (06 §6.4): 000296 is additive. An instance of the
+  previous release still refuses such a code at entry, shows no
+  `tax_jurisdiction`, and posts a draft naming one without it, which the
+  ledger refuses (422 `ledger.jurisdiction_required`): nothing posts in
+  the wrong emirate.
+- Tests: `TestItemJurisdiction`, `TestPostJurisdictions`,
+  `TestPostJurisdictionNoLongerLevied`, `TestRefusals` (receivables);
+  `TestCustomerInvoiceItemJurisdiction` (db). The walkthrough's customer
+  invoice step is the Canadian company's, whose codes levy no line's
+  subdivision, and the UAE company (step 41) has no customer set up, so
+  no walkthrough step shows it: tests only.
+- Not built: the emirate on a sales document's items and on the customer
+  invoice a billing document posts (ADR-0067, Questions; billing through
+  receivables, T79b, is not on this base): quotations and sales orders
+  still refuse such a code, 422 `sales.tax_jurisdiction_not_supported`.

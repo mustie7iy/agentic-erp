@@ -133,6 +133,50 @@ func TestCustomerInvoiceRules(t *testing.T) {
 	}
 }
 
+// TestCustomerInvoiceItemJurisdiction (migration 000296; ADR-0063 §4 As
+// built, product owner 2026-11-12): an item names the jurisdiction its
+// tax is levied in only under a tax code, in the form of an ISO 3166-2
+// subdivision; an item without one is as before.
+func TestCustomerInvoiceItemJurisdiction(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO receivables.customer_invoice (tenant_id, id, document_number, legal_entity_id, customer_id, kind, invoice_date,
+		currency, net_amount, tax_amount, gross_amount, status, created_by, updated_by)
+		VALUES ($1, $2, 'CI1', gen_random_uuid(), gen_random_uuid(), 'invoice', '2026-03-10', 'AED', 10000, 500, 10500, 'draft', $3, $3)`
+	const item = `INSERT INTO receivables.customer_invoice_item (tenant_id, customer_invoice_id, item_no, account_id, net_amount, tax_code, tax_amount,
+		tax_jurisdiction) VALUES ($1, $2, 1, gen_random_uuid(), 10000, $3, $4, $5)`
+	var none *string
+	code, dubai, country, name, empty := "S5", "AE-DU", "AE", "Dubai", ""
+	for _, c := range []struct {
+		name         string
+		code         *string
+		tax          int64
+		jurisdiction *string
+		want         string // empty: allowed
+	}{
+		{"an emirate under a tax code", &code, 500, &dubai, ""},
+		{"a tax code without a jurisdiction", &code, 500, none, ""},
+		{"neither", none, 0, none, ""},
+		{"a jurisdiction without a tax code", none, 0, &dubai, "customer_invoice_item_tax_jurisdiction"},
+		{"a country, not a subdivision", &code, 500, &country, "customer_invoice_item_tax_jurisdiction"},
+		{"a name, not a code", &code, 500, &name, "customer_invoice_item_tax_jurisdiction"},
+		{"an empty jurisdiction", &code, 500, &empty, "customer_invoice_item_tax_jurisdiction"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			tenant, doc := id(), id()
+			err := asApp(t, tenant, func(tx pgx.Tx) error {
+				return all(tx, step(header, tenant, doc, id()), step(item, tenant, doc, c.code, c.tax, c.jurisdiction))
+			})
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
 // TestCustomerInvoicePosting (T75b, migration 000271; ADR-0063 §5): a
 // draft moves to posted once, naming its journal entry, posting date,
 // payment term and net due date together; nothing else changes it, a

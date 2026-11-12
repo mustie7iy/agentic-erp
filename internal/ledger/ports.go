@@ -49,13 +49,19 @@ func (p Postings) endpoints() *Endpoints {
 // PostingLine is a line to post, in minor units of the entry's currency,
 // debit positive.
 type PostingLine struct {
-	AccountID      uuid.UUID
-	Amount         money.Minor
-	PartnerID      *uuid.UUID
-	TaxCode        *string
-	Quantity, Unit *string
-	Text           *string
-	SpecialGL      *string // A for a down payment on the down payment account (ADR-0037)
+	AccountID uuid.UUID
+	Amount    money.Minor
+	PartnerID *uuid.UUID
+	TaxCode   *string
+	// TaxJurisdiction is the subdivision the line's tax is levied in
+	// (Line.TaxJurisdiction, ADR-0049 §7): on every line, base and tax,
+	// of a code whose component levies its lines' subdivision, and on no
+	// other (TaxCode.CheckJurisdiction). An entry with GR/IR items takes
+	// none: purchases' input codes levy no line's subdivision.
+	TaxJurisdiction *string
+	Quantity, Unit  *string
+	Text            *string
+	SpecialGL       *string // A for a down payment on the down payment account (ADR-0037)
 	// PaymentMethod is the payment method this line's supplier open item
 	// fixes, where the entry's items do not share one: a migration's
 	// opening entry holds the open items of many suppliers, each with the
@@ -469,7 +475,7 @@ func (p Postings) Post(ctx context.Context, in Posting) (Entry, error) {
 		entry.Lines[i] = NewLine{AccountID: l.AccountID, Amount: l.Amount.Plain(exps[in.Currency]), Currency: in.Currency,
 			PartnerID: l.PartnerID, TaxCode: l.TaxCode, Quantity: l.Quantity, Unit: l.Unit, Text: l.Text, SpecialGL: l.SpecialGL, lc: l.LC, gc: l.GC,
 			CostCenterID: l.CostCenterID, ProfitCenterID: l.ProfitCenterID, SegmentID: l.SegmentID, TradingPartnerID: in.tradingPartnerOf(l),
-			InternalOrderID: l.InternalOrderID}
+			InternalOrderID: l.InternalOrderID, TaxJurisdiction: l.TaxJurisdiction}
 	}
 	posted, err := p.endpoints().postJournalEntry(ctx, tx, principal, entry)
 	if err != nil {
