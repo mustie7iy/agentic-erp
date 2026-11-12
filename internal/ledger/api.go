@@ -34,7 +34,7 @@ func entryToAPI(e Entry) gen.JournalEntry {
 			TaxJurisdiction: apitypes.OptString(l.TaxJurisdiction), CostCenterID: apitypes.OptUUID(l.CostCenterID),
 			CostCenterCode: apitypes.OptString(l.CostCenterCode), ProfitCenterID: apitypes.OptUUID(l.ProfitCenterID),
 			ProfitCenterCode: apitypes.OptString(l.ProfitCenterCode), SegmentID: apitypes.OptUUID(l.SegmentID), SegmentCode: apitypes.OptString(l.SegmentCode),
-			TradingPartner: tradingPartnerRef(l.TradingPartnerID)}
+			TradingPartner: tradingPartnerRef(l.TradingPartnerID), InternalOrderID: apitypes.OptUUID(l.InternalOrderID)}
 		if l.Quantity != nil {
 			line.Quantity.SetTo(gen.Quantity{Value: *l.Quantity, Unit: *l.Unit})
 		}
@@ -230,7 +230,7 @@ func newEntry(req *gen.JournalEntryCreate) NewEntry {
 		HeaderText: apitypes.Ptr[string](req.HeaderText), Lines: make([]NewLine, len(req.Lines)), special: specialOf(req.FiscalPeriod),
 		TaxDocument: taxDocumentIn(req.TaxDocument)}
 	for i, l := range req.Lines {
-		line := NewLine{AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
+		line := NewLine{InternalOrderID: apitypes.Ptr[uuid.UUID](l.InternalOrderID), AccountID: l.AccountID, Amount: l.Amount.Amount, Currency: l.Amount.Currency, PartnerID: apitypes.Ptr[uuid.UUID](l.PartnerID),
 			TaxCode: apitypes.Ptr[string](l.TaxCode), Text: apitypes.Ptr[string](l.LineText), TaxJurisdiction: apitypes.Ptr[string](l.TaxJurisdiction),
 			CostCenterID: apitypes.Ptr[uuid.UUID](l.CostCenterID), ProfitCenterID: apitypes.Ptr[uuid.UUID](l.ProfitCenterID),
 			SegmentID: apitypes.Ptr[uuid.UUID](l.SegmentID), TradingPartnerID: apitypes.Ptr[uuid.UUID](l.TradingPartnerID)}
@@ -258,8 +258,8 @@ func (e *Endpoints) PostJournalEntry(ctx context.Context, req *gen.JournalEntryC
 		return e.parkedHeaders(ctx, *parked)
 	}
 	rep := entryToAPI(je)
-	tag := apitypes.ETagOf(rep) // the entry's, before its trading partners' names as they are now
-	if err := e.nameTradingPartners(ctx, entryTradingPartners(&rep)); err != nil {
+	tag := apitypes.ETagOf(rep) // the entry's, before its trading partners' names and its orders' codes as they are now
+	if err := e.nameLines(ctx, &rep); err != nil {
 		return nil, err
 	}
 	return &gen.JournalEntryHeaders{ETag: tag, Location: gen.NewOptString("/v1/journal-entries/" + je.ID.String()), Response: rep}, nil
@@ -272,8 +272,8 @@ func (e *Endpoints) GetJournalEntry(ctx context.Context, params gen.GetJournalEn
 		return nil, err
 	}
 	rep := entryToAPI(je)
-	tag := apitypes.ETagOf(rep) // the entry's, before the partners' and trading partners' names as they are now
-	if err := e.nameTradingPartners(ctx, entryTradingPartners(&rep)); err != nil {
+	tag := apitypes.ETagOf(rep) // the entry's, before the partners' and trading partners' names and its orders' codes as they are now
+	if err := e.nameLines(ctx, &rep); err != nil {
 		return nil, err
 	}
 	partners := make([]gen.OptUUID, len(rep.Lines))
@@ -331,7 +331,7 @@ func (e *Endpoints) ListJournalEntries(ctx context.Context, params gen.ListJourn
 		page.Items[i] = entryToAPI(je)
 		reps[i] = &page.Items[i]
 	}
-	if err := e.nameTradingPartners(ctx, entryTradingPartners(reps...)); err != nil {
+	if err := e.nameLines(ctx, reps...); err != nil {
 		return nil, err
 	}
 	if next != "" {
@@ -407,8 +407,8 @@ func (e *Endpoints) ReverseJournalEntry(ctx context.Context, req gen.OptJournalE
 		return nil, err
 	}
 	rep := entryToAPI(rev)
-	tag := apitypes.ETagOf(rep) // the entry's, before its trading partners' names as they are now
-	if err := e.nameTradingPartners(ctx, entryTradingPartners(&rep)); err != nil {
+	tag := apitypes.ETagOf(rep) // the entry's, before its trading partners' names and its orders' codes as they are now
+	if err := e.nameLines(ctx, &rep); err != nil {
 		return nil, err
 	}
 	return &gen.ReverseJournalEntryOKHeaders{ETag: tag, Response: rep}, nil

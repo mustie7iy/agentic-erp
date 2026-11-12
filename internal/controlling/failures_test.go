@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
@@ -43,6 +44,10 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	byNode := gen.ListProfitCenterPlanActualParams{PlanCategoryID: cat, LegalEntityID: c.DE, FiscalYear: 2026, HierarchyNodeID: gen.NewOptUUID(pcRoot),
 		PageSize: gen.NewOptInt32(1)}
 	created := uuid.MustParse(c.order(t, "CREATED"))
+	charged := uuid.MustParse(c.releasedOrder(t, "CHARGED"))
+	c.charge(t, charged.String(), "2026-05-10", c.office, "10.00")
+	c.charge(t, charged.String(), "2026-06-10", c.office, "20.00")
+	balances := gen.ListInternalOrderBalancesParams{InternalOrderID: charged, FiscalYear: 2026, PageSize: gen.NewOptInt32(1)}
 	calls := map[string]func(ctx context.Context) error{
 		"create an order": func(ctx context.Context) error {
 			_, err := h.CreateInternalOrder(ctx, &gen.InternalOrderCreate{LegalEntityID: c.DE, Code: "NEW", Name: "N", ResponsibleCostCenterID: c.c.Admin},
@@ -59,6 +64,25 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"release an order": func(ctx context.Context) error {
 			_, err := h.ReleaseInternalOrder(ctx, gen.ReleaseInternalOrderParams{ID: created, IfMatch: `"1"`})
+			return err
+		},
+		"list an order's balances, a page after the first": func(ctx context.Context) error {
+			res, err := h.ListInternalOrderBalances(ctx, balances)
+			if err != nil {
+				return err
+			}
+			next := balances
+			next.PageToken = gen.NewOptString(res.(*gen.InternalOrderBalancePage).NextPageToken.Or("none"))
+			_, err = h.ListInternalOrderBalances(ctx, next)
+			return err
+		},
+		"the orders a posting names": func(ctx context.Context) error {
+			_, err := controlling.CostObjects{}.Orders(ctx, []uuid.UUID{charged}, true)
+			return err
+		},
+		"the ledger's actuals of an order": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.OrderActuals(ctx, ledger.OrderActualsQuery{LegalEntityID: c.DE, OrderID: charged, FiscalYear: 2026,
+				PeriodFrom: 1, PeriodTo: 16, Limit: 1})
 			return err
 		},
 		"the ledger's cost centers named": func(ctx context.Context) error {

@@ -3020,6 +3020,20 @@ type Handler interface {
 	//
 	// GET /v1/consolidation-runs/{id}/differences
 	ListIntercompanyDifferences(ctx context.Context, params ListIntercompanyDifferencesParams) (ListIntercompanyDifferencesRes, error)
+	// ListInternalOrderBalances implements listInternalOrderBalances operation.
+	//
+	// The actual costs of one internal order in a fiscal year, per account and fiscal period (ADR-0064
+	// §2), in the order's legal entity's local currency, exact at the moment of the read: the leading
+	// ledger's journal lines that name the order (`internal_order_id` on a journal entry line), their
+	// debits and credits added up, a reversal's lines included. Rows are in the order of the account
+	// number, then the period. The totals are the whole selection's on every page, whatever the page. An
+	// order that does not exist, or of a legal entity the caller cannot act in, is answered as missing
+	// (422 `request.reference_not_found` on `internal_order_id`). The actuals are ledger amounts, so
+	// besides `controlling.order.read` the caller needs `ledger.entry.read`, as for the trial balance
+	// (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/internal-order-balances
+	ListInternalOrderBalances(ctx context.Context, params ListInternalOrderBalancesParams) (ListInternalOrderBalancesRes, error)
 	// ListInternalOrders implements listInternalOrders operation.
 	//
 	// Internal orders (ADR-0064 §1) of the legal entities the caller may act in, each with its

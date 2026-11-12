@@ -25,9 +25,10 @@ import (
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
 // perms are what the tenant's people hold: the plan's, the ledger's entry
-// read, which plan against actual needs beside it, and the orders'.
+// read, which plan against actual and the orders' actuals need beside
+// theirs, the orders', and posting journal entries to them.
 var perms = []string{"controlling.plan.read", "controlling.plan.write", "controlling.plan.lock", "ledger.entry.read",
-	"controlling.order.read", "controlling.order.write", "controlling.order.release"}
+	"controlling.order.read", "controlling.order.write", "controlling.order.release", "ledger.entry.post"}
 
 // plan is a tenant with company 2000's centers (fixture.CostCenters: Admin
 // 1000, Sales 2000, Locked 3000, profit center PC1) and its accounts.

@@ -89,3 +89,64 @@ func (f orderFixture) try(t *testing.T, sql string, args ...any) error {
 	t.Helper()
 	return asApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, sql, args...) })
 }
+
+// The internal order on journal lines (T60b, migrations 000266-000268;
+// ADR-0064 §2): a line carries a cost center or an order, never both; the
+// check holds on every partition, and the order's lines are indexed.
+
+// orderLine inserts an entry of the fixture's company in March 2026 whose
+// expense line carries the cost center and the internal order given.
+func (f orderFixture) orderLine(tx pgx.Tx, costCenter, order *uuid.UUID) error {
+	je := id()
+	if err := exec(tx, `INSERT INTO ledger.journal_entry (tenant_id, fiscal_year, id, legal_entity_id, ledger_id, fiscal_period, document_type,
+		document_number, document_date, posting_date, currency_tc, currency_lc, currency_gc, rate_tc_lc, rate_lc_gc, source_context, posted_by)
+		VALUES ($1,2026,$2,$3,$4,3,'SA',$5,'2026-03-10','2026-03-10','USD','USD','EUR',1,0.9,'ledger',$6)`,
+		f.tenant, je, f.entity, f.ledger, je.String()[24:], f.actor); err != nil {
+		return err
+	}
+	const line = `INSERT INTO ledger.journal_line (tenant_id, fiscal_year, journal_entry_id, line_no, legal_entity_id, ledger_id, fiscal_period,
+		posting_date, account_id, amount_tc, amount_lc, amount_gc, cost_center_id, internal_order_id) VALUES ($1,2026,$2,$3,$4,$5,3,'2026-03-10',$6,$7,$7,$8,$9,$10)`
+	if err := exec(tx, line, f.tenant, je, 1, f.entity, f.ledger, f.expense, 100, 90, costCenter, order); err != nil {
+		return err
+	}
+	return exec(tx, line, f.tenant, je, 2, f.entity, f.ledger, f.bank, -100, -90, nil, nil)
+}
+
+func TestJournalLineInternalOrder(t *testing.T) {
+	need(t)
+	f := newOrders(t)
+	center := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		return exec(tx, `INSERT INTO ledger.cost_center (tenant_id, id, legal_entity_id, code, name, responsible, status, created_by, updated_by)
+			VALUES ($1, $2, $3, 'CC1', 'Center', 'J', 'pending', $4, $4)`, f.tenant, center, f.entity, f.actor)
+	})
+	t.Run("an order without a cost center", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error { return f.orderLine(tx, nil, &f.released) })
+	})
+	t.Run("a cost center without an order", func(t *testing.T) {
+		mustApp(t, f.tenant, func(tx pgx.Tx) error { return f.orderLine(tx, &center, nil) })
+	})
+	t.Run("never both", func(t *testing.T) {
+		failsWith(t, asApp(t, f.tenant, func(tx pgx.Tx) error { return f.orderLine(tx, &center, &f.released) }), "journal_line_one_cost_object")
+	})
+	t.Run("the check is validated on the table and every partition", func(t *testing.T) {
+		var tables, checked int
+		if err := testDB.QueryRow(t.Context(), `SELECT (SELECT count(*) + 1 FROM pg_inherits WHERE inhparent = 'ledger.journal_line'::regclass),
+				(SELECT count(*) FROM pg_constraint WHERE conname = 'journal_line_one_cost_object' AND convalidated)`).Scan(&tables, &checked); err != nil {
+			t.Fatal(err)
+		}
+		if checked != tables {
+			t.Errorf("validated checks: got %d, want %d (the table and its partitions)", checked, tables)
+		}
+	})
+	t.Run("the lines are indexed by order", func(t *testing.T) {
+		var valid bool
+		if err := testDB.QueryRow(t.Context(), `SELECT i.indisvalid FROM pg_index i
+				WHERE i.indexrelid = 'ledger.journal_line_by_internal_order'::regclass`).Scan(&valid); err != nil {
+			t.Fatal(err)
+		}
+		if !valid {
+			t.Error("journal_line_by_internal_order: got invalid, want valid")
+		}
+	})
+}

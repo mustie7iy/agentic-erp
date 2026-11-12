@@ -26,7 +26,11 @@
 // center, which the ledger's port names and checks (an active one of the
 // company). An order is created and then released for posting by a person
 // (controlling.order.release, an approval permission), read FOR UPDATE
-// with the caller's version; both are audited and published.
+// with the caller's version; both are audited and published. Costs are
+// posted to a released order on journal lines (T60b): the ledger asks
+// this context about the orders through its port ledger.CostObjects
+// (CostObjects), and the order's actual costs by account and period are
+// the ledger's lines naming it, read through the ledger's port.
 package controlling
 
 import (
@@ -67,6 +71,7 @@ type Ledger interface {
 	ProfitCenters(ctx context.Context, center, node *uuid.UUID) ([]uuid.UUID, bool, error)
 	ProfitCenterActuals(ctx context.Context, q ledger.ActualsQuery) ([]ledger.AssignmentActual, error)
 	CostCenterRefs(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CostCenterRef, error)
+	OrderActuals(ctx context.Context, q ledger.OrderActualsQuery) (ledger.OrderActuals, error)
 }
 
 // LegalEntities reads legal entities (tenancy context).

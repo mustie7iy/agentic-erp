@@ -1005,6 +1005,10 @@ type ListIntercompanyDifferencesRes interface {
 	listIntercompanyDifferencesRes()
 }
 
+type ListInternalOrderBalancesRes interface {
+	listInternalOrderBalancesRes()
+}
+
 type ListInternalOrdersRes interface {
 	listInternalOrdersRes()
 }

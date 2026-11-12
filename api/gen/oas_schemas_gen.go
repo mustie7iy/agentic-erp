@@ -39293,6 +39293,266 @@ func (s *InternalOrder) SetStatus(val string) {
 	s.Status = val
 }
 
+// The actual costs of an internal order on one account in one fiscal period (ADR-0064 §2), in the
+// legal entity's local currency.
+// Ref: #/components/schemas/InternalOrderBalance
+type InternalOrderBalance struct {
+	// Account.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+	// Fiscal period.
+	FiscalPeriod int32 `json:"fiscal_period"`
+	// Debit total in local currency.
+	Debit Money `json:"debit"`
+	// Credit total in local currency (positive).
+	Credit Money `json:"credit"`
+	// Debit less credit: the order's actual cost on the account in the period.
+	Balance Money `json:"balance"`
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *InternalOrderBalance) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *InternalOrderBalance) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *InternalOrderBalance) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetFiscalPeriod returns the value of FiscalPeriod.
+func (s *InternalOrderBalance) GetFiscalPeriod() int32 {
+	return s.FiscalPeriod
+}
+
+// GetDebit returns the value of Debit.
+func (s *InternalOrderBalance) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *InternalOrderBalance) GetCredit() Money {
+	return s.Credit
+}
+
+// GetBalance returns the value of Balance.
+func (s *InternalOrderBalance) GetBalance() Money {
+	return s.Balance
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *InternalOrderBalance) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *InternalOrderBalance) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *InternalOrderBalance) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetFiscalPeriod sets the value of FiscalPeriod.
+func (s *InternalOrderBalance) SetFiscalPeriod(val int32) {
+	s.FiscalPeriod = val
+}
+
+// SetDebit sets the value of Debit.
+func (s *InternalOrderBalance) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *InternalOrderBalance) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetBalance sets the value of Balance.
+func (s *InternalOrderBalance) SetBalance(val Money) {
+	s.Balance = val
+}
+
+// One page of an internal order's actual costs per account and period, with the order, the selection
+// and its totals on every page.
+// Ref: #/components/schemas/InternalOrderBalancePage
+type InternalOrderBalancePage struct {
+	// The rows on this page.
+	Items []InternalOrderBalance `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// The internal order.
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// Fiscal year of the selection.
+	FiscalYear int32 `json:"fiscal_year"`
+	// First period of the selection.
+	FiscalPeriodFrom int32 `json:"fiscal_period_from"`
+	// Last period of the selection.
+	FiscalPeriodTo int32 `json:"fiscal_period_to"`
+	// The whole selection's totals, the same on every page.
+	Totals InternalOrderBalanceTotals `json:"totals"`
+}
+
+// GetItems returns the value of Items.
+func (s *InternalOrderBalancePage) GetItems() []InternalOrderBalance {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *InternalOrderBalancePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderBalancePage) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderBalancePage) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderBalancePage) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderBalancePage) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *InternalOrderBalancePage) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetFiscalPeriodFrom returns the value of FiscalPeriodFrom.
+func (s *InternalOrderBalancePage) GetFiscalPeriodFrom() int32 {
+	return s.FiscalPeriodFrom
+}
+
+// GetFiscalPeriodTo returns the value of FiscalPeriodTo.
+func (s *InternalOrderBalancePage) GetFiscalPeriodTo() int32 {
+	return s.FiscalPeriodTo
+}
+
+// GetTotals returns the value of Totals.
+func (s *InternalOrderBalancePage) GetTotals() InternalOrderBalanceTotals {
+	return s.Totals
+}
+
+// SetItems sets the value of Items.
+func (s *InternalOrderBalancePage) SetItems(val []InternalOrderBalance) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *InternalOrderBalancePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderBalancePage) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderBalancePage) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderBalancePage) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderBalancePage) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *InternalOrderBalancePage) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetFiscalPeriodFrom sets the value of FiscalPeriodFrom.
+func (s *InternalOrderBalancePage) SetFiscalPeriodFrom(val int32) {
+	s.FiscalPeriodFrom = val
+}
+
+// SetFiscalPeriodTo sets the value of FiscalPeriodTo.
+func (s *InternalOrderBalancePage) SetFiscalPeriodTo(val int32) {
+	s.FiscalPeriodTo = val
+}
+
+// SetTotals sets the value of Totals.
+func (s *InternalOrderBalancePage) SetTotals(val InternalOrderBalanceTotals) {
+	s.Totals = val
+}
+
+func (*InternalOrderBalancePage) listInternalOrderBalancesRes() {}
+
+// The totals of an internal order's actual costs over the whole selection, in the legal entity's local
+// currency.
+// Ref: #/components/schemas/InternalOrderBalanceTotals
+type InternalOrderBalanceTotals struct {
+	// Debit total.
+	Debit Money `json:"debit"`
+	// Credit total (positive).
+	Credit Money `json:"credit"`
+	// Debit less credit: the order's actual costs.
+	Balance Money `json:"balance"`
+}
+
+// GetDebit returns the value of Debit.
+func (s *InternalOrderBalanceTotals) GetDebit() Money {
+	return s.Debit
+}
+
+// GetCredit returns the value of Credit.
+func (s *InternalOrderBalanceTotals) GetCredit() Money {
+	return s.Credit
+}
+
+// GetBalance returns the value of Balance.
+func (s *InternalOrderBalanceTotals) GetBalance() Money {
+	return s.Balance
+}
+
+// SetDebit sets the value of Debit.
+func (s *InternalOrderBalanceTotals) SetDebit(val Money) {
+	s.Debit = val
+}
+
+// SetCredit sets the value of Credit.
+func (s *InternalOrderBalanceTotals) SetCredit(val Money) {
+	s.Credit = val
+}
+
+// SetBalance sets the value of Balance.
+func (s *InternalOrderBalanceTotals) SetBalance(val Money) {
+	s.Balance = val
+}
+
 // A new internal order.
 // Ref: #/components/schemas/InternalOrderCreate
 type InternalOrderCreate struct {
@@ -40264,6 +40524,12 @@ type JournalLine struct {
 	SegmentID OptUUID `json:"segment_id"`
 	// Code of the segment, set with `segment_id`.
 	SegmentCode OptString `json:"segment_code"`
+	// The internal order the line's cost is posted to (ADR-0064 §2), as entered (JournalLineInput
+	// `internal_order_id`) or copied from the line a reversal reverses; absent when it has none. A line
+	// with an order carries no cost center.
+	InternalOrderID OptUUID `json:"internal_order_id"`
+	// Code of the internal order, set with `internal_order_id`.
+	InternalOrderCode OptString `json:"internal_order_code"`
 	// The line's trading partner (ADR-0059 §4): the tenant's company on the other side of an intercompany
 	// transaction, as entered (JournalLineInput `trading_partner_id`) or copied from the line a reversal
 	// or clearing offsets; absent when it has none.
@@ -40370,6 +40636,16 @@ func (s *JournalLine) GetSegmentID() OptUUID {
 // GetSegmentCode returns the value of SegmentCode.
 func (s *JournalLine) GetSegmentCode() OptString {
 	return s.SegmentCode
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *JournalLine) GetInternalOrderID() OptUUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *JournalLine) GetInternalOrderCode() OptString {
+	return s.InternalOrderCode
 }
 
 // GetTradingPartner returns the value of TradingPartner.
@@ -40482,6 +40758,16 @@ func (s *JournalLine) SetSegmentCode(val OptString) {
 	s.SegmentCode = val
 }
 
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *JournalLine) SetInternalOrderID(val OptUUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *JournalLine) SetInternalOrderCode(val OptString) {
+	s.InternalOrderCode = val
+}
+
 // SetTradingPartner sets the value of TradingPartner.
 func (s *JournalLine) SetTradingPartner(val OptTradingPartner) {
 	s.TradingPartner = val
@@ -40533,6 +40819,17 @@ type JournalLineInput struct {
 	// Segment of the line: derived from the profit center, so one given must be its profit center's (422
 	// `ledger.segment_mismatch`).
 	SegmentID OptUUID `json:"segment_id"`
+	// Internal order the line's cost is posted to (ADR-0064 §2, `GET /v1/internal-orders`), instead of a
+	// cost center: a line on a primary cost account carries exactly one real cost object, a cost center or
+	// an order. The order must be one of the entry's legal entity and released, the account a primary cost
+	// account, and the line must name no cost center (422 `ledger.internal_order_invalid` on the line's
+	// field, with the reason as the field error's code: `unknown`, `not_in_company`, `not_released`,
+	// `with_cost_center`, `not_a_cost_account`, `cost_center_not_valid_on_date`). The line takes its
+	// profit center and segment from the order's responsible cost center on the posting date, and a
+	// different profit center given is refused (422 `ledger.profit_center_mismatch`). Only on an entry
+	// that is posted: a parked entry or an entry template naming an order is refused in this version (422
+	// `ledger.internal_order_not_parkable`).
+	InternalOrderID OptUUID `json:"internal_order_id"`
 	// Trading partner of the line (ADR-0059 §4): the tenant's company on the other side of an
 	// intercompany transaction, a legal entity of the tenant other than the entry's own (422
 	// `ledger.trading_partner_invalid` on the line's field). Consolidation matches and eliminates
@@ -40590,6 +40887,11 @@ func (s *JournalLineInput) GetProfitCenterID() OptUUID {
 // GetSegmentID returns the value of SegmentID.
 func (s *JournalLineInput) GetSegmentID() OptUUID {
 	return s.SegmentID
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *JournalLineInput) GetInternalOrderID() OptUUID {
+	return s.InternalOrderID
 }
 
 // GetTradingPartnerID returns the value of TradingPartnerID.
@@ -40650,6 +40952,11 @@ func (s *JournalLineInput) SetProfitCenterID(val OptUUID) {
 // SetSegmentID sets the value of SegmentID.
 func (s *JournalLineInput) SetSegmentID(val OptUUID) {
 	s.SegmentID = val
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *JournalLineInput) SetInternalOrderID(val OptUUID) {
+	s.InternalOrderID = val
 }
 
 // SetTradingPartnerID sets the value of TradingPartnerID.
@@ -44050,6 +44357,18 @@ func (*ListIntercompanyDifferencesForbidden) listIntercompanyDifferencesRes() {}
 type ListIntercompanyDifferencesNotFound Problem
 
 func (*ListIntercompanyDifferencesNotFound) listIntercompanyDifferencesRes() {}
+
+type ListInternalOrderBalancesBadRequest Problem
+
+func (*ListInternalOrderBalancesBadRequest) listInternalOrderBalancesRes() {}
+
+type ListInternalOrderBalancesForbidden Problem
+
+func (*ListInternalOrderBalancesForbidden) listInternalOrderBalancesRes() {}
+
+type ListInternalOrderBalancesUnprocessableEntity Problem
+
+func (*ListInternalOrderBalancesUnprocessableEntity) listInternalOrderBalancesRes() {}
 
 type ListInternalOrdersBadRequest Problem
 
@@ -71394,6 +71713,7 @@ func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
+func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
 func (*TooManyRequestsHeaders) listJournalEntriesRes()                    {}
 func (*TooManyRequestsHeaders) listLedgerGroupsRes()                      {}
@@ -71904,6 +72224,7 @@ func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
+func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
 func (*UnauthorizedHeaders) listJournalEntriesRes()                    {}
 func (*UnauthorizedHeaders) listLedgerGroupsRes()                      {}

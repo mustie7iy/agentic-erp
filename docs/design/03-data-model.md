@@ -747,7 +747,8 @@ erDiagram
     uuid cost_center_id "T56d"
     uuid profit_center_id
     uuid segment_id
-    uuid trading_partner_id "T68b" }
+    uuid trading_partner_id "T68b"
+    uuid internal_order_id "T60b; controlling context" }
   clearing { uuid id PK
     uuid legal_entity_id
     date clearing_date
@@ -1394,6 +1395,27 @@ before it. The two center reports read it with the lines still pending,
 as the trial balance reads `period_balance`, through the partial indexes
 `assignment_balance_cost_center` and `assignment_balance_profit_center`
 (company, ledger, year, period, center).
+
+The internal order on the journal line (T60b, ADR-0064 §2, migrations
+000266-000268). `journal_line.internal_order_id` is the internal order a
+primary cost line's cost is posted to, the second real cost object beside
+the cost center, nullable, NULL on lines posted before; an order id
+without a foreign key (the order master is the controlling context's,
+§3.19), which the ledger checks through its port `ledger.CostObjects`
+before it posts a line naming it: the order is known, of the line's
+company and released, the account a primary cost account, and the line
+names no cost center (422 `ledger.internal_order_invalid`, naming the line
+and why). The posting holds the orders it names `FOR SHARE` until its
+transaction ends. The line takes its profit center and segment from the
+order's responsible cost center in its period on the posting date and
+keeps `cost_center_id` empty. The database holds the other half: a line
+carries a cost center or an order, never both
+(`journal_line_one_cost_object`, added `NOT VALID` and validated partition
+by partition; a partition created later gets it validated). The partial
+index `journal_line_by_internal_order` (company, order, year, period)
+serves the order's actual costs. A reversal copies each line's order. A
+parked entry's and a template's lines keep no order in the first version:
+one naming an order is refused (422 `ledger.internal_order_not_parkable`).
 
 The trading partner on the journal line (T68b, ADR-0059 §4, migrations
 000219-000221). `journal_line.trading_partner_id` is the tenant's company
@@ -3243,7 +3265,7 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
-and internal orders (ADR-0064; T60a).
+and internal orders (ADR-0064; T60a, T60b).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3299,7 +3321,7 @@ erDiagram
 | `controlling.plan_category` | A plan category (SAP's category for planning): code (`^[0-9A-Z_]{1,10}$`, unique), name, and `locked`; locked and unlocked by a person (`controlling.plan.lock`) with the caller's version, read FOR UPDATE; never deleted |
 | `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
-| `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted |
+| `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
 | `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET

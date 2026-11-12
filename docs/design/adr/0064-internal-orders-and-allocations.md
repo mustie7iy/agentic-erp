@@ -100,6 +100,8 @@ or an order**.
 - An order on a line whose account takes no cost object (`cost_element:
   none`) or on a revenue account is refused in the first version: an order
   collects costs.
+- The responsible cost center's locks are for its own postings and do not
+  refuse a line posted to the order.
 - A **reversal copies** the original's order and is not checked again, as
   it copies centers (ADR-0050 §5).
 - Derivation runs once per posting group, so every ledger's copy carries
@@ -223,3 +225,60 @@ adding up to 100, all active and of one company.
   `controlling.order.release` (approval).
 - **Walkthrough**: `step_internal_order`, Carla creates and releases
   Maple's order `FAIR-<year>` under cost center CC-1100.
+
+### T60b: costs posted to an internal order (migrations 000266-000268)
+- **Column** `ledger.journal_line.internal_order_id`, nullable, no foreign
+  key; the check `journal_line_one_cost_object` (a cost center or an
+  order, never both), added `NOT VALID` (000266) and validated partition
+  by partition (000267); the partial index
+  `journal_line_by_internal_order` per partition (000268,
+  `migrate:partitioned-index`). Schema test: `db/internal_order_test.go`.
+- **The port** `ledger.CostObjects` (`Orders(ids, hold)`, in
+  `assignment.go`), implemented by `controlling.CostObjects` and wired in
+  `internal/app` on the ledger's API endpoints. With `hold` it reads the
+  orders `FOR SHARE` in id order. A posting whose lines name no order asks
+  nothing. A line naming an order where the port is not wired
+  (`ledger.Postings` and `ledger.ManualEntries`, whose lines cannot name
+  one yet) is an error, never a line posted unchecked.
+- **Derivation** (`assignOrders` before `assign`, in `postAll`): the order
+  is known, of the posting's company and released, and the line names no
+  cost center; the account is a primary cost account; the profit center
+  and segment are the responsible cost center's in its period on the
+  posting date (a different profit center given: 422
+  `ledger.profit_center_mismatch`; a center without a profit center leaves
+  the company's default, as for a cost center). Refusals are 422
+  `ledger.internal_order_invalid` on `lines[i].internal_order_id` with the
+  reason `unknown`, `not_in_company`, `not_released`, `with_cost_center`,
+  `not_a_cost_account` or `cost_center_not_valid_on_date`. The responsible
+  cost center's own locks (`lock_actual_cost`) do not refuse the order's
+  line: the order is the cost object. The center and its periods are
+  read under the posting's locks, as a line's own cost center is.
+- **Decided by default:** an order is posted only on primary cost
+  accounts (no revenue, no balance sheet line); the default cost center of
+  an account is not taken by a line naming an order; an order's line is
+  accepted whether or not cost center accounting is on for the year.
+- **Parked entries and entry templates keep no order** in this version: a
+  line naming one is refused (422 `ledger.internal_order_not_parkable`),
+  also when a service principal's entry above its limit would be parked,
+  rather than parked without it. Orders on kept lines are a gap for the
+  product owner (not in the plan's lists).
+- **API**: `internal_order_id` on `JournalLineInput`; `internal_order_id`
+  and `internal_order_code` on `JournalLine` (the code read through the
+  port after the entry's ETag is taken; an order is never deleted);
+  `JournalEntryPosted` lines carry `internal_order_id`. Additive
+  (ADR-0041). `ledger.PostingLine` gains no order yet: T60e adds it with
+  the settlement, which is the first posting of another context on an
+  order.
+- **Actuals**: `GET /v1/internal-order-balances` (`controlling.order.read`
+  and `ledger.entry.read`): one order's actual costs of a fiscal year per
+  account and period from the leading ledger's lines
+  (`ledger.AssignmentBalances.OrderActuals`), debit, credit and balance in
+  the company's currency, with the order's code and name and the
+  selection's totals on every page; cursor over account number, account
+  and period. An order unknown or of a company outside the caller's access
+  is 422 `request.reference_not_found`. Budget:
+  `TestInternalOrderBalancesBudget` (p95 1 s; 20,001 lines of an order
+  among 400,002).
+- **Walkthrough**: `step_internal_order` extended: Alex posts CAD 1,500.00
+  to the order, a line with an order and a cost center is refused, and
+  Carla reads the order's actuals.

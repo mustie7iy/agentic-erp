@@ -5672,11 +5672,12 @@ step_asset_order_expenses() {
   passed
 }
 
-# step_internal_order: internal orders (ADR-0064, T60a): Carla creates an
-# order of Maple under the finance office's cost center and releases it
-# for posting.
+# step_internal_order: internal orders (ADR-0064, T60a, T60b): Carla
+# creates an order of Maple under the finance office's cost center and
+# releases it for posting; Alex posts an expense to it on a journal entry
+# line, and Carla reads it in the order's actual costs.
 step_internal_order() {
-  heading "Step 47 — Internal orders: an order of Maple created under a cost center and released for posting"
+  heading "Step 47 — Internal orders: an order of Maple created under a cost center and released; an expense posted to it shows in its actual costs"
   as carla
   local cc order
   QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
@@ -5698,6 +5699,31 @@ step_internal_order() {
   refused 409 controlling.internal_order_released releaseInternalOrder -p "id=$order" -if-match "$ETAG"
   api 200 '.items[] | "  \(.code) \(.name): \(.status), cost center \(.responsible_cost_center_code)"' listInternalOrders -p "legal_entity_id=$LE" -p status=released
   expect "Maple's released orders" "$(field '[.items[].code] | join(" ")')" "FAIR-$YEAR"
+  as alex
+  accounts
+  local expense bank entry
+  expense=$(account 510000)
+  bank=$(account 100000)
+  say "Alex posts the stand's materials, CAD 1,500.00, to the order on a journal entry line (T60b). A primary cost line"
+  say "carries exactly one real cost object, a cost center or an order: this one names the order and no cost center,"
+  say "and takes its profit center and segment from the order's responsible cost center CC-1100."
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .internal_order_code then " on order \(.internal_order_code), profit center \(.profit_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Trade fair stand materials\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"1500.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-1500.00\", \"currency\": \"CAD\"}}]}"
+  entry=$(field .id)
+  expect "the expense line's order, cost center and profit center" \
+    "$(field '.lines[0] | "\(.internal_order_code) \(.cost_center_id // "none") \(.profit_center_code)"')" "FAIR-$YEAR none PC-MTL"
+  say "An order beside a cost center on one line is refused:"
+  refused 422 ledger.internal_order_invalid postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"internal_order_id\": \"$order\", \"cost_center_id\": \"$cc\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+  expect "why the line is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].internal_order_id with_cost_center"
+  as carla
+  say "Carla reads the order's actual costs by account and period: they are the lines posted to it."
+  api 200 '"order \(.internal_order_code) \(.internal_order_name), \(.fiscal_year):", (.items[] | "  \(.account_number) \(.account_name), period \(.fiscal_period): debit \(.debit.amount), credit \(.credit.amount), balance \(.balance.amount) \(.balance.currency)"), "  totals: debit \(.totals.debit.amount), credit \(.totals.credit.amount), balance \(.totals.balance.amount) \(.totals.balance.currency)"' \
+    listInternalOrderBalances -p "internal_order_id=$order" -p "fiscal_year=$YEAR"
+  expect "the order's actuals" "$(field '[.items[] | "\(.account_number) \(.balance.amount)"] | join("; ")')" "510000 1500.00"
+  expect "the order's total actual costs" "$(field '"\(.totals.debit.amount) \(.totals.credit.amount) \(.totals.balance.amount) \(.totals.balance.currency)"')" "1500.00 0.00 1500.00 CAD"
+  QUIET=1 api 200 '' getJournalEntry -p "id=$entry"
+  expect "the entry read again names the order" "$(field '.lines[0].internal_order_code')" "FAIR-$YEAR"
   passed
 }
 

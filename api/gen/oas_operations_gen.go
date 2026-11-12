@@ -257,6 +257,7 @@ const (
 	ListHierarchiesOperation                       OperationName = "ListHierarchies"
 	ListHouseBanksOperation                        OperationName = "ListHouseBanks"
 	ListIntercompanyDifferencesOperation           OperationName = "ListIntercompanyDifferences"
+	ListInternalOrderBalancesOperation             OperationName = "ListInternalOrderBalances"
 	ListInternalOrdersOperation                    OperationName = "ListInternalOrders"
 	ListJournalEntriesOperation                    OperationName = "ListJournalEntries"
 	ListLedgerGroupsOperation                      OperationName = "ListLedgerGroups"

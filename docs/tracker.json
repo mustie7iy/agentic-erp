@@ -3249,9 +3249,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A GL accountant posts a cost to a released internal order on a journal entry line (a second real cost object beside the cost center), and a controller reads the order's actual costs by account and period",
-        "r": "T60b · docs/design/plan-breadth-week1.md §T60b",
+        "r": "T60b · docs/design/plan-breadth-week1.md §T60b · migrations 000266-000268 · internal/ledger/assignment.go (ledger.CostObjects) · internal/controlling/orderbalances.go · ADR-0064 §2 · scripts/walkthrough.sh step_internal_order",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
