@@ -11175,7 +11175,7 @@ paths:
       tags:
         - procurement
       summary: List requests for quotation
-      description: "Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its items and the suppliers invited by id, number and name. Sortable by: `due_date`, `document_number`."
+      description: "Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its company's code and name, its items with their accounts' numbers and names, and the suppliers invited by id, number and name. Sortable by: `due_date`, `document_number`."
       x-permission: procurement.rfq.read
       x-problem-codes:
         - request.invalid_order_by
@@ -37784,9 +37784,9 @@ components:
                     currency: EUR
                   uom_code: EA
                   account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
-    RfqItem:
+    RfqItemInput:
       type: object
-      description: "An item of a request for quotation: what is asked for, without a price."
+      description: "An item of a request for quotation as it is created: what is asked for, without a price."
       required:
         - material_key
         - description
@@ -37823,6 +37823,54 @@ components:
             value: "40"
             unit: EA
           account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+    RfqItem:
+      type: object
+      description: "An item of a request for quotation: what is asked for, without a price."
+      required:
+        - material_key
+        - description
+        - quantity
+        - account_id
+        - account_number
+        - account_name
+      properties:
+        item_no:
+          type: integer
+          format: int32
+          description: "Item number; assigned by the server when omitted."
+          minimum: 1
+        material_key:
+          type: string
+          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by."
+          minLength: 1
+          maxLength: 40
+        description:
+          type: string
+          description: Description.
+          minLength: 1
+          maxLength: 200
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: "The quantity asked for and its unit of measure; positive."
+        account_id:
+          type: string
+          format: uuid
+          description: General ledger account the item is bought on.
+        account_number:
+          type: string
+          description: The account's number.
+        account_name:
+          type: string
+          description: The account's name.
+      examples:
+        - material_key: CHAIR-ERGO-01
+          description: Office chairs, ergonomic
+          quantity:
+            value: "40"
+            unit: EA
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          account_number: "520000"
+          account_name: Office equipment
     RfqSupplier:
       type: object
       description: A supplier invited to quote.
@@ -37853,6 +37901,8 @@ components:
           required:
             - document_number
             - legal_entity_id
+            - company_code
+            - company_name
             - currency
             - due_date
             - status
@@ -37867,6 +37917,14 @@ components:
               type: string
               format: uuid
               description: Legal entity.
+              readOnly: true
+            company_code:
+              type: string
+              description: The legal entity's company code.
+              readOnly: true
+            company_name:
+              type: string
+              description: The legal entity's name.
               readOnly: true
             currency:
               type: string
@@ -37906,6 +37964,8 @@ components:
           updated_at: "2026-11-18T14:03:11Z"
           document_number: RQ100000
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          company_code: "2000"
+          company_name: Acme Deutschland GmbH
           currency: EUR
           due_date: "2026-12-04"
           status: draft
@@ -37917,6 +37977,8 @@ components:
                 value: "40"
                 unit: EA
               account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+              account_number: "520000"
+              account_name: Office equipment
           suppliers:
             - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
               supplier_number: BP90000001
@@ -37947,7 +38009,7 @@ components:
         items:
           type: array
           items:
-            $ref: "#/components/schemas/RfqItem"
+            $ref: "#/components/schemas/RfqItemInput"
           description: The items asked for.
           minItems: 1
           maxItems: 1000

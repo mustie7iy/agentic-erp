@@ -19,7 +19,7 @@ import (
 // The handlers of requests for quotation (ADR-0069), in a file of their
 // own beside rfq.go.
 
-func rfqInputs(items []gen.RfqItem) []ItemInput {
+func rfqInputs(items []gen.RfqItemInput) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
 		out[i] = ItemInput{No: apitypes.Ptr[int32](it.ItemNo), MaterialKey: it.MaterialKey, Description: it.Description, Quantity: it.Quantity.Value,
@@ -30,11 +30,13 @@ func rfqInputs(items []gen.RfqItem) []ItemInput {
 
 func rfqToAPI(r RFQ) gen.Rfq {
 	out := gen.Rfq{ID: r.ID, Version: r.Version, CreatedAt: r.CreatedAt, CreatedBy: r.CreatedBy, UpdatedAt: r.UpdatedAt,
-		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, Currency: r.Currency,
+		UpdatedBy: gen.NewOptUUID(r.UpdatedBy), DocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, CompanyCode: r.CompanyCode,
+		CompanyName: r.CompanyName, Currency: r.Currency,
 		DueDate: r.DueDate, Status: r.Status, Items: make([]gen.RfqItem, len(r.Items)), Suppliers: make([]gen.RfqSupplier, len(r.Suppliers))}
 	for i, it := range r.Items {
 		out.Items[i] = gen.RfqItem{ItemNo: gen.NewOptInt32(it.No), MaterialKey: it.MaterialKey, Description: it.Description,
-			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, AccountID: it.AccountID}
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, AccountID: it.AccountID,
+			AccountNumber: r.Accounts[it.AccountID].Number, AccountName: r.Accounts[it.AccountID].Name}
 	}
 	for i, s := range r.Suppliers {
 		out.Suppliers[i] = gen.RfqSupplier{SupplierID: s.ID, SupplierNumber: s.Number, SupplierName: s.Name}
@@ -63,7 +65,7 @@ func (e *Endpoints) GetRfq(ctx context.Context, params gen.GetRfqParams) (gen.Ge
 	if err != nil {
 		return nil, err
 	}
-	named, err := e.suppliersNamed(ctx, r)
+	named, err := e.named(ctx, r)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +101,7 @@ func (e *Endpoints) ListRfqs(ctx context.Context, params gen.ListRfqsParams) (ge
 	if err != nil {
 		return nil, fmt.Errorf("procurement: list RFQs: %w", err)
 	}
-	if list, err = e.suppliersNamed(ctx, list...); err != nil {
+	if list, err = e.named(ctx, list...); err != nil {
 		return nil, err
 	}
 	items, next := apitypes.PageOf(ks, list, func(r RFQ) (string, uuid.UUID) {

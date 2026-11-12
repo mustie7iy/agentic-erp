@@ -6193,10 +6193,10 @@ step_rfq() {
     {\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"},
     {\"material_key\": \"DESK-ADJ\", \"description\": \"Height-adjustable desks\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}],
     \"supplier_ids\": [\"$SUPPLIER\", \"$DP_SUPPLIER\"]}"
-  api 201 '"RFQ \(.document_number): \(.status), quotations in \(.currency) due \(.due_date)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.quantity.value) \(.quantity.unit)"), (.suppliers[] | "  invited: \(.supplier_number) \(.supplier_name)")' \
+  api 201 '"RFQ \(.document_number) of \(.company_code) \(.company_name): \(.status), quotations in \(.currency) due \(.due_date)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.quantity.value) \(.quantity.unit), on \(.account_number) \(.account_name)"), (.suppliers[] | "  invited: \(.supplier_number) \(.supplier_name)")' \
     createRfq -body "$body"
   RFQ=$(field .id)
-  expect "the new RFQ" "$(field '"\(.status) \(.currency) \(.due_date) \(.items | length)"')" "draft CAD $due 2"
+  expect "the new RFQ" "$(field '"\(.status) \(.company_code) \(.currency) \(.due_date) \(.items | length) \([.items[].account_number] | unique | join(" "))"')" "draft $CC CAD $due 2 6000"
   expect "the suppliers invited, in the order named" "$(field '[.suppliers[] | "\(.supplier_id) \(.supplier_name)"] | join(", ")')" \
     "$SUPPLIER Tyrell Office Products, $DP_SUPPLIER $DP_NAME"
   say "A supplier is invited once, and a due date that has passed is refused, naming Maple's date today:"

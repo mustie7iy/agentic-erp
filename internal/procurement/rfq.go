@@ -3,17 +3,20 @@ package procurement
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/idref"
 	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // Requests for quotation (ADR-0069). An RFQ is free-standing: a buyer
@@ -21,9 +24,9 @@ import (
 // invited, and publishes it once; from then on nothing changes it and the
 // suppliers' quotations are recorded against it.
 
-// Published is the status of an RFQ that was published to the suppliers
+// RFQPublished is the status of an RFQ that was published to the suppliers
 // invited; before that it is a Draft.
-const Published = "published"
+const RFQPublished = "published"
 
 // rfqNumberRange is the document type RFQs draw their numbers from
 // (configuration number_ranges).
@@ -35,11 +38,16 @@ func init() {
 
 // RFQ is a row of procurement.rfq with its items, which carry no price
 // (Item's UnitPrice and PriceUnit are zero), and the suppliers invited in
-// the order they were named.
+// the order they were named. CompanyCode, CompanyName, Accounts and the
+// suppliers' numbers and names are what the other contexts call them,
+// filled when the RFQ is shown (named); a row read alone has the ids only.
 type RFQ struct {
 	ID             uuid.UUID
 	DocumentNumber string
 	LegalEntityID  uuid.UUID
+	CompanyCode    string
+	CompanyName    string
+	Accounts       map[uuid.UUID]ledger.AccountRef // the items' accounts by id
 	Currency       string
 	DueDate        time.Time
 	Status         string
@@ -54,7 +62,7 @@ type RFQ struct {
 
 // RFQSupplier is a supplier invited to quote. Number and Name are the
 // business partner's, read from the partner context when the RFQ is shown
-// (suppliersNamed) or checked (usable); a row read alone has the id only.
+// (named); a row read alone has the id only.
 type RFQSupplier struct {
 	ID           uuid.UUID
 	Number, Name string
@@ -109,22 +117,65 @@ func (r RFQ) supplierIDs() []uuid.UUID {
 	return ids
 }
 
-// suppliersNamed gives the RFQs' suppliers their numbers and names, read
-// from the partner context in one call (REVIEW.md: an identifier with the
-// name its consumer needs). A supplier it does not hold fails the read
-// rather than showing it unnamed: the RFQ invited it by that id.
-func (e *Endpoints) suppliersNamed(ctx context.Context, rfqs ...RFQ) ([]RFQ, error) {
-	var ids []uuid.UUID
-	for _, r := range rfqs {
-		ids = append(ids, r.supplierIDs()...)
+// accountRef is how an account the ledger does not hold is reported
+// (idref.Resolve).
+var accountRef = idref.Kind{Name: "account", Context: "ledger"}
+
+// companyRef is how a legal entity the directory does not hold is
+// reported (idref.Resolve).
+var companyRef = idref.Kind{Name: "legal entity", Context: "tenancy"}
+
+// entities reads the legal entities by id from the directory; one it does
+// not hold is left out.
+func (e *Endpoints) entities(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]tenancy.Entity, error) {
+	out := make(map[uuid.UUID]tenancy.Entity, len(ids))
+	for _, id := range ids {
+		le, ok, err := e.LegalEntities.Entity(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out[id] = le
+		}
 	}
-	named, err := idref.Resolve(ctx, e.Partners.Names, ids, supplierRef)
+	return out, nil
+}
+
+// named gives the RFQs what their ids name (REVIEW.md: an identifier with
+// the name its consumer needs): each supplier's number and name from the
+// partner context and each item's account's number and name from the
+// ledger, in one call each for the page, and the company's code and name
+// from the directory, read once per legal entity. One the owning context
+// does not hold fails the read rather than showing it unnamed: the RFQ
+// was created naming it.
+func (e *Endpoints) named(ctx context.Context, rfqs ...RFQ) ([]RFQ, error) {
+	var suppliers, accounts, entities []uuid.UUID
+	for _, r := range rfqs {
+		if !slices.Contains(entities, r.LegalEntityID) {
+			entities = append(entities, r.LegalEntityID)
+		}
+		suppliers = append(suppliers, r.supplierIDs()...)
+		for _, it := range r.Items {
+			accounts = append(accounts, it.AccountID)
+		}
+	}
+	partners, err := idref.Resolve(ctx, e.Partners.Names, suppliers, supplierRef)
 	if err != nil {
 		return nil, fmt.Errorf("procurement: name the suppliers of RFQs: %w", err)
 	}
-	for _, r := range rfqs {
-		for i, s := range r.Suppliers {
-			r.Suppliers[i].Number, r.Suppliers[i].Name = named[s.ID].Number, named[s.ID].Name
+	refs, err := idref.Resolve(ctx, e.AccountNames.AccountNames, accounts, accountRef)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: name the accounts of RFQs: %w", err)
+	}
+	companies, err := idref.Resolve(ctx, e.entities, entities, companyRef)
+	if err != nil {
+		return nil, fmt.Errorf("procurement: name the companies of RFQs: %w", err)
+	}
+	for i, r := range rfqs {
+		le := companies[r.LegalEntityID]
+		rfqs[i].CompanyCode, rfqs[i].CompanyName, rfqs[i].Accounts = le.Code, le.Name, refs
+		for j, s := range r.Suppliers {
+			r.Suppliers[j].Number, r.Suppliers[j].Name = partners[s.ID].Number, partners[s.ID].Name
 		}
 	}
 	return rfqs, nil
@@ -184,17 +235,14 @@ func once(ids []uuid.UUID) error {
 
 // usable requires each supplier to be one an order could be placed with
 // in the legal entity (supplierAt), refused by its own field: field is its
-// format, taking the supplier's place. It returns them by number and name.
-func (e *Endpoints) usable(ctx context.Context, le uuid.UUID, ids []uuid.UUID, field string) ([]RFQSupplier, error) {
-	out := make([]RFQSupplier, len(ids))
+// format, taking the supplier's place.
+func (e *Endpoints) usable(ctx context.Context, le uuid.UUID, ids []uuid.UUID, field string) error {
 	for i, id := range ids {
-		s, err := e.supplierAt(ctx, id, le, fmt.Sprintf(field, i))
-		if err != nil {
-			return nil, err
+		if _, err := e.supplierAt(ctx, id, le, fmt.Sprintf(field, i)); err != nil {
+			return err
 		}
-		out[i] = RFQSupplier{ID: id, Number: s.Number, Name: s.Name}
 	}
-	return out, nil
+	return nil
 }
 
 // notPast requires the due date not to be before legal entity le's date
@@ -207,7 +255,7 @@ func (e *Endpoints) notPast(ctx context.Context, le uuid.UUID, due time.Time) (t
 		return time.Time{}, err
 	}
 	if due.Before(day) {
-		why := fmt.Sprintf("the due date is not before the legal entity's date today, %s in %s", day.Format(time.DateOnly), zone)
+		why := fmt.Sprintf("the due date must not be before the legal entity's date today, %s in %s", day.Format(time.DateOnly), zone)
 		return time.Time{}, problem.Unprocessable("procurement.rfq_due_date_past", "The RFQ's due date "+due.Format(time.DateOnly)+" has passed: "+why+".",
 			problem.FieldError{Field: "due_date", Code: "past", Message: why})
 	}
@@ -238,8 +286,7 @@ func (e *Endpoints) createRFQ(ctx context.Context, in NewRFQ) (RFQ, error) {
 	if err := once(in.Suppliers); err != nil {
 		return RFQ{}, err
 	}
-	suppliers, err := e.usable(ctx, le.ID, in.Suppliers, "supplier_ids[%d]")
-	if err != nil {
+	if err := e.usable(ctx, le.ID, in.Suppliers, "supplier_ids[%d]"); err != nil {
 		return RFQ{}, err
 	}
 	number, err := e.number(ctx, le.ID, rfqNumberRange, day)
@@ -247,11 +294,14 @@ func (e *Endpoints) createRFQ(ctx context.Context, in NewRFQ) (RFQ, error) {
 		return RFQ{}, err
 	}
 	r := RFQ{ID: uuid.Must(uuid.NewV7()), DocumentNumber: number, LegalEntityID: le.ID, Currency: in.Currency, DueDate: in.DueDate,
-		Items: items, Suppliers: suppliers}
+		Items: items, Suppliers: make([]RFQSupplier, len(in.Suppliers))}
+	for i, id := range in.Suppliers {
+		r.Suppliers[i].ID = id
+	}
 	if err := writeRFQ(ctx, tx, p, r); err != nil {
 		return RFQ{}, err
 	}
-	return recorded(ctx, tx, r, "create", "created", map[string]any{"document_number": number, "legal_entity_id": le.ID, "currency": in.Currency,
+	return e.recorded(ctx, tx, r.ID, "create", "created", map[string]any{"document_number": number, "legal_entity_id": le.ID, "currency": in.Currency,
 		"due_date": in.DueDate.Format(time.DateOnly), "items": len(items)})
 }
 
@@ -281,18 +331,21 @@ func writeRFQ(ctx context.Context, tx pgx.Tx, p reqctx.Principal, r RFQ) error {
 	return nil
 }
 
-// recorded reads RFQ r as the change left it, with the suppliers as the
-// change named them, audits the change and publishes it: RfqChanged for
-// every change, and RfqPublished beside it for a publication, with the
-// suppliers invited by id and number. A supplier's name goes into neither
-// the events nor the audit record (product owner 2026-11-05: a partner may
-// be a person).
-func recorded(ctx context.Context, tx pgx.Tx, r RFQ, action, change string, detail map[string]any) (RFQ, error) {
-	stored, err := getRFQ(ctx, tx, r.ID, false)
+// recorded reads the RFQ as the change left it, named as it is shown,
+// audits the change and publishes it: RfqChanged for every change, and
+// RfqPublished beside it for a publication, with the suppliers invited by
+// id and number. A supplier's name goes into neither the events nor the
+// audit record (product owner 2026-11-05: a partner may be a person).
+func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, action, change string, detail map[string]any) (RFQ, error) {
+	read, err := getRFQ(ctx, tx, id, false)
 	if err != nil {
 		return RFQ{}, err
 	}
-	stored.Suppliers = r.Suppliers
+	shown, err := e.named(ctx, read)
+	if err != nil {
+		return RFQ{}, err
+	}
+	stored := shown[0]
 	detail["supplier_ids"] = stored.supplierIDs()
 	payload := func() map[string]any {
 		return map[string]any{"rfq_id": stored.ID, "document_number": stored.DocumentNumber, "legal_entity_id": stored.LegalEntityID,
@@ -301,7 +354,7 @@ func recorded(ctx context.Context, tx pgx.Tx, r RFQ, action, change string, deta
 	changed := payload()
 	changed["status"], changed["change"], changed["supplier_count"] = stored.Status, change, len(stored.Suppliers)
 	events := []outbox.Event{event("rfq_changed", "rfq", stored.ID, changed)}
-	if stored.Status == Published {
+	if stored.Status == RFQPublished {
 		published := payload()
 		invited := make([]map[string]any, len(stored.Suppliers))
 		for i, s := range stored.Suppliers {
@@ -335,12 +388,12 @@ func (e *Endpoints) publishRFQ(ctx context.Context, id uuid.UUID, ifMatch func(i
 	if _, err := e.notPast(ctx, r.LegalEntityID, r.DueDate); err != nil {
 		return RFQ{}, err
 	}
-	if r.Suppliers, err = e.usable(ctx, r.LegalEntityID, r.supplierIDs(), "suppliers[%d].supplier_id"); err != nil {
+	if err := e.usable(ctx, r.LegalEntityID, r.supplierIDs(), "suppliers[%d].supplier_id"); err != nil {
 		return RFQ{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE procurement.rfq SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1 AND status = $4`,
-		id, Published, p.ID, Draft); err != nil {
+		id, RFQPublished, p.ID, Draft); err != nil {
 		return RFQ{}, fmt.Errorf("procurement: publish RFQ %s: %w", id, err)
 	}
-	return recorded(ctx, tx, r, "publish", "published", map[string]any{"from_status": r.Status})
+	return e.recorded(ctx, tx, id, "publish", "published", map[string]any{"from_status": r.Status})
 }

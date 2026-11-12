@@ -62,6 +62,18 @@ func invited(t *testing.T, r map[string]any) string {
 	return strings.Join(out, ", ")
 }
 
+// nameSuppliers gives the fixture's suppliers names that differ from their
+// numbers (the fixture names a partner by its number), so a test can tell
+// a name from a number and see that no event carries a name.
+func (e env) nameSuppliers(t *testing.T) {
+	t.Helper()
+	for id, name := range map[uuid.UUID]string{e.Supplier: tyrell, e.Vendor: cabot} {
+		pgtest.Exec(t, `UPDATE partner.business_partner SET name = $2, version = version + 1 WHERE id = $1`, id, name)
+	}
+}
+
+const tyrell, cabot = "Tyrell Office Products", "Cabot Components"
+
 // audits counts the tenant's audit records of the action on the object.
 func audits(t *testing.T, e env, action, object string) int {
 	t.Helper()
@@ -73,14 +85,15 @@ func audits(t *testing.T, e env, action, object string) int {
 
 func TestRFQLifecycle(t *testing.T) {
 	e := setupIn2026(t)
+	e.nameSuppliers(t)
 	// The suppliers are invited in the order named, not the order of their ids or numbers.
 	r, tag := e.Must(201, "POST", "/v1/rfqs", e.rfqBody("2026-07-31", e.chairsAndDesks(), e.Vendor, e.Supplier), "")
 	path := "/v1/rfqs/" + id(r)
-	want := fmt.Sprintf("%s BP90000002 BP90000002, %s BP90000001 BP90000001", e.Vendor, e.Supplier)
+	want := fmt.Sprintf("%s BP90000002 %s, %s BP90000001 %s", e.Vendor, cabot, e.Supplier, tyrell)
 	checks := func(t *testing.T, what string, got map[string]any, status string, version float64) {
 		t.Helper()
 		for field, want := range map[string]any{"document_number": "RQ100000", "status": status, "version": version, "currency": "EUR", "due_date": "2026-07-31",
-			"legal_entity_id": e.DE.String()} {
+			"legal_entity_id": e.DE.String(), "company_code": "2000"} {
 			if got[field] != want {
 				t.Errorf("%s %s: got %v, want %v", what, field, got[field], want)
 			}
@@ -96,6 +109,11 @@ func TestRFQLifecycle(t *testing.T) {
 		if desk["item_no"] != float64(2) || desk["material_key"] != "DESK" || desk["account_id"] != e.office {
 			t.Errorf("%s item 2: got %v, want item 2, DESK on the office account", what, desk)
 		}
+		if desk["account_number"] != "520000" {
+			t.Errorf("%s item 2 account_number: got %v, want 520000", what, desk["account_number"])
+		}
+		apitest.WantNamed(t, what+" company", got, "legal_entity_id", "company_name", `SELECT name FROM tenancy.legal_entity WHERE id = $1`)
+		apitest.WantNamed(t, what+" item 2 account", desk, "account_id", "account_name", `SELECT name FROM ledger.gl_account WHERE id = $1`)
 		if q := desk["quantity"].(map[string]any); q["value"] != "12.5" || q["unit"] != "EA" {
 			t.Errorf("%s item 2 quantity: got %v, want 12.5 EA", what, q)
 		}
@@ -138,6 +156,10 @@ func TestRFQLifecycle(t *testing.T) {
 		map[string]any{"supplier_id": e.Supplier.String(), "supplier_number": "BP90000001"}}
 	if got := published[0]["suppliers"]; !reflect.DeepEqual(got, wantInvited) {
 		t.Errorf("rfq_published suppliers: got %v, want %v (ids and numbers, no names)", got, wantInvited)
+	}
+	// A supplier's name goes into no event (product owner 2026-11-05).
+	for _, name := range []string{tyrell, cabot} {
+		apitest.NeverPublished(t, e.Tenant, "procurement", name)
 	}
 	for _, action := range []string{"procurement.rfq.create", "procurement.rfq.publish"} {
 		if got := audits(t, e, action, id(r)); got != 1 {
@@ -373,6 +395,9 @@ func TestRFQList(t *testing.T) {
 		other.In(t).Problem(404, "request.not_found", "POST", "/v1/rfqs/"+id(second)+":publish", "", `"1"`)
 		other.In(t).Problem(422, "request.reference_not_found", "POST", "/v1/rfqs", e.rfqBody("2026-07-31", e.chairsAndDesks(), e.Supplier), "")
 	})
+	t.Run("an order the list does not have", func(t *testing.T) {
+		e.in(t).Problem(400, "request.invalid_order_by", "GET", "/v1/rfqs?order_by=status", "", "")
+	})
 	t.Run("no RFQ with the id", func(t *testing.T) {
 		e.in(t).Problem(404, "request.not_found", "GET", "/v1/rfqs/"+uuid.NewString(), "", "")
 	})
@@ -394,7 +419,7 @@ func TestRFQDatabaseFailures(t *testing.T) {
 	for name, call := range map[string]func(ctx context.Context) error{
 		"create RFQ": func(ctx context.Context) error {
 			_, err := h.CreateRfq(ctx, &gen.RfqCreate{LegalEntityID: e.DE, Currency: "EUR", DueDate: dateOf("2026-07-31"), SupplierIds: []uuid.UUID{e.Supplier, e.Vendor},
-				Items: []gen.RfqItem{{MaterialKey: "A", Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, AccountID: uuid.MustParse(e.office)}}},
+				Items: []gen.RfqItemInput{{MaterialKey: "A", Description: "P", Quantity: gen.Quantity{Value: "1", Unit: "EA"}, AccountID: uuid.MustParse(e.office)}}},
 				gen.CreateRfqParams{})
 			return err
 		},

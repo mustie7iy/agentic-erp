@@ -57,6 +57,12 @@ type SupplierNames interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
 }
 
+// AccountNames reads accounts' numbers and names (ledger context), shown
+// beside the accounts an RFQ's items are bought on.
+type AccountNames interface {
+	AccountNames(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.AccountRef, error)
+}
+
 // Accounts is what procurement asks the ledger about accounts, the account
 // determination and tax codes.
 type Accounts interface {
@@ -93,6 +99,7 @@ type Endpoints struct {
 	LegalEntities LegalEntities
 	Suppliers     Suppliers
 	Partners      SupplierNames // the suppliers an RFQ invites, by number and name (ADR-0069)
+	AccountNames  AccountNames  // the accounts an RFQ's items are bought on, by number and name
 	Accounts      Accounts
 	Numbers       Numbers
 	Calendar      Calendar

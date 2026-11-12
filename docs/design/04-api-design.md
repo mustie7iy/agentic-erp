@@ -321,7 +321,8 @@ again (409 `procurement.invalid_status` for one already published).
 `GET /v1/rfqs` (`procurement.rfq.read`) lists the RFQs of the companies
 the caller may act in, filtered by `legal_entity_id`, `supplier_id` (the
 RFQs a supplier is invited to), `status` and `document_number`, each with
-its items and its suppliers by id, number and name.
+its company's code and name, its items with their accounts' numbers and
+names, and its suppliers by id, number and name.
 
 Internal orders (ADR-0064 §1, T60a) are the controlling context's.
 `POST /v1/internal-orders` (`controlling.order.write`, `x-agent: false`)

@@ -68770,6 +68770,10 @@ type Rfq struct {
 	DocumentNumber string `json:"document_number"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The legal entity's name.
+	CompanyName string `json:"company_name"`
 	// The currency quotations are given in.
 	Currency string `json:"currency"`
 	// The date quotations are due.
@@ -68821,6 +68825,16 @@ func (s *Rfq) GetDocumentNumber() string {
 // GetLegalEntityID returns the value of LegalEntityID.
 func (s *Rfq) GetLegalEntityID() uuid.UUID {
 	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *Rfq) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *Rfq) GetCompanyName() string {
+	return s.CompanyName
 }
 
 // GetCurrency returns the value of Currency.
@@ -68888,6 +68902,16 @@ func (s *Rfq) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
 }
 
+// SetCompanyCode sets the value of CompanyCode.
+func (s *Rfq) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *Rfq) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
 // SetCurrency sets the value of Currency.
 func (s *Rfq) SetCurrency(val string) {
 	s.Currency = val
@@ -68923,7 +68947,7 @@ type RfqCreate struct {
 	// The date quotations are due; not before the legal entity's date today.
 	DueDate time.Time `json:"due_date"`
 	// The items asked for.
-	Items []RfqItem `json:"items"`
+	Items []RfqItemInput `json:"items"`
 	// The suppliers invited (business partner ids), each once.
 	SupplierIds []uuid.UUID `json:"supplier_ids"`
 }
@@ -68944,7 +68968,7 @@ func (s *RfqCreate) GetDueDate() time.Time {
 }
 
 // GetItems returns the value of Items.
-func (s *RfqCreate) GetItems() []RfqItem {
+func (s *RfqCreate) GetItems() []RfqItemInput {
 	return s.Items
 }
 
@@ -68969,7 +68993,7 @@ func (s *RfqCreate) SetDueDate(val time.Time) {
 }
 
 // SetItems sets the value of Items.
-func (s *RfqCreate) SetItems(val []RfqItem) {
+func (s *RfqCreate) SetItems(val []RfqItemInput) {
 	s.Items = val
 }
 
@@ -69042,6 +69066,10 @@ type RfqItem struct {
 	Quantity Quantity `json:"quantity"`
 	// General ledger account the item is bought on.
 	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -69069,6 +69097,16 @@ func (s *RfqItem) GetAccountID() uuid.UUID {
 	return s.AccountID
 }
 
+// GetAccountNumber returns the value of AccountNumber.
+func (s *RfqItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *RfqItem) GetAccountName() string {
+	return s.AccountName
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *RfqItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -69091,6 +69129,82 @@ func (s *RfqItem) SetQuantity(val Quantity) {
 
 // SetAccountID sets the value of AccountID.
 func (s *RfqItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *RfqItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *RfqItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// An item of a request for quotation as it is created: what is asked for, without a price.
+// Ref: #/components/schemas/RfqItemInput
+type RfqItemInput struct {
+	// Item number; assigned by the server when omitted.
+	ItemNo OptInt32 `json:"item_no"`
+	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
+	// contract's item name it by.
+	MaterialKey string `json:"material_key"`
+	// Description.
+	Description string `json:"description"`
+	// The quantity asked for and its unit of measure; positive.
+	Quantity Quantity `json:"quantity"`
+	// General ledger account the item is bought on.
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *RfqItemInput) GetItemNo() OptInt32 {
+	return s.ItemNo
+}
+
+// GetMaterialKey returns the value of MaterialKey.
+func (s *RfqItemInput) GetMaterialKey() string {
+	return s.MaterialKey
+}
+
+// GetDescription returns the value of Description.
+func (s *RfqItemInput) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *RfqItemInput) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RfqItemInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *RfqItemInput) SetItemNo(val OptInt32) {
+	s.ItemNo = val
+}
+
+// SetMaterialKey sets the value of MaterialKey.
+func (s *RfqItemInput) SetMaterialKey(val string) {
+	s.MaterialKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RfqItemInput) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *RfqItemInput) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RfqItemInput) SetAccountID(val uuid.UUID) {
 	s.AccountID = val
 }
 

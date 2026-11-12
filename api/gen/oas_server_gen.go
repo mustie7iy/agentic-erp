@@ -3557,7 +3557,8 @@ type Handler interface {
 	// ListRfqs implements listRfqs operation.
 	//
 	// Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
-	// items and the suppliers invited by id, number and name. Sortable by: `due_date`, `document_number`.
+	// company's code and name, its items with their accounts' numbers and names, and the suppliers invited
+	// by id, number and name. Sortable by: `due_date`, `document_number`.
 	//
 	// GET /v1/rfqs
 	ListRfqs(ctx context.Context, params ListRfqsParams) (ListRfqsRes, error)

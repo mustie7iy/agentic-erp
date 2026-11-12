@@ -62521,7 +62521,8 @@ func (s *Server) handleListRevaluationRunsRequest(args [0]string, argsEscaped bo
 // handleListRfqsRequest handles listRfqs operation.
 //
 // Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
-// items and the suppliers invited by id, number and name. Sortable by: `due_date`, `document_number`.
+// company's code and name, its items with their accounts' numbers and names, and the suppliers invited
+// by id, number and name. Sortable by: `due_date`, `document_number`.
 //
 // GET /v1/rfqs
 func (s *Server) handleListRfqsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

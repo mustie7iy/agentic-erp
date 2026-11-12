@@ -163,8 +163,10 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
    a quotation is recorded.
 5. `RfqChanged` is published for every change of an RFQ and `RfqPublished`
    beside it for a publication; neither is offered to webhooks yet.
-6. The API shows a supplier invited by id, number and name; a legal entity
-   and an account by id alone, as the other procurement documents do.
+6. The API shows what an RFQ names with what its consumer needs: a
+   supplier invited by id, number and name, the company by id, code and
+   name, an item's account by id, number and name (REVIEW.md; the older
+   procurement documents show a company and an account by id alone).
 
 ## As built
 
@@ -195,8 +197,11 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
   is refused as `suppliers[i].supplier_id`, its place in the RFQ.
 - **Code.** `internal/procurement/rfq.go` and `rfq_api.go`.
   `Endpoints.supplier`'s check is `supplierAt`, which takes the field it
-  refuses by; `Endpoints.Partners` (`SupplierNames`, wired to
-  `partner.Payees`) names the suppliers of the RFQs read.
+  refuses by. An RFQ is shown named (`Endpoints.named`): its suppliers
+  through `Endpoints.Partners` (`SupplierNames`, wired to
+  `partner.Payees`), its items' accounts through `Endpoints.AccountNames`
+  (wired to `ledger.AssetReads`), each in one call for a page, and its
+  company's code and name from the directory.
 - **Events.** `RfqChanged` (`created`, `published`) and `RfqPublished`
   with the suppliers invited by id and number, in `api/asyncapi.yaml`.
 - **Number range.** `rfq`: the walkthrough's tenant and the test fixture
