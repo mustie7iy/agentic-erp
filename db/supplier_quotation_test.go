@@ -62,7 +62,7 @@ func TestSupplierQuotationRules(t *testing.T) {
 		"a second quotation of the supplier": {quotationSQL, []any{f.tenant, id(), f.published, f.supplier, "Q-2", "recorded", f.actor}, "supplier_quotation_once"},
 		"a supplier not invited":             {quotationSQL, []any{f.tenant, id(), f.published, f.otherSupplier, "Q-2", "recorded", f.actor}, "supplier_quotation_invited"},
 		"a draft RFQ":                        {quotationSQL, []any{f.tenant, id(), f.draft, f.supplier, "Q-2", "recorded", f.actor}, "is not published"},
-		"an unknown status":                  {quotationSQL, []any{f.tenant, id(), f.other, f.supplier, "Q-2", "awarded", f.actor}, "supplier_quotation_status_check"},
+		"an unknown status":                  {quotationSQL, []any{f.tenant, id(), f.other, f.supplier, "Q-2", "withdrawn", f.actor}, "starts as recorded"},
 		"a blank reference":                  {quotationSQL, []any{f.tenant, id(), f.other, f.supplier, " ", "recorded", f.actor}, "supplier_quotation_reference_check"},
 		"a quotation changed": {`UPDATE procurement.supplier_quotation SET supplier_reference = 'Q-9', version = version + 1 WHERE id = $1`,
 			[]any{f.quotation}, "permission denied"},

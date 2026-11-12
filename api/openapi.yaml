@@ -11971,6 +11971,7 @@ paths:
             x-extensible-enum:
               - draft
               - published
+              - awarded
         - $ref: "#/components/parameters/DocumentNumber"
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
@@ -12131,7 +12132,7 @@ paths:
       tags:
         - procurement
       summary: Record a supplier's quotation
-      description: "Records the quotation an invited supplier gave for a `published` RFQ (409 `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers what it answered. Each item names an item of the RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and number."
+      description: "Records the quotation an invited supplier gave for a `published` RFQ (409 `procurement.invalid_status` for a draft or an awarded one), read under the RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers what it answered. Each item names an item of the RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and number."
       x-permission: procurement.rfq.manage
       x-problem-codes:
         - procurement.amount_too_large
@@ -12186,13 +12187,118 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/rfqs/{id}/comparison":
+    get:
+      operationId: getRfqComparison
+      tags:
+        - procurement
+      summary: Compare an RFQ's quotations
+      description: "The comparison of one RFQ's quotations by price (ADR-0069 §7), computed on each read and stored nowhere: one row per supplier invited, with its quotation's total and its price and amount of each RFQ item. A quotation that prices every RFQ item and is valid on the legal entity's date today in its company's time zone (`as_of`) is ranked by its total, the lowest first; equal totals share a rank and stand in the order the suppliers were invited. After the ranked rows come the quotations that are not ranked, in the order invited: one that leaves RFQ items out (`complete` false, `unquoted_item_nos` naming them) and one whose `valid_until` is before `as_of` (`expired`). Last come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly, in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a quotation that is not ranked for leaving other items out. The comparison is not paged: its rows are bounded by the suppliers an RFQ can invite (100) and each row's prices by the items an RFQ can hold (1,000), the bounds of a page of `rfqs/{id}/quotations`. An RFQ of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: procurement.rfq.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The comparison.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RfqComparison"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/rfqs/{id}:award":
+    post:
+      operationId: awardRfq
+      tags:
+        - procurement
+      summary: Award a request for quotation
+      description: "Awards a `published` RFQ to one of its quotations as a whole, at the version the caller read (`If-Match`), once (ADR-0069 §7): the RFQ is read under a row lock, so of two awards one succeeds and the other finds the RFQ `awarded` (409 `procurement.invalid_status`, as for a draft), while the same request with its `Idempotency-Key` again answers the same RFQ and contract. The quotation must be one of this RFQ (422 `procurement.quotation_not_of_rfq`) that the comparison ranks: it prices every RFQ item (422 `procurement.quotation_incomplete`) and is valid on the legal entity's date today in its company's time zone (422 `procurement.quotation_expired`, naming that date and zone); it need not be the lowest. Its supplier must still be one an order could be placed with (422 `procurement.supplier_not_usable`). Each of these refusals names `quotation_id`. The award creates a draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422 `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value the quotation's total; what the contract's own checks refuse is refused as there, naming the contract's field: an item's account the legal entity can no longer post to (422 `procurement.account_not_postable`, `items[i].account_id`, the RFQ's item) and a quotation whose total rounds to zero, since a contract's target value is above zero (422 `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and number, and RfqChanged."
+      x-permission: procurement.rfq.award
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - procurement.account_not_postable
+        - procurement.contract_renewed
+        - procurement.currency_mismatch
+        - procurement.duplicate_material_key
+        - procurement.invalid_amount
+        - procurement.invalid_item_no
+        - procurement.invalid_renewal
+        - procurement.invalid_status
+        - procurement.invalid_validity
+        - procurement.legal_entity_not_active
+        - procurement.quotation_exists
+        - procurement.quotation_expired
+        - procurement.quotation_incomplete
+        - procurement.quotation_not_of_rfq
+        - procurement.supplier_not_usable
+        - procurement.unknown_currency
+        - procurement.unknown_unit
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The quotation awarded and the contract's validity.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfqAward"
+      responses:
+        "200":
+          description: "The RFQ, awarded, naming the draft contract created."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   "/v1/rfqs/{id}:publish":
     post:
       operationId: publishRfq
       tags:
         - procurement
       summary: Publish a request for quotation
-      description: "Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row lock and moves to `published` once (409 `procurement.invalid_status` for one already published), after which quotations are recorded against it and nothing changes it. The RFQ is checked again as it was when created: every supplier invited must still be one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers invited by id and number."
+      description: "Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row lock and moves to `published` once (409 `procurement.invalid_status` for one already published), after which quotations are recorded against it and nothing changes it until it is awarded (`:award`). The RFQ is checked again as it was when created: every supplier invited must still be one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers invited by id and number."
       x-permission: procurement.rfq.manage
       x-problem-codes:
         - config.not_bootstrapped
@@ -40819,6 +40925,15 @@ components:
               format: uuid
               description: "The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert."
               readOnly: true
+            rfq_id:
+              type: string
+              format: uuid
+              description: "The request for quotation whose award created this contract (`rfqs/{id}:award`, ADR-0069 §7); absent for a contract created directly or by a renewal."
+              readOnly: true
+            rfq_document_number:
+              type: string
+              description: "That RFQ's document number; absent when `rfq_id` is."
+              readOnly: true
             expiry_alerted_on:
               type: string
               format: date
@@ -41150,6 +41265,16 @@ components:
               x-extensible-enum:
                 - draft
                 - published
+                - awarded
+              readOnly: true
+            contract_id:
+              type: string
+              format: uuid
+              description: "The draft contract the award created (`rfqs/{id}:award`), at `/v1/contracts/{contract_id}`; absent until the RFQ is awarded."
+              readOnly: true
+            contract_document_number:
+              type: string
+              description: "That contract's document number; absent until the RFQ is awarded."
               readOnly: true
             items:
               type: array
@@ -41243,6 +41368,31 @@ components:
           supplier_ids:
             - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
             - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d58"
+    RfqAward:
+      type: object
+      description: "Award an RFQ to one of its quotations: the quotation that wins and the validity of the draft contract created from it."
+      required:
+        - quotation_id
+        - valid_from
+        - valid_to
+      properties:
+        quotation_id:
+          type: string
+          format: uuid
+          description: "The supplier quotation awarded (its `id` in `rfqs/{id}/quotations`, `supplier_quotation_id` in the comparison): one of this RFQ, complete and not expired."
+        valid_from:
+          type: string
+          format: date
+          description: The first day the contract is valid.
+        valid_to:
+          type: string
+          format: date
+          description: "The last day the contract is valid; on or after `valid_from`."
+      additionalProperties: false
+      examples:
+        - quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"
+          valid_from: "2027-01-01"
+          valid_to: "2027-12-31"
     RfqPage:
       type: object
       description: One page of requests for quotation.
@@ -41388,9 +41538,11 @@ components:
               description: The last day the quotation is valid.
             status:
               type: string
-              description: "Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "Lifecycle status: `recorded` until the RFQ is awarded, then `awarded` for the quotation that won and `not_awarded` for the RFQ's others. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - recorded
+                - awarded
+                - not_awarded
               readOnly: true
             complete:
               type: boolean
@@ -41446,6 +41598,309 @@ components:
               amount:
                 amount: "16500.00"
                 currency: EUR
+    RfqComparisonItem:
+      type: object
+      description: "An item of the RFQ compared, with the lowest amount quoted for it."
+      required:
+        - rfq_item_no
+        - material_key
+        - description
+        - quantity
+      properties:
+        rfq_item_no:
+          type: integer
+          format: int32
+          description: The RFQ item's number.
+        material_key:
+          type: string
+          description: The RFQ item's material key.
+        description:
+          type: string
+          description: The RFQ item's description.
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: The quantity the RFQ asks for and its unit of measure.
+        lowest_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The lowest amount (quantity × unit price ÷ price unit) quoted for the item by a quotation that is not expired; absent when none prices it."
+      examples:
+        - rfq_item_no: 1
+          material_key: CHAIR-ERGO-01
+          description: Office chairs, ergonomic
+          quantity:
+            value: "40"
+            unit: EA
+          lowest_amount:
+            amount: "16500.00"
+            currency: EUR
+    RfqComparisonPrice:
+      type: object
+      description: "A supplier's price of one RFQ item in the comparison."
+      required:
+        - rfq_item_no
+        - unit_price
+        - price_unit
+        - amount
+        - lowest
+      properties:
+        rfq_item_no:
+          type: integer
+          format: int32
+          description: The RFQ item priced, by its item number.
+        unit_price:
+          $ref: "#/components/schemas/Money"
+          description: "Quoted price per `price_unit` of the RFQ item's unit of measure."
+        price_unit:
+          type: integer
+          format: int32
+          description: Quantity the unit price refers to.
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The item's value: quantity × unit price ÷ price unit, rounded half away from zero to the minor unit."
+        lowest:
+          type: boolean
+          description: "Whether the amount is the lowest quoted for the RFQ item among the quotations not expired; several quotations at the same amount are all marked."
+      examples:
+        - rfq_item_no: 1
+          unit_price:
+            amount: "412.50"
+            currency: EUR
+          price_unit: 1
+          amount:
+            amount: "16500.00"
+            currency: EUR
+          lowest: true
+    RfqComparisonSupplier:
+      type: object
+      description: "A supplier invited to an RFQ in the comparison, with its quotation when it has one."
+      required:
+        - supplier_id
+        - supplier_number
+        - supplier_name
+        - answered
+        - complete
+        - expired
+        - unquoted_item_nos
+        - prices
+      properties:
+        supplier_id:
+          type: string
+          format: uuid
+          description: The supplier (business partner id).
+        supplier_number:
+          type: string
+          description: The business partner's number.
+        supplier_name:
+          type: string
+          description: The business partner's name.
+        answered:
+          type: boolean
+          description: Whether a quotation of the supplier is recorded.
+        rank:
+          type: integer
+          format: int32
+          description: "The quotation's place by total among the quotations ranked, 1 the lowest; equal totals share a rank and the next rank is skipped. Absent when the quotation is not ranked (none, incomplete or expired)."
+          minimum: 1
+        supplier_quotation_id:
+          type: string
+          format: uuid
+          description: "The quotation; absent when the supplier has not answered."
+        supplier_reference:
+          type: string
+          description: "The supplier's own reference of its quotation; absent when the supplier has not answered."
+        valid_until:
+          type: string
+          format: date
+          description: "The last day the quotation is valid; absent when the supplier has not answered."
+        quotation_status:
+          type: string
+          description: "The quotation's lifecycle status; absent when the supplier has not answered. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - recorded
+            - awarded
+            - not_awarded
+        complete:
+          type: boolean
+          description: "Whether the quotation prices every item of the RFQ; false when the supplier has not answered."
+        expired:
+          type: boolean
+          description: "Whether the quotation's `valid_until` is before the comparison's `as_of`; false when the supplier has not answered."
+        unquoted_item_nos:
+          type: array
+          items:
+            type: integer
+            format: int32
+          description: "The RFQ items the supplier gives no price for, by item number: empty for a complete quotation, every item when the supplier has not answered."
+        total:
+          $ref: "#/components/schemas/Money"
+          description: "The sum of the quotation's amounts, in the RFQ's currency; absent when the supplier has not answered."
+        prices:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqComparisonPrice"
+          description: "The quotation's prices, by RFQ item number; empty when the supplier has not answered."
+      examples:
+        - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_number: BP90000001
+          supplier_name: Tyrell Office Products
+          answered: true
+          rank: 1
+          supplier_quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"
+          supplier_reference: Q-2026-0457
+          valid_until: "2027-01-31"
+          quotation_status: recorded
+          complete: true
+          expired: false
+          unquoted_item_nos: []
+          total:
+            amount: "16500.00"
+            currency: EUR
+          prices:
+            - rfq_item_no: 1
+              unit_price:
+                amount: "412.50"
+                currency: EUR
+              price_unit: 1
+              amount:
+                amount: "16500.00"
+                currency: EUR
+              lowest: true
+    RfqComparison:
+      type: object
+      description: "The comparison of an RFQ's quotations by price (ADR-0069 §7): the suppliers invited, the ranked quotations first."
+      required:
+        - rfq_id
+        - rfq_document_number
+        - legal_entity_id
+        - company_code
+        - company_name
+        - currency
+        - status
+        - due_date
+        - as_of
+        - invited_count
+        - answered_count
+        - ranked_count
+        - items
+        - suppliers
+      properties:
+        rfq_id:
+          type: string
+          format: uuid
+          description: The RFQ compared.
+        rfq_document_number:
+          type: string
+          description: The RFQ's document number.
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+        company_code:
+          type: string
+          description: The legal entity's company code.
+        company_name:
+          type: string
+          description: The legal entity's name.
+        currency:
+          type: string
+          description: "The RFQ's currency, which every amount of the comparison is in."
+          pattern: "^[A-Z]{3}$"
+          example: EUR
+        status:
+          type: string
+          description: "The RFQ's lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - draft
+            - published
+            - awarded
+        due_date:
+          type: string
+          format: date
+          description: The date quotations are due.
+        as_of:
+          type: string
+          format: date
+          description: "The legal entity's date today in its company's time zone, the day the quotations' validity is judged on."
+        invited_count:
+          type: integer
+          format: int32
+          description: The number of suppliers invited.
+        answered_count:
+          type: integer
+          format: int32
+          description: The number of suppliers invited that have a quotation.
+        ranked_count:
+          type: integer
+          format: int32
+          description: "The number of quotations ranked: complete and not expired."
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqComparisonItem"
+          description: "The RFQ's items, by item number, each with the lowest amount quoted for it."
+        suppliers:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqComparisonSupplier"
+          description: "One row per supplier invited: the ranked quotations by rank, then the quotations not ranked, then the suppliers that have not answered, each group in the order the suppliers were invited."
+      examples:
+        - rfq_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          rfq_document_number: RQ100000
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          company_code: "2000"
+          company_name: Acme Deutschland GmbH
+          currency: EUR
+          status: published
+          due_date: "2026-12-04"
+          as_of: "2026-12-07"
+          invited_count: 2
+          answered_count: 1
+          ranked_count: 1
+          items:
+            - rfq_item_no: 1
+              material_key: CHAIR-ERGO-01
+              description: Office chairs, ergonomic
+              quantity:
+                value: "40"
+                unit: EA
+              lowest_amount:
+                amount: "16500.00"
+                currency: EUR
+          suppliers:
+            - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+              supplier_number: BP90000001
+              supplier_name: Tyrell Office Products
+              answered: true
+              rank: 1
+              supplier_quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"
+              supplier_reference: Q-2026-0457
+              valid_until: "2027-01-31"
+              quotation_status: recorded
+              complete: true
+              expired: false
+              unquoted_item_nos: []
+              total:
+                amount: "16500.00"
+                currency: EUR
+              prices:
+                - rfq_item_no: 1
+                  unit_price:
+                    amount: "412.50"
+                    currency: EUR
+                  price_unit: 1
+                  amount:
+                    amount: "16500.00"
+                    currency: EUR
+                  lowest: true
+            - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d58"
+              supplier_number: BP90000002
+              supplier_name: Cabot Components
+              answered: false
+              complete: false
+              expired: false
+              unquoted_item_nos:
+                - 1
+              prices: []
     SupplierQuotationCreate:
       type: object
       description: Record a supplier's quotation for an RFQ.

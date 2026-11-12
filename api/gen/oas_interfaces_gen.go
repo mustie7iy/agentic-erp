@@ -61,6 +61,10 @@ type AssignProfitCenterRes interface {
 	assignProfitCenterRes()
 }
 
+type AwardRfqRes interface {
+	awardRfqRes()
+}
+
 type BlockBusinessPartnerRes interface {
 	blockBusinessPartnerRes()
 }
@@ -827,6 +831,10 @@ type GetRequisitionRes interface {
 
 type GetRevaluationRunRes interface {
 	getRevaluationRunRes()
+}
+
+type GetRfqComparisonRes interface {
+	getRfqComparisonRes()
 }
 
 type GetRfqRes interface {

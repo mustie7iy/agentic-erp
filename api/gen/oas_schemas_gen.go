@@ -11117,6 +11117,70 @@ func (s *AuditVerify) SetToSeq(val OptInt64) {
 	s.ToSeq = val
 }
 
+type AwardRfqBadRequest Problem
+
+func (*AwardRfqBadRequest) awardRfqRes() {}
+
+type AwardRfqForbidden Problem
+
+func (*AwardRfqForbidden) awardRfqRes() {}
+
+type AwardRfqNotFound Problem
+
+func (*AwardRfqNotFound) awardRfqRes() {}
+
+// AwardRfqOKHeaders wraps Rfq with response headers.
+type AwardRfqOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *AwardRfqOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *AwardRfqOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *AwardRfqOKHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *AwardRfqOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *AwardRfqOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *AwardRfqOKHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*AwardRfqOKHeaders) awardRfqRes()   {}
+func (*AwardRfqOKHeaders) publishRfqRes() {}
+
+type AwardRfqPreconditionFailed Problem
+
+func (*AwardRfqPreconditionFailed) awardRfqRes() {}
+
+type AwardRfqPreconditionRequired Problem
+
+func (*AwardRfqPreconditionRequired) awardRfqRes() {}
+
+type AwardRfqUnprocessableEntity Problem
+
+func (*AwardRfqUnprocessableEntity) awardRfqRes() {}
+
 // Period totals per account and transaction currency, maintained by a projector from posted entries.
 // Ref: #/components/schemas/Balance
 type Balance struct {
@@ -24143,6 +24207,7 @@ func (*ConflictHeaders) applyCountryPackRes()                      {}
 func (*ConflictHeaders) applyPlanBatchRes()                        {}
 func (*ConflictHeaders) approveApprovalRequestRes()                {}
 func (*ConflictHeaders) assignProfitCenterRes()                    {}
+func (*ConflictHeaders) awardRfqRes()                              {}
 func (*ConflictHeaders) blockBusinessPartnerRes()                  {}
 func (*ConflictHeaders) blockLegalEntityRes()                      {}
 func (*ConflictHeaders) blockOrgUnitRes()                          {}
@@ -27378,6 +27443,11 @@ type Contract struct {
 	RenewalOfID OptUUID `json:"renewal_of_id"`
 	// The contract renewing this one, unless cancelled; a renewed contract raises no expiry alert.
 	RenewedByID OptUUID `json:"renewed_by_id"`
+	// The request for quotation whose award created this contract (`rfqs/{id}:award`, ADR-0069 §7);
+	// absent for a contract created directly or by a renewal.
+	RfqID OptUUID `json:"rfq_id"`
+	// That RFQ's document number; absent when `rfq_id` is.
+	RfqDocumentNumber OptString `json:"rfq_document_number"`
 	// The day `ContractExpiring` was published for it, once, `purchasing.contract_expiry_notice_days`
 	// before it ends: its company's date in the company's `time_zone` (UTC when it has none), which the
 	// event gives (T72n6).
@@ -27469,6 +27539,16 @@ func (s *Contract) GetRenewalOfID() OptUUID {
 // GetRenewedByID returns the value of RenewedByID.
 func (s *Contract) GetRenewedByID() OptUUID {
 	return s.RenewedByID
+}
+
+// GetRfqID returns the value of RfqID.
+func (s *Contract) GetRfqID() OptUUID {
+	return s.RfqID
+}
+
+// GetRfqDocumentNumber returns the value of RfqDocumentNumber.
+func (s *Contract) GetRfqDocumentNumber() OptString {
+	return s.RfqDocumentNumber
 }
 
 // GetExpiryAlertedOn returns the value of ExpiryAlertedOn.
@@ -27564,6 +27644,16 @@ func (s *Contract) SetRenewalOfID(val OptUUID) {
 // SetRenewedByID sets the value of RenewedByID.
 func (s *Contract) SetRenewedByID(val OptUUID) {
 	s.RenewedByID = val
+}
+
+// SetRfqID sets the value of RfqID.
+func (s *Contract) SetRfqID(val OptUUID) {
+	s.RfqID = val
+}
+
+// SetRfqDocumentNumber sets the value of RfqDocumentNumber.
+func (s *Contract) SetRfqDocumentNumber(val OptString) {
+	s.RfqDocumentNumber = val
 }
 
 // SetExpiryAlertedOn sets the value of ExpiryAlertedOn.
@@ -40682,6 +40772,18 @@ func (*GetRevaluationRunOKHeaders) getRevaluationRunRes() {}
 type GetRfqBadRequest Problem
 
 func (*GetRfqBadRequest) getRfqRes() {}
+
+type GetRfqComparisonBadRequest Problem
+
+func (*GetRfqComparisonBadRequest) getRfqComparisonRes() {}
+
+type GetRfqComparisonForbidden Problem
+
+func (*GetRfqComparisonForbidden) getRfqComparisonRes() {}
+
+type GetRfqComparisonNotFound Problem
+
+func (*GetRfqComparisonNotFound) getRfqComparisonRes() {}
 
 type GetRfqForbidden Problem
 
@@ -68133,45 +68235,6 @@ type PublishRfqNotFound Problem
 
 func (*PublishRfqNotFound) publishRfqRes() {}
 
-// PublishRfqOKHeaders wraps Rfq with response headers.
-type PublishRfqOKHeaders struct {
-	ETag               OptString
-	IdempotentReplayed OptBool
-	Response           Rfq
-}
-
-// GetETag returns the value of ETag.
-func (s *PublishRfqOKHeaders) GetETag() OptString {
-	return s.ETag
-}
-
-// GetIdempotentReplayed returns the value of IdempotentReplayed.
-func (s *PublishRfqOKHeaders) GetIdempotentReplayed() OptBool {
-	return s.IdempotentReplayed
-}
-
-// GetResponse returns the value of Response.
-func (s *PublishRfqOKHeaders) GetResponse() Rfq {
-	return s.Response
-}
-
-// SetETag sets the value of ETag.
-func (s *PublishRfqOKHeaders) SetETag(val OptString) {
-	s.ETag = val
-}
-
-// SetIdempotentReplayed sets the value of IdempotentReplayed.
-func (s *PublishRfqOKHeaders) SetIdempotentReplayed(val OptBool) {
-	s.IdempotentReplayed = val
-}
-
-// SetResponse sets the value of Response.
-func (s *PublishRfqOKHeaders) SetResponse(val Rfq) {
-	s.Response = val
-}
-
-func (*PublishRfqOKHeaders) publishRfqRes() {}
-
 type PublishRfqPreconditionFailed Problem
 
 func (*PublishRfqPreconditionFailed) publishRfqRes() {}
@@ -73870,6 +73933,11 @@ type Rfq struct {
 	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
 	// may be added within /v1.
 	Status string `json:"status"`
+	// The draft contract the award created (`rfqs/{id}:award`), at `/v1/contracts/{contract_id}`; absent
+	// until the RFQ is awarded.
+	ContractID OptUUID `json:"contract_id"`
+	// That contract's document number; absent until the RFQ is awarded.
+	ContractDocumentNumber OptString `json:"contract_document_number"`
 	// The items asked for, by item number.
 	Items []RfqItem `json:"items"`
 	// The suppliers invited, in the order they were named.
@@ -73939,6 +74007,16 @@ func (s *Rfq) GetDueDate() time.Time {
 // GetStatus returns the value of Status.
 func (s *Rfq) GetStatus() string {
 	return s.Status
+}
+
+// GetContractID returns the value of ContractID.
+func (s *Rfq) GetContractID() OptUUID {
+	return s.ContractID
+}
+
+// GetContractDocumentNumber returns the value of ContractDocumentNumber.
+func (s *Rfq) GetContractDocumentNumber() OptString {
+	return s.ContractDocumentNumber
 }
 
 // GetItems returns the value of Items.
@@ -74016,6 +74094,16 @@ func (s *Rfq) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetContractID sets the value of ContractID.
+func (s *Rfq) SetContractID(val OptUUID) {
+	s.ContractID = val
+}
+
+// SetContractDocumentNumber sets the value of ContractDocumentNumber.
+func (s *Rfq) SetContractDocumentNumber(val OptString) {
+	s.ContractDocumentNumber = val
+}
+
 // SetItems sets the value of Items.
 func (s *Rfq) SetItems(val []RfqItem) {
 	s.Items = val
@@ -74024,6 +74112,539 @@ func (s *Rfq) SetItems(val []RfqItem) {
 // SetSuppliers sets the value of Suppliers.
 func (s *Rfq) SetSuppliers(val []RfqSupplier) {
 	s.Suppliers = val
+}
+
+// Award an RFQ to one of its quotations: the quotation that wins and the validity of the draft
+// contract created from it.
+// Ref: #/components/schemas/RfqAward
+type RfqAward struct {
+	// The supplier quotation awarded (its `id` in `rfqs/{id}/quotations`, `supplier_quotation_id` in the
+	// comparison): one of this RFQ, complete and not expired.
+	QuotationID uuid.UUID `json:"quotation_id"`
+	// The first day the contract is valid.
+	ValidFrom time.Time `json:"valid_from"`
+	// The last day the contract is valid; on or after `valid_from`.
+	ValidTo time.Time `json:"valid_to"`
+}
+
+// GetQuotationID returns the value of QuotationID.
+func (s *RfqAward) GetQuotationID() uuid.UUID {
+	return s.QuotationID
+}
+
+// GetValidFrom returns the value of ValidFrom.
+func (s *RfqAward) GetValidFrom() time.Time {
+	return s.ValidFrom
+}
+
+// GetValidTo returns the value of ValidTo.
+func (s *RfqAward) GetValidTo() time.Time {
+	return s.ValidTo
+}
+
+// SetQuotationID sets the value of QuotationID.
+func (s *RfqAward) SetQuotationID(val uuid.UUID) {
+	s.QuotationID = val
+}
+
+// SetValidFrom sets the value of ValidFrom.
+func (s *RfqAward) SetValidFrom(val time.Time) {
+	s.ValidFrom = val
+}
+
+// SetValidTo sets the value of ValidTo.
+func (s *RfqAward) SetValidTo(val time.Time) {
+	s.ValidTo = val
+}
+
+// The comparison of an RFQ's quotations by price (ADR-0069 §7): the suppliers invited, the ranked
+// quotations first.
+// Ref: #/components/schemas/RfqComparison
+type RfqComparison struct {
+	// The RFQ compared.
+	RfqID uuid.UUID `json:"rfq_id"`
+	// The RFQ's document number.
+	RfqDocumentNumber string `json:"rfq_document_number"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The legal entity's name.
+	CompanyName string `json:"company_name"`
+	// The RFQ's currency, which every amount of the comparison is in.
+	Currency string `json:"currency"`
+	// The RFQ's lifecycle status. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
+	Status string `json:"status"`
+	// The date quotations are due.
+	DueDate time.Time `json:"due_date"`
+	// The legal entity's date today in its company's time zone, the day the quotations' validity is judged
+	// on.
+	AsOf time.Time `json:"as_of"`
+	// The number of suppliers invited.
+	InvitedCount int32 `json:"invited_count"`
+	// The number of suppliers invited that have a quotation.
+	AnsweredCount int32 `json:"answered_count"`
+	// The number of quotations ranked: complete and not expired.
+	RankedCount int32 `json:"ranked_count"`
+	// The RFQ's items, by item number, each with the lowest amount quoted for it.
+	Items []RfqComparisonItem `json:"items"`
+	// One row per supplier invited: the ranked quotations by rank, then the quotations not ranked, then
+	// the suppliers that have not answered, each group in the order the suppliers were invited.
+	Suppliers []RfqComparisonSupplier `json:"suppliers"`
+}
+
+// GetRfqID returns the value of RfqID.
+func (s *RfqComparison) GetRfqID() uuid.UUID {
+	return s.RfqID
+}
+
+// GetRfqDocumentNumber returns the value of RfqDocumentNumber.
+func (s *RfqComparison) GetRfqDocumentNumber() string {
+	return s.RfqDocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RfqComparison) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *RfqComparison) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *RfqComparison) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RfqComparison) GetCurrency() string {
+	return s.Currency
+}
+
+// GetStatus returns the value of Status.
+func (s *RfqComparison) GetStatus() string {
+	return s.Status
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *RfqComparison) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetAsOf returns the value of AsOf.
+func (s *RfqComparison) GetAsOf() time.Time {
+	return s.AsOf
+}
+
+// GetInvitedCount returns the value of InvitedCount.
+func (s *RfqComparison) GetInvitedCount() int32 {
+	return s.InvitedCount
+}
+
+// GetAnsweredCount returns the value of AnsweredCount.
+func (s *RfqComparison) GetAnsweredCount() int32 {
+	return s.AnsweredCount
+}
+
+// GetRankedCount returns the value of RankedCount.
+func (s *RfqComparison) GetRankedCount() int32 {
+	return s.RankedCount
+}
+
+// GetItems returns the value of Items.
+func (s *RfqComparison) GetItems() []RfqComparisonItem {
+	return s.Items
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *RfqComparison) GetSuppliers() []RfqComparisonSupplier {
+	return s.Suppliers
+}
+
+// SetRfqID sets the value of RfqID.
+func (s *RfqComparison) SetRfqID(val uuid.UUID) {
+	s.RfqID = val
+}
+
+// SetRfqDocumentNumber sets the value of RfqDocumentNumber.
+func (s *RfqComparison) SetRfqDocumentNumber(val string) {
+	s.RfqDocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RfqComparison) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *RfqComparison) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *RfqComparison) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RfqComparison) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetStatus sets the value of Status.
+func (s *RfqComparison) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *RfqComparison) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetAsOf sets the value of AsOf.
+func (s *RfqComparison) SetAsOf(val time.Time) {
+	s.AsOf = val
+}
+
+// SetInvitedCount sets the value of InvitedCount.
+func (s *RfqComparison) SetInvitedCount(val int32) {
+	s.InvitedCount = val
+}
+
+// SetAnsweredCount sets the value of AnsweredCount.
+func (s *RfqComparison) SetAnsweredCount(val int32) {
+	s.AnsweredCount = val
+}
+
+// SetRankedCount sets the value of RankedCount.
+func (s *RfqComparison) SetRankedCount(val int32) {
+	s.RankedCount = val
+}
+
+// SetItems sets the value of Items.
+func (s *RfqComparison) SetItems(val []RfqComparisonItem) {
+	s.Items = val
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *RfqComparison) SetSuppliers(val []RfqComparisonSupplier) {
+	s.Suppliers = val
+}
+
+func (*RfqComparison) getRfqComparisonRes() {}
+
+// An item of the RFQ compared, with the lowest amount quoted for it.
+// Ref: #/components/schemas/RfqComparisonItem
+type RfqComparisonItem struct {
+	// The RFQ item's number.
+	RfqItemNo int32 `json:"rfq_item_no"`
+	// The RFQ item's material key.
+	MaterialKey string `json:"material_key"`
+	// The RFQ item's description.
+	Description string `json:"description"`
+	// The quantity the RFQ asks for and its unit of measure.
+	Quantity Quantity `json:"quantity"`
+	// The lowest amount (quantity × unit price ÷ price unit) quoted for the item by a quotation that is
+	// not expired; absent when none prices it.
+	LowestAmount OptMoney `json:"lowest_amount"`
+}
+
+// GetRfqItemNo returns the value of RfqItemNo.
+func (s *RfqComparisonItem) GetRfqItemNo() int32 {
+	return s.RfqItemNo
+}
+
+// GetMaterialKey returns the value of MaterialKey.
+func (s *RfqComparisonItem) GetMaterialKey() string {
+	return s.MaterialKey
+}
+
+// GetDescription returns the value of Description.
+func (s *RfqComparisonItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *RfqComparisonItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetLowestAmount returns the value of LowestAmount.
+func (s *RfqComparisonItem) GetLowestAmount() OptMoney {
+	return s.LowestAmount
+}
+
+// SetRfqItemNo sets the value of RfqItemNo.
+func (s *RfqComparisonItem) SetRfqItemNo(val int32) {
+	s.RfqItemNo = val
+}
+
+// SetMaterialKey sets the value of MaterialKey.
+func (s *RfqComparisonItem) SetMaterialKey(val string) {
+	s.MaterialKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RfqComparisonItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *RfqComparisonItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetLowestAmount sets the value of LowestAmount.
+func (s *RfqComparisonItem) SetLowestAmount(val OptMoney) {
+	s.LowestAmount = val
+}
+
+// A supplier's price of one RFQ item in the comparison.
+// Ref: #/components/schemas/RfqComparisonPrice
+type RfqComparisonPrice struct {
+	// The RFQ item priced, by its item number.
+	RfqItemNo int32 `json:"rfq_item_no"`
+	// Quoted price per `price_unit` of the RFQ item's unit of measure.
+	UnitPrice Money `json:"unit_price"`
+	// Quantity the unit price refers to.
+	PriceUnit int32 `json:"price_unit"`
+	// The item's value: quantity × unit price ÷ price unit, rounded half away from zero to the minor
+	// unit.
+	Amount Money `json:"amount"`
+	// Whether the amount is the lowest quoted for the RFQ item among the quotations not expired; several
+	// quotations at the same amount are all marked.
+	Lowest bool `json:"lowest"`
+}
+
+// GetRfqItemNo returns the value of RfqItemNo.
+func (s *RfqComparisonPrice) GetRfqItemNo() int32 {
+	return s.RfqItemNo
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *RfqComparisonPrice) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *RfqComparisonPrice) GetPriceUnit() int32 {
+	return s.PriceUnit
+}
+
+// GetAmount returns the value of Amount.
+func (s *RfqComparisonPrice) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLowest returns the value of Lowest.
+func (s *RfqComparisonPrice) GetLowest() bool {
+	return s.Lowest
+}
+
+// SetRfqItemNo sets the value of RfqItemNo.
+func (s *RfqComparisonPrice) SetRfqItemNo(val int32) {
+	s.RfqItemNo = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *RfqComparisonPrice) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *RfqComparisonPrice) SetPriceUnit(val int32) {
+	s.PriceUnit = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *RfqComparisonPrice) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLowest sets the value of Lowest.
+func (s *RfqComparisonPrice) SetLowest(val bool) {
+	s.Lowest = val
+}
+
+// A supplier invited to an RFQ in the comparison, with its quotation when it has one.
+// Ref: #/components/schemas/RfqComparisonSupplier
+type RfqComparisonSupplier struct {
+	// The supplier (business partner id).
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The business partner's number.
+	SupplierNumber string `json:"supplier_number"`
+	// The business partner's name.
+	SupplierName string `json:"supplier_name"`
+	// Whether a quotation of the supplier is recorded.
+	Answered bool `json:"answered"`
+	// The quotation's place by total among the quotations ranked, 1 the lowest; equal totals share a rank
+	// and the next rank is skipped. Absent when the quotation is not ranked (none, incomplete or expired).
+	Rank OptInt32 `json:"rank"`
+	// The quotation; absent when the supplier has not answered.
+	SupplierQuotationID OptUUID `json:"supplier_quotation_id"`
+	// The supplier's own reference of its quotation; absent when the supplier has not answered.
+	SupplierReference OptString `json:"supplier_reference"`
+	// The last day the quotation is valid; absent when the supplier has not answered.
+	ValidUntil OptDate `json:"valid_until"`
+	// The quotation's lifecycle status; absent when the supplier has not answered. Open enumeration:
+	// clients must accept and preserve values not listed here; values may be added within /v1.
+	QuotationStatus OptString `json:"quotation_status"`
+	// Whether the quotation prices every item of the RFQ; false when the supplier has not answered.
+	Complete bool `json:"complete"`
+	// Whether the quotation's `valid_until` is before the comparison's `as_of`; false when the supplier
+	// has not answered.
+	Expired bool `json:"expired"`
+	// The RFQ items the supplier gives no price for, by item number: empty for a complete quotation, every
+	// item when the supplier has not answered.
+	UnquotedItemNos []int32 `json:"unquoted_item_nos"`
+	// The sum of the quotation's amounts, in the RFQ's currency; absent when the supplier has not
+	// answered.
+	Total OptMoney `json:"total"`
+	// The quotation's prices, by RFQ item number; empty when the supplier has not answered.
+	Prices []RfqComparisonPrice `json:"prices"`
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *RfqComparisonSupplier) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *RfqComparisonSupplier) GetSupplierNumber() string {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *RfqComparisonSupplier) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// GetAnswered returns the value of Answered.
+func (s *RfqComparisonSupplier) GetAnswered() bool {
+	return s.Answered
+}
+
+// GetRank returns the value of Rank.
+func (s *RfqComparisonSupplier) GetRank() OptInt32 {
+	return s.Rank
+}
+
+// GetSupplierQuotationID returns the value of SupplierQuotationID.
+func (s *RfqComparisonSupplier) GetSupplierQuotationID() OptUUID {
+	return s.SupplierQuotationID
+}
+
+// GetSupplierReference returns the value of SupplierReference.
+func (s *RfqComparisonSupplier) GetSupplierReference() OptString {
+	return s.SupplierReference
+}
+
+// GetValidUntil returns the value of ValidUntil.
+func (s *RfqComparisonSupplier) GetValidUntil() OptDate {
+	return s.ValidUntil
+}
+
+// GetQuotationStatus returns the value of QuotationStatus.
+func (s *RfqComparisonSupplier) GetQuotationStatus() OptString {
+	return s.QuotationStatus
+}
+
+// GetComplete returns the value of Complete.
+func (s *RfqComparisonSupplier) GetComplete() bool {
+	return s.Complete
+}
+
+// GetExpired returns the value of Expired.
+func (s *RfqComparisonSupplier) GetExpired() bool {
+	return s.Expired
+}
+
+// GetUnquotedItemNos returns the value of UnquotedItemNos.
+func (s *RfqComparisonSupplier) GetUnquotedItemNos() []int32 {
+	return s.UnquotedItemNos
+}
+
+// GetTotal returns the value of Total.
+func (s *RfqComparisonSupplier) GetTotal() OptMoney {
+	return s.Total
+}
+
+// GetPrices returns the value of Prices.
+func (s *RfqComparisonSupplier) GetPrices() []RfqComparisonPrice {
+	return s.Prices
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *RfqComparisonSupplier) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *RfqComparisonSupplier) SetSupplierNumber(val string) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *RfqComparisonSupplier) SetSupplierName(val string) {
+	s.SupplierName = val
+}
+
+// SetAnswered sets the value of Answered.
+func (s *RfqComparisonSupplier) SetAnswered(val bool) {
+	s.Answered = val
+}
+
+// SetRank sets the value of Rank.
+func (s *RfqComparisonSupplier) SetRank(val OptInt32) {
+	s.Rank = val
+}
+
+// SetSupplierQuotationID sets the value of SupplierQuotationID.
+func (s *RfqComparisonSupplier) SetSupplierQuotationID(val OptUUID) {
+	s.SupplierQuotationID = val
+}
+
+// SetSupplierReference sets the value of SupplierReference.
+func (s *RfqComparisonSupplier) SetSupplierReference(val OptString) {
+	s.SupplierReference = val
+}
+
+// SetValidUntil sets the value of ValidUntil.
+func (s *RfqComparisonSupplier) SetValidUntil(val OptDate) {
+	s.ValidUntil = val
+}
+
+// SetQuotationStatus sets the value of QuotationStatus.
+func (s *RfqComparisonSupplier) SetQuotationStatus(val OptString) {
+	s.QuotationStatus = val
+}
+
+// SetComplete sets the value of Complete.
+func (s *RfqComparisonSupplier) SetComplete(val bool) {
+	s.Complete = val
+}
+
+// SetExpired sets the value of Expired.
+func (s *RfqComparisonSupplier) SetExpired(val bool) {
+	s.Expired = val
+}
+
+// SetUnquotedItemNos sets the value of UnquotedItemNos.
+func (s *RfqComparisonSupplier) SetUnquotedItemNos(val []int32) {
+	s.UnquotedItemNos = val
+}
+
+// SetTotal sets the value of Total.
+func (s *RfqComparisonSupplier) SetTotal(val OptMoney) {
+	s.Total = val
+}
+
+// SetPrices sets the value of Prices.
+func (s *RfqComparisonSupplier) SetPrices(val []RfqComparisonPrice) {
+	s.Prices = val
 }
 
 // Create a draft request for quotation.
@@ -77319,6 +77940,7 @@ func (*ServiceUnavailableHeaders) applyCountryPackRes()                      {}
 func (*ServiceUnavailableHeaders) applyPlanBatchRes()                        {}
 func (*ServiceUnavailableHeaders) approveApprovalRequestRes()                {}
 func (*ServiceUnavailableHeaders) assignProfitCenterRes()                    {}
+func (*ServiceUnavailableHeaders) awardRfqRes()                              {}
 func (*ServiceUnavailableHeaders) blockBusinessPartnerRes()                  {}
 func (*ServiceUnavailableHeaders) blockLegalEntityRes()                      {}
 func (*ServiceUnavailableHeaders) blockOrgUnitRes()                          {}
@@ -80018,8 +80640,9 @@ type SupplierQuotation struct {
 	SupplierReference string `json:"supplier_reference"`
 	// The last day the quotation is valid.
 	ValidUntil time.Time `json:"valid_until"`
-	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
-	// may be added within /v1.
+	// Lifecycle status: `recorded` until the RFQ is awarded, then `awarded` for the quotation that won and
+	// `not_awarded` for the RFQ's others. Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// Whether the quotation prices every item of the RFQ.
 	Complete bool `json:"complete"`
@@ -82364,6 +82987,7 @@ func (*TooManyRequestsHeaders) applyCountryPackRes()                      {}
 func (*TooManyRequestsHeaders) applyPlanBatchRes()                        {}
 func (*TooManyRequestsHeaders) approveApprovalRequestRes()                {}
 func (*TooManyRequestsHeaders) assignProfitCenterRes()                    {}
+func (*TooManyRequestsHeaders) awardRfqRes()                              {}
 func (*TooManyRequestsHeaders) blockBusinessPartnerRes()                  {}
 func (*TooManyRequestsHeaders) blockLegalEntityRes()                      {}
 func (*TooManyRequestsHeaders) blockOrgUnitRes()                          {}
@@ -82556,6 +83180,7 @@ func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
+func (*TooManyRequestsHeaders) getRfqComparisonRes()                      {}
 func (*TooManyRequestsHeaders) getRfqRes()                                {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
@@ -83144,6 +83769,7 @@ func (*UnauthorizedHeaders) applyCountryPackRes()                      {}
 func (*UnauthorizedHeaders) applyPlanBatchRes()                        {}
 func (*UnauthorizedHeaders) approveApprovalRequestRes()                {}
 func (*UnauthorizedHeaders) assignProfitCenterRes()                    {}
+func (*UnauthorizedHeaders) awardRfqRes()                              {}
 func (*UnauthorizedHeaders) blockBusinessPartnerRes()                  {}
 func (*UnauthorizedHeaders) blockLegalEntityRes()                      {}
 func (*UnauthorizedHeaders) blockOrgUnitRes()                          {}
@@ -83336,6 +83962,7 @@ func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
+func (*UnauthorizedHeaders) getRfqComparisonRes()                      {}
 func (*UnauthorizedHeaders) getRfqRes()                                {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}

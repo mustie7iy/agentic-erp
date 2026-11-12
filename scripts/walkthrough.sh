@@ -6671,11 +6671,12 @@ step_credit_limit() {
 # step_rfq is T82a and T82b (ADR-0069 §1-§5, §7): Ben creates a request
 # for quotation for two items, inviting Tyrell and the supplier of SAP's
 # down payment (step 3's DP_SUPPLIER), and publishes it; he then records
-# the quotation each of them sent, the second cheaper in total. The due
-# date is the request's, two weeks after the company's date today. It
-# keeps the RFQ (RFQ).
+# the quotation each of them sent, the second cheaper in total, and reads
+# their comparison (T82c), which ranks the cheaper first and marks the
+# lowest amount of each item. The due date is the request's, two weeks
+# after the company's date today. It keeps the RFQ (RFQ).
 step_rfq() {
-  heading "Step 60 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total"
+  heading "Step 60 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total, and the comparison ranks it first"
   as ben
   local due expense body valid quote line
   due=$(date_add "$(company_day)" 14)
@@ -6732,6 +6733,64 @@ step_rfq() {
     listSupplierQuotations -p "id=$RFQ"
   expect "the RFQ's quotations" "$(field '[.items[] | "\(.supplier_id) \(.total.amount) \(.total.currency)"] | join(", ")')" \
     "$SUPPLIER 29760.00 CAD, $DP_SUPPLIER 28400.00 CAD"
+  say "Ben reads the comparison (ADR-0069 §7, T82c). It is computed on each read, by price alone: the quotations"
+  say "that price every item and are valid on Maple's date today are ranked by total, the lowest first, and the"
+  say "lowest amount quoted for each item is marked. $DP_NAME is first, and has the lowest amount of both items:"
+  api 200 '"RFQ \(.rfq_document_number) of \(.company_code) \(.company_name) compared on \(.as_of): \(.invited_count) invited, \(.answered_count) answered, \(.ranked_count) ranked, amounts in \(.currency)", (.suppliers[] | "  rank \(.rank): \(.supplier_number) \(.supplier_name), \(.supplier_reference), total \(.total.amount) \(.total.currency)", (.prices[] | "    item \(.rfq_item_no): \(.unit_price.amount) per \(.price_unit) = \(.amount.amount) \(.amount.currency)\(if .lowest then "  <- lowest" else "" end)")), (.items[] | "  lowest for item \(.rfq_item_no) \(.material_key): \(.lowest_amount.amount) \(.lowest_amount.currency)")' \
+    getRfqComparison -p "id=$RFQ"
+  expect "the comparison's day and counts" "$(field '"\(.as_of) \(.invited_count) \(.answered_count) \(.ranked_count)"')" "$(company_day) 2 2 2"
+  expect "the ranking, the cheaper supplier first" "$(field '[.suppliers[] | "\(.rank) \(.supplier_id) \(.supplier_name) \(.total.amount) \(.total.currency)"] | join(", ")')" \
+    "1 $DP_SUPPLIER $DP_NAME 28400.00 CAD, 2 $SUPPLIER Tyrell Office Products 29760.00 CAD"
+  expect "the lowest amount of each item" "$(field '[.items[] | "\(.rfq_item_no) \(.lowest_amount.amount) \(.lowest_amount.currency)"] | join(", ")')" \
+    "1 17000.00 CAD, 2 11400.00 CAD"
+  expect "the prices marked as the lowest" "$(field '[.suppliers[] | .supplier_id as $s | .prices[] | select(.lowest) | "\($s) \(.rfq_item_no) \(.amount.amount)"] | join(", ")')" \
+    "$DP_SUPPLIER 1 17000.00, $DP_SUPPLIER 2 11400.00"
+  passed
+}
+
+# step_rfq_award is T82d (ADR-0069 §7): Ben awards the RFQ of step_rfq
+# (RFQ) to the quotation its comparison ranks first, the cheaper one of
+# step 3's DP_SUPPLIER. The award creates a draft contract with that
+# supplier at the quoted prices, valid for a year from the company's date
+# today, which Ben releases as any contract.
+step_rfq_award() {
+  heading "Step 66 — Award: the RFQ is awarded to the cheaper quotation; the draft contract carries its prices and supplier and is released"
+  as ben
+  local today until winner body contract tag
+  today=$(company_day)
+  until=$(date_add "$today" 364)
+  say "Ben decides for the quotation the comparison ranks first, $DP_NAME's. An award goes to one quotation as a"
+  say "whole (ADR-0069 §7): it must price every item and be valid on Maple's date today. A person awards, never an"
+  say "agent; the RFQ is awarded once, at the version Ben read:"
+  QUIET=1 api 200 '' getRfqComparison -p "id=$RFQ"
+  winner=$(field '.suppliers[] | select(.rank == 1) | .supplier_quotation_id')
+  expect "the quotation ranked first is $DP_NAME's" "$(field '.suppliers[] | select(.rank == 1) | .supplier_id')" "$DP_SUPPLIER"
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  tag=$ETAG
+  body="{\"quotation_id\": \"$winner\", \"valid_from\": \"$today\", \"valid_to\": \"$until\"}"
+  say "The contract's validity must be a period:"
+  refused 422 procurement.invalid_validity awardRfq -p "id=$RFQ" -if-match "$tag" -body "${body/$until/$(date_add "$today" -1)}"
+  api 200 '"RFQ \(.document_number): \(.status), version \(.version), awarded to draft contract \(.contract_document_number)"' \
+    awardRfq -p "id=$RFQ" -if-match "$tag" -body "$body"
+  contract=$(field .contract_id) tag=$ETAG
+  expect "the awarded RFQ" "$(field '"\(.status) \(.version) \(.contract_document_number | startswith("CT"))"')" "awarded 3 true"
+  say "A second award finds the RFQ awarded, and no further quotation is recorded for it:"
+  refused 409 procurement.invalid_status awardRfq -p "id=$RFQ" -if-match "$tag" -body "$body"
+  say "The quotations show the outcome: $DP_NAME's is awarded, Tyrell's is not:"
+  api 200 '.items[] | "  \(.supplier_reference) of \(.supplier_number) \(.supplier_name): \(.status), total \(.total.amount) \(.total.currency)"' \
+    listSupplierQuotations -p "id=$RFQ"
+  expect "the quotations' outcomes" "$(field '[.items[] | "\(.supplier_id) \(.status)"] | join(", ")')" "$SUPPLIER not_awarded, $DP_SUPPLIER awarded"
+  say "The award created a draft contract with $DP_NAME: the RFQ's items at the quoted prices, its target value the"
+  say "quotation's total. It names the RFQ it came from:"
+  api 200 '"contract \(.document_number) from RFQ \(.rfq_document_number): \(.status), \(.valid_from) to \(.valid_to), target value \(.target_value.amount) \(.target_value.currency)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.uom_code)")' \
+    getContract -p "id=$contract"
+  expect "the draft contract" "$(field '"\(.status) \(.supplier_id) \(.rfq_id) \(.valid_from) \(.valid_to) \(.target_value.amount) \(.target_value.currency)"')" \
+    "draft $DP_SUPPLIER $RFQ $today $until 28400.00 CAD"
+  expect "the contract's items at the quoted prices" "$(field '[.items[] | "\(.material_key) \(.unit_price.amount)/\(.price_unit) \(.uom_code)"] | join(", ")')" \
+    "CHAIR-ERGO 425.00/1 EA, DESK-ADJ 2850.00/3 EA"
+  say "Ben releases the contract as any other; orders can now be placed against it:"
+  api 200 '"contract \(.document_number): \(.status)"' releaseContract -p "id=$contract" -if-match "$ETAG"
+  expect "the released contract" "$(field '"\(.status) \(.rfq_id)"')" "active $RFQ"
   passed
 }
 
@@ -9236,7 +9295,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_close'
 
 main() {
   stop_unseen

@@ -4280,14 +4280,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Bid comparison agent",
       "r": "split once into a first-version slice, the agent as a leaf for week 3 and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The buyer reads the comparison of an RFQ's quotations: per supplier the total and each item's price, ranked from the lowest total, with the lowest price per item marked (GET /v1/rfqs/{id}/comparison)",
-        "r": "T82c · docs/design/plan-breadth-week2.md §T82c",
+        "r": "T82c · docs/design/plan-breadth-week2.md §T82c · no migration · internal/procurement/rfq_comparison.go, rfq_api.go · ADR-0069 §7 · scripts/walkthrough.sh step_rfq",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4308,14 +4308,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Award to contract",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The buyer awards the RFQ to one quotation: a draft contract with that supplier is created with the quoted prices, and the RFQ and its quotations show the outcome (POST /v1/rfqs/{id}:award)",
-        "r": "T82d · docs/design/plan-breadth-week2.md §T82d",
+        "r": "T82d · docs/design/plan-breadth-week2.md §T82d · migration 000297 · internal/procurement/rfq_award.go, rfq_api.go, contracts.go · ADR-0069 §7 · scripts/walkthrough.sh step_rfq_award",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
