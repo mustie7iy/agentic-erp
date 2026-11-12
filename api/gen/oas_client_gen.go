@@ -247,13 +247,16 @@ type Invoker interface {
 	// draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number
 	// and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422
 	// `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value
-	// the quotation's total; an item's account the legal entity can no longer post to is refused as there
-	// (422 `procurement.account_not_postable`, naming `items[i].account_id`, the RFQ's item). The RFQ
-	// becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation
-	// becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract
-	// is a draft: it is released with `contracts/{id}:release` as any other. No approval is asked for.
-	// Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded, which
-	// names the supplier by id and number, and RfqChanged.
+	// the quotation's total; what the contract's own checks refuse is refused as there, naming the
+	// contract's field: an item's account the legal entity can no longer post to (422
+	// `procurement.account_not_postable`, `items[i].account_id`, the RFQ's item) and a quotation whose
+	// total rounds to zero, since a contract's target value is above zero (422
+	// `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the
+	// contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's
+	// other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with
+	// `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the
+	// company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and
+	// number, and RfqChanged.
 	//
 	// POST /v1/rfqs/{id}:award
 	AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error)
@@ -7867,13 +7870,16 @@ func (c *Client) sendAssignProfitCenter(ctx context.Context, request *ProfitCent
 // draft contract with the quotation's supplier, as `POST /v1/contracts` would with its checks, number
 // and audit record: in the RFQ's currency, valid from `valid_from` to `valid_to` (422
 // `procurement.invalid_validity`), its items the RFQ's items at the quoted prices and its target value
-// the quotation's total; an item's account the legal entity can no longer post to is refused as there
-// (422 `procurement.account_not_postable`, naming `items[i].account_id`, the RFQ's item). The RFQ
-// becomes `awarded` and names the contract (`contract_id`, `contract_document_number`), the quotation
-// becomes `awarded` and the RFQ's other quotations `not_awarded`, all in one transaction. The contract
-// is a draft: it is released with `contracts/{id}:release` as any other. No approval is asked for.
-// Human-only: an award commits the company to a supplier. Audited, and published as RfqAwarded, which
-// names the supplier by id and number, and RfqChanged.
+// the quotation's total; what the contract's own checks refuse is refused as there, naming the
+// contract's field: an item's account the legal entity can no longer post to (422
+// `procurement.account_not_postable`, `items[i].account_id`, the RFQ's item) and a quotation whose
+// total rounds to zero, since a contract's target value is above zero (422
+// `procurement.invalid_amount`, `target_value.amount`). The RFQ becomes `awarded` and names the
+// contract (`contract_id`, `contract_document_number`), the quotation becomes `awarded` and the RFQ's
+// other quotations `not_awarded`, all in one transaction. The contract is a draft: it is released with
+// `contracts/{id}:release` as any other. No approval is asked for. Human-only: an award commits the
+// company to a supplier. Audited, and published as RfqAwarded, which names the supplier by id and
+// number, and RfqChanged.
 //
 // POST /v1/rfqs/{id}:award
 func (c *Client) AwardRfq(ctx context.Context, request *RfqAward, params AwardRfqParams) (AwardRfqRes, error) {

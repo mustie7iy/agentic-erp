@@ -80,8 +80,8 @@ func (row Compared) contractOf(r RFQ, in Award) NewContract {
 // and returns the row of the quotation the award names, which must be
 // able to win and whose supplier must still be one an order could be
 // placed with, refused by quotation_id; with it the supplier's number
-// and the RFQ's other quotations, in the order their suppliers were
-// invited.
+// and the RFQ's other quotations, in the comparison's order (the ranked
+// by total, then the rest, each as their suppliers were invited).
 func (e *Endpoints) awardable(ctx context.Context, tx pgx.Tx, r RFQ, quotation uuid.UUID) (win Compared, others []uuid.UUID, err error) {
 	today, zone, err := e.todayOf(ctx, r.LegalEntityID)
 	if err != nil {

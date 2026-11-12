@@ -38,6 +38,26 @@ func (e env) quoted(t *testing.T) (path, tyrells, cabots string) {
 	return path, id(a), id(b)
 }
 
+// listed are the values of the field in a page's items, in their order.
+func listed(t *testing.T, page map[string]any, field string) string {
+	t.Helper()
+	var out []string
+	for _, it := range apitest.List(t, page, "items") {
+		out = append(out, fmt.Sprint(it.(map[string]any)[field]))
+	}
+	return strings.Join(out, ", ")
+}
+
+// errorFields are the fields a problem's field errors name, in their order.
+func errorFields(p map[string]any) string {
+	var out []string
+	errs, _ := p["errors"].([]any) // absent: no field errors
+	for _, e := range errs {
+		out = append(out, fmt.Sprint(e.(map[string]any)["field"]))
+	}
+	return strings.Join(out, ", ")
+}
+
 // outcomes are an RFQ's quotations as "reference status version", as
 // recorded.
 func (e env) outcomes(t *testing.T, path string) string {
@@ -107,9 +127,13 @@ func TestAwardRFQ(t *testing.T) {
 			t.Errorf("quotations: got %s, want %s", got, want)
 		}
 		c, _ := e.in(t).Must(200, "GET", path+"/comparison", "", "")
-		rows := comparedRows(t, c)
-		if len(rows) != 2 || !strings.HasPrefix(rows[0], "BP90000002 rank 1 ANG-9 not_awarded") || !strings.HasPrefix(rows[1], "BP90000001 rank 2 Q-457 awarded") {
-			t.Errorf("comparison after the award: got %v, want ANG-9 not_awarded first, then Q-457 awarded", rows)
+		var rows []string
+		for _, s := range apitest.List(t, c, "suppliers") {
+			m := s.(map[string]any)
+			rows = append(rows, fmt.Sprintf("%v %v %v", m["rank"], m["supplier_reference"], m["quotation_status"]))
+		}
+		if got, want := strings.Join(rows, ", "), "1 ANG-9 not_awarded, 2 Q-457 awarded"; got != want {
+			t.Errorf("comparison after the award: got %s, want %s", got, want)
 		}
 	})
 	t.Run("events and audit", func(t *testing.T) {
@@ -118,12 +142,13 @@ func TestAwardRFQ(t *testing.T) {
 			"supplier_quotation_id": tyrells, "supplier_id": e.Supplier.String(), "supplier_number": "BP90000001", "supplier_reference": "Q-457",
 			"contract_id": r["contract_id"], "contract_document_number": "CT100000", "valid_from": "2026-07-01", "valid_to": "2027-06-30",
 			"total": map[string]any{"amount": "20666.67", "currency": "EUR"}}
-		if len(awarded) != 1 || !reflect.DeepEqual(awarded[0], want) {
+		if !reflect.DeepEqual(awarded, []map[string]any{want}) {
 			t.Errorf("rfq_awarded events: got %v, want one, %v (the supplier by id and number, no name)", awarded, want)
 		}
 		changes := events(t, e, "rfq_changed")
-		if last := changes[len(changes)-1]; last["change"] != "awarded" || last["status"] != "awarded" {
-			t.Errorf("last rfq_changed event: got %v, want the award", last)
+		last := changes[len(changes)-1]
+		if got := fmt.Sprintf("%v %v", last["change"], last["status"]); got != "awarded awarded" {
+			t.Errorf("last rfq_changed event's change and status: got %s, want awarded awarded", got)
 		}
 		if n := len(events(t, e, "rfq_published")); n != 1 {
 			t.Errorf("rfq_published events: got %d, want 1 (the award publishes none)", n)
@@ -142,18 +167,21 @@ func TestAwardRFQ(t *testing.T) {
 		e.in(t).Problem(409, "procurement.invalid_status", "POST", path+":award", awardBody(tyrells), awardedTag)
 		e.in(t).Problem(409, "procurement.invalid_status", "POST", path+"/quotations", quotationBody(e.Vendor, "ANG-10", price(1, "1.00", "EUR", "")), "")
 		list, _ := e.in(t).Must(200, "GET", "/v1/rfqs?status=awarded", "", "")
-		if got := apitest.List(t, list, "items"); len(got) != 1 || got[0].(map[string]any)["contract_id"] != r["contract_id"] {
-			t.Errorf("awarded RFQs: got %v, want the one with its contract", got)
+		if got, want := listed(t, list, "contract_id"), fmt.Sprint(r["contract_id"]); got != want {
+			t.Errorf("the contracts of the awarded RFQs: got %s, want %s", got, want)
 		}
 	})
 	t.Run("the contract is released as any other", func(t *testing.T) {
 		c := e.in(t).act(t, contract, "release", "")
-		if c["status"] != "active" || c["rfq_id"] != id(r) {
-			t.Errorf("released contract: got status %v of RFQ %v, want active of %s", c["status"], c["rfq_id"], id(r))
+		if c["status"] != "active" {
+			t.Errorf("released contract's status: got %v, want active", c["status"])
+		}
+		if c["rfq_id"] != id(r) {
+			t.Errorf("released contract's rfq_id: got %v, want %s", c["rfq_id"], id(r))
 		}
 		list, _ := e.in(t).Must(200, "GET", "/v1/contracts?supplier_id="+e.Supplier.String(), "", "")
-		if got := apitest.List(t, list, "items"); len(got) != 1 || got[0].(map[string]any)["rfq_document_number"] != "RQ100000" {
-			t.Errorf("the supplier's contracts: got %v, want the one of RFQ RQ100000", got)
+		if got := listed(t, list, "rfq_document_number"); got != "RQ100000" {
+			t.Errorf("the RFQs of the supplier's contracts: got %s, want RQ100000", got)
 		}
 	})
 }
@@ -187,23 +215,23 @@ func TestAwardRFQRefusals(t *testing.T) {
 			if c.field == "" {
 				return
 			}
-			errs, _ := p["errors"].([]any)
-			if len(errs) != 1 || errs[0].(map[string]any)["field"] != c.field {
-				t.Errorf("field errors: got %v, want one on %s", p["errors"], c.field)
+			if got := errorFields(p); got != c.field {
+				t.Errorf("field errors: got %s, want one on %s", got, c.field)
 			}
 		})
 	}
 	t.Run("the expired quotation's refusal names the day", func(t *testing.T) {
 		p := e.in(t).Problem(422, "procurement.quotation_expired", "POST", other+":award", awardBody(id(late)), "*")
-		if detail := fmt.Sprint(p["detail"]); !strings.Contains(detail, "2026-06-14") || !strings.Contains(detail, "2026-06-15 in UTC") {
-			t.Errorf("detail: got %q, want the quotation's last day and 2026-06-15 in UTC", detail)
+		want := "The quotation has expired: the quotation was valid until 2026-06-14, before the legal entity's date today, 2026-06-15 in UTC."
+		if p["detail"] != want {
+			t.Errorf("detail: got %q, want %q", p["detail"], want)
 		}
 	})
 	t.Run("a supplier blocked since", func(t *testing.T) {
 		pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'blocked', version = version + 1 WHERE id = $1`, e.Supplier)
 		p := e.in(t).Problem(422, "procurement.supplier_not_usable", "POST", path+":award", awardBody(tyrells), "*")
-		if errs, _ := p["errors"].([]any); len(errs) != 1 || errs[0].(map[string]any)["field"] != "quotation_id" {
-			t.Errorf("field errors: got %v, want one on quotation_id", p["errors"])
+		if got := errorFields(p); got != "quotation_id" {
+			t.Errorf("field errors: got %s, want one on quotation_id", got)
 		}
 		pgtest.Exec(t, `UPDATE partner.business_partner SET status = 'active', version = version + 1 WHERE id = $1`, e.Supplier)
 	})
@@ -245,8 +273,8 @@ func TestAwardRFQReplayed(t *testing.T) {
 	req := apitest.Req{Method: http.MethodPost, Path: path + ":award", Body: fmt.Sprintf(`{"quotation_id": %q, "valid_from": "2999-01-01", "valid_to": "2999-12-31"}`, id(q)),
 		Tenant: e.Tenant.ID, As: e.Tenant.Human, Key: apitest.NewKey(), IfMatch: "*"}
 	first, again := e.API.Do(req), e.API.Do(req)
-	if first.Code != 200 || again.Code != 200 {
-		t.Fatalf("statuses: got %d and %d, want 200 twice", first.Code, again.Code)
+	if got := fmt.Sprintf("%d %d", first.Code, again.Code); got != "200 200" {
+		t.Fatalf("statuses: got %s, want 200 200", got)
 	}
 	if again.Header().Get("Idempotent-Replayed") != "true" {
 		t.Errorf("Idempotent-Replayed: got %q, want true", again.Header().Get("Idempotent-Replayed"))
@@ -255,8 +283,8 @@ func TestAwardRFQReplayed(t *testing.T) {
 		t.Errorf("replayed body: got %v, want %v", got, want)
 	}
 	list, _ := e.Must(200, "GET", "/v1/contracts", "", "")
-	if got := apitest.List(t, list, "items"); len(got) != 1 || got[0].(map[string]any)["id"] != apitest.JSON(t, first)["contract_id"] {
-		t.Errorf("contracts: got %v, want the award's alone", got)
+	if got, want := listed(t, list, "id"), fmt.Sprint(apitest.JSON(t, first)["contract_id"]); got != want {
+		t.Errorf("contracts: got %s, want the award's alone, %s", got, want)
 	}
 }
 

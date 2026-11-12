@@ -214,7 +214,8 @@ func TestRFQComparisonTimeZone(t *testing.T) {
 // TestRFQComparisonOutOfRange: a quotation whose amounts are out of an
 // amount's range, which recording refuses and only a row written past the
 // API can hold, fails the comparison rather than being ranked at a wrong
-// total: an item's amount, and the sum of two amounts each in range.
+// total: an item's amount, and the sum of two amounts each in range. An
+// award, which compares the same quotations, fails the same way.
 func TestRFQComparisonOutOfRange(t *testing.T) {
 	for name, prices := range map[string][]int64{
 		"an item's amount": {9_000_000_000_000_000_00},
@@ -231,6 +232,7 @@ func TestRFQComparisonOutOfRange(t *testing.T) {
 					VALUES ($1, $2, $3, $4, $5)`, e.Tenant.ID, quotation, rfq, i+1, p)
 			}
 			e.Problem(500, "platform.internal", "GET", "/v1/rfqs/"+rfq+"/comparison", "", "")
+			e.Problem(500, "platform.internal", "POST", "/v1/rfqs/"+rfq+":award", awardBody(quotation.String()), "*")
 		})
 	}
 }
