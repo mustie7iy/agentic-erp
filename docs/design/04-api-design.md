@@ -308,6 +308,29 @@ number, currency and kind, each with its account's number, name and type,
 and carries the whole run's totals on every page, whatever `account_id`
 filters.
 
+Requests for quotation (ADR-0069, T82a) are the procurement context's.
+`POST /v1/rfqs` (`procurement.rfq.manage`) creates a draft RFQ of a
+company: the currency quotations are given in, the date they are due (422
+`procurement.rfq_due_date_past` for a date before the company's date today
+in its time zone, which the refusal names), items with a quantity and no
+price, each material key once, and the suppliers invited, each once (422
+`procurement.rfq_supplier_repeated`) and each one an order could be placed
+with (422 `procurement.supplier_not_usable`, naming `supplier_ids[i]`).
+`POST /v1/rfqs/{id}:publish` (`If-Match`) publishes it once, checked
+again (409 `procurement.invalid_status` for one already published).
+`GET /v1/rfqs` (`procurement.rfq.read`) lists the RFQs of the companies
+the caller may act in, filtered by `legal_entity_id`, `supplier_id` (the
+RFQs a supplier is invited to), `status` and `document_number`, each with
+its company's code and name, its items with their accounts' numbers and
+names, and its suppliers by id, number and name. `POST
+/v1/rfqs/{id}/quotations` (`procurement.rfq.manage`, T82b) records an
+invited supplier's quotation for a published RFQ: a price per RFQ item in
+the RFQ's currency, the supplier's reference and the last day it is
+valid; a supplier has one (409 `procurement.quotation_exists`), and it may
+leave items out. `GET /v1/rfqs/{id}/quotations` (`procurement.rfq.read`)
+lists them, each with its supplier by id, number and name, its prices
+beside the RFQ items, its total, `complete` and `unquoted_item_nos`.
+
 Internal orders (ADR-0064 §1, T60a) are the controlling context's.
 `POST /v1/internal-orders` (`controlling.order.write`, `x-agent: false`)
 creates an order of a company in status `created`: its code is unique in
@@ -904,7 +927,7 @@ with the month's total against the tenant's cap.
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
-| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
+| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts`, `rfqs` (requests for quotation, ADR-0069, with `{id}/quotations`, the suppliers' quotations recorded by the buyer) | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse`, `:publish` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, kind, the invoice a credit memo names, status, document number and invoice date, ADR-0063 §2-§4, T75a; credit memos are the same resource with `kind` `credit_memo` and `reference_invoice_id`, §7, T75d); `incoming-payments` (a receipt from a house bank's incoming payments clearing account applied to a customer's open items in full and exactly, written once; filtered by company, customer, document number and posting date) and `unapplied-receipts` (a company's receipts not yet applied, read-only), ADR-0063 §6, T75c; `receivables-aging` (a company's customer open items on a key date per customer and in total, not yet due and in buckets of days overdue, computed on read, read-only; cursor pages of customers), ADR-0063 §10, T75e | `customer-invoices/{id}:post` (T75b) |
 | collections | `collection-worklist` (a company's customers with overdue items on a key date, the largest overdue amount first, with its totals; computed on read, `x-slo-class: report`, `x-snapshot: true`; ADR-0065 §9, T76c), `dunning-runs` (started for a company at a key date, `proposed` with their totals; the companies the caller may act in, filtered by company, status and key date, the latest first) and their `notices` (one per customer with its overdue items and the level each would reach, by customer number, filtered by customer and level; ADR-0065 §3-§4, T76a) | `:confirm` (a proposed run, once; a stale proposal is refused 409, ADR-0065 §8, T76b) |

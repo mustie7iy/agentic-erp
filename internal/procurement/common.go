@@ -11,6 +11,7 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/clock"
 	"github.com/mustie7iy/agentic-erp/internal/platform/currency"
@@ -183,18 +184,25 @@ func (e *Endpoints) legalEntity(ctx context.Context, id uuid.UUID) (tenancy.Enti
 
 // supplier requires a supplier that can be ordered from in the legal entity.
 func (e *Endpoints) supplier(ctx context.Context, id, le uuid.UUID) error {
+	_, err := e.supplierAt(ctx, id, le, "supplier_id")
+	return err
+}
+
+// supplierAt is supplier's check for a supplier the request names in
+// field (an RFQ's supplier_ids[i]), returning the supplier it found.
+func (e *Endpoints) supplierAt(ctx context.Context, id, le uuid.UUID, field string) (partner.Supplier, error) {
 	s, ok, err := e.Suppliers.Supplier(ctx, id, le)
 	if err != nil {
-		return err
+		return partner.Supplier{}, err
 	}
 	why := "there is no business partner with this id"
 	if ok {
 		why = s.Usable()
 	}
 	if why != "" {
-		return invalid("procurement.supplier_not_usable", "supplier_id", why)
+		return partner.Supplier{}, invalid("procurement.supplier_not_usable", field, why)
 	}
-	return nil
+	return s, nil
 }
 
 // orgUnit requires an org unit of the kind in the legal entity.

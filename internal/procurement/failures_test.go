@@ -28,7 +28,7 @@ import (
 // endpoints are wired as the API wires them.
 func endpoints() *procurement.Endpoints {
 	pages, _ := pagination.NewCodec([]byte(strings.Repeat("p", 32)))
-	return &procurement.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Accounts: ledger.Accounts{},
+	return &procurement.Endpoints{Pages: pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Partners: partner.Payees{}, AccountNames: ledger.AssetReads{}, Accounts: ledger.Accounts{},
 		Numbers: configuration.Numbers{}, Calendar: ledger.Calendar{LegalEntities: tenancy.Directory{}}, Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{},
 		Approvals: fixture.Approvals(), Invoices: payables.Invoices{}, Postings: ledger.Postings{LegalEntities: tenancy.Directory{}, Partners: partner.Postings{}, Numbers: configuration.Numbers{},
 			Settings: configuration.Settings{}}}

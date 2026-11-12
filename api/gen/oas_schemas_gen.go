@@ -22990,11 +22990,13 @@ func (*ConflictHeaders) createPurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
+func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSegmentRes()                         {}
 func (*ConflictHeaders) createSodRuleRes()                         {}
 func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
+func (*ConflictHeaders) createSupplierQuotationRes()               {}
 func (*ConflictHeaders) createUploadRes()                          {}
 func (*ConflictHeaders) createVarianceCommentRes()                 {}
 func (*ConflictHeaders) createWebhookSubscriptionRes()             {}
@@ -23076,6 +23078,7 @@ func (*ConflictHeaders) proposeForecastVarianceCommentRes()        {}
 func (*ConflictHeaders) proposeMemoRecordRes()                     {}
 func (*ConflictHeaders) proposePaymentRunRes()                     {}
 func (*ConflictHeaders) proposeVarianceCommentRes()                {}
+func (*ConflictHeaders) publishRfqRes()                            {}
 func (*ConflictHeaders) realiseMemoRecordRes()                     {}
 func (*ConflictHeaders) reconcileMigrationRunRes()                 {}
 func (*ConflictHeaders) recordAgentToolCallRes()                   {}
@@ -28918,6 +28921,22 @@ type CreateRequisitionUnprocessableEntity Problem
 
 func (*CreateRequisitionUnprocessableEntity) createRequisitionRes() {}
 
+type CreateRfqBadRequest Problem
+
+func (*CreateRfqBadRequest) createRfqRes() {}
+
+type CreateRfqForbidden Problem
+
+func (*CreateRfqForbidden) createRfqRes() {}
+
+type CreateRfqPreconditionRequired Problem
+
+func (*CreateRfqPreconditionRequired) createRfqRes() {}
+
+type CreateRfqUnprocessableEntity Problem
+
+func (*CreateRfqUnprocessableEntity) createRfqRes() {}
+
 type CreateRoleAssignmentBadRequest Problem
 
 func (*CreateRoleAssignmentBadRequest) createRoleAssignmentRes() {}
@@ -28997,6 +29016,26 @@ func (*CreateSupplierInvoicePreconditionRequired) createSupplierInvoiceRes() {}
 type CreateSupplierInvoiceUnprocessableEntity Problem
 
 func (*CreateSupplierInvoiceUnprocessableEntity) createSupplierInvoiceRes() {}
+
+type CreateSupplierQuotationBadRequest Problem
+
+func (*CreateSupplierQuotationBadRequest) createSupplierQuotationRes() {}
+
+type CreateSupplierQuotationForbidden Problem
+
+func (*CreateSupplierQuotationForbidden) createSupplierQuotationRes() {}
+
+type CreateSupplierQuotationNotFound Problem
+
+func (*CreateSupplierQuotationNotFound) createSupplierQuotationRes() {}
+
+type CreateSupplierQuotationPreconditionRequired Problem
+
+func (*CreateSupplierQuotationPreconditionRequired) createSupplierQuotationRes() {}
+
+type CreateSupplierQuotationUnprocessableEntity Problem
+
+func (*CreateSupplierQuotationUnprocessableEntity) createSupplierQuotationRes() {}
 
 type CreateUploadBadRequest Problem
 
@@ -39166,6 +39205,46 @@ func (s *GetRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
 }
 
 func (*GetRevaluationRunOKHeaders) getRevaluationRunRes() {}
+
+type GetRfqBadRequest Problem
+
+func (*GetRfqBadRequest) getRfqRes() {}
+
+type GetRfqForbidden Problem
+
+func (*GetRfqForbidden) getRfqRes() {}
+
+type GetRfqNotFound Problem
+
+func (*GetRfqNotFound) getRfqRes() {}
+
+// GetRfqOKHeaders wraps Rfq with response headers.
+type GetRfqOKHeaders struct {
+	ETag     OptString
+	Response Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *GetRfqOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetRfqOKHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetRfqOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetRfqOKHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*GetRfqOKHeaders) getRfqRes() {}
 
 type GetRoleAssignmentBadRequest Problem
 
@@ -49772,6 +49851,14 @@ type ListRevaluationRunsForbidden Problem
 
 func (*ListRevaluationRunsForbidden) listRevaluationRunsRes() {}
 
+type ListRfqsBadRequest Problem
+
+func (*ListRfqsBadRequest) listRfqsRes() {}
+
+type ListRfqsForbidden Problem
+
+func (*ListRfqsForbidden) listRfqsRes() {}
+
 type ListRoleAssignmentsBadRequest Problem
 
 func (*ListRoleAssignmentsBadRequest) listRoleAssignmentsRes() {}
@@ -49823,6 +49910,18 @@ func (*ListSupplierInvoicesBadRequest) listSupplierInvoicesRes() {}
 type ListSupplierInvoicesForbidden Problem
 
 func (*ListSupplierInvoicesForbidden) listSupplierInvoicesRes() {}
+
+type ListSupplierQuotationsBadRequest Problem
+
+func (*ListSupplierQuotationsBadRequest) listSupplierQuotationsRes() {}
+
+type ListSupplierQuotationsForbidden Problem
+
+func (*ListSupplierQuotationsForbidden) listSupplierQuotationsRes() {}
+
+type ListSupplierQuotationsNotFound Problem
+
+func (*ListSupplierQuotationsNotFound) listSupplierQuotationsRes() {}
 
 type ListTaxPeriodsBadRequest Problem
 
@@ -66308,6 +66407,69 @@ type ProposeVarianceCommentUnprocessableEntity Problem
 
 func (*ProposeVarianceCommentUnprocessableEntity) proposeVarianceCommentRes() {}
 
+type PublishRfqBadRequest Problem
+
+func (*PublishRfqBadRequest) publishRfqRes() {}
+
+type PublishRfqForbidden Problem
+
+func (*PublishRfqForbidden) publishRfqRes() {}
+
+type PublishRfqNotFound Problem
+
+func (*PublishRfqNotFound) publishRfqRes() {}
+
+// PublishRfqOKHeaders wraps Rfq with response headers.
+type PublishRfqOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *PublishRfqOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PublishRfqOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PublishRfqOKHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PublishRfqOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PublishRfqOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PublishRfqOKHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*PublishRfqOKHeaders) publishRfqRes() {}
+
+type PublishRfqPreconditionFailed Problem
+
+func (*PublishRfqPreconditionFailed) publishRfqRes() {}
+
+type PublishRfqPreconditionRequired Problem
+
+func (*PublishRfqPreconditionRequired) publishRfqRes() {}
+
+type PublishRfqUnprocessableEntity Problem
+
+func (*PublishRfqUnprocessableEntity) publishRfqRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/PurchaseOrder
 type PurchaseOrder struct {
@@ -71354,6 +71516,548 @@ type ReverseSupplierInvoiceUnprocessableEntity Problem
 func (*ReverseSupplierInvoiceUnprocessableEntity) reverseSupplierInvoiceRes() {}
 
 // Merged schema.
+// Ref: #/components/schemas/Rfq
+type Rfq struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Document number.
+	DocumentNumber string `json:"document_number"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The legal entity's company code.
+	CompanyCode string `json:"company_code"`
+	// The legal entity's name.
+	CompanyName string `json:"company_name"`
+	// The currency quotations are given in.
+	Currency string `json:"currency"`
+	// The date quotations are due.
+	DueDate time.Time `json:"due_date"`
+	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// The items asked for, by item number.
+	Items []RfqItem `json:"items"`
+	// The suppliers invited, in the order they were named.
+	Suppliers []RfqSupplier `json:"suppliers"`
+}
+
+// GetID returns the value of ID.
+func (s *Rfq) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Rfq) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Rfq) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Rfq) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Rfq) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Rfq) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *Rfq) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *Rfq) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *Rfq) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *Rfq) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCurrency returns the value of Currency.
+func (s *Rfq) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *Rfq) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetStatus returns the value of Status.
+func (s *Rfq) GetStatus() string {
+	return s.Status
+}
+
+// GetItems returns the value of Items.
+func (s *Rfq) GetItems() []RfqItem {
+	return s.Items
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *Rfq) GetSuppliers() []RfqSupplier {
+	return s.Suppliers
+}
+
+// SetID sets the value of ID.
+func (s *Rfq) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Rfq) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Rfq) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Rfq) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Rfq) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Rfq) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *Rfq) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *Rfq) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *Rfq) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *Rfq) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *Rfq) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *Rfq) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Rfq) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetItems sets the value of Items.
+func (s *Rfq) SetItems(val []RfqItem) {
+	s.Items = val
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *Rfq) SetSuppliers(val []RfqSupplier) {
+	s.Suppliers = val
+}
+
+// Create a draft request for quotation.
+// Ref: #/components/schemas/RfqCreate
+type RfqCreate struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The currency quotations are given in.
+	Currency string `json:"currency"`
+	// The date quotations are due; not before the legal entity's date today.
+	DueDate time.Time `json:"due_date"`
+	// The items asked for.
+	Items []RfqItemInput `json:"items"`
+	// The suppliers invited (business partner ids), each once.
+	SupplierIds []uuid.UUID `json:"supplier_ids"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RfqCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RfqCreate) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *RfqCreate) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetItems returns the value of Items.
+func (s *RfqCreate) GetItems() []RfqItemInput {
+	return s.Items
+}
+
+// GetSupplierIds returns the value of SupplierIds.
+func (s *RfqCreate) GetSupplierIds() []uuid.UUID {
+	return s.SupplierIds
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RfqCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RfqCreate) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *RfqCreate) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *RfqCreate) SetItems(val []RfqItemInput) {
+	s.Items = val
+}
+
+// SetSupplierIds sets the value of SupplierIds.
+func (s *RfqCreate) SetSupplierIds(val []uuid.UUID) {
+	s.SupplierIds = val
+}
+
+// RfqHeaders wraps Rfq with response headers.
+type RfqHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *RfqHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RfqHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RfqHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *RfqHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RfqHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RfqHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RfqHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RfqHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*RfqHeaders) createRfqRes() {}
+
+// An item of a request for quotation: what is asked for, without a price.
+// Ref: #/components/schemas/RfqItem
+type RfqItem struct {
+	// Item number; assigned by the server when omitted.
+	ItemNo OptInt32 `json:"item_no"`
+	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
+	// contract's item name it by.
+	MaterialKey string `json:"material_key"`
+	// Description.
+	Description string `json:"description"`
+	// The quantity asked for and its unit of measure; positive.
+	Quantity Quantity `json:"quantity"`
+	// General ledger account the item is bought on.
+	AccountID uuid.UUID `json:"account_id"`
+	// The account's number.
+	AccountNumber string `json:"account_number"`
+	// The account's name.
+	AccountName string `json:"account_name"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *RfqItem) GetItemNo() OptInt32 {
+	return s.ItemNo
+}
+
+// GetMaterialKey returns the value of MaterialKey.
+func (s *RfqItem) GetMaterialKey() string {
+	return s.MaterialKey
+}
+
+// GetDescription returns the value of Description.
+func (s *RfqItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *RfqItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RfqItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *RfqItem) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *RfqItem) GetAccountName() string {
+	return s.AccountName
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *RfqItem) SetItemNo(val OptInt32) {
+	s.ItemNo = val
+}
+
+// SetMaterialKey sets the value of MaterialKey.
+func (s *RfqItem) SetMaterialKey(val string) {
+	s.MaterialKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RfqItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *RfqItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RfqItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *RfqItem) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *RfqItem) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// An item of a request for quotation as it is created: what is asked for, without a price.
+// Ref: #/components/schemas/RfqItemInput
+type RfqItemInput struct {
+	// Item number; assigned by the server when omitted.
+	ItemNo OptInt32 `json:"item_no"`
+	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
+	// contract's item name it by.
+	MaterialKey string `json:"material_key"`
+	// Description.
+	Description string `json:"description"`
+	// The quantity asked for and its unit of measure; positive.
+	Quantity Quantity `json:"quantity"`
+	// General ledger account the item is bought on.
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *RfqItemInput) GetItemNo() OptInt32 {
+	return s.ItemNo
+}
+
+// GetMaterialKey returns the value of MaterialKey.
+func (s *RfqItemInput) GetMaterialKey() string {
+	return s.MaterialKey
+}
+
+// GetDescription returns the value of Description.
+func (s *RfqItemInput) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *RfqItemInput) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RfqItemInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *RfqItemInput) SetItemNo(val OptInt32) {
+	s.ItemNo = val
+}
+
+// SetMaterialKey sets the value of MaterialKey.
+func (s *RfqItemInput) SetMaterialKey(val string) {
+	s.MaterialKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RfqItemInput) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *RfqItemInput) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RfqItemInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// One page of requests for quotation.
+// Ref: #/components/schemas/RfqPage
+type RfqPage struct {
+	// The RFQs on this page.
+	Items []Rfq `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *RfqPage) GetItems() []Rfq {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RfqPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *RfqPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *RfqPage) SetItems(val []Rfq) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RfqPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *RfqPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*RfqPage) listRfqsRes() {}
+
+// A supplier invited to quote.
+// Ref: #/components/schemas/RfqSupplier
+type RfqSupplier struct {
+	// The supplier (business partner id).
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The business partner's number.
+	SupplierNumber string `json:"supplier_number"`
+	// The business partner's name.
+	SupplierName string `json:"supplier_name"`
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *RfqSupplier) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *RfqSupplier) GetSupplierNumber() string {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *RfqSupplier) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *RfqSupplier) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *RfqSupplier) SetSupplierNumber(val string) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *RfqSupplier) SetSupplierName(val string) {
+	s.SupplierName = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/Role
 type Role struct {
 	// Identifier (UUIDv7).
@@ -72622,11 +73326,13 @@ func (*ServiceUnavailableHeaders) createPurchaseOrderRes()                   {}
 func (*ServiceUnavailableHeaders) createRecommendationRes()                  {}
 func (*ServiceUnavailableHeaders) createRegressionSuiteRes()                 {}
 func (*ServiceUnavailableHeaders) createRequisitionRes()                     {}
+func (*ServiceUnavailableHeaders) createRfqRes()                             {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()                  {}
 func (*ServiceUnavailableHeaders) createRoleRes()                            {}
 func (*ServiceUnavailableHeaders) createSegmentRes()                         {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                         {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()                 {}
+func (*ServiceUnavailableHeaders) createSupplierQuotationRes()               {}
 func (*ServiceUnavailableHeaders) createUploadRes()                          {}
 func (*ServiceUnavailableHeaders) createVarianceCommentRes()                 {}
 func (*ServiceUnavailableHeaders) createWebhookSubscriptionRes()             {}
@@ -72678,6 +73384,7 @@ func (*ServiceUnavailableHeaders) proposeForecastVarianceCommentRes()        {}
 func (*ServiceUnavailableHeaders) proposeMemoRecordRes()                     {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                     {}
 func (*ServiceUnavailableHeaders) proposeVarianceCommentRes()                {}
+func (*ServiceUnavailableHeaders) publishRfqRes()                            {}
 func (*ServiceUnavailableHeaders) realiseMemoRecordRes()                     {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()                 {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()                   {}
@@ -75228,6 +75935,506 @@ func (s *SupplierInvoiceUpdate) SetExtensions(val OptExtensions) {
 	s.Extensions = val
 }
 
+// Merged schema.
+// Ref: #/components/schemas/SupplierQuotation
+type SupplierQuotation struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The RFQ quoted for.
+	RfqID uuid.UUID `json:"rfq_id"`
+	// The RFQ's document number.
+	RfqDocumentNumber string `json:"rfq_document_number"`
+	// The supplier (business partner id).
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The business partner's number.
+	SupplierNumber string `json:"supplier_number"`
+	// The business partner's name.
+	SupplierName string `json:"supplier_name"`
+	// The supplier's own reference of its quotation.
+	SupplierReference string `json:"supplier_reference"`
+	// The last day the quotation is valid.
+	ValidUntil time.Time `json:"valid_until"`
+	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// Whether the quotation prices every item of the RFQ.
+	Complete bool `json:"complete"`
+	// The RFQ items the quotation leaves out, by item number; empty when it is complete.
+	UnquotedItemNos []int32 `json:"unquoted_item_nos"`
+	// The sum of the items' amounts, in the RFQ's currency.
+	Total Money `json:"total"`
+	// The quoted prices, by RFQ item number.
+	Items []SupplierQuotationItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *SupplierQuotation) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *SupplierQuotation) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SupplierQuotation) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *SupplierQuotation) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SupplierQuotation) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *SupplierQuotation) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetRfqID returns the value of RfqID.
+func (s *SupplierQuotation) GetRfqID() uuid.UUID {
+	return s.RfqID
+}
+
+// GetRfqDocumentNumber returns the value of RfqDocumentNumber.
+func (s *SupplierQuotation) GetRfqDocumentNumber() string {
+	return s.RfqDocumentNumber
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *SupplierQuotation) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *SupplierQuotation) GetSupplierNumber() string {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *SupplierQuotation) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// GetSupplierReference returns the value of SupplierReference.
+func (s *SupplierQuotation) GetSupplierReference() string {
+	return s.SupplierReference
+}
+
+// GetValidUntil returns the value of ValidUntil.
+func (s *SupplierQuotation) GetValidUntil() time.Time {
+	return s.ValidUntil
+}
+
+// GetStatus returns the value of Status.
+func (s *SupplierQuotation) GetStatus() string {
+	return s.Status
+}
+
+// GetComplete returns the value of Complete.
+func (s *SupplierQuotation) GetComplete() bool {
+	return s.Complete
+}
+
+// GetUnquotedItemNos returns the value of UnquotedItemNos.
+func (s *SupplierQuotation) GetUnquotedItemNos() []int32 {
+	return s.UnquotedItemNos
+}
+
+// GetTotal returns the value of Total.
+func (s *SupplierQuotation) GetTotal() Money {
+	return s.Total
+}
+
+// GetItems returns the value of Items.
+func (s *SupplierQuotation) GetItems() []SupplierQuotationItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *SupplierQuotation) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *SupplierQuotation) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SupplierQuotation) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *SupplierQuotation) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SupplierQuotation) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *SupplierQuotation) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetRfqID sets the value of RfqID.
+func (s *SupplierQuotation) SetRfqID(val uuid.UUID) {
+	s.RfqID = val
+}
+
+// SetRfqDocumentNumber sets the value of RfqDocumentNumber.
+func (s *SupplierQuotation) SetRfqDocumentNumber(val string) {
+	s.RfqDocumentNumber = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *SupplierQuotation) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *SupplierQuotation) SetSupplierNumber(val string) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *SupplierQuotation) SetSupplierName(val string) {
+	s.SupplierName = val
+}
+
+// SetSupplierReference sets the value of SupplierReference.
+func (s *SupplierQuotation) SetSupplierReference(val string) {
+	s.SupplierReference = val
+}
+
+// SetValidUntil sets the value of ValidUntil.
+func (s *SupplierQuotation) SetValidUntil(val time.Time) {
+	s.ValidUntil = val
+}
+
+// SetStatus sets the value of Status.
+func (s *SupplierQuotation) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetComplete sets the value of Complete.
+func (s *SupplierQuotation) SetComplete(val bool) {
+	s.Complete = val
+}
+
+// SetUnquotedItemNos sets the value of UnquotedItemNos.
+func (s *SupplierQuotation) SetUnquotedItemNos(val []int32) {
+	s.UnquotedItemNos = val
+}
+
+// SetTotal sets the value of Total.
+func (s *SupplierQuotation) SetTotal(val Money) {
+	s.Total = val
+}
+
+// SetItems sets the value of Items.
+func (s *SupplierQuotation) SetItems(val []SupplierQuotationItem) {
+	s.Items = val
+}
+
+// Record a supplier's quotation for an RFQ.
+// Ref: #/components/schemas/SupplierQuotationCreate
+type SupplierQuotationCreate struct {
+	// The supplier quoting (business partner id), one the RFQ invites.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's own reference of its quotation.
+	SupplierReference string `json:"supplier_reference"`
+	// The last day the quotation is valid.
+	ValidUntil time.Time `json:"valid_until"`
+	// The quoted prices, each for one RFQ item; RFQ items may be left out.
+	Items []SupplierQuotationItemInput `json:"items"`
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *SupplierQuotationCreate) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierReference returns the value of SupplierReference.
+func (s *SupplierQuotationCreate) GetSupplierReference() string {
+	return s.SupplierReference
+}
+
+// GetValidUntil returns the value of ValidUntil.
+func (s *SupplierQuotationCreate) GetValidUntil() time.Time {
+	return s.ValidUntil
+}
+
+// GetItems returns the value of Items.
+func (s *SupplierQuotationCreate) GetItems() []SupplierQuotationItemInput {
+	return s.Items
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *SupplierQuotationCreate) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierReference sets the value of SupplierReference.
+func (s *SupplierQuotationCreate) SetSupplierReference(val string) {
+	s.SupplierReference = val
+}
+
+// SetValidUntil sets the value of ValidUntil.
+func (s *SupplierQuotationCreate) SetValidUntil(val time.Time) {
+	s.ValidUntil = val
+}
+
+// SetItems sets the value of Items.
+func (s *SupplierQuotationCreate) SetItems(val []SupplierQuotationItemInput) {
+	s.Items = val
+}
+
+// SupplierQuotationHeaders wraps SupplierQuotation with response headers.
+type SupplierQuotationHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           SupplierQuotation
+}
+
+// GetETag returns the value of ETag.
+func (s *SupplierQuotationHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *SupplierQuotationHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *SupplierQuotationHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *SupplierQuotationHeaders) GetResponse() SupplierQuotation {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *SupplierQuotationHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *SupplierQuotationHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *SupplierQuotationHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SupplierQuotationHeaders) SetResponse(val SupplierQuotation) {
+	s.Response = val
+}
+
+func (*SupplierQuotationHeaders) createSupplierQuotationRes() {}
+
+// A quoted price beside the RFQ item it prices.
+// Ref: #/components/schemas/SupplierQuotationItem
+type SupplierQuotationItem struct {
+	// The RFQ item priced, by its item number.
+	RfqItemNo int32 `json:"rfq_item_no"`
+	// The RFQ item's material key.
+	MaterialKey string `json:"material_key"`
+	// The RFQ item's description.
+	Description string `json:"description"`
+	// The quantity the RFQ asks for and its unit of measure.
+	Quantity Quantity `json:"quantity"`
+	// Quoted price per `price_unit` of the unit of measure.
+	UnitPrice Money `json:"unit_price"`
+	// Quantity the unit price refers to.
+	PriceUnit int32 `json:"price_unit"`
+	// The item's value: quantity × unit price ÷ price unit, rounded half away from zero to the minor
+	// unit.
+	Amount Money `json:"amount"`
+}
+
+// GetRfqItemNo returns the value of RfqItemNo.
+func (s *SupplierQuotationItem) GetRfqItemNo() int32 {
+	return s.RfqItemNo
+}
+
+// GetMaterialKey returns the value of MaterialKey.
+func (s *SupplierQuotationItem) GetMaterialKey() string {
+	return s.MaterialKey
+}
+
+// GetDescription returns the value of Description.
+func (s *SupplierQuotationItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *SupplierQuotationItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SupplierQuotationItem) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *SupplierQuotationItem) GetPriceUnit() int32 {
+	return s.PriceUnit
+}
+
+// GetAmount returns the value of Amount.
+func (s *SupplierQuotationItem) GetAmount() Money {
+	return s.Amount
+}
+
+// SetRfqItemNo sets the value of RfqItemNo.
+func (s *SupplierQuotationItem) SetRfqItemNo(val int32) {
+	s.RfqItemNo = val
+}
+
+// SetMaterialKey sets the value of MaterialKey.
+func (s *SupplierQuotationItem) SetMaterialKey(val string) {
+	s.MaterialKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SupplierQuotationItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *SupplierQuotationItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SupplierQuotationItem) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *SupplierQuotationItem) SetPriceUnit(val int32) {
+	s.PriceUnit = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *SupplierQuotationItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// The price a supplier quotes for one RFQ item.
+// Ref: #/components/schemas/SupplierQuotationItemInput
+type SupplierQuotationItemInput struct {
+	// The RFQ item priced, by its item number.
+	RfqItemNo int32 `json:"rfq_item_no"`
+	// Quoted price per `price_unit` of the RFQ item's unit of measure, in the RFQ's currency; positive.
+	UnitPrice Money `json:"unit_price"`
+	// Quantity the unit price refers to.
+	PriceUnit OptInt32 `json:"price_unit"`
+}
+
+// GetRfqItemNo returns the value of RfqItemNo.
+func (s *SupplierQuotationItemInput) GetRfqItemNo() int32 {
+	return s.RfqItemNo
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *SupplierQuotationItemInput) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *SupplierQuotationItemInput) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// SetRfqItemNo sets the value of RfqItemNo.
+func (s *SupplierQuotationItemInput) SetRfqItemNo(val int32) {
+	s.RfqItemNo = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *SupplierQuotationItemInput) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *SupplierQuotationItemInput) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// One page of an RFQ's supplier quotations.
+// Ref: #/components/schemas/SupplierQuotationPage
+type SupplierQuotationPage struct {
+	// The quotations on this page.
+	Items []SupplierQuotation `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *SupplierQuotationPage) GetItems() []SupplierQuotation {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *SupplierQuotationPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *SupplierQuotationPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *SupplierQuotationPage) SetItems(val []SupplierQuotation) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *SupplierQuotationPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *SupplierQuotationPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*SupplierQuotationPage) listSupplierQuotationsRes() {}
+
 type TakeCashSnapshotBadRequest Problem
 
 func (*TakeCashSnapshotBadRequest) takeCashSnapshotRes() {}
@@ -77167,11 +78374,13 @@ func (*TooManyRequestsHeaders) createPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
+func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                         {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()                 {}
+func (*TooManyRequestsHeaders) createSupplierQuotationRes()               {}
 func (*TooManyRequestsHeaders) createUploadRes()                          {}
 func (*TooManyRequestsHeaders) createVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) createWebhookSubscriptionRes()             {}
@@ -77281,6 +78490,7 @@ func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
+func (*TooManyRequestsHeaders) getRfqRes()                                {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
@@ -77402,12 +78612,14 @@ func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
 func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
+func (*TooManyRequestsHeaders) listRfqsRes()                              {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()                  {}
+func (*TooManyRequestsHeaders) listSupplierQuotationsRes()                {}
 func (*TooManyRequestsHeaders) listTaxPeriodsRes()                        {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()                  {}
 func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()               {}
@@ -77449,6 +78661,7 @@ func (*TooManyRequestsHeaders) proposeForecastVarianceCommentRes()        {}
 func (*TooManyRequestsHeaders) proposeMemoRecordRes()                     {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) proposeVarianceCommentRes()                {}
+func (*TooManyRequestsHeaders) publishRfqRes()                            {}
 func (*TooManyRequestsHeaders) realiseMemoRecordRes()                     {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()                 {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()                   {}
@@ -77919,11 +79132,13 @@ func (*UnauthorizedHeaders) createPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
+func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
 func (*UnauthorizedHeaders) createSodRuleRes()                         {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()                 {}
+func (*UnauthorizedHeaders) createSupplierQuotationRes()               {}
 func (*UnauthorizedHeaders) createUploadRes()                          {}
 func (*UnauthorizedHeaders) createVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) createWebhookSubscriptionRes()             {}
@@ -78033,6 +79248,7 @@ func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
+func (*UnauthorizedHeaders) getRfqRes()                                {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
@@ -78154,12 +79370,14 @@ func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
 func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
+func (*UnauthorizedHeaders) listRfqsRes()                              {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()                  {}
+func (*UnauthorizedHeaders) listSupplierQuotationsRes()                {}
 func (*UnauthorizedHeaders) listTaxPeriodsRes()                        {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()                  {}
 func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()               {}
@@ -78201,6 +79419,7 @@ func (*UnauthorizedHeaders) proposeForecastVarianceCommentRes()        {}
 func (*UnauthorizedHeaders) proposeMemoRecordRes()                     {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) proposeVarianceCommentRes()                {}
+func (*UnauthorizedHeaders) publishRfqRes()                            {}
 func (*UnauthorizedHeaders) realiseMemoRecordRes()                     {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()                 {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()                   {}

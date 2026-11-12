@@ -4252,21 +4252,21 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "RFQ events",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A buyer creates a request for quotation (company, currency, due date, items with quantity and unit, the suppliers invited) and publishes it; its ADR (POST /v1/rfqs, :publish)",
-        "r": "T82a · docs/design/plan-breadth-week2.md §T82a",
+        "r": "T82a · docs/design/plan-breadth-week2.md §T82a · migration 000285 · internal/procurement/rfq.go, rfq_api.go · ADR-0069 §1-§6 · scripts/walkthrough.sh step_rfq",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The buyer records each invited supplier's quotation against the RFQ: a price per RFQ item, the supplier's reference and its validity (POST /v1/rfqs/{id}/quotations)",
-        "r": "T82b · docs/design/plan-breadth-week2.md §T82b",
+        "r": "T82b · docs/design/plan-breadth-week2.md §T82b · migration 000286 · internal/procurement/rfq_quotations.go, rfq_api.go · ADR-0069 §7 · scripts/walkthrough.sh step_rfq",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

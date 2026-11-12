@@ -394,8 +394,8 @@ func Integration(cfg Config) *integration.Endpoints {
 
 // procurementEndpoints is the procurement context as the API wires it.
 func procurementEndpoints(cfg Config) *procurement.Endpoints {
-	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{},
-		Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
+	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Partners: partner.Payees{},
+		AccountNames: ledger.AssetReads{}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: opener(),
 		Invoices: payables.Invoices{}, Postings: postings(), Now: cfg.Now}
 }

@@ -11734,6 +11734,302 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/rfqs:
+    get:
+      operationId: listRfqs
+      tags:
+        - procurement
+      summary: List requests for quotation
+      description: "Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its company's code and name, its items with their accounts' numbers and names, and the suppliers invited by id, number and name. Sortable by: `due_date`, `document_number`."
+      x-permission: procurement.rfq.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: supplier_id
+          in: query
+          required: false
+          description: Only the RFQs this supplier (business partner id) is invited to.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only RFQs in this status.
+          schema:
+            type: string
+            description: "RFQ status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - draft
+              - published
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of RFQs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RfqPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createRfq
+      tags:
+        - procurement
+      summary: Create a request for quotation
+      description: "Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the date they are due, the items asked for (a quantity and unit each, no price) and the suppliers invited. Each item names what is bought by a description and a material key, once per RFQ (422 `procurement.duplicate_material_key`), and the account it is bought on, one the legal entity can post to. Each supplier is named once (422 `procurement.rfq_supplier_repeated`) and must be one an order could be placed with in the legal entity: an active business partner in the supplier role, set up in the legal entity and not blocked for posting (422 `procurement.supplier_not_usable`, the field error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed: it is published (`:publish`) as created. Audited, and published as RfqChanged."
+      x-permission: procurement.rfq.manage
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - procurement.account_not_postable
+        - procurement.duplicate_material_key
+        - procurement.invalid_item_no
+        - procurement.invalid_quantity
+        - procurement.legal_entity_not_active
+        - procurement.rfq_due_date_past
+        - procurement.rfq_supplier_repeated
+        - procurement.supplier_not_usable
+        - procurement.unknown_currency
+        - procurement.unknown_unit
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The RFQ create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RfqCreate"
+      responses:
+        "201":
+          description: "Created; the new RFQ, a draft."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/rfqs/{id}":
+    get:
+      operationId: getRfq
+      tags:
+        - procurement
+      summary: Get a request for quotation
+      description: "Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: procurement.rfq.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The RFQ.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/rfqs/{id}/quotations":
+    get:
+      operationId: listSupplierQuotations
+      tags:
+        - procurement
+      summary: List an RFQ's supplier quotations
+      description: "The quotations recorded against one RFQ (ADR-0069 §7), oldest first, each with its supplier by id, number and name, its items beside the RFQ items they price, its total and whether it is complete. An RFQ of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `created_at`."
+      x-permission: procurement.rfq.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: supplier_id
+          in: query
+          required: false
+          description: Only the quotation of this supplier (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the RFQ's quotations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierQuotationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createSupplierQuotation
+      tags:
+        - procurement
+      summary: Record a supplier's quotation
+      description: "Records the quotation an invited supplier gave for a `published` RFQ (409 `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same request with its `Idempotency-Key` again answers what it answered. Each item names an item of the RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422 `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and number."
+      x-permission: procurement.rfq.manage
+      x-problem-codes:
+        - procurement.amount_too_large
+        - procurement.currency_mismatch
+        - procurement.invalid_amount
+        - procurement.invalid_status
+        - procurement.quotation_exists
+        - procurement.quotation_item_repeated
+        - procurement.supplier_not_invited
+        - procurement.unknown_rfq_item
+        - request.invalid_amount
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The supplier's quotation.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SupplierQuotationCreate"
+      responses:
+        "201":
+          description: "Created; the quotation as recorded."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierQuotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/rfqs/{id}:publish":
+    post:
+      operationId: publishRfq
+      tags:
+        - procurement
+      summary: Publish a request for quotation
+      description: "Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row lock and moves to `published` once (409 `procurement.invalid_status` for one already published), after which quotations are recorded against it and nothing changes it. The RFQ is checked again as it was when created: every supplier invited must still be one an order could be placed with (422 `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due date not before the legal entity's date today in its company's time zone (422 `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers invited by id and number."
+      x-permission: procurement.rfq.manage
+      x-problem-codes:
+        - config.not_bootstrapped
+        - procurement.invalid_status
+        - procurement.rfq_due_date_past
+        - procurement.supplier_not_usable
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The RFQ, published."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rfq"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
   /v1/goods-receipts:
     get:
       operationId: listGoodsReceipts
@@ -39311,6 +39607,520 @@ components:
                     currency: EUR
                   uom_code: EA
                   account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+    RfqItemInput:
+      type: object
+      description: "An item of a request for quotation as it is created: what is asked for, without a price."
+      required:
+        - material_key
+        - description
+        - quantity
+        - account_id
+      properties:
+        item_no:
+          type: integer
+          format: int32
+          description: "Item number; assigned by the server when omitted."
+          minimum: 1
+        material_key:
+          type: string
+          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by."
+          minLength: 1
+          maxLength: 40
+        description:
+          type: string
+          description: Description.
+          minLength: 1
+          maxLength: 200
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: "The quantity asked for and its unit of measure; positive."
+        account_id:
+          type: string
+          format: uuid
+          description: General ledger account the item is bought on.
+      additionalProperties: false
+      examples:
+        - material_key: CHAIR-ERGO-01
+          description: Office chairs, ergonomic
+          quantity:
+            value: "40"
+            unit: EA
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+    RfqItem:
+      type: object
+      description: "An item of a request for quotation: what is asked for, without a price."
+      required:
+        - material_key
+        - description
+        - quantity
+        - account_id
+        - account_number
+        - account_name
+      properties:
+        item_no:
+          type: integer
+          format: int32
+          description: "Item number; assigned by the server when omitted."
+          minimum: 1
+        material_key:
+          type: string
+          description: "Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded contract's item name it by."
+          minLength: 1
+          maxLength: 40
+        description:
+          type: string
+          description: Description.
+          minLength: 1
+          maxLength: 200
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: "The quantity asked for and its unit of measure; positive."
+        account_id:
+          type: string
+          format: uuid
+          description: General ledger account the item is bought on.
+        account_number:
+          type: string
+          description: The account's number.
+        account_name:
+          type: string
+          description: The account's name.
+      examples:
+        - material_key: CHAIR-ERGO-01
+          description: Office chairs, ergonomic
+          quantity:
+            value: "40"
+            unit: EA
+          account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          account_number: "520000"
+          account_name: Office equipment
+    RfqSupplier:
+      type: object
+      description: A supplier invited to quote.
+      required:
+        - supplier_id
+        - supplier_number
+        - supplier_name
+      properties:
+        supplier_id:
+          type: string
+          format: uuid
+          description: The supplier (business partner id).
+        supplier_number:
+          type: string
+          description: The business partner's number.
+        supplier_name:
+          type: string
+          description: The business partner's name.
+      examples:
+        - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_number: BP90000001
+          supplier_name: Tyrell Office Products
+    Rfq:
+      description: "A request for quotation (ADR-0069): the items a legal entity asks the suppliers invited to quote prices for, in one currency, by a due date."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - document_number
+            - legal_entity_id
+            - company_code
+            - company_name
+            - currency
+            - due_date
+            - status
+            - items
+            - suppliers
+          properties:
+            document_number:
+              type: string
+              description: Document number.
+              readOnly: true
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: Legal entity.
+              readOnly: true
+            company_code:
+              type: string
+              description: The legal entity's company code.
+              readOnly: true
+            company_name:
+              type: string
+              description: The legal entity's name.
+              readOnly: true
+            currency:
+              type: string
+              description: The currency quotations are given in.
+              pattern: "^[A-Z]{3}$"
+              example: EUR
+              readOnly: true
+            due_date:
+              type: string
+              format: date
+              description: The date quotations are due.
+              readOnly: true
+            status:
+              type: string
+              description: "Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - draft
+                - published
+              readOnly: true
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/RfqItem"
+              description: "The items asked for, by item number."
+              minItems: 1
+            suppliers:
+              type: array
+              items:
+                $ref: "#/components/schemas/RfqSupplier"
+              description: "The suppliers invited, in the order they were named."
+              minItems: 1
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          version: 1
+          created_at: "2026-11-18T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-11-18T14:03:11Z"
+          document_number: RQ100000
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          company_code: "2000"
+          company_name: Acme Deutschland GmbH
+          currency: EUR
+          due_date: "2026-12-04"
+          status: draft
+          items:
+            - item_no: 1
+              material_key: CHAIR-ERGO-01
+              description: Office chairs, ergonomic
+              quantity:
+                value: "40"
+                unit: EA
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+              account_number: "520000"
+              account_name: Office equipment
+          suppliers:
+            - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+              supplier_number: BP90000001
+              supplier_name: Tyrell Office Products
+    RfqCreate:
+      type: object
+      description: Create a draft request for quotation.
+      required:
+        - legal_entity_id
+        - currency
+        - due_date
+        - items
+        - supplier_ids
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+        currency:
+          type: string
+          description: The currency quotations are given in.
+          pattern: "^[A-Z]{3}$"
+          example: EUR
+        due_date:
+          type: string
+          format: date
+          description: "The date quotations are due; not before the legal entity's date today."
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqItemInput"
+          description: The items asked for.
+          minItems: 1
+          maxItems: 1000
+        supplier_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: "The suppliers invited (business partner ids), each once."
+          minItems: 1
+          maxItems: 100
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          currency: EUR
+          due_date: "2026-12-04"
+          items:
+            - material_key: CHAIR-ERGO-01
+              description: Office chairs, ergonomic
+              quantity:
+                value: "40"
+                unit: EA
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+          supplier_ids:
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+            - "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d58"
+    RfqPage:
+      type: object
+      description: One page of requests for quotation.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Rfq"
+          description: The RFQs on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    SupplierQuotationItemInput:
+      type: object
+      description: The price a supplier quotes for one RFQ item.
+      required:
+        - rfq_item_no
+        - unit_price
+      properties:
+        rfq_item_no:
+          type: integer
+          format: int32
+          description: The RFQ item priced, by its item number.
+          minimum: 1
+        unit_price:
+          $ref: "#/components/schemas/Money"
+          description: "Quoted price per `price_unit` of the RFQ item's unit of measure, in the RFQ's currency; positive."
+        price_unit:
+          type: integer
+          format: int32
+          description: Quantity the unit price refers to.
+          minimum: 1
+          default: 1
+      additionalProperties: false
+      examples:
+        - rfq_item_no: 1
+          unit_price:
+            amount: "412.50"
+            currency: EUR
+    SupplierQuotationItem:
+      type: object
+      description: "A quoted price beside the RFQ item it prices."
+      required:
+        - rfq_item_no
+        - material_key
+        - description
+        - quantity
+        - unit_price
+        - price_unit
+        - amount
+      properties:
+        rfq_item_no:
+          type: integer
+          format: int32
+          description: The RFQ item priced, by its item number.
+        material_key:
+          type: string
+          description: The RFQ item's material key.
+        description:
+          type: string
+          description: The RFQ item's description.
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: The quantity the RFQ asks for and its unit of measure.
+        unit_price:
+          $ref: "#/components/schemas/Money"
+          description: "Quoted price per `price_unit` of the unit of measure."
+        price_unit:
+          type: integer
+          format: int32
+          description: Quantity the unit price refers to.
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The item's value: quantity × unit price ÷ price unit, rounded half away from zero to the minor unit."
+      examples:
+        - rfq_item_no: 1
+          material_key: CHAIR-ERGO-01
+          description: Office chairs, ergonomic
+          quantity:
+            value: "40"
+            unit: EA
+          unit_price:
+            amount: "412.50"
+            currency: EUR
+          price_unit: 1
+          amount:
+            amount: "16500.00"
+            currency: EUR
+    SupplierQuotation:
+      description: "A supplier's quotation for a request for quotation (ADR-0069 §7), as the buyer recorded it."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - rfq_id
+            - rfq_document_number
+            - supplier_id
+            - supplier_number
+            - supplier_name
+            - supplier_reference
+            - valid_until
+            - status
+            - complete
+            - unquoted_item_nos
+            - total
+            - items
+          properties:
+            rfq_id:
+              type: string
+              format: uuid
+              description: The RFQ quoted for.
+              readOnly: true
+            rfq_document_number:
+              type: string
+              description: The RFQ's document number.
+              readOnly: true
+            supplier_id:
+              type: string
+              format: uuid
+              description: The supplier (business partner id).
+            supplier_number:
+              type: string
+              description: The business partner's number.
+              readOnly: true
+            supplier_name:
+              type: string
+              description: The business partner's name.
+              readOnly: true
+            supplier_reference:
+              type: string
+              description: The supplier's own reference of its quotation.
+            valid_until:
+              type: string
+              format: date
+              description: The last day the quotation is valid.
+            status:
+              type: string
+              description: "Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - recorded
+              readOnly: true
+            complete:
+              type: boolean
+              description: Whether the quotation prices every item of the RFQ.
+              readOnly: true
+            unquoted_item_nos:
+              type: array
+              items:
+                type: integer
+                format: int32
+              description: "The RFQ items the quotation leaves out, by item number; empty when it is complete."
+              readOnly: true
+            total:
+              $ref: "#/components/schemas/Money"
+              description: "The sum of the items' amounts, in the RFQ's currency."
+              readOnly: true
+            items:
+              type: array
+              items:
+                $ref: "#/components/schemas/SupplierQuotationItem"
+              description: "The quoted prices, by RFQ item number."
+              minItems: 1
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"
+          version: 1
+          created_at: "2026-11-18T15:10:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-11-18T15:10:00Z"
+          rfq_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          rfq_document_number: RQ100000
+          supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_number: BP90000001
+          supplier_name: Tyrell Office Products
+          supplier_reference: Q-2026-0457
+          valid_until: "2027-01-31"
+          status: recorded
+          complete: true
+          unquoted_item_nos: []
+          total:
+            amount: "16500.00"
+            currency: EUR
+          items:
+            - rfq_item_no: 1
+              material_key: CHAIR-ERGO-01
+              description: Office chairs, ergonomic
+              quantity:
+                value: "40"
+                unit: EA
+              unit_price:
+                amount: "412.50"
+                currency: EUR
+              price_unit: 1
+              amount:
+                amount: "16500.00"
+                currency: EUR
+    SupplierQuotationCreate:
+      type: object
+      description: Record a supplier's quotation for an RFQ.
+      required:
+        - supplier_id
+        - supplier_reference
+        - valid_until
+        - items
+      properties:
+        supplier_id:
+          type: string
+          format: uuid
+          description: "The supplier quoting (business partner id), one the RFQ invites."
+        supplier_reference:
+          type: string
+          description: The supplier's own reference of its quotation.
+          minLength: 1
+          maxLength: 40
+        valid_until:
+          type: string
+          format: date
+          description: The last day the quotation is valid.
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupplierQuotationItemInput"
+          description: "The quoted prices, each for one RFQ item; RFQ items may be left out."
+          minItems: 1
+          maxItems: 1000
+      additionalProperties: false
+      examples:
+        - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_reference: Q-2026-0457
+          valid_until: "2027-01-31"
+          items:
+            - rfq_item_no: 1
+              unit_price:
+                amount: "412.50"
+                currency: EUR
+    SupplierQuotationPage:
+      type: object
+      description: One page of an RFQ's supplier quotations.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SupplierQuotation"
+          description: The quotations on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     GoodsReceiptItem:
       type: object
       description: A received purchase order item.

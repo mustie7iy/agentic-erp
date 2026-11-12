@@ -1598,6 +1598,7 @@ PILOT_SETTINGS='
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
 | .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "rfq", "fiscal_year": @YEAR@, "prefix": "RQ", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
@@ -6660,6 +6661,73 @@ step_credit_limit() {
   passed
 }
 
+# step_rfq is T82a and T82b (ADR-0069 §1-§5, §7): Ben creates a request
+# for quotation for two items, inviting Tyrell and the supplier of SAP's
+# down payment (step 3's DP_SUPPLIER), and publishes it; he then records
+# the quotation each of them sent, the second cheaper in total. The due
+# date is the request's, two weeks after the company's date today. It
+# keeps the RFQ (RFQ).
+step_rfq() {
+  heading "Step 54 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total"
+  as ben
+  local due expense body valid quote line
+  due=$(date_add "$(company_day)" 14)
+  expense=$(account 6000)
+  say "Ben wants prices for the new office's chairs and desks before he commits to a supplier. He creates a request"
+  say "for quotation (ADR-0069): what Maple asks for, with quantities and no prices, the currency quotations are to"
+  say "be given in, the date they are due, and the suppliers invited, Tyrell and $DP_NAME:"
+  body="{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"due_date\": \"$due\", \"items\": [
+    {\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"},
+    {\"material_key\": \"DESK-ADJ\", \"description\": \"Height-adjustable desks\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}],
+    \"supplier_ids\": [\"$SUPPLIER\", \"$DP_SUPPLIER\"]}"
+  api 201 '"RFQ \(.document_number) of \(.company_code) \(.company_name): \(.status), quotations in \(.currency) due \(.due_date)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.quantity.value) \(.quantity.unit), on \(.account_number) \(.account_name)"), (.suppliers[] | "  invited: \(.supplier_number) \(.supplier_name)")' \
+    createRfq -body "$body"
+  RFQ=$(field .id)
+  expect "the new RFQ" "$(field '"\(.status) \(.company_code) \(.currency) \(.due_date) \(.items | length) \([.items[].account_number] | unique | join(" "))"')" "draft $CC CAD $due 2 6000"
+  expect "the suppliers invited, in the order named" "$(field '[.suppliers[] | "\(.supplier_id) \(.supplier_name)"] | join(", ")')" \
+    "$SUPPLIER Tyrell Office Products, $DP_SUPPLIER $DP_NAME"
+  say "A supplier is invited once, and a due date that has passed is refused, naming Maple's date today:"
+  refused 422 procurement.rfq_supplier_repeated createRfq -body "${body/\"$DP_SUPPLIER\"]/\"$SUPPLIER\"]}"
+  expect "the supplier named twice" "$(field '.errors[0].field')" "supplier_ids[1]"
+  refused 422 procurement.rfq_due_date_past createRfq -body "${body/$due/$(date_add "$(company_day)" -1)}"
+  say "Ben publishes the RFQ at the version he read. From then on the suppliers' quotations are recorded against"
+  say "it, and nothing changes it; it is published once:"
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  api 200 '"RFQ \(.document_number): \(.status), version \(.version)"' publishRfq -p "id=$RFQ" -if-match "$ETAG"
+  expect "the published RFQ" "$(field '"\(.status) \(.version)"')" "published 2"
+  refused 409 procurement.invalid_status publishRfq -p "id=$RFQ" -if-match "$ETAG"
+  say "It is among Maple's published RFQs, and among those Tyrell is invited to:"
+  api 200 '.items[] | "  RFQ \(.document_number): \(.status), due \(.due_date), \(.items | length) items, \(.suppliers | length) suppliers"' \
+    listRfqs -p "legal_entity_id=$LE" -p status=published -p "supplier_id=$SUPPLIER"
+  expect "Maple's published RFQs Tyrell is invited to" "$(field '[.items[].id] | join(" ")')" "$RFQ"
+  valid=$(date_add "$(company_day)" 60)
+  line='"quotation \(.supplier_reference) of \(.supplier_number) \(.supplier_name) for RFQ \(.rfq_document_number): \(.status), valid until \(.valid_until), total \(.total.amount) \(.total.currency), complete: \(.complete)", (.items[] | "  item \(.rfq_item_no) \(.material_key): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) = \(.amount.amount) \(.amount.currency)")'
+  say "The quotations come in by e-mail. Ben records each against the RFQ (ADR-0069 §7): the supplier's reference,"
+  say "how long it is valid, and a price for each item, in the RFQ's currency. Tyrell quotes 450.00 a chair and"
+  say "980.00 a desk; each item's value is the RFQ's quantity at that price, and the total is exact to the cent:"
+  api 201 "$line" createSupplierQuotation -p "id=$RFQ" -body "{\"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-Q-118\", \"valid_until\": \"$valid\", \"items\": [
+    {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}},
+    {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"980.00\", \"currency\": \"CAD\"}}]}"
+  expect "Tyrell's quotation" "$(field '"\(.supplier_name) \(.status) \(.complete) \(.total.amount) \(.total.currency) \([.items[].amount.amount] | join(" "))"')" \
+    "Tyrell Office Products recorded true 29760.00 CAD 18000.00 11760.00"
+  say "$DP_NAME quotes 425.00 a chair and prices its desks by threes, 2,850.00 for three:"
+  quote="{\"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"CB-7731\", \"valid_until\": \"$valid\", \"items\": [
+    {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"425.00\", \"currency\": \"CAD\"}},
+    {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"2850.00\", \"currency\": \"CAD\"}, \"price_unit\": 3}]}"
+  api 201 "$line" createSupplierQuotation -p "id=$RFQ" -body "$quote"
+  expect "$DP_NAME's quotation" "$(field '"\(.supplier_name) \(.status) \(.complete) \(.total.amount) \(.total.currency) \([.items[].amount.amount] | join(" "))"')" \
+    "$DP_NAME recorded true 28400.00 CAD 17000.00 11400.00"
+  say "A supplier has one quotation for an RFQ, and only a supplier the RFQ invites has one:"
+  refused 409 procurement.quotation_exists createSupplierQuotation -p "id=$RFQ" -body "$quote"
+  refused 422 procurement.supplier_not_invited createSupplierQuotation -p "id=$RFQ" -body "${quote/$DP_SUPPLIER/$CUSTOMER}"
+  say "The RFQ's quotations, as recorded: $DP_NAME's is the cheaper in total, by 1,360.00:"
+  api 200 '.items[] | "  \(.supplier_reference) of \(.supplier_number) \(.supplier_name): total \(.total.amount) \(.total.currency), complete: \(.complete)"' \
+    listSupplierQuotations -p "id=$RFQ"
+  expect "the RFQ's quotations" "$(field '[.items[] | "\(.supplier_id) \(.total.amount) \(.total.currency)"] | join(", ")')" \
+    "$SUPPLIER 29760.00 CAD, $DP_SUPPLIER 28400.00 CAD"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8684,7 +8752,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_close'
 
 main() {
   stop_unseen
