@@ -1536,7 +1536,8 @@ PILOT_SETTINGS='
 | .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999}]'
+    {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
+    {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -5893,6 +5894,76 @@ step_incoming_payment() {
   passed
 }
 
+# step_customer_credit is T75d (ADR-0063 §7): Maple invoices Northwind a
+# second time and credits part of it. The credit memo is the customer
+# invoice document with the kind credit_memo, naming the invoice it
+# credits; it posts with the signs turned, as a DG entry. Invoice and memo
+# are Northwind's open items, net what Northwind owes. The credit memos
+# naming an invoice may not exceed its gross amount. The invoice and the
+# memo stay open for step_ar_aging: CREDITED_INVOICE and CREDIT_MEMO are
+# the documents, CREDITED_INVOICE_ENTRY and CREDIT_MEMO_ENTRY their entries.
+step_customer_credit() {
+  heading "Step 50 — Customer credit memos: a second invoice partly credited by a credit memo naming it, posted with the signs turned; invoice and memo are the customer's open items, net what the customer owes"
+  local customer=$CUSTOMER sales invoice number entry memo memo_entry over due item
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ruth
+  sales=$(account 4000)
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple invoices Northwind Traders for machined parts, CAD 2,000.00 and 5% GST. Ruth enters the invoice and"
+  say "posts it:"
+  item="{\"description\": \"Machined parts\", \"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"@NET@\", \"currency\": \"CAD\"}, \"tax_code\": \"GO5\"}"
+  api 201 '"customer invoice \(.document_number) to \(.customer_name): \(.status), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item/@NET@/2000.00}]}"
+  invoice=$(field .id)
+  number=$(field .document_number)
+  api 200 '"customer invoice \(.document_number): \(.status) as journal entry \(.journal_entry_number), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  entry=$(field .journal_entry_id)
+  expect "the posted invoice" "$(field '"\(.status) \(.gross_amount.amount) \(.net_due_date)"')" "posted 2100.00 $due"
+  say "A fifth of the parts are returned. A posted customer invoice is not reversed; Ruth enters a credit memo, the"
+  say "same document with the kind credit_memo, naming the invoice it credits (T75d). Its amounts are more than"
+  say "zero, the kind gives their direction, and its tax is at its own date's rates:"
+  item=${item/Machined parts/Machined parts returned}
+  api 201 '"\(.kind) \(.document_number) to \(.customer_name), crediting invoice \(.reference_invoice_number): \(.status), net \(.net_amount.amount), tax \(.tax_amount.amount), gross \(.gross_amount.amount) \(.currency)"' \
+    createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item/@NET@/400.00}]}"
+  memo=$(field .id)
+  expect "the credit memo" "$(field '"\(.kind) \(.status) \(.reference_invoice_id) \(.reference_invoice_number) \(.net_amount.amount) \(.tax_amount.amount) \(.gross_amount.amount) \(.gross_amount.currency)"')" \
+    "credit_memo draft $invoice $number 400.00 20.00 420.00 CAD"
+  say "Ruth posts it. It names no payment term, so its open item keeps its invoice's and is due when the invoice is:"
+  api 200 '"\(.kind) \(.document_number): \(.status) on \(.posting_date) as journal entry \(.journal_entry_number), terms \(.payment_term_code), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$memo" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the posted credit memo" "$(field '"\(.status) \(.posting_date) \(.payment_term_code) \(.net_due_date) \(.gross_amount.amount)"')" "posted $TODAY NT30 $due 420.00"
+  memo_entry=$(field .journal_entry_id)
+  say "Its entry, document type DG, turns the invoice's signs: it credits Northwind on 1200 Trade receivables with"
+  say "the gross and debits 4000 Sales and 2300 GST/HST payable:"
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$memo_entry"
+  expect "the entry's source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DG receivables $memo"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "-420.00 400.00 20.00"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $sales $(account 2300)"
+  expect "the receivable line's partner" "$(field '.lines[0].partner_id')" "$customer"
+  say "Invoice and credit memo are Northwind's open items; together they are what Northwind owes, CAD 1,680.00:"
+  api 200 '(.items[] | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"), "  net: \([.items[].amount.amount | sub("\\."; "") | tonumber] | add | tostring | .[:-2] + "." + .[-2:]) CAD"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.net_due_date)"] | sort | join(", ")')" \
+    "$(printf '%s\n' "$entry 2100.00 CAD $due" "$memo_entry -420.00 CAD $due" | sort | paste -sd, - | sed 's/,/, /g')"
+  expect "what the customer owes" "$(field '[.items[].amount.amount | sub("\\."; "") | tonumber] | add | tostring | .[:-2] + "." + .[-2:]')" 1680.00
+  say "The credit memos naming an invoice may not exceed its gross amount (plan default 5, as the product owner"
+  say "decided for supplier credit memos). A second memo of CAD 1,680.01 gross would credit 2,100.01 against the"
+  say "invoice's 2,100.00: it is entered, and refused when it posts, with the figures:"
+  QUIET=1 api 201 '' createCustomerInvoice \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"kind\": \"credit_memo\", \"reference_invoice_id\": \"$invoice\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [{\"account_id\": \"$sales\", \"net_amount\": {\"amount\": \"1680.01\", \"currency\": \"CAD\"}}]}"
+  over=$(field .id)
+  refused 422 receivables.credit_exceeds_invoice postCustomerInvoice -p "id=$over" -if-match "$ETAG" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the refusal's figures" "$(field '.credit_limit | "\(.invoice_number) \(.invoice_gross.amount) \(.credited.amount) \(.attempted.amount) \(.attempted.currency)"')" \
+    "$number 2100.00 420.00 1680.01 CAD"
+  api 200 '.items[] | "  \(.kind) \(.document_number): \(.status), \(.gross_amount.amount) \(.gross_amount.currency)"' \
+    listCustomerInvoices -p "reference_invoice_id=$invoice" -p kind=credit_memo
+  expect "the credit memos naming the invoice" "$(field '[.items[] | "\(.status) \(.id)"] | sort | join(", ")')" "draft $over, posted $memo"
+  CREDITED_INVOICE=$invoice CREDITED_INVOICE_ENTRY=$entry CREDIT_MEMO=$memo CREDIT_MEMO_ENTRY=$memo_entry
+  passed
+}
+
 # rbc_incoming AMOUNT writes RBC's third camt.053 statement of today: a
 # customer's payment of the amount, from the second statement's closing
 # balance (rbc_receipt's: step 8's closing and Northwind's CAD 25,000.00).
@@ -7936,7 +8007,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_incoming_payment step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_incoming_payment step_customer_credit step_close'
 
 main() {
   stop_unseen

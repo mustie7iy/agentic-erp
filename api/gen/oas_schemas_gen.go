@@ -27823,7 +27823,8 @@ func (*CreateYearCloseUnprocessableEntity) createYearCloseRes() {}
 
 // The figures of a credit memo or subsequent credit refused at `:post` because the posted credits
 // naming its invoice, with it, would exceed that invoice's gross amount (422
-// `payables.credit_exceeds_invoice`), in the invoice's currency, which is the credit's.
+// `payables.credit_exceeds_invoice` for a supplier's, `receivables.credit_exceeds_invoice` for a
+// customer credit memo), in the invoice's currency, which is the credit's.
 // Ref: #/components/schemas/CreditLimit
 type CreditLimit struct {
 	// The invoice the credit names (its `reference_invoice_id`).
@@ -28279,10 +28280,16 @@ type CustomerInvoice struct {
 	CustomerNumber string `json:"customer_number"`
 	// The customer's name, as it is now.
 	CustomerName string `json:"customer_name"`
-	// What the document is: `invoice`. Its amounts are never negative; the kind gives their direction.
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// What the document is: `invoice`, or `credit_memo`, which credits the customer what was invoiced (Cr
+	// customer when posted). Its amounts are never negative; the kind gives their direction. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
 	Kind string `json:"kind"`
+	// The posted invoice a credit memo credits (`GET /v1/customer-invoices/{id}`). Absent on an invoice
+	// and on a credit memo naming none.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// That invoice's document number; absent with `reference_invoice_id`.
+	ReferenceInvoiceNumber OptString `json:"reference_invoice_number"`
 	// The invoice date, its tax date.
 	InvoiceDate time.Time `json:"invoice_date"`
 	// The posting date entered; once posted, the date the invoice posted on. Absent on a draft entered
@@ -28294,17 +28301,20 @@ type CustomerInvoice struct {
 	NetAmount Money `json:"net_amount"`
 	// The sum of the items' tax.
 	TaxAmount Money `json:"tax_amount"`
-	// What the customer owes: `net_amount` and `tax_amount`.
+	// `net_amount` and `tax_amount`: what the customer owes for an invoice, what the customer is credited
+	// by a credit memo.
 	GrossAmount Money `json:"gross_amount"`
-	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its debit line
-	// is the customer's open item. Open enumeration: clients must accept and preserve values not listed
-	// here; values may be added within /v1.
+	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its line on
+	// the customer's reconciliation account is the customer's open item, a debit for an invoice and a
+	// credit for a credit memo. Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
 	Status string `json:"status"`
 	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
 	// company when none was entered). Absent on a draft entered without one.
 	PaymentTermCode OptString `json:"payment_term_code"`
-	// When the invoice's open item is due: the invoice date plus its payment term's net days, as the
-	// ledger keeps it with the item. Absent until posted.
+	// When the document's open item is due, as the ledger keeps it with the item: the invoice date plus
+	// its payment term's net days; for a credit memo that names an invoice and no term of its own, when
+	// that invoice is due. Absent until posted.
 	NetDueDate OptDate `json:"net_due_date"`
 	// The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.
 	JournalEntryID OptUUID `json:"journal_entry_id"`
@@ -28384,6 +28394,16 @@ func (s *CustomerInvoice) GetCustomerName() string {
 // GetKind returns the value of Kind.
 func (s *CustomerInvoice) GetKind() string {
 	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *CustomerInvoice) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
+}
+
+// GetReferenceInvoiceNumber returns the value of ReferenceInvoiceNumber.
+func (s *CustomerInvoice) GetReferenceInvoiceNumber() OptString {
+	return s.ReferenceInvoiceNumber
 }
 
 // GetInvoiceDate returns the value of InvoiceDate.
@@ -28521,6 +28541,16 @@ func (s *CustomerInvoice) SetKind(val string) {
 	s.Kind = val
 }
 
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *CustomerInvoice) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
+}
+
+// SetReferenceInvoiceNumber sets the value of ReferenceInvoiceNumber.
+func (s *CustomerInvoice) SetReferenceInvoiceNumber(val OptString) {
+	s.ReferenceInvoiceNumber = val
+}
+
 // SetInvoiceDate sets the value of InvoiceDate.
 func (s *CustomerInvoice) SetInvoiceDate(val time.Time) {
 	s.InvoiceDate = val
@@ -28593,14 +28623,26 @@ type CustomerInvoiceCreate struct {
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// The customer: an active business partner with the customer role.
 	CustomerID uuid.UUID `json:"customer_id"`
-	// The invoice date; the tax date its items' tax codes are rated on (ADR-0049 §4).
+	// What the document is: `invoice` (absent: an invoice) or `credit_memo`, which credits the customer
+	// what was invoiced and posts with the signs turned. Amounts are more than zero whatever the kind,
+	// which gives their direction. Fixed once entered. Open enumeration: values may be added within /v1;
+	// one this version does not know is refused (422 `receivables.unknown_kind`).
+	Kind OptString `json:"kind"`
+	// The invoice a credit memo credits: a posted invoice of the same company and customer in the memo's
+	// currency (`GET /v1/customer-invoices`). The posted credit memos naming an invoice may not exceed its
+	// gross amount (`postCustomerInvoice`); absent: the memo names none and has no such limit. Never on an
+	// invoice.
+	ReferenceInvoiceID OptUUID `json:"reference_invoice_id"`
+	// The document's date; the tax date its items' tax codes are rated on (ADR-0049 §4), a credit memo's
+	// own.
 	InvoiceDate time.Time `json:"invoice_date"`
 	// The posting date the invoice is to post on; absent: decided when it posts.
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217), every item's.
 	Currency string `json:"currency"`
 	// The payment term the invoice posts with: a configured term (`payment_terms` of the configuration);
-	// absent: the customer's in the company when the invoice posts.
+	// absent: the customer's in the company when the invoice posts, or, for a credit memo naming an
+	// invoice, that invoice's.
 	PaymentTermCode OptString `json:"payment_term_code"`
 	// The items, numbered in this order from 1.
 	Items []CustomerInvoiceItemCreate `json:"items"`
@@ -28614,6 +28656,16 @@ func (s *CustomerInvoiceCreate) GetLegalEntityID() uuid.UUID {
 // GetCustomerID returns the value of CustomerID.
 func (s *CustomerInvoiceCreate) GetCustomerID() uuid.UUID {
 	return s.CustomerID
+}
+
+// GetKind returns the value of Kind.
+func (s *CustomerInvoiceCreate) GetKind() OptString {
+	return s.Kind
+}
+
+// GetReferenceInvoiceID returns the value of ReferenceInvoiceID.
+func (s *CustomerInvoiceCreate) GetReferenceInvoiceID() OptUUID {
+	return s.ReferenceInvoiceID
 }
 
 // GetInvoiceDate returns the value of InvoiceDate.
@@ -28649,6 +28701,16 @@ func (s *CustomerInvoiceCreate) SetLegalEntityID(val uuid.UUID) {
 // SetCustomerID sets the value of CustomerID.
 func (s *CustomerInvoiceCreate) SetCustomerID(val uuid.UUID) {
 	s.CustomerID = val
+}
+
+// SetKind sets the value of Kind.
+func (s *CustomerInvoiceCreate) SetKind(val OptString) {
+	s.Kind = val
+}
+
+// SetReferenceInvoiceID sets the value of ReferenceInvoiceID.
+func (s *CustomerInvoiceCreate) SetReferenceInvoiceID(val OptUUID) {
+	s.ReferenceInvoiceID = val
 }
 
 // SetInvoiceDate sets the value of InvoiceDate.
@@ -60741,8 +60803,9 @@ type Problem struct {
 	// With `closing.checks_failing` only: each check task whose check failed when the sign-off ran it
 	// again, with what it found (ADR-0058 §7).
 	FailingChecks []FailingCheck `json:"failing_checks"`
-	// With `payables.credit_exceeds_invoice` only: the invoice the refused credit names, its gross amount,
-	// what posted credits naming it already credit, and the gross amount of the one refused.
+	// With `payables.credit_exceeds_invoice` and `receivables.credit_exceeds_invoice` only: the invoice
+	// the refused credit names, its gross amount, what posted credits naming it already credit, and the
+	// gross amount of the one refused.
 	CreditLimit OptCreditLimit `json:"credit_limit"`
 }
 

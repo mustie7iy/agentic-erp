@@ -23,7 +23,8 @@ import (
 // references are what invoices name by id, as their consumer reads them
 // (REVIEW.md, API-consumer classes): the companies, the customers, the
 // items' accounts and centers, and a posted invoice's journal entry by
-// its document number.
+// its document number. The invoice a credit memo credits is named with
+// the memo (Invoice.ReferenceInvoiceNumber).
 type references struct {
 	companies map[uuid.UUID]tenancy.Entity
 	partners  map[uuid.UUID]partner.Named
@@ -81,7 +82,8 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 	out := gen.CustomerInvoice{ID: v.ID, Version: v.Version, CreatedAt: v.CreatedAt, CreatedBy: v.CreatedBy, UpdatedAt: v.UpdatedAt,
 		UpdatedBy: gen.NewOptUUID(v.UpdatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
 		CompanyName: le.Name, CustomerID: v.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name, Kind: v.Kind,
-		InvoiceDate: v.InvoiceDate, PostingDate: apitypes.OptDate(v.PostingDate), Currency: v.Currency, NetAmount: m(v.Net),
+		ReferenceInvoiceID:     apitypes.OptUUID(v.ReferenceInvoiceID),
+		ReferenceInvoiceNumber: apitypes.OptString(v.ReferenceInvoiceNumber), InvoiceDate: v.InvoiceDate, PostingDate: apitypes.OptDate(v.PostingDate), Currency: v.Currency, NetAmount: m(v.Net),
 		TaxAmount: m(v.Tax), GrossAmount: m(v.Gross), Status: v.Status, PaymentTermCode: apitypes.OptString(v.PaymentTermCode),
 		NetDueDate: apitypes.OptDate(v.NetDueDate), JournalEntryID: apitypes.OptUUID(v.EntryID),
 		Items: make([]gen.CustomerInvoiceItem, len(v.Items))}
@@ -108,7 +110,8 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 
 // CreateCustomerInvoice implements POST /v1/customer-invoices.
 func (e *Endpoints) CreateCustomerInvoice(ctx context.Context, req *gen.CustomerInvoiceCreate, _ gen.CreateCustomerInvoiceParams) (gen.CreateCustomerInvoiceRes, error) {
-	in := Input{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, InvoiceDate: req.InvoiceDate,
+	in := Input{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, Kind: req.Kind.Value,
+		ReferenceInvoiceID: apitypes.Ptr[uuid.UUID](req.ReferenceInvoiceID), InvoiceDate: req.InvoiceDate,
 		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Currency: req.Currency, PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode),
 		Items: make([]ItemInput, len(req.Items))}
 	for i, it := range req.Items {
@@ -167,7 +170,9 @@ func (e *Endpoints) ListCustomerInvoices(ctx context.Context, params gen.ListCus
 	}
 	le, customer := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerID)
 	from, to := apitypes.Ptr[time.Time](params.InvoiceDateFrom), apitypes.Ptr[time.Time](params.InvoiceDateTo)
-	scope := fmt.Sprintf("listCustomerInvoices|%s|%s|%s|%s|%v|%v", le, customer, params.Status.Value, params.DocumentNumber.Value, from, to)
+	reference := apitypes.Ptr[uuid.UUID](params.ReferenceInvoiceID)
+	scope := fmt.Sprintf("listCustomerInvoices|%s|%s|%s|%s|%v|%v|%s|%s", le, customer, params.Status.Value, params.DocumentNumber.Value, from, to,
+		params.Kind.Value, reference)
 	ks, err := e.Pages.Keyset(invoiceSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("receivables: page of customer invoices: %w", err)
@@ -178,8 +183,9 @@ func (e *Endpoints) ListCustomerInvoices(ctx context.Context, params gen.ListCus
 	}
 	q, args := ks.SQL(invoiceSelect+` WHERE ($1 OR i.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR i.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR i.customer_id = $4) AND ($5 = '' OR i.status = $5) AND ($6 = '' OR i.document_number = $6)
-		AND ($7::date IS NULL OR i.invoice_date >= $7) AND ($8::date IS NULL OR i.invoice_date <= $8)`,
-		[]any{access.All, access.IDs, le, customer, params.Status.Value, params.DocumentNumber.Value, from, to})
+		AND ($7::date IS NULL OR i.invoice_date >= $7) AND ($8::date IS NULL OR i.invoice_date <= $8)
+		AND ($9 = '' OR i.kind = $9) AND ($10::uuid IS NULL OR i.reference_invoice_id = $10)`,
+		[]any{access.All, access.IDs, le, customer, params.Status.Value, params.DocumentNumber.Value, from, to, params.Kind.Value, reference})
 	rows, _ := tx.Query(ctx, q, args...)
 	invoices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Invoice, error) { return scanInvoice(r) })
 	if err != nil {

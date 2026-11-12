@@ -3590,10 +3590,11 @@ components:
       title: Customer invoice changed
       summary: A customer invoice was entered.
       description: |
-        Emitted when a customer invoice is entered (ADR-0063 §9, T75a):
-        `draft`, status_before null. Its posting is CustomerInvoicePosted,
-        which is emitted alone. It carries the document's totals, not
-        its items, and names the customer by id and number, never by name.
+        Emitted when a customer invoice or credit memo is entered (ADR-0063
+        §9, T75a, T75d): `draft`, status_before null. Its posting is
+        CustomerInvoicePosted, which is emitted alone. It carries the
+        document's totals, not its items, and names the customer by id and
+        number, never by name. A credit memo's amounts are negative.
         `GET /v1/customer-invoices/{id}` returns the document at `version`
         or later. Subject is the customer invoice id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -3616,9 +3617,11 @@ components:
         Emitted when a draft customer invoice is posted (ADR-0063 §5, §9,
         T75b): its journal entry debits the customer's reconciliation
         account, and that line is the customer's open item with the payment
-        term and net due date given here. It carries the document's totals,
-        not its items, and names the customer by id and number, never by
-        name. `GET /v1/customer-invoices/{id}` returns the document at
+        term and net due date given here. A credit memo (kind `credit_memo`,
+        §7, T75d) credits that account, its amounts here are negative, and
+        its line is the customer's open credit item. It carries the
+        document's totals, not its items, and names the customer by id and
+        number, never by name. `GET /v1/customer-invoices/{id}` returns the document at
         `version` or later. Subject is the customer invoice id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
@@ -4281,11 +4284,13 @@ components:
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        kind: {type: string, description: 'Open enum: invoice.'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo.'}
+        reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits: `receivables.customer_invoice.id`; null on an invoice and on a credit memo naming none. Added within v1, so not required (ADR-0041); every event carries it."}
+        reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`. Added within v1, so not required (ADR-0041); every event carries it."}
         invoice_date: {$ref: '#/components/schemas/Date'}
-        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts."}
-        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax."}
-        gross_amount: {$ref: '#/components/schemas/Money', description: 'What the customer owes: net and tax.'}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts; negative for a credit memo."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax; negative for a credit memo."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: 'What the customer owes: net and tax; negative for a credit memo, which the customer is credited.'}
         status: {type: string, description: "The document's status after the change. Open enum: draft."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was entered.'}
         version: {type: integer, description: "The document's version after the change."}
@@ -4299,14 +4304,16 @@ components:
         legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
         customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
         customer_number: {type: string, description: "The customer's business partner number."}
-        kind: {type: string, description: 'Open enum: invoice.'}
+        kind: {type: string, description: 'Open enum: invoice, credit_memo.'}
+        reference_invoice_id: {type: [string, 'null'], format: uuid, description: "The invoice a credit memo credits: `receivables.customer_invoice.id`; null on an invoice and on a credit memo naming none. Added within v1, so not required (ADR-0041); every event carries it."}
+        reference_invoice_number: {type: [string, 'null'], description: "That invoice's document number; null with `reference_invoice_id`. Added within v1, so not required (ADR-0041); every event carries it."}
         invoice_date: {$ref: '#/components/schemas/Date'}
         posting_date: {$ref: '#/components/schemas/Date', description: The date it posted on.}
-        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts."}
-        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax."}
-        gross_amount: {$ref: '#/components/schemas/Money', description: "What the customer owes: net and tax, the open item's amount."}
-        payment_term_code: {type: string, description: "The payment term the open item keeps: the invoice's, else the customer's in the company."}
-        net_due_date: {$ref: '#/components/schemas/Date', description: "When the open item is due: the invoice date plus the term's net days."}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts; negative for a credit memo."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax; negative for a credit memo."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "What the customer owes: net and tax, the open item's amount; negative for a credit memo, an open credit item."}
+        payment_term_code: {type: string, description: "The payment term the open item keeps: the document's, else, for a credit memo naming an invoice, that invoice's, else the customer's in the company."}
+        net_due_date: {$ref: '#/components/schemas/Date', description: "When the open item is due: the invoice date plus the term's net days; for a credit memo keeping its invoice's term, when that invoice is due."}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the entry it posted.'}
         journal_entry_year: {type: integer, description: "The entry's fiscal year."}
         journal_entry_number: {type: string, description: "The entry's document number."}

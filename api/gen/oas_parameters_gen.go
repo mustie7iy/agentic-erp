@@ -43767,6 +43767,10 @@ type ListCustomerInvoicesParams struct {
 	CustomerID OptUUID `json:",omitempty,omitzero"`
 	// Only invoices in this status.
 	Status OptString `json:",omitempty,omitzero"`
+	// Only documents of this kind: `invoice` or `credit_memo`.
+	Kind OptString `json:",omitempty,omitzero"`
+	// Only the credit memos naming this invoice (`reference_invoice_id`).
+	ReferenceInvoiceID OptUUID `json:",omitempty,omitzero"`
 	// Only the document with this human document number.
 	DocumentNumber OptString `json:",omitempty,omitzero"`
 	// Only invoices dated on or after this date.
@@ -43809,6 +43813,24 @@ func unpackListCustomerInvoicesParams(packed middleware.Parameters) (params List
 		}
 		if v, ok := packed[key]; ok {
 			params.Status = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "kind",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Kind = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "reference_invoice_id",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ReferenceInvoiceID = v.(OptUUID)
 		}
 	}
 	{
@@ -43989,6 +44011,88 @@ func decodeListCustomerInvoicesParams(args [0]string, argsEscaped bool, r *http.
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "status",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: kind.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "kind",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotKindVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotKindVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Kind.SetTo(paramsDotKindVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "kind",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: reference_invoice_id.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "reference_invoice_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotReferenceInvoiceIDVal uuid.UUID
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToUUID(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotReferenceInvoiceIDVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ReferenceInvoiceID.SetTo(paramsDotReferenceInvoiceIDVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "reference_invoice_id",
 			In:   "query",
 			Err:  err,
 		}

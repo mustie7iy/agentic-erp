@@ -921,8 +921,14 @@ func (UnimplementedHandler) CreateCostCenter(ctx context.Context, req *CostCente
 // items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
 // `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
 // lines name (one code for every emirate) is refused, 422
-// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
-// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
+// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. With `kind`
+// `credit_memo` the document is a customer credit memo (ADR-0063 §7, T75d): entered the same way, its
+// amounts more than zero, its tax at its own date's rates, and posted with the signs turned. A credit
+// memo may name the invoice it credits (`reference_invoice_id`): a posted invoice of the same company
+// and customer in the memo's currency (422 `receivables.invalid_reference_invoice` naming the field
+// otherwise); an invoice names none (422 `receivables.reference_not_allowed`). A kind that is neither
+// is refused (422 `receivables.unknown_kind`). A retry with the same `Idempotency-Key` answers the
+// invoice entered. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices
 func (UnimplementedHandler) CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (r CreateCustomerInvoiceRes, _ error) {
@@ -3617,10 +3623,11 @@ func (UnimplementedHandler) ListCountryPacks(ctx context.Context, params ListCou
 
 // ListCustomerInvoices implements listCustomerInvoices operation.
 //
-// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a), each as
-// `getCustomerInvoice` gives it: with its company's code and name, its customer's number and name, its
-// totals and its items. Filtered by company, customer, status, document number and invoice date.
-// Sortable by: `invoice_date`, `document_number`.
+// The customer invoices of the companies the caller may act in (ADR-0063 §2, T75a) and the credit
+// memos (§7, T75d), each as `getCustomerInvoice` gives it: with its company's code and name, its
+// customer's number and name, its totals and its items. Filtered by company, customer, kind, the
+// invoice a credit memo names, status, document number and invoice date. Sortable by: `invoice_date`,
+// `document_number`.
 //
 // GET /v1/customer-invoices
 func (UnimplementedHandler) ListCustomerInvoices(ctx context.Context, params ListCustomerInvoicesParams) (r ListCustomerInvoicesRes, _ error) {
@@ -4786,8 +4793,22 @@ func (UnimplementedHandler) PostBankStatementLine(ctx context.Context, req OptSt
 // `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
 // draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
 // the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
-// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
-// Human-only (`x-agent: false`).
+// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo. A
+// credit memo (`kind` `credit_memo`, ADR-0063 §7, T75d) posts the same way with the signs turned: it
+// credits the customer's reconciliation account with its gross amount and debits each item's account
+// and output tax, at its own date's rates; the entry has the document type `DG`, and its credit line
+// is the customer's open credit item, which clears against the invoice (`createClearing`) or nets when
+// a payment is applied (`createIncomingPayment`). Its item keeps the term entered with the memo,
+// counted from the memo's date; without one, a memo naming an invoice keeps that invoice's term from
+// that invoice's date, so it is due when its invoice is, and a memo naming none the customer's term
+// from its own date. A credit memo naming an invoice (`reference_invoice_id`) posts only while the
+// gross amounts of the posted credit memos naming that invoice, with its own `gross_amount`, do not
+// exceed that invoice's `gross_amount`: 422 `receivables.credit_exceeds_invoice` otherwise, the
+// problem's `credit_limit` giving the invoice, its gross amount, the amount already credited and the
+// amount refused. The limit is the invoice's gross amount, not what is still open of it, so a paid
+// invoice is credited too; a credit memo naming no invoice has no such limit. It is checked under a
+// lock on the named invoice, so of two credit memos posted at once that together exceed it one is
+// refused. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices/{id}:post
 func (UnimplementedHandler) PostCustomerInvoice(ctx context.Context, req OptCustomerInvoicePost, params PostCustomerInvoiceParams) (r PostCustomerInvoiceRes, _ error) {

@@ -35,6 +35,14 @@ func (s *CustomerCompanyInput) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *CustomerInvoiceCreate) setDefaults() {
+	{
+		val := string("invoice")
+		s.Kind.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *EntryTemplateCreate) setDefaults() {
 	{
 		val := string("SA")

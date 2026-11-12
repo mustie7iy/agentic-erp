@@ -4006,6 +4006,14 @@ T75c (migration 000268) applies an incoming payment waiting on a house
 bank's incoming payments clearing account (ADR-0047) to a customer's open
 items, in full and exactly: a document written once, naming the receipt's
 entry and the ledger's clearing entry that cleared receipt and items.
+T75d (migration 000269) adds the kind `credit_memo` and
+`reference_invoice_id`, the posted invoice a credit memo credits: only a
+credit memo names one, a document of the tenant and never itself
+(`customer_invoice_reference_on_credit`, `_reference_fkey`,
+`_reference_not_itself`). That the invoice named is a posted invoice of the
+same company, customer and currency is checked at entry, and that the
+posted credit memos naming it stay within its gross amount at posting,
+under that invoice's row lock (ADR-0063 §7).
 
 ```mermaid
 erDiagram
@@ -4014,7 +4022,8 @@ erDiagram
     text document_number "customer_invoice range, unique per company"
     uuid legal_entity_id "tenancy"
     uuid customer_id "partner, customer role"
-    text kind "invoice"
+    text kind "invoice, credit_memo"
+    uuid reference_invoice_id "the invoice a credit memo credits, optional"
     date invoice_date "the tax date"
     date posting_date "optional; set when posted"
     char currency

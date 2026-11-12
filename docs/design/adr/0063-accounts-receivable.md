@@ -4,7 +4,7 @@
 `go-reviewer` had no blocking finding on T75a's last commit). It decides
 the receivables context and the documents of T75a-T75e
 (`docs/design/plan-breadth-week1.md`, Lane A). Each slice records what it
-built under "As built"; T75a's, T75b's and T75c's are there now. The
+built under "As built"; T75a's, T75b's, T75c's and T75d's are there now. The
 defaults taken and the questions left are listed at the end for the product
 owner's digest.
 
@@ -160,11 +160,19 @@ undone in the first version (plan, "Later").
 
 ### 7. Credit memos (T75d)
 A customer credit memo is the same document with the kind `credit_memo`,
-posted with the signs turned. One naming an invoice may not exceed that
-invoice's gross, checked at posting under the invoice's row lock, as the
-product owner decided for supplier credit memos (2026-11-10) — plan
-default 5, to confirm (question 7 of the plan). Its tax is at its own
-date.
+posted with the signs turned: credit the customer, debit each item's
+account and output tax. Its amounts are never negative; the kind gives
+their direction. It may name the invoice it credits
+(`reference_invoice_id`): a posted invoice of the same company and
+customer in its currency. The posted credit memos naming an invoice may
+not together exceed that invoice's gross, checked at posting under the
+invoice's row lock, as the product owner decided for supplier credit memos
+(2026-11-10) — plan default 5, to confirm (question 7 of the plan). The
+limit is the gross, not what is open of it, so a paid invoice is credited
+too; a memo naming no invoice has no limit. Its tax is at its own date.
+Its credit line is the customer's open credit item: it clears against the
+invoice through the ledger's clearing, or nets when an incoming payment is
+applied (§6).
 
 ### 8. Permissions and agents
 `receivables.invoice.read`, `receivables.invoice.write` (entering) and
@@ -374,6 +382,98 @@ Plan defaults 1-5 above. Taken in T75a beside them:
 - Known limit, the ledger's (ADR-0049 §7 As built): an output tax code
   whose components share one account is refused at posting, 422
   `ledger.output_tax_mismatch`, as a manual entry with it is.
+
+### T75d Customer credit memo (migration 000269)
+- `internal/receivables/kinds.go`: the kinds `invoice` and `credit_memo`.
+  `POST /v1/customer-invoices` takes `kind` (absent: an invoice) and, on a
+  credit memo, `reference_invoice_id`; no new operation or table. A kind
+  that is neither is refused, 422 `receivables.unknown_kind`; a reference
+  on an invoice, 422 `receivables.reference_not_allowed`; a reference
+  that is not a posted invoice of the same company and customer in the
+  memo's currency (a draft, a credit memo, another customer's, another
+  company's, one that does not exist), 422
+  `receivables.invalid_reference_invoice`; each names the request's field.
+  A memo is entered as an invoice is: items more than zero, each item's
+  tax what its output code gives at the memo's own date.
+- `POST /v1/customer-invoices/{id}:post` posts a memo with the signs
+  turned (`signed`): Cr the customer's reconciliation account with the
+  customer, the gross; Dr each item's account, its net, with its tax code
+  and centers; Dr output tax per code and component. The entry has the
+  document type `DG` (number range `journal_dg`), the header text
+  "Customer credit memo <number>", the memo's date as document and tax
+  date and `source_context` `receivables`; the ledger derives its tax
+  items from the lines as for an invoice, negative.
+- **The limit** (`creditedInvoice`): posting a memo that names an invoice
+  reads that invoice `FOR UPDATE` (ADR-0008) and sums the gross amounts of
+  the posted credit memos naming it, in minor units; with the memo's own
+  gross they may not exceed the invoice's gross (422
+  `receivables.credit_exceeds_invoice`, naming `gross_amount`, with the
+  problem's `credit_limit`: the invoice by id and number, its gross, the
+  amount credited and the amount refused). The refusal is the one
+  payables gives, made once for both contexts by
+  `problem.CreditExceedsInvoice` (`internal/platform/problem`), which
+  payables' `requireWithinInvoice` now calls too, its answer unchanged;
+  each context keeps its own lock and sum. A refused memo stays a draft and does not count; of two
+  memos posted at once that together exceed the invoice, the second waits
+  for the lock, counts the first and is refused. The memo's row is locked
+  before its invoice's and nothing locks them the other way round. A memo
+  naming no invoice is not limited. Only the application enforces the
+  limit, as for suppliers: it reads other rows, which a check constraint
+  cannot.
+- **Terms.** A memo's open item keeps the term entered with the memo,
+  counted from the memo's date; without one, a memo naming an invoice
+  keeps that invoice's term from that invoice's date, so it is due when
+  its invoice is and ages with it (T75e); a memo naming none keeps the
+  customer's term in the company from its own date.
+- Migration 000269: `reference_invoice_id` on
+  `receivables.customer_invoice` (`customer_invoice_reference_fkey` to a
+  document of the tenant; `customer_invoice_reference_on_credit`, only a
+  credit memo names one; `customer_invoice_reference_not_itself`); the
+  kind `credit_memo`; the index `customer_invoice_by_reference`. The
+  column is not among those posting may update, so a reference is fixed
+  once entered. Schema tests in `db/receivables_test.go`
+  (`TestCustomerCreditMemoRules`).
+- The document shows `reference_invoice_id` and
+  `reference_invoice_number`; `GET /v1/customer-invoices` filters by
+  `kind` and `reference_invoice_id`. In the API a memo's amounts are
+  positive, as the document keeps them. `CustomerInvoiceChanged` and
+  `CustomerInvoicePosted` carry `kind` `credit_memo`,
+  `reference_invoice_id` and `reference_invoice_number` (null without)
+  and the memo's amounts **negative**, as payables' events carry a supplier credit memo's, so a
+  consumer adding up `gross_amount` has what the customer owes; the audit
+  records carry the kind.
+- **Netting and clearing.** No ledger change was needed: a memo's credit
+  line is an open item with a negative amount, which
+  `ledger.Postings.ApplyReceipt` nets (T75c) and `createClearing` clears
+  against the invoice when the two balance.
+  `TestCreditMemoNetsAndClears` applies a receipt of 100.00 to an invoice
+  of 119.00 and its memo of 19.00 together, exactly, and clears an invoice
+  credited in full against its memo through `POST /v1/clearings`.
+- Walkthrough `step_customer_credit` (step 50): Ruth enters and posts a
+  second invoice to Northwind, CAD 2,100.00, and a credit memo naming it,
+  CAD 420.00; the DG entry credits Northwind on 1200 and debits 4000 and
+  2300; invoice and memo are Northwind's open items, CAD 1,680.00 net; a
+  second memo of CAD 1,680.01 is refused at posting with the figures.
+  Step 2 adds the `journal_dg` number range.
+- **Decided by default:** (1) the journal document type is `DG` with its
+  own range `journal_dg` (SAP's customer credit memo type, stated from
+  memory, not checked against a source in the lane); (2) a memo draws its
+  document number from the `customer_invoice` range, being the same
+  document; (3) the terms rule above: payables gives a supplier credit
+  memo naming an invoice that invoice's terms, which is followed; a
+  supplier memo naming none has no terms and is due at once, which is not
+  followed, since a posted customer document always names its term and due
+  date (`customer_invoice_posted`, `CustomerInvoicePosted`): such a memo
+  takes the customer's term from its own date; (4) events carry a memo's
+  amounts negative, the API positive (above); (5) only credit memos count
+  against the limit, there being no other credit kind, and none is
+  reversed in the first version, so no credit is ever freed; (6) entering
+  and posting a memo take the invoice's permissions and are human-only,
+  as an invoice's are; (7) the list filters `kind` and
+  `reference_invoice_id` were added so the credits of an invoice can be
+  found (REVIEW.md, API-consumer classes).
+- Not built, by the plan: debit memos, credit memos from returns and
+  credit memo requests, paying a credit out, reversal.
 
 ### T75c Incoming payment applied to a customer's invoices (migration 000268)
 - **The receipt.** A statement credit matched `incoming: true` posts Dr
