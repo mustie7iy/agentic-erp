@@ -26,7 +26,12 @@ recognition); RFQ events, Bid comparison agent and Award to contract
 (Sourcing, RFQ and bid analysis); Scheduling agreements (Contracts and
 scheduling agreements); Catalog connector (punch-out) and Requisitions from
 catalogs (Catalogs and guided buying). They give 20 slices and 17 "later"
-leaves.
+leaves; the agent of the Bid comparison agent placeholder stays an open
+leaf of its own for week 3, which takes the thin agents.
+
+Pricing's two placeholders are split here because the chain needs them: a
+quotation or an order has to be priced. Rebates, which settle after
+billing, are not on the week 2 list and are left (see "Open leaves").
 
 ## What every slice reuses
 
@@ -58,13 +63,14 @@ and the industry packs are outside the required scope. Where the sales
 chain touches them, the plan stops at the boundary or uses the thinnest
 stand-in inside the required scope, and no leaf of those areas is touched:
 
-- **No material master** (Supply chain › Material master). A quotation,
-  order, price, RFQ or catalog item names what is sold or bought by a
-  free-text `item_key` and a description, with its unit of measure from
-  `ref`, as procurement's items do with `material_key`
-  (`internal/procurement/requisitions.go`, `Item`). `material_id` is not
-  added to the new tables; 03 §3.16's shared `material` master joins them
-  when it is built.
+- **No material master** (Supply chain › Material master). A quotation
+  or order item names what is sold by a description and an optional
+  free-text `item_key` (T78a adds it; T80a's prices are found by it), with
+  its unit of measure from `ref`. RFQ and catalog items name what is
+  bought as procurement's items already do, by description and
+  `material_key` (`internal/procurement/requisitions.go`, `Item`).
+  `material_id` is not added to the new tables; 03 §3.16's shared
+  `material` master joins them when it is built.
 - **No stock, picking, goods issue or availability check** (Supply chain ›
   Shipping and delivery, Inventory management, Available-to-promise). T78c
   is a **delivery confirmation** kept in the sales context: a person
@@ -99,12 +105,18 @@ T78c, T79a ∥ T80a, T80b ∥ T82c, T82d; day 3 T79b, T77b ∥ T81a, T81b ∥ T8
 T83b; day 4 T81c, T81d. Days 5 to 7 are left for what the batches' gates
 and the reviews send back.
 
-What merges first: on day 1 lane C before lane B (both add to
-`internal/procurement`, in different files; they share the `Endpoints`
-value and its wiring). From day 2 lane A before lane B, which stacks on it:
+What merges first: on day 1 lane C before lane B. Both add to
+`internal/procurement`: each slice keeps its handlers in a file of its
+own (`catalog_api.go`, `rfq_api.go`, `schedule_api.go`, as
+`grir_clearing_api.go` does), so `api.go` changes only in T84b (the
+requisition item's conversion) and in T83a (the contract's kind); they
+share the `Endpoints` value and its wiring. From day 2 lane A before lane
+B, which stacks on it:
 T80a changes the function that prices an item in the quotation and order
 files, which lane A does not change after T78b; T81a to T81d only read the
-sales context through ports. T77b waits for T77a (`internal/credit`, ADR-0066,
+sales context through `sales.Orders`, to which lane A's own slices add
+what they build (T78c the deliveries, T79a and T79b the billing). T77b
+waits for T77a (`internal/credit`, ADR-0066,
 batch 68) to be in `main`. `api/openapi.yaml`, `api/gen`, migration numbers,
 `internal/app` wiring, `internal/layout`'s import table,
 `scripts/walkthrough.sh` and the tracker are shared by every slice and
@@ -157,8 +169,9 @@ Integration renumbers on a clash.
 ### T78a Quotation to a customer
 
 **Capability.** A sales representative creates a quotation for a customer
-(valid until a date; items by description with quantity, unit, unit price,
-revenue account and output tax code), reads it back with its net value, and
+(valid until a date; items by description and optional item key with
+quantity, unit, unit price, revenue account and output tax code), reads it
+back with its net value, and
 records that the customer accepted or rejected it.
 
 - **Reuses:** `partner.Postings.PostingBlock` with kind `customer` (the
@@ -240,7 +253,8 @@ still open.
   `POST /v1/sales-orders/{id}/deliveries`,
   `GET /v1/sales-orders/{id}/deliveries`; event `SalesOrderDelivered`;
   permission `sales.delivery.confirm`; `delivered_quantity` per order item
-  in the order's representation and in `sales.Orders`.
+  in the order's representation; in `sales.Orders` each item's deliveries
+  (date and quantity), which T81c reads.
 - **Walkthrough:** `step_sales_order` extended: the order's items are
   confirmed as delivered; the order reads as fully delivered.
 - **Acceptance:** only a confirmed order takes a delivery; a quantity above
@@ -264,19 +278,24 @@ its items are the order's delivered quantities not yet billed, at the
 order's prices, and it reads back with its net value.
 
 - **Reuses:** T78c's delivered quantities, the order's row lock, the number
-  ranges, T78a's item value.
+  ranges, T78a's item value (the order item's net value, after T80b's
+  discounts once they exist).
 - **Adds:** tables `sales.billing_document`, `sales.billing_document_item`;
   `POST /v1/billing-documents` (order, billing date),
   `GET /v1/billing-documents`, `GET /v1/billing-documents/{id}`; event
   `BillingDocumentChanged`; permissions `sales.billing.read`, `.write`,
   `.post`; number range `billing_document`; `billed_quantity` per order
-  item in the order's representation and in `sales.Orders`.
+  item in the order's representation.
 - **Walkthrough:** `step_billing`: a billing document is created for the
   delivered order of `step_sales_order`; its items and net value are the
   order's.
 - **Acceptance:** each item bills the delivered quantity less what earlier
   billing documents of the order took, under the order's lock, so two
-  requests never bill a quantity twice; an order with nothing to bill is
+  requests never bill a quantity twice; an item's amount is the order
+  item's net value × the quantity billed so far, this document included,
+  ÷ the ordered quantity, less what earlier documents billed, so the
+  documents of a fully billed item add up to its net value to the minor
+  unit, the last taking the remainder; an order with nothing to bill is
   refused (422); a replay answers the same document; nothing is posted.
 - **Depends on:** T78c.
 
@@ -307,7 +326,8 @@ incoming payment.
   `receivables.customer_invoice` the document the invoice came from
   (`source_document_id`, `source_document_number`, both optional), shown on
   the customer invoice; `customer_invoice_id` and the invoice's number on
-  the billing document. No new table.
+  the billing document; in `sales.Orders` each item's posted billing (net
+  amount and posting date), which T81d reads. No new table.
 - **Walkthrough:** `step_billing` extended: the document is posted; the
   customer invoice names it; receivables, revenue and output tax moved by
   its amounts; a statement credit for its gross is applied to it as
@@ -450,8 +470,8 @@ date.
   unit, unit price, price unit, currency, valid from and to; insert-only);
   `POST /v1/sales-prices`, `GET /v1/sales-prices`,
   `GET /v1/sales-prices/{id}`; event `SalesPriceChanged`; permissions
-  `sales.price.read`, `.write`; `item_key` and `price_source` (`manual` or
-  `price_list`) on quotation and order items.
+  `sales.price.read`, `.write`; `price_source` (`manual` or `price_list`)
+  on quotation and order items.
 - **Walkthrough:** `step_price_list`: a general price and a price for the
   customer of `step_customer` are recorded for one item key; a quotation
   item naming the key without a price takes the customer's price, and
@@ -495,8 +515,8 @@ each condition applied and the net value after it.
   it, rounded half away from zero; the item's
   net value is its value less its discounts, exact in minor units; a
   record naming an unknown condition type is refused; a tenant without a
-  pricing procedure prices as T80a does; a condition type in use cannot be
-  removed from the configuration.
+  pricing procedure prices as T80a does; a condition type is never removed
+  once activated, as a payment term is not (`partner.PaymentTerms.Check`).
 - **Depends on:** T80a.
 
 **Later for Condition types and pricing procedures (after 1 December):**
@@ -521,7 +541,8 @@ reads it back: the customer, the transaction price and each obligation.
   event `RevenueContractChanged`; permissions `revenue.contract.read`,
   `.write`; ADR-0068.
 - **Walkthrough:** `step_revenue_contract`: a second order with two items
-  (goods, and a support service of twelve months) is confirmed and a
+  (goods, and a support service for the current fiscal year) is confirmed
+  and a
   revenue contract is created for it; it reads back with two obligations
   and the order's net value as its transaction price.
 - **Acceptance:** one contract per sales order (a second is refused, 409;
@@ -555,7 +576,9 @@ price is allocated to the obligations in proportion to those prices.
   `service_to`, `standalone_selling_price` and `allocated_amount` on the
   obligation; permission `revenue.contract.activate`. No new table.
 - **Walkthrough:** `step_revenue_contract` extended: the service is set to
-  over time with its twelve months and a stand-alone selling price above
+  over time, the fiscal year of the company's date today as its service
+  period (so the step needs no other year's calendar), with a stand-alone
+  selling price above
   its order price; the contract is activated; the two allocated amounts
   add up to the transaction price and differ from the order's item
   values as the proportion gives.
@@ -582,14 +605,14 @@ recognition schedule: per obligation and fiscal period, the revenue
 recognized so far and planned.
 
 - **Reuses:** `ledger.Calendar.Periods` (the company's fiscal periods),
-  `sales.Orders` with T78c's delivered quantities and delivery dates,
-  `money.Allocate`.
+  `sales.Orders` with the deliveries T78c put there (date and quantity
+  per item), `money.Allocate`.
 - **Adds:** `GET /v1/revenue-contracts/{id}/schedule`; no table: the
   schedule is computed on read from the obligations and the deliveries.
 - **Walkthrough:** `step_revenue_schedule`: after the goods of
   `step_revenue_contract`'s order are confirmed as delivered, the
   schedule shows the goods' allocated amount in the delivery's period and
-  the service's spread over its twelve months.
+  the service's spread over the fiscal year's periods by their days.
 - **Acceptance:** a point-in-time obligation's amount falls in the periods
   of its deliveries, in proportion to the quantity delivered, the last
   delivery taking the remainder; an undelivered quantity is shown as not
@@ -602,13 +625,14 @@ recognized so far and planned.
 ### T81d Recognition run posted
 
 **Capability.** The revenue accountant runs revenue recognition for a
-company and a period: for each active contract, the difference between
-the revenue recognized to the period's end and the revenue billed to it
-is posted, to a contract liability when more was billed and to a contract
-asset when more was recognized.
+company and a period: for each active contract, revenue is brought to
+what is recognized to the period's end, and the contract's position, the
+revenue recognized less the revenue billed to that date, stands as one
+contract asset when it is positive or one contract liability when it is
+negative.
 
-- **Reuses:** T81c's schedule, `sales.Orders` with T79a's billed
-  quantities and T79b's posted billing documents and their posting dates,
+- **Reuses:** T81c's schedule, `sales.Orders` with the posted billing
+  T79b put there (net amount and posting date per item),
   `ledger.Postings.Post` with `source_context` `revenue`,
   `ledger.Accounts.Determination` and `companies[].account_determination`
   (`internal/config/config.go`, `AccountDetermination`),
@@ -623,19 +647,25 @@ asset when more was recognized.
   `contract_liability` and `contract_asset`.
 - **Walkthrough:** `step_revenue_schedule` extended: the order of
   `step_revenue_contract` is billed in full and posted; the run for the
-  period posts one entry; the service's revenue account shows one period's
-  share, the goods' account the goods' allocated amount, and the contract
-  liability the rest of what was billed.
+  current period posts one entry; the service's revenue account shows
+  the share of the year's days up to the period's end, the goods' account
+  the goods' allocated amount, and the contract liability the rest of
+  what was billed.
 - **Acceptance:** per obligation the entry moves the item's revenue
   account by the cumulative revenue recognized less the cumulative
-  revenue billed less what earlier runs posted, and the net of a
-  contract's lines goes to the contract liability account when it is a
-  credit and to the contract asset account when it is a debit; the entry
-  balances; a contract with nothing to adjust posts nothing; one run per
-  company and period (a second is refused, a replay answers the same) and
-  periods are run in order; a document dated into a period already run is
-  caught up by the next run, since the amounts are cumulative; a company
-  without the two accounts is refused (422); the period must be open.
+  revenue billed, less what earlier runs posted for it; the contract's
+  position is the sum of those cumulative differences, and the entry
+  takes the position the last run left off its account and puts the new
+  one on the contract asset account when it is a debit or the contract
+  liability account when it is a credit, so a contract never shows both
+  (a test takes one contract from a liability in one period to an asset
+  in the next); the entry balances; a contract whose figures did not move
+  posts nothing; one run per company and period (a second is refused, a
+  replay answers the same); a company's first run is for any open period
+  and each later run for a later period than its last; a document dated
+  into a period already run is caught up by the next run, since the
+  amounts are cumulative; a company without the two accounts is refused
+  (422); the period must be open.
 - **Depends on:** T81c, T79b.
 
 **Later for Recognition schedules (after 1 December):** measures of
@@ -658,7 +688,8 @@ currency, a date quotations are due, items with quantity and unit, the
 suppliers invited) and publishes it.
 
 - **Reuses:** `internal/procurement` (`ItemInput` without a price, the
-  `quantity` check, `e.supplier` for each invited supplier, `e.account`,
+  `quantity` check, the check behind `e.supplier` for each invited
+  supplier, its refusal naming that supplier's own field, `e.account`,
   `e.number`, `e.todayOf`, the status transition pattern of
   `changeContract`), `partner.Payees.Names` through the `SupplierNames`
   port.
@@ -722,9 +753,12 @@ with the lowest price per item marked.
   the company's date today is marked as expired and unranked.
 - **Depends on:** T82b.
 
-**Later for Bid comparison agent (after 1 December):** the agent that
-reads the comparison and recommends an award with its reasons (never
-awards); criteria other than price (delivery time, payment terms,
+**The agent** that reads this comparison and recommends an award with
+its reasons (it never awards) is not a variant: it stays an open leaf
+under this placeholder for week 3, which takes the thin agents.
+
+**Later for Bid comparison (after 1 December):** criteria other than
+price (delivery time, payment terms,
 supplier evaluation scores) and their weights; comparison against the
 last purchase price and the contract price; total cost of ownership;
 export of the comparison.
@@ -872,8 +906,8 @@ How the slices use them, and no further:
   quantity confirmed as delivered (T78c is the first version's evidence
   that control passed; question 2); for an over-time obligation, the
   straight line of statement 5 by days (T81c); the contract liability or
-  asset of statement 6 as the difference between revenue recognized and
-  revenue billed, per contract (T81d).
+  asset of statement 6 as the contract's one position, revenue recognized
+  less revenue billed (T81d).
 - An order **without** a revenue contract is recognized as it is billed:
   T79b's invoice credits revenue, and billing bills only delivered
   quantities, so revenue is never recognized before the delivery
@@ -906,6 +940,12 @@ Not split here; each stays as it is in the tracker.
   and usage billing (four leaves).** Tracker phases 6 and 7; not on the
   week 2 list.
 - **Finance › Credit management: Credit scoring agent.** An agent; week 3.
+- **Sourcing and procurement › Sourcing, RFQ and bid analysis: the bid
+  comparison agent** (a new leaf under the split placeholder). An agent;
+  week 3. T82c gives it the comparison to read.
+- **Sourcing and procurement › Contracts and scheduling agreements:
+  procurement's other events naming the supplier** (review:batch28). A
+  review finding on built code, not a placeholder; not this plan's.
 - **Sourcing and procurement › Supplier network (cXML, EDI); Services and
   contingent workforce; Spend analytics.** Not on the week 2 list; spend
   analytics belongs with week 3's analytics.
@@ -938,8 +978,9 @@ that makes the main path work, and the slice records it in its ADR.
 5. A delivery is a confirmation by a person, in the sales context: no
    stock, no goods issue, no cost of goods sold.
 6. Billing bills delivered quantities only, one order per billing
-   document, at the order's prices; a created billing document holds its
-   quantities and is not cancelled in the first version.
+   document, at the order's prices, the last document of an item taking
+   the rounding remainder of its net value; a created billing document
+   holds its quantities and is not cancelled in the first version.
 7. A billing document posts as one customer invoice in receivables with
    the billing date as invoice and tax date; the customer invoice is the
    accounting record, not the legal tax invoice (week 1's default 1).
@@ -960,11 +1001,11 @@ that makes the main path work, and the slice records it in its ADR.
 12. A point-in-time obligation is recognized in proportion to the
     quantity confirmed as delivered; an over-time obligation on a
     straight line by days over its service period.
-13. The recognition run posts, per contract and period, the cumulative
-    difference between revenue recognized and revenue billed, to one
-    contract liability and one contract asset account per company
-    (account determination); one run per company and period,
-    synchronous, not reversible in the first version.
+13. The recognition run brings each contract, per period, to its
+    cumulative position, revenue recognized less revenue billed: one
+    contract asset or one contract liability, never both, on one account
+    of each kind per company (account determination); one run per
+    company and period, synchronous, not reversible in the first version.
 14. An RFQ is free-standing (no requisition), its quotations are recorded
     by the buyer, one per invited supplier, in the RFQ's currency.
 15. The comparison ranks complete, valid quotations by total price alone.

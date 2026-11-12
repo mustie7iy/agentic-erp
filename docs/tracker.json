@@ -2758,7 +2758,7 @@
        },
        {
         "s": "T",
-        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, options, warranties), contract modifications, contracts in a foreign currency, contracts without a sales order or created automatically, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (each needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: revenue contract variants: combining several orders into one contract and one order into several, obligations that are not order items (bundles, implied promises, options and material rights, warranties), contract modifications, contracts in a foreign currency, contracts without a sales order or created automatically, principal or agent, costs to obtain and fulfil a contract, disclosures, taking contracts over from SAP RAR (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T81a, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -2779,7 +2779,7 @@
        },
        {
         "s": "T",
-        "t": "later: price allocation variants: variable consideration and its constraint, a discount or variable amount allocated to some obligations only, a significant financing component, non-cash consideration and consideration payable to a customer, estimating stand-alone selling prices and keeping them as master data, reallocation after a modification (each needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: price allocation variants: variable consideration and its constraint, a discount or variable amount allocated to some obligations only, a significant financing component, non-cash consideration and consideration payable to a customer, estimating stand-alone selling prices and keeping them as master data, reallocation after a modification (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T81b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -2800,14 +2800,14 @@
        },
        {
         "s": "T",
-        "t": "The revenue accountant runs revenue recognition for a company and a period: per active contract the difference between revenue recognized and revenue billed to the period's end is posted, to a contract liability or a contract asset (POST /v1/revenue-recognition-runs)",
+        "t": "The revenue accountant runs revenue recognition for a company and a period: per active contract revenue is brought to what is recognized to the period's end, and the contract's position, revenue recognized less revenue billed, stands as one contract asset or one contract liability (POST /v1/revenue-recognition-runs)",
         "r": "T81d · docs/design/plan-breadth-week2.md §T81d",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
         "s": "T",
-        "t": "later: recognition variants: measures of progress other than time elapsed, recognition at a point other than the delivery confirmation, reversing a run, the run as a close task and as a workflow for large volumes, reclassifying between contract asset and receivable, remaining performance obligations and the other IFRS 15 disclosures, contract balances in the cash forecast and analytics, a parallel ledger under another accounting principle (each needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: recognition variants: measures of progress other than time elapsed, recognition at a point other than the delivery confirmation, reversing a run, the run as a close task and as a workflow for large volumes, reclassifying between contract asset and receivable, remaining performance obligations and the other IFRS 15 disclosures, contract balances in the cash forecast and analytics, a parallel ledger under another accounting principle (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T81d, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -4275,7 +4275,7 @@
      {
       "s": "T",
       "t": "Bid comparison agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
+      "r": "split once into a first-version slice, the agent as a leaf for week 3 and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
         "s": "T",
@@ -4286,7 +4286,14 @@
        },
        {
         "s": "T",
-        "t": "later: bid comparison variants: the agent that reads the comparison and recommends an award with its reasons (never awards), criteria other than price and their weights, comparison against the last purchase price and the contract price, total cost of ownership, export of the comparison (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "The bid comparison agent reads an RFQ's comparison and recommends an award with its reasons; it never awards",
+        "r": "week 3 with the thin agents (roadmap of 2026-11-10) · reads GET /v1/rfqs/{id}/comparison · docs/design/plan-breadth-week2.md §T82c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: bid comparison variants: criteria other than price and their weights, comparison against the last purchase price and the contract price, total cost of ownership, export of the comparison (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T82c, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -4480,7 +4487,7 @@
       "c": [
        {
         "s": "T",
-        "t": "A sales representative creates a quotation for a customer (items with quantity, unit, unit price, revenue account and output tax code, valid until a date), reads it back with its net value and records that the customer accepted or rejected it; the sales context and its ADR",
+        "t": "A sales representative creates a quotation for a customer (items by description and optional item key with quantity, unit, unit price, revenue account and output tax code, valid until a date), reads it back with its net value and records that the customer accepted or rejected it; the sales context and its ADR",
         "r": "T78a · docs/design/plan-breadth-week2.md §T78a",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
