@@ -21765,6 +21765,7 @@ func (*ConflictHeaders) createPurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) createPurchaseOrderRes()                   {}
 func (*ConflictHeaders) createRecommendationRes()                  {}
 func (*ConflictHeaders) createRequisitionRes()                     {}
+func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
 func (*ConflictHeaders) createSegmentRes()                         {}
@@ -21851,6 +21852,7 @@ func (*ConflictHeaders) proposeForecastVarianceCommentRes()        {}
 func (*ConflictHeaders) proposeMemoRecordRes()                     {}
 func (*ConflictHeaders) proposePaymentRunRes()                     {}
 func (*ConflictHeaders) proposeVarianceCommentRes()                {}
+func (*ConflictHeaders) publishRfqRes()                            {}
 func (*ConflictHeaders) realiseMemoRecordRes()                     {}
 func (*ConflictHeaders) reconcileMigrationRunRes()                 {}
 func (*ConflictHeaders) recordAgentToolCallRes()                   {}
@@ -27657,6 +27659,22 @@ func (*CreateRequisitionPreconditionRequired) createRequisitionRes() {}
 type CreateRequisitionUnprocessableEntity Problem
 
 func (*CreateRequisitionUnprocessableEntity) createRequisitionRes() {}
+
+type CreateRfqBadRequest Problem
+
+func (*CreateRfqBadRequest) createRfqRes() {}
+
+type CreateRfqForbidden Problem
+
+func (*CreateRfqForbidden) createRfqRes() {}
+
+type CreateRfqPreconditionRequired Problem
+
+func (*CreateRfqPreconditionRequired) createRfqRes() {}
+
+type CreateRfqUnprocessableEntity Problem
+
+func (*CreateRfqUnprocessableEntity) createRfqRes() {}
 
 type CreateRoleAssignmentBadRequest Problem
 
@@ -37211,6 +37229,46 @@ func (s *GetRevaluationRunOKHeaders) SetResponse(val RevaluationRun) {
 }
 
 func (*GetRevaluationRunOKHeaders) getRevaluationRunRes() {}
+
+type GetRfqBadRequest Problem
+
+func (*GetRfqBadRequest) getRfqRes() {}
+
+type GetRfqForbidden Problem
+
+func (*GetRfqForbidden) getRfqRes() {}
+
+type GetRfqNotFound Problem
+
+func (*GetRfqNotFound) getRfqRes() {}
+
+// GetRfqOKHeaders wraps Rfq with response headers.
+type GetRfqOKHeaders struct {
+	ETag     OptString
+	Response Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *GetRfqOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetRfqOKHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetRfqOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetRfqOKHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*GetRfqOKHeaders) getRfqRes() {}
 
 type GetRoleAssignmentBadRequest Problem
 
@@ -47409,6 +47467,14 @@ func (*ListRevaluationRunsBadRequest) listRevaluationRunsRes() {}
 type ListRevaluationRunsForbidden Problem
 
 func (*ListRevaluationRunsForbidden) listRevaluationRunsRes() {}
+
+type ListRfqsBadRequest Problem
+
+func (*ListRfqsBadRequest) listRfqsRes() {}
+
+type ListRfqsForbidden Problem
+
+func (*ListRfqsForbidden) listRfqsRes() {}
 
 type ListRoleAssignmentsBadRequest Problem
 
@@ -63853,6 +63919,69 @@ type ProposeVarianceCommentUnprocessableEntity Problem
 
 func (*ProposeVarianceCommentUnprocessableEntity) proposeVarianceCommentRes() {}
 
+type PublishRfqBadRequest Problem
+
+func (*PublishRfqBadRequest) publishRfqRes() {}
+
+type PublishRfqForbidden Problem
+
+func (*PublishRfqForbidden) publishRfqRes() {}
+
+type PublishRfqNotFound Problem
+
+func (*PublishRfqNotFound) publishRfqRes() {}
+
+// PublishRfqOKHeaders wraps Rfq with response headers.
+type PublishRfqOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *PublishRfqOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PublishRfqOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PublishRfqOKHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PublishRfqOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PublishRfqOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PublishRfqOKHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*PublishRfqOKHeaders) publishRfqRes() {}
+
+type PublishRfqPreconditionFailed Problem
+
+func (*PublishRfqPreconditionFailed) publishRfqRes() {}
+
+type PublishRfqPreconditionRequired Problem
+
+func (*PublishRfqPreconditionRequired) publishRfqRes() {}
+
+type PublishRfqUnprocessableEntity Problem
+
+func (*PublishRfqUnprocessableEntity) publishRfqRes() {}
+
 // Merged schema.
 // Ref: #/components/schemas/PurchaseOrder
 type PurchaseOrder struct {
@@ -68623,6 +68752,434 @@ type ReverseSupplierInvoiceUnprocessableEntity Problem
 func (*ReverseSupplierInvoiceUnprocessableEntity) reverseSupplierInvoiceRes() {}
 
 // Merged schema.
+// Ref: #/components/schemas/Rfq
+type Rfq struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// Document number.
+	DocumentNumber string `json:"document_number"`
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The currency quotations are given in.
+	Currency string `json:"currency"`
+	// The date quotations are due.
+	DueDate time.Time `json:"due_date"`
+	// Lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values
+	// may be added within /v1.
+	Status string `json:"status"`
+	// The items asked for, by item number.
+	Items []RfqItem `json:"items"`
+	// The suppliers invited, in the order they were named.
+	Suppliers []RfqSupplier `json:"suppliers"`
+}
+
+// GetID returns the value of ID.
+func (s *Rfq) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *Rfq) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Rfq) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *Rfq) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Rfq) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *Rfq) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *Rfq) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *Rfq) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *Rfq) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *Rfq) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetStatus returns the value of Status.
+func (s *Rfq) GetStatus() string {
+	return s.Status
+}
+
+// GetItems returns the value of Items.
+func (s *Rfq) GetItems() []RfqItem {
+	return s.Items
+}
+
+// GetSuppliers returns the value of Suppliers.
+func (s *Rfq) GetSuppliers() []RfqSupplier {
+	return s.Suppliers
+}
+
+// SetID sets the value of ID.
+func (s *Rfq) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *Rfq) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Rfq) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *Rfq) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Rfq) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *Rfq) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *Rfq) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *Rfq) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *Rfq) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *Rfq) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Rfq) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetItems sets the value of Items.
+func (s *Rfq) SetItems(val []RfqItem) {
+	s.Items = val
+}
+
+// SetSuppliers sets the value of Suppliers.
+func (s *Rfq) SetSuppliers(val []RfqSupplier) {
+	s.Suppliers = val
+}
+
+// Create a draft request for quotation.
+// Ref: #/components/schemas/RfqCreate
+type RfqCreate struct {
+	// Legal entity.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The currency quotations are given in.
+	Currency string `json:"currency"`
+	// The date quotations are due; not before the legal entity's date today.
+	DueDate time.Time `json:"due_date"`
+	// The items asked for.
+	Items []RfqItem `json:"items"`
+	// The suppliers invited (business partner ids), each once.
+	SupplierIds []uuid.UUID `json:"supplier_ids"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *RfqCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCurrency returns the value of Currency.
+func (s *RfqCreate) GetCurrency() string {
+	return s.Currency
+}
+
+// GetDueDate returns the value of DueDate.
+func (s *RfqCreate) GetDueDate() time.Time {
+	return s.DueDate
+}
+
+// GetItems returns the value of Items.
+func (s *RfqCreate) GetItems() []RfqItem {
+	return s.Items
+}
+
+// GetSupplierIds returns the value of SupplierIds.
+func (s *RfqCreate) GetSupplierIds() []uuid.UUID {
+	return s.SupplierIds
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *RfqCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *RfqCreate) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetDueDate sets the value of DueDate.
+func (s *RfqCreate) SetDueDate(val time.Time) {
+	s.DueDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *RfqCreate) SetItems(val []RfqItem) {
+	s.Items = val
+}
+
+// SetSupplierIds sets the value of SupplierIds.
+func (s *RfqCreate) SetSupplierIds(val []uuid.UUID) {
+	s.SupplierIds = val
+}
+
+// RfqHeaders wraps Rfq with response headers.
+type RfqHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           Rfq
+}
+
+// GetETag returns the value of ETag.
+func (s *RfqHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RfqHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *RfqHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *RfqHeaders) GetResponse() Rfq {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RfqHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RfqHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *RfqHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RfqHeaders) SetResponse(val Rfq) {
+	s.Response = val
+}
+
+func (*RfqHeaders) createRfqRes() {}
+
+// An item of a request for quotation: what is asked for, without a price.
+// Ref: #/components/schemas/RfqItem
+type RfqItem struct {
+	// Item number; assigned by the server when omitted.
+	ItemNo OptInt32 `json:"item_no"`
+	// Supplier or internal material number, unique per RFQ: what a quotation's price and an awarded
+	// contract's item name it by.
+	MaterialKey string `json:"material_key"`
+	// Description.
+	Description string `json:"description"`
+	// The quantity asked for and its unit of measure; positive.
+	Quantity Quantity `json:"quantity"`
+	// General ledger account the item is bought on.
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *RfqItem) GetItemNo() OptInt32 {
+	return s.ItemNo
+}
+
+// GetMaterialKey returns the value of MaterialKey.
+func (s *RfqItem) GetMaterialKey() string {
+	return s.MaterialKey
+}
+
+// GetDescription returns the value of Description.
+func (s *RfqItem) GetDescription() string {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *RfqItem) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RfqItem) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *RfqItem) SetItemNo(val OptInt32) {
+	s.ItemNo = val
+}
+
+// SetMaterialKey sets the value of MaterialKey.
+func (s *RfqItem) SetMaterialKey(val string) {
+	s.MaterialKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RfqItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *RfqItem) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RfqItem) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// One page of requests for quotation.
+// Ref: #/components/schemas/RfqPage
+type RfqPage struct {
+	// The RFQs on this page.
+	Items []Rfq `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *RfqPage) GetItems() []Rfq {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *RfqPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *RfqPage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *RfqPage) SetItems(val []Rfq) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *RfqPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *RfqPage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*RfqPage) listRfqsRes() {}
+
+// A supplier invited to quote.
+// Ref: #/components/schemas/RfqSupplier
+type RfqSupplier struct {
+	// The supplier (business partner id).
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The business partner's number.
+	SupplierNumber string `json:"supplier_number"`
+	// The business partner's name.
+	SupplierName string `json:"supplier_name"`
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *RfqSupplier) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *RfqSupplier) GetSupplierNumber() string {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *RfqSupplier) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *RfqSupplier) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *RfqSupplier) SetSupplierNumber(val string) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *RfqSupplier) SetSupplierName(val string) {
+	s.SupplierName = val
+}
+
+// Merged schema.
 // Ref: #/components/schemas/Role
 type Role struct {
 	// Identifier (UUIDv7).
@@ -69865,6 +70422,7 @@ func (*ServiceUnavailableHeaders) createPurchaseOrderRes()                   {}
 func (*ServiceUnavailableHeaders) createRecommendationRes()                  {}
 func (*ServiceUnavailableHeaders) createRegressionSuiteRes()                 {}
 func (*ServiceUnavailableHeaders) createRequisitionRes()                     {}
+func (*ServiceUnavailableHeaders) createRfqRes()                             {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()                  {}
 func (*ServiceUnavailableHeaders) createRoleRes()                            {}
 func (*ServiceUnavailableHeaders) createSegmentRes()                         {}
@@ -69921,6 +70479,7 @@ func (*ServiceUnavailableHeaders) proposeForecastVarianceCommentRes()        {}
 func (*ServiceUnavailableHeaders) proposeMemoRecordRes()                     {}
 func (*ServiceUnavailableHeaders) proposePaymentRunRes()                     {}
 func (*ServiceUnavailableHeaders) proposeVarianceCommentRes()                {}
+func (*ServiceUnavailableHeaders) publishRfqRes()                            {}
 func (*ServiceUnavailableHeaders) realiseMemoRecordRes()                     {}
 func (*ServiceUnavailableHeaders) reconcileMigrationRunRes()                 {}
 func (*ServiceUnavailableHeaders) recordAgentToolCallRes()                   {}
@@ -74380,6 +74939,7 @@ func (*TooManyRequestsHeaders) createPurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) createRecommendationRes()                  {}
 func (*TooManyRequestsHeaders) createRegressionSuiteRes()                 {}
 func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
+func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
@@ -74488,6 +75048,7 @@ func (*TooManyRequestsHeaders) getRecommendationRes()                     {}
 func (*TooManyRequestsHeaders) getRegressionSuiteRes()                    {}
 func (*TooManyRequestsHeaders) getRequisitionRes()                        {}
 func (*TooManyRequestsHeaders) getRevaluationRunRes()                     {}
+func (*TooManyRequestsHeaders) getRfqRes()                                {}
 func (*TooManyRequestsHeaders) getRoleAssignmentRes()                     {}
 func (*TooManyRequestsHeaders) getRolePermissionRes()                     {}
 func (*TooManyRequestsHeaders) getRoleRes()                               {}
@@ -74605,6 +75166,7 @@ func (*TooManyRequestsHeaders) listRecommendationsRes()                   {}
 func (*TooManyRequestsHeaders) listRegressionSuitesRes()                  {}
 func (*TooManyRequestsHeaders) listRequisitionsRes()                      {}
 func (*TooManyRequestsHeaders) listRevaluationRunsRes()                   {}
+func (*TooManyRequestsHeaders) listRfqsRes()                              {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
@@ -74652,6 +75214,7 @@ func (*TooManyRequestsHeaders) proposeForecastVarianceCommentRes()        {}
 func (*TooManyRequestsHeaders) proposeMemoRecordRes()                     {}
 func (*TooManyRequestsHeaders) proposePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) proposeVarianceCommentRes()                {}
+func (*TooManyRequestsHeaders) publishRfqRes()                            {}
 func (*TooManyRequestsHeaders) realiseMemoRecordRes()                     {}
 func (*TooManyRequestsHeaders) reconcileMigrationRunRes()                 {}
 func (*TooManyRequestsHeaders) recordAgentToolCallRes()                   {}
@@ -75115,6 +75678,7 @@ func (*UnauthorizedHeaders) createPurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) createRecommendationRes()                  {}
 func (*UnauthorizedHeaders) createRegressionSuiteRes()                 {}
 func (*UnauthorizedHeaders) createRequisitionRes()                     {}
+func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
@@ -75223,6 +75787,7 @@ func (*UnauthorizedHeaders) getRecommendationRes()                     {}
 func (*UnauthorizedHeaders) getRegressionSuiteRes()                    {}
 func (*UnauthorizedHeaders) getRequisitionRes()                        {}
 func (*UnauthorizedHeaders) getRevaluationRunRes()                     {}
+func (*UnauthorizedHeaders) getRfqRes()                                {}
 func (*UnauthorizedHeaders) getRoleAssignmentRes()                     {}
 func (*UnauthorizedHeaders) getRolePermissionRes()                     {}
 func (*UnauthorizedHeaders) getRoleRes()                               {}
@@ -75340,6 +75905,7 @@ func (*UnauthorizedHeaders) listRecommendationsRes()                   {}
 func (*UnauthorizedHeaders) listRegressionSuitesRes()                  {}
 func (*UnauthorizedHeaders) listRequisitionsRes()                      {}
 func (*UnauthorizedHeaders) listRevaluationRunsRes()                   {}
+func (*UnauthorizedHeaders) listRfqsRes()                              {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
@@ -75387,6 +75953,7 @@ func (*UnauthorizedHeaders) proposeForecastVarianceCommentRes()        {}
 func (*UnauthorizedHeaders) proposeMemoRecordRes()                     {}
 func (*UnauthorizedHeaders) proposePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) proposeVarianceCommentRes()                {}
+func (*UnauthorizedHeaders) publishRfqRes()                            {}
 func (*UnauthorizedHeaders) realiseMemoRecordRes()                     {}
 func (*UnauthorizedHeaders) reconcileMigrationRunRes()                 {}
 func (*UnauthorizedHeaders) recordAgentToolCallRes()                   {}

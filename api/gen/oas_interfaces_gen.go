@@ -301,6 +301,10 @@ type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
 
+type CreateRfqRes interface {
+	createRfqRes()
+}
+
 type CreateRoleAssignmentRes interface {
 	createRoleAssignmentRes()
 }
@@ -731,6 +735,10 @@ type GetRequisitionRes interface {
 
 type GetRevaluationRunRes interface {
 	getRevaluationRunRes()
+}
+
+type GetRfqRes interface {
+	getRfqRes()
 }
 
 type GetRoleAssignmentRes interface {
@@ -1201,6 +1209,10 @@ type ListRevaluationRunsRes interface {
 	listRevaluationRunsRes()
 }
 
+type ListRfqsRes interface {
+	listRfqsRes()
+}
+
 type ListRoleAssignmentsRes interface {
 	listRoleAssignmentsRes()
 }
@@ -1387,6 +1399,10 @@ type ProposePaymentRunRes interface {
 
 type ProposeVarianceCommentRes interface {
 	proposeVarianceCommentRes()
+}
+
+type PublishRfqRes interface {
+	publishRfqRes()
 }
 
 type RealiseMemoRecordRes interface {

@@ -1060,6 +1060,22 @@ type Handler interface {
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, req *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
+	// CreateRfq implements createRfq operation.
+	//
+	// Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
+	// date they are due, the items asked for (a quantity and unit each, no price) and the suppliers
+	// invited. Each item names what is bought by a description and a material key, once per RFQ (422
+	// `procurement.duplicate_material_key`), and the account it is bought on, one the legal entity can
+	// post to. Each supplier is named once (422 `procurement.rfq_supplier_repeated`) and must be one an
+	// order could be placed with in the legal entity: an active business partner in the supplier role, set
+	// up in the legal entity and not blocked for posting (422 `procurement.supplier_not_usable`, the field
+	// error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its
+	// company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is
+	// numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed:
+	// it is published (`:publish`) as created. Audited, and published as RfqChanged.
+	//
+	// POST /v1/rfqs
+	CreateRfq(ctx context.Context, req *RfqCreate, params CreateRfqParams) (CreateRfqRes, error)
 	// CreateRole implements createRole operation.
 	//
 	// Creates a role without permissions.
@@ -2352,6 +2368,13 @@ type Handler interface {
 	//
 	// GET /v1/revaluation-runs/{id}
 	GetRevaluationRun(ctx context.Context, params GetRevaluationRunParams) (GetRevaluationRunRes, error)
+	// GetRfq implements getRfq operation.
+	//
+	// Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot
+	// act in is answered as missing (404).
+	//
+	// GET /v1/rfqs/{id}
+	GetRfq(ctx context.Context, params GetRfqParams) (GetRfqRes, error)
 	// GetRole implements getRole operation.
 	//
 	// Returns one role.
@@ -3531,6 +3554,13 @@ type Handler interface {
 	//
 	// GET /v1/revaluation-runs
 	ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (ListRevaluationRunsRes, error)
+	// ListRfqs implements listRfqs operation.
+	//
+	// Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
+	// items and the suppliers invited by id, number and name. Sortable by: `due_date`, `document_number`.
+	//
+	// GET /v1/rfqs
+	ListRfqs(ctx context.Context, params ListRfqsParams) (ListRfqsRes, error)
 	// ListRoleAssignments implements listRoleAssignments operation.
 	//
 	// Effective-dated role grants, including ended ones. Sortable by: `valid_from`.
@@ -4244,6 +4274,19 @@ type Handler interface {
 	//
 	// POST /v1/variance-comment-proposals
 	ProposeVarianceComment(ctx context.Context, req *VarianceCommentProposal, params ProposeVarianceCommentParams) (ProposeVarianceCommentRes, error)
+	// PublishRfq implements publishRfq operation.
+	//
+	// Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
+	// lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
+	// after which quotations are recorded against it and nothing changes it. The RFQ is checked again as
+	// it was when created: every supplier invited must still be one an order could be placed with (422
+	// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
+	// date not before the legal entity's date today in its company's time zone (422
+	// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
+	// invited by id and number.
+	//
+	// POST /v1/rfqs/{id}:publish
+	PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error)
 	// RealiseMemoRecord implements realiseMemoRecord operation.
 	//
 	// Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's

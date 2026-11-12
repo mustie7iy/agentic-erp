@@ -1599,6 +1599,8 @@ erDiagram
   contract |o--o{ purchase_order : "priced by"
   goods_movement ||--|{ goods_movement_item : contains
   purchase_order_item ||--o{ goods_movement_item : received_by
+  rfq ||--|{ rfq_item : "asks for"
+  rfq ||--|{ rfq_supplier : invites
   requisition { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1658,6 +1660,23 @@ erDiagram
     uuid purchase_order_id
     int po_item_no
     numeric quantity }
+  rfq { uuid id PK
+    text document_number
+    uuid legal_entity_id
+    char currency
+    date due_date
+    text status "draft | published"
+    int version }
+  rfq_item { uuid rfq_id PK
+    int item_no PK
+    text material_key
+    text description
+    numeric quantity
+    text uom_code
+    uuid account_id }
+  rfq_supplier { uuid rfq_id PK
+    uuid supplier_id PK
+    int invite_no }
 ```
 
 Contract consumption is the sum of insert-only `contract_release` rows (no
@@ -1867,6 +1886,25 @@ API as the document is released, with no foreign key across schemas. A
 released order's item keeps its assignment as it keeps its account
 (`purchase_order_item_identity`, 000161), and its goods movements post the
 item's account with its cost center.
+
+A request for quotation (migration 000276, T82a, ADR-0069) asks the
+suppliers invited for prices of items a company wants to buy, without a
+requisition. `rfq` is numbered per company (`rfq_number_once`, from the
+`rfq` number range), names the currency quotations are given in and the
+date they are due, starts as a draft and is published once: it keeps its
+company, number, currency and due date and stays published (trigger
+`rfq_lifecycle`). `rfq_item` names what is bought as a contract item does,
+by a description and a material key that appears once per RFQ
+(`rfq_item_material_key`), with the quantity asked for (above zero), its
+unit and the account it is bought on, and no price. `rfq_supplier` is a
+supplier invited, once per RFQ (`rfq_supplier_once`), with its place in
+the invitation (`invite_no`). Items and suppliers are written while the
+RFQ is a draft (trigger function `check_rfq_is_draft`) and are never
+changed or deleted. `supplier_id` is the partner context's and
+`account_id` the ledger's, checked through their published APIs with no
+foreign key across schemas: each supplier must be one an order could be
+placed with in the company, when the RFQ is created and when it is
+published.
 
 An order item carries its expected delivery date (`delivery_date`, optional,
 SAP's EKET-EINDT; migration 000205, T53g, ADR-0051 §5): the one it is

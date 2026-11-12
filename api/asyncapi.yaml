@@ -236,7 +236,7 @@ channels:
   procurement:
     address: 'erp.{cell}.procurement.{tenant}.{event}'
     title: Procurement events
-    description: Requisitions, purchase orders and goods receipts.
+    description: Requisitions, purchase orders, contracts, goods receipts and requests for quotation (ADR-0069).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -260,6 +260,8 @@ channels:
       ContractExpiring: {$ref: '#/components/messages/ContractExpiring'}
       ContractExpiredV2: {$ref: '#/components/messages/ContractExpiredV2'}
       ContractExpiringV2: {$ref: '#/components/messages/ContractExpiringV2'}
+      RfqChanged: {$ref: '#/components/messages/RfqChanged'}
+      RfqPublished: {$ref: '#/components/messages/RfqPublished'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -554,6 +556,8 @@ operations:
       - $ref: '#/channels/procurement/messages/ContractExpiring'
       - $ref: '#/channels/procurement/messages/ContractExpiredV2'
       - $ref: '#/channels/procurement/messages/ContractExpiringV2'
+      - $ref: '#/channels/procurement/messages/RfqChanged'
+      - $ref: '#/channels/procurement/messages/RfqPublished'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -2823,6 +2827,45 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000071", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.gr_ir_cleared.v1", "subject": "0192a000-0000-7000-8000-000000000611", "time": "2026-10-27T10:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000102"}
           payload: {"gr_ir_clearing_id": "0192a000-0000-7000-8000-000000000611", "purchase_order_id": "0192a000-0000-7000-8000-000000000602", "document_number": "4500001234", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "posting_date": "2026-10-27", "journal_entry_id": "0192a000-0000-7000-8000-000000000612", "journal_entry_year": 2026, "journal_entry_number": "5000000017", "items": [{"po_item_no": 1, "quantity": "-1", "unit": "EA", "amount": {"amount": "-470.00", "currency": "CAD"}}]}
+    RfqChanged:
+      name: RfqChanged
+      title: Request for quotation changed
+      summary: "A request for quotation was created or published."
+      description: |
+        Emitted by `rfqs` (POST, `created`) and its `:publish` (`published`),
+        ADR-0069 §5: the RFQ as it stands after the change. Subject is the
+        RFQ id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.rfq_changed.v1}
+      payload: {$ref: '#/components/schemas/RfqChangedV1'}
+      examples:
+        - name: created
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000701", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_changed.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-11-18T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "currency": "EUR", "due_date": "2026-12-04", "status": "draft", "change": "created", "item_count": 2, "supplier_count": 2}
+    RfqPublished:
+      name: RfqPublished
+      title: Request for quotation published
+      summary: "A request for quotation was published to the suppliers invited."
+      description: |
+        Emitted by `rfqs/{id}:publish`, ADR-0069 §5: quotations are recorded
+        against the RFQ from then on, until its due date. The suppliers
+        invited are named by id and number, never by name (a partner may
+        be a person; product owner, 2026-11-05). Subject is the RFQ id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.rfq_published.v1}
+      payload: {$ref: '#/components/schemas/RfqPublishedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000702", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_published.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-11-18T09:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "currency": "EUR", "due_date": "2026-12-04", "item_count": 2, "suppliers": [{"supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001"}, {"supplier_id": "0192a000-0000-7000-8000-000000000302", "supplier_number": "BP90000002"}]}
     ContractExpired:
       name: ContractExpired
       title: Contract expired
@@ -5885,6 +5928,38 @@ components:
               quantity: {"type": "string"}
               unit: {"type": "string"}
               amount: {"$ref": "#/components/schemas/Money"}
+    RfqChangedV1:
+      type: object
+      required: ["rfq_id", "document_number", "legal_entity_id", "currency", "due_date", "status", "change", "item_count", "supplier_count"]
+      properties:
+        rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
+        document_number: {"type": "string"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
+        due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
+        status: {"type": "string", "description": "The status after the change. Open enum: draft, published."}
+        change: {"type": "string", "description": "Open enum: created, published."}
+        item_count: {"type": "integer", "description": "The items asked for."}
+        supplier_count: {"type": "integer", "description": "The suppliers invited."}
+    RfqPublishedV1:
+      type: object
+      required: ["rfq_id", "document_number", "legal_entity_id", "currency", "due_date", "item_count", "suppliers"]
+      properties:
+        rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
+        document_number: {"type": "string"}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
+        due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
+        item_count: {"type": "integer", "description": "The items asked for."}
+        suppliers:
+          type: array
+          description: "The suppliers invited, in the order they were named."
+          items:
+            type: object
+            required: ["supplier_id", "supplier_number"]
+            properties:
+              supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`."}
+              supplier_number: {"type": "string", "description": "The business partner's number."}
     ContractExpiredV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "consumed_value", "previous_status", "status"]

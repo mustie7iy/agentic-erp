@@ -1598,6 +1598,7 @@ PILOT_SETTINGS='
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
 | .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "rfq", "fiscal_year": @YEAR@, "prefix": "RQ", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999}]'
@@ -6175,6 +6176,46 @@ step_dunning() {
   passed
 }
 
+# step_rfq is T82a (ADR-0069 §1-§5): Ben creates a request for quotation
+# for two items, inviting Tyrell and the supplier of SAP's down payment
+# (step 3's DP_SUPPLIER), and publishes it. The due date is the request's,
+# two weeks after the company's date today. It keeps the RFQ (RFQ).
+step_rfq() {
+  heading "Step 54 — Sourcing: a request for quotation for two items is created with two suppliers invited and published"
+  as ben
+  local due expense body
+  due=$(date_add "$(company_day)" 14)
+  expense=$(account 6000)
+  say "Ben wants prices for the new office's chairs and desks before he commits to a supplier. He creates a request"
+  say "for quotation (ADR-0069): what Maple asks for, with quantities and no prices, the currency quotations are to"
+  say "be given in, the date they are due, and the suppliers invited, Tyrell and $DP_NAME:"
+  body="{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"due_date\": \"$due\", \"items\": [
+    {\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"},
+    {\"material_key\": \"DESK-ADJ\", \"description\": \"Height-adjustable desks\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}],
+    \"supplier_ids\": [\"$SUPPLIER\", \"$DP_SUPPLIER\"]}"
+  api 201 '"RFQ \(.document_number): \(.status), quotations in \(.currency) due \(.due_date)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.quantity.value) \(.quantity.unit)"), (.suppliers[] | "  invited: \(.supplier_number) \(.supplier_name)")' \
+    createRfq -body "$body"
+  RFQ=$(field .id)
+  expect "the new RFQ" "$(field '"\(.status) \(.currency) \(.due_date) \(.items | length)"')" "draft CAD $due 2"
+  expect "the suppliers invited, in the order named" "$(field '[.suppliers[] | "\(.supplier_id) \(.supplier_name)"] | join(", ")')" \
+    "$SUPPLIER Tyrell Office Products, $DP_SUPPLIER $DP_NAME"
+  say "A supplier is invited once, and a due date that has passed is refused, naming Maple's date today:"
+  refused 422 procurement.rfq_supplier_repeated createRfq -body "${body/\"$DP_SUPPLIER\"]/\"$SUPPLIER\"]}"
+  expect "the supplier named twice" "$(field '.errors[0].field')" "supplier_ids[1]"
+  refused 422 procurement.rfq_due_date_past createRfq -body "${body/$due/$(date_add "$(company_day)" -1)}"
+  say "Ben publishes the RFQ at the version he read. From then on the suppliers' quotations are recorded against"
+  say "it, and nothing changes it; it is published once:"
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  api 200 '"RFQ \(.document_number): \(.status), version \(.version)"' publishRfq -p "id=$RFQ" -if-match "$ETAG"
+  expect "the published RFQ" "$(field '"\(.status) \(.version)"')" "published 2"
+  refused 409 procurement.invalid_status publishRfq -p "id=$RFQ" -if-match "$ETAG"
+  say "It is among Maple's published RFQs, and among those Tyrell is invited to:"
+  api 200 '.items[] | "  RFQ \(.document_number): \(.status), due \(.due_date), \(.items | length) items, \(.suppliers | length) suppliers"' \
+    listRfqs -p "legal_entity_id=$LE" -p status=published -p "supplier_id=$SUPPLIER"
+  expect "Maple's published RFQs Tyrell is invited to" "$(field '[.items[].id] | join(" ")')" "$RFQ"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8199,7 +8240,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_rfq step_close'
 
 main() {
   stop_unseen

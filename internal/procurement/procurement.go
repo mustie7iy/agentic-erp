@@ -10,7 +10,9 @@
 // requisition is released by the release strategy, and a released order
 // changes only through order changes, its versions (ADR-0034). A released
 // or closed order's document for its supplier is rendered from the stored
-// order as plain text on each read (ADR-0054).
+// order as plain text on each read (ADR-0054). A request for quotation
+// asks the suppliers invited for prices of items, without a requisition,
+// and is published once (ADR-0069; rfq.go).
 package procurement
 
 import (
@@ -50,7 +52,7 @@ type Suppliers interface {
 }
 
 // SupplierNames reads suppliers' numbers and names (partner context), for
-// the contract expiry job's events.
+// the contract expiry job's events and beside the suppliers an RFQ invites.
 type SupplierNames interface {
 	Names(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]partner.Named, error)
 }
@@ -90,6 +92,7 @@ type Endpoints struct {
 	Pages         *pagination.Codec
 	LegalEntities LegalEntities
 	Suppliers     Suppliers
+	Partners      SupplierNames // the suppliers an RFQ invites, by number and name (ADR-0069)
 	Accounts      Accounts
 	Numbers       Numbers
 	Calendar      Calendar
