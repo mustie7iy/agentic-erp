@@ -4240,7 +4240,8 @@ schema with its outbox and inbox and the quotation: what the company
 offers a customer, valid until a date, net of tax. T78b (migration
 000277) adds the sales order and T78c (migration 000278) the delivery
 confirmation, which moves no stock (stock is outside the required
-scope). There is no material
+scope), and T79a (migration 000279) the billing document, which posts
+nothing until T79b. There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
 `item_key`.
@@ -4304,6 +4305,27 @@ erDiagram
     uuid sales_order_id "the delivery's order"
     numeric quantity "above zero"
   }
+  sales_order ||--o{ billing_document : "is billed by"
+  billing_document ||--|{ billing_document_item : "has"
+  sales_order_item ||--o{ billing_document_item : "is billed by"
+  billing_document { uuid id PK
+    text document_number "billing_document range, unique per company"
+    uuid legal_entity_id "the order's"
+    uuid customer_id "the order's"
+    uuid sales_order_id "a confirmed order"
+    date billing_date
+    char currency "the order's"
+    bigint net_amount "sum of the items'"
+    text status "created"
+    int version
+  }
+  billing_document_item { uuid billing_document_id PK
+    int item_no PK
+    uuid sales_order_id "the document's order"
+    int order_item_no "once per document"
+    numeric quantity "above zero"
+    bigint net_amount "above zero"
+  }
 ```
 
 - `sales.quotation`: numbered once per company
@@ -4342,7 +4364,8 @@ erDiagram
   `0 <= billed_quantity <= delivered_quantity <= quantity`
   (`sales_order_item_quantities`). The application may not change or
   delete an item: `delivered_quantity` is moved by the delivery's
-  trigger alone (T78c), and `billed_quantity` by nothing until T79a.
+  trigger alone (T78c) and `billed_quantity` by the billing document's
+  (T79a).
 - `sales.delivery` (T78c, migration 000278): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).
@@ -4363,7 +4386,38 @@ erDiagram
   what was ordered (`sales_order_item_quantities`). Insert-only;
   `delivery_item_by_order_item` serves an order item's deliveries
   (`sales.Orders`).
+- `sales.billing_document` (T79a, migration 000279): what is billed of
+  one order, numbered once per company
+  (`billing_document_number_once`), with its billing date and a net
+  value above zero (`billing_document_net_positive`); the status is
+  `created` (`billing_document_status_check`; T79b adds `posted`). It is
+  of a confirmed order of its company, customer and currency
+  (`billing_document_order_confirmed`, a trigger running as the table's
+  owner that also moves the order's `version` once per document and sets
+  its `updated_by`). The application may neither change nor delete one
+  until T79b is granted what posting sets. The list reads a company's
+  documents by date, a customer's and an order's
+  (`billing_document_by_date`, `billing_document_by_customer`,
+  `billing_document_by_order`).
+- `sales.billing_document_item`: a quantity and an amount above zero
+  (`billing_document_item_quantity_positive`,
+  `billing_document_item_net_positive`) of an item of the document's own
+  order (`billing_document_item_document_fkey`,
+  `billing_document_item_order_item_fkey`), an order item at most once
+  per document (`billing_document_item_once`). Each insert adds its
+  quantity to the order item's `billed_quantity`
+  (`billing_document_item_billed`, a trigger running as the table's
+  owner), so that quantity is the sum of the item's billing documents
+  and never above what is delivered (`sales_order_item_quantities`); the
+  amounts billed of an order item never exceed its net value and are its
+  net value once it is billed in full (`billing_document_item_amounts`).
+  What an item names, its unit price, account and tax code are read from
+  the order's item, which nothing changes. Insert-only
+  (`platform.forbid_mutation`); `billing_document_item_by_order_item`
+  serves what earlier documents billed of an order item.
 - `sales.outbox`, `sales.inbox`: the context's events
-  (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`).
+  (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
+  `BillingDocumentChanged`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
-  `.write` and `.confirm`; `sales.delivery.confirm`.
+  `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
+  `.write` and `.post` (posting comes with T79b).

@@ -430,13 +430,14 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders and their deliveries (ADR-0067 §6).
+    description: Quotations, sales orders, their deliveries and billing documents (ADR-0067 §6).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       QuotationChanged: {$ref: '#/components/messages/QuotationChanged'}
       SalesOrderChanged: {$ref: '#/components/messages/SalesOrderChanged'}
       SalesOrderDelivered: {$ref: '#/components/messages/SalesOrderDelivered'}
+      BillingDocumentChanged: {$ref: '#/components/messages/BillingDocumentChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -713,6 +714,7 @@ operations:
       - $ref: '#/channels/sales/messages/QuotationChanged'
       - $ref: '#/channels/sales/messages/SalesOrderChanged'
       - $ref: '#/channels/sales/messages/SalesOrderDelivered'
+      - $ref: '#/channels/sales/messages/BillingDocumentChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3839,6 +3841,31 @@ components:
         - name: delivered
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001103, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_delivered.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T15:42:07Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {delivery_id: 0192a000-0000-7000-8000-000000001211, delivery_no: 1, sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, delivery_date: '2026-11-20', items: [{item_no: 1, quantity: {value: '120', unit: EA}, delivered_quantity: {value: '120', unit: EA}}], version: 3}
+    BillingDocumentChanged:
+      name: BillingDocumentChanged
+      x-webhook: true
+      title: Billing document changed
+      summary: A billing document was created.
+      description: |
+        Emitted at each change of a billing document's status (ADR-0067
+        §6, T79a): when it is created (`created`, status_before null) for
+        the delivered quantities of a sales order not yet billed. It
+        carries the document's net value, not its items, names the
+        customer by id and number, never by name, and the sales order it
+        bills by id and number. Nothing was posted.
+        `GET /v1/billing-documents/{id}` returns the document at
+        `version` or later. Subject is the billing document id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.billing_document_changed.v1}
+      payload: {$ref: '#/components/schemas/BillingDocumentChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001104, source: /erp/eu-1/sales, type: com.example.erp.sales.billing_document_changed.v1, subject: 0192a000-0000-7000-8000-000000001311, time: '2026-11-20T16:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {billing_document_id: 0192a000-0000-7000-8000-000000001311, document_number: BD100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, sales_order_id: 0192a000-0000-7000-8000-000000001111, sales_order_number: SO100001, billing_date: '2026-11-20', net_amount: {amount: '1500.00', currency: CAD}, status: created, status_before: null, version: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4586,6 +4613,23 @@ components:
               quantity: {$ref: '#/components/schemas/Quantity', description: "The quantity of this delivery, in the order item's unit."}
               delivered_quantity: {$ref: '#/components/schemas/Quantity', description: 'What is delivered of the order item after this delivery.'}
         version: {type: integer, description: "The order's version after the delivery."}
+    BillingDocumentChangedV1:
+      type: object
+      required: [billing_document_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, sales_order_id, sales_order_number, billing_date, net_amount, status, status_before, version]
+      properties:
+        billing_document_id: {$ref: '#/components/schemas/Uuid', description: '`sales.billing_document.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that bills.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: 'The sales order billed: `sales.sales_order.id`.'}
+        sales_order_number: {type: string, description: "The sales order's document number."}
+        billing_date: {$ref: '#/components/schemas/Date', description: 'The billing date.'}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' amounts."}
+        status: {type: string, description: "The document's status after the change. Open enum: created."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

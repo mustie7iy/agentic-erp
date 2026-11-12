@@ -9619,6 +9619,228 @@ func (s *Server) handleCreateAssetTransferRequest(args [0]string, argsEscaped bo
 	}
 }
 
+// handleCreateBillingDocumentRequest handles createBillingDocument operation.
+//
+// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
+// quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of
+// the order billed, at the order's price. The order is one of a company the caller may act in (422
+// `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests
+// for one order wait for one another and no quantity is billed twice. An item's amount is the order
+// item's net value × the quantity billed so far, this document included, ÷ the quantity ordered,
+// rounded half away from zero to the currency's minor unit, less what earlier documents billed of it:
+// the documents of an item billed in full add up to its net value to the minor unit, the last taking
+// the remainder. A quantity whose amount would round to zero is left for a later document. An order
+// with nothing to bill, because nothing is delivered that is not billed, is refused (422
+// `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its
+// time zone, and numbered from the company's `billing_document` number range of that date's fiscal
+// year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
+// without the range). An order's items are not changed in the first version, so an order one of whose
+// billed items names an account that can no longer be posted in the company, or a tax code that is no
+// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
+// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
+// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
+// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
+// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
+// answers the document created. Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents
+func (s *Server) handleCreateBillingDocumentRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/billing-documents"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), CreateBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: CreateBillingDocumentOperation,
+			ID:   "createBillingDocument",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, CreateBillingDocumentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeCreateBillingDocumentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeCreateBillingDocumentRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response CreateBillingDocumentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    CreateBillingDocumentOperation,
+			OperationSummary: "Create a billing document for a sales order",
+			OperationID:      "createBillingDocument",
+			Body:             request,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = *BillingDocumentCreate
+			Params   = CreateBillingDocumentParams
+			Response = CreateBillingDocumentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackCreateBillingDocumentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.CreateBillingDocument(ctx, request, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.CreateBillingDocument(ctx, request, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeCreateBillingDocumentResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateBusinessPartnerRequest handles createBusinessPartner operation.
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -26524,6 +26746,197 @@ func (s *Server) handleGetBankStatementRulesRequest(args [1]string, argsEscaped 
 	}
 
 	if err := encodeGetBankStatementRulesResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleGetBillingDocumentRequest handles getBillingDocument operation.
+//
+// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
+// and name, the sales order it bills by id and number with the order's payment term, its billing date,
+// its net value and its items, each with the order item it bills, the quantity billed, the order's
+// unit price, its amount and its revenue account's number and name. One of a company the caller may
+// not act in is not found (404), as one that does not exist.
+//
+// GET /v1/billing-documents/{id}
+func (s *Server) handleGetBillingDocumentRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/billing-documents/{id}"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), GetBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: GetBillingDocumentOperation,
+			ID:   "getBillingDocument",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, GetBillingDocumentOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeGetBillingDocumentParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response GetBillingDocumentRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    GetBillingDocumentOperation,
+			OperationSummary: "Get a billing document",
+			OperationID:      "getBillingDocument",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = GetBillingDocumentParams
+			Response = GetBillingDocumentRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackGetBillingDocumentParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.GetBillingDocument(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.GetBillingDocument(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeGetBillingDocumentResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)
@@ -46922,6 +47335,224 @@ func (s *Server) handleListBankStatementsRequest(args [0]string, argsEscaped boo
 	}
 
 	if err := encodeListBankStatementsResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
+// handleListBillingDocumentsRequest handles listBillingDocuments operation.
+//
+// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
+// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
+// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
+// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+//
+// GET /v1/billing-documents
+func (s *Server) handleListBillingDocumentsRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBillingDocuments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.HTTPRouteKey.String("/v1/billing-documents"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ListBillingDocumentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListBillingDocumentsOperation,
+			ID:   "listBillingDocuments",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ListBillingDocumentsOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeListBillingDocumentsParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ListBillingDocumentsRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ListBillingDocumentsOperation,
+			OperationSummary: "List billing documents",
+			OperationID:      "listBillingDocuments",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "legal_entity_id",
+					In:   "query",
+				}: params.LegalEntityID,
+				{
+					Name: "customer_id",
+					In:   "query",
+				}: params.CustomerID,
+				{
+					Name: "sales_order_id",
+					In:   "query",
+				}: params.SalesOrderID,
+				{
+					Name: "status",
+					In:   "query",
+				}: params.Status,
+				{
+					Name: "document_number",
+					In:   "query",
+				}: params.DocumentNumber,
+				{
+					Name: "page_size",
+					In:   "query",
+				}: params.PageSize,
+				{
+					Name: "page_token",
+					In:   "query",
+				}: params.PageToken,
+				{
+					Name: "order_by",
+					In:   "query",
+				}: params.OrderBy,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ListBillingDocumentsParams
+			Response = ListBillingDocumentsRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackListBillingDocumentsParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ListBillingDocuments(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ListBillingDocuments(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeListBillingDocumentsResponse(response, w, span); err != nil {
 		defer recordError("EncodeResponse", err)
 		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
 			s.cfg.ErrorHandler(ctx, w, r, err)

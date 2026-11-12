@@ -181,6 +181,10 @@ type CreateAssetTransferRes interface {
 	createAssetTransferRes()
 }
 
+type CreateBillingDocumentRes interface {
+	createBillingDocumentRes()
+}
+
 type CreateBusinessPartnerRes interface {
 	createBusinessPartnerRes()
 }
@@ -507,6 +511,10 @@ type GetBankStatementRes interface {
 
 type GetBankStatementRulesRes interface {
 	getBankStatementRulesRes()
+}
+
+type GetBillingDocumentRes interface {
+	getBillingDocumentRes()
 }
 
 type GetBusinessPartnerRes interface {
@@ -919,6 +927,10 @@ type ListBankStatementPaymentsRes interface {
 
 type ListBankStatementsRes interface {
 	listBankStatementsRes()
+}
+
+type ListBillingDocumentsRes interface {
+	listBillingDocumentsRes()
 }
 
 type ListBusinessPartnersRes interface {

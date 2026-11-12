@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's, T78b's and T78c's are there now. The defaults
+records what it built under "As built"; T78a's to T79a's are there now. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -175,6 +175,31 @@ it enters and posts one customer invoice in receivables in the same
 transaction, with the billing date as invoice and tax date; the customer
 invoice is the accounting record, not the legal tax invoice (plan
 default 7; ADR-0063 §2).
+
+Billing is cumulative. Under the order's row lock (ADR-0008), each item
+of a document bills what is delivered of an order item less what earlier
+documents of the order billed; its amount is the order item's net value
+× the quantity billed so far, this document included, ÷ the quantity
+ordered, rounded half away from zero, less the amounts earlier documents
+billed of it. The documents of an item billed in full therefore add up
+to its net value to the minor unit, the last taking the remainder, and
+no quantity is billed twice. A created billing document holds its
+quantities and is not changed or cancelled in the first version.
+
+**An order whose item has lapsed cannot be billed (a caveat for T79b).**
+An order's items were checked when they were entered (§3; a quotation's
+when it was made) and an order is not changed in the first version (§5).
+If an item's account can no longer be posted in the company, or its tax
+code is no output tax code of the company with a rate on the billing
+date, the order cannot be billed on that date and cannot be corrected:
+T79a refuses the billing document (422 `sales.order_item_not_billable`)
+rather than create one that could never post. Another billing date may
+help for a tax code; nothing does for an account until orders can be
+changed (later). T79b still meets what T79a cannot see when the
+document is created: a refusal by receivables at posting (a blocked
+customer, a closed period, an account or code that lapsed after the
+document was created) leaves the document unposted, and a created
+document is not cancelled in the first version.
 
 ## Alternatives
 - **Quotations and orders in `receivables`**: not taken. 02 §2.2 and 03
@@ -446,3 +471,75 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   stock and cost of goods sold, availability check, delivery blocks,
   tolerances, reversing a confirmation, proof of delivery, delivery
   notes.
+
+### T79a Billing document created (migration 000279)
+- `internal/sales/billing.go`, `billing_api.go`; nothing new is wired;
+  the fixture's number ranges include `billing_document`.
+- Migration 000279: `sales.billing_document` (`billing_document_number_once`
+  per company; `billing_document_net_positive`; the status `created`; of
+  a confirmed order of its company, customer and currency,
+  `billing_document_order_confirmed`; no update or delete for the
+  application until T79b is granted what posting sets) and
+  `sales.billing_document_item` (a quantity and an amount above zero of
+  an item of the document's own order, once per document; insert-only);
+  the permissions `sales.billing.read`, `.write` and `.post`, the last
+  used from T79b. As for deliveries (000278), two triggers running as
+  the tables' owner add each item's quantity to the order item's
+  `billed_quantity`, which `sales_order_item_quantities` (000277) holds
+  to what is delivered, and move the order's `version` once per
+  document; the item's trigger also holds the amounts billed of an order
+  item to its net value, and to exactly that once it is billed in full
+  (`billing_document_item_amounts`). Schema tests in `db/sales_test.go`.
+- `POST /v1/billing-documents` (`sales_order_id`, optional
+  `billing_date`; 201 with `Location` and `ETag`, idempotent by
+  `Idempotency-Key`, human-only), `GET /v1/billing-documents` (the
+  companies the caller may act in; filters `legal_entity_id`,
+  `customer_id`, `sales_order_id`, `status`, `document_number`; sortable
+  by `billing_date` and `document_number`; cursor paging),
+  `GET /v1/billing-documents/{id}` (404 for another company's). The
+  document names its company by code and name, its customer by number
+  and name, its order by id and number with the order's payment term,
+  and each item the order item it bills, with the quantity billed, the
+  order's unit price, the amount, the account's number and name and the
+  tax code.
+- The amounts are calculated in exact rationals from the order item's
+  net value (`billable`), so the function that prices an item
+  (`pricing.go`) is not involved and a discount it gives from T80b is in
+  the net value billed.
+- The order's items show `billed_quantity` (in the representation since
+  T78b); the order's `version` and `ETag` move with each billing
+  document.
+- Refusals: an order the caller cannot read 422
+  `request.reference_not_found` (`sales_order_id`); nothing delivered
+  that is not billed (a draft order included) 422
+  `sales.nothing_to_bill` (`sales_order_id`); an item whose account can
+  no longer be posted or whose tax code has no rate as an output code on
+  the billing date 422 `sales.order_item_not_billable`
+  (`sales_order_id`, the message naming the item, the date and which of
+  the two); no fiscal year for the billing date
+  `ledger.no_fiscal_period`; no number range `config.no_number_range`.
+- `BillingDocumentChanged` (`x-webhook`; created) and the audit record
+  `sales.billing_document.create`, in the change's transaction.
+- Walkthrough `step_billing` (step 56): Ruth creates the billing
+  document for the delivered order of step 55; its items and net value
+  are the order's; the order shows everything billed at a new version; a
+  second document is refused; nothing is posted. The pilot's settings
+  (step 2) add the `billing_document` number range.
+- **Decided by default:** the billing date is optional and defaults to
+  the company's date today; no rule ties it to the deliveries' dates
+  (posting checks the period, T79b); a quantity whose amount in a
+  document would round to zero is left for a later document, so every
+  item and every document has an amount above zero and posts one for one
+  as a customer invoice item (T79b); for an item worth less than half a
+  minor unit per quantity delivered this can leave a last quantity
+  unbilled, at an amount of zero, the item's whole net value being
+  billed by then; a draft order is refused as having nothing to bill,
+  not by a status check of its own; the order's lapsed items are refused
+  at creation (§9); a billing document copies nothing from the order's
+  items but the quantity and the amount, since an order is not changed;
+  the order's payment term is shown on the document, read from the
+  order. Not built, by the plan: posting (T79b), cancelling a billing
+  document, collective billing and invoice splits, billing plans and
+  down payment requests, pro forma invoices, billing without delivery,
+  intercompany billing, the billing due list, the invoice as a document
+  or an e-invoice.

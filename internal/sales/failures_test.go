@@ -27,14 +27,32 @@ func TestDatabaseFailures(t *testing.T) {
 				PriceUnit: gen.NewOptInt32(1), AccountID: e.other, TaxCode: gen.NewOptString("A1")}}}
 	quotation := uuid.MustParse(e.accepted(t, e.customer, e.item(line{code: "A1"})))
 	order, draft := uuid.MustParse(e.ordered(t)), uuid.MustParse(e.ordered(t))
-	delivered, _ := e.confirmed(t, e.item(line{quantity: "3"}), e.item(line{quantity: "2", unit: "KG"}))
-	deliveredOrder := uuid.MustParse(delivered)
-	e.Must(201, "POST", deliveries(delivered), `{"delivery_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
+	shipped, _ := e.confirmed(t, e.item(line{quantity: "3"}), e.item(line{quantity: "2", unit: "KG"}))
+	deliveredOrder := uuid.MustParse(shipped)
+	e.Must(201, "POST", deliveries(shipped), `{"delivery_date": "2026-01-02", "items": [{"item_no": 1, "quantity": {"value": "1", "unit": "EA"}}]}`, "")
+	// An order with a billing document for its first delivery and a second delivery still to bill, one item with a tax code.
+	toBill, today := e.deliveredOrder(t, []string{e.item(line{quantity: "3", code: "A1"}), e.item(line{quantity: "2", account: e.other})}, "1 1 EA")
+	billedOrder := uuid.MustParse(toBill)
+	created, _ := e.Must(201, "POST", billings, bill(toBill, ""), "")
+	billing := uuid.MustParse(created["id"].(string))
+	e.Must(201, "POST", deliveries(toBill), delivered(today, "1 1 EA", "2 2 EA"), "")
 	calls := map[string]func(ctx context.Context) error{
 		"confirm a delivery": func(ctx context.Context) error {
 			_, err := h.ConfirmSalesDelivery(ctx, &gen.SalesDeliveryCreate{DeliveryDate: instant(t, "2026-01-03T00:00:00Z"), Items: []gen.SalesDeliveryItemCreate{
 				{ItemNo: 1, Quantity: gen.Quantity{Value: "2", Unit: "EA"}}, {ItemNo: 2, Quantity: gen.Quantity{Value: "0.5", Unit: "KG"}}}},
 				gen.ConfirmSalesDeliveryParams{ID: deliveredOrder})
+			return err
+		},
+		"create a billing document": func(ctx context.Context) error {
+			_, err := h.CreateBillingDocument(ctx, &gen.BillingDocumentCreate{SalesOrderID: billedOrder}, gen.CreateBillingDocumentParams{})
+			return err
+		},
+		"get a billing document": func(ctx context.Context) error {
+			_, err := h.GetBillingDocument(ctx, gen.GetBillingDocumentParams{ID: billing})
+			return err
+		},
+		"list billing documents": func(ctx context.Context) error {
+			_, err := h.ListBillingDocuments(ctx, gen.ListBillingDocumentsParams{})
 			return err
 		},
 		"list deliveries": func(ctx context.Context) error {
@@ -103,6 +121,15 @@ func TestDatabaseFailures(t *testing.T) {
 	t.Run("list deliveries' page size", func(t *testing.T) {
 		err := e.inRequest(t, func(ctx context.Context) error {
 			_, err := h.ListSalesDeliveries(ctx, gen.ListSalesDeliveriesParams{ID: deliveredOrder, PageSize: gen.NewOptInt32(0)})
+			return err
+		})
+		if p := problem.From(err); p.Code != "request.invalid_page_size" {
+			t.Errorf("got %v, want request.invalid_page_size", p)
+		}
+	})
+	t.Run("list billing documents' page size", func(t *testing.T) {
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.ListBillingDocuments(ctx, gen.ListBillingDocumentsParams{PageSize: gen.NewOptInt32(0)})
 			return err
 		})
 		if p := problem.From(err); p.Code != "request.invalid_page_size" {

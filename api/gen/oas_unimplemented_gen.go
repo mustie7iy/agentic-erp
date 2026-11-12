@@ -807,6 +807,35 @@ func (UnimplementedHandler) CreateAssetTransfer(ctx context.Context, req *AssetT
 	return r, ht.ErrNotImplemented
 }
 
+// CreateBillingDocument implements createBillingDocument operation.
+//
+// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
+// quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of
+// the order billed, at the order's price. The order is one of a company the caller may act in (422
+// `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests
+// for one order wait for one another and no quantity is billed twice. An item's amount is the order
+// item's net value × the quantity billed so far, this document included, ÷ the quantity ordered,
+// rounded half away from zero to the currency's minor unit, less what earlier documents billed of it:
+// the documents of an item billed in full add up to its net value to the minor unit, the last taking
+// the remainder. A quantity whose amount would round to zero is left for a later document. An order
+// with nothing to bill, because nothing is delivered that is not billed, is refused (422
+// `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its
+// time zone, and numbered from the company's `billing_document` number range of that date's fiscal
+// year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
+// without the range). An order's items are not changed in the first version, so an order one of whose
+// billed items names an account that can no longer be posted in the company, or a tax code that is no
+// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
+// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
+// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
+// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
+// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
+// answers the document created. Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents
+func (UnimplementedHandler) CreateBillingDocument(ctx context.Context, req *BillingDocumentCreate, params CreateBillingDocumentParams) (r CreateBillingDocumentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateBusinessPartner implements createBusinessPartner operation.
 //
 // Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -2122,6 +2151,19 @@ func (UnimplementedHandler) GetBankStatementFile(ctx context.Context, params Get
 //
 // GET /v1/bank-statements/{id}/rules
 func (UnimplementedHandler) GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (r GetBankStatementRulesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetBillingDocument implements getBillingDocument operation.
+//
+// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
+// and name, the sales order it bills by id and number with the order's payment term, its billing date,
+// its net value and its items, each with the order item it bills, the quantity billed, the order's
+// unit price, its amount and its revenue account's number and name. One of a company the caller may
+// not act in is not found (404), as one that does not exist.
+//
+// GET /v1/billing-documents/{id}
+func (UnimplementedHandler) GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (r GetBillingDocumentRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3544,6 +3586,18 @@ func (UnimplementedHandler) ListBankStatementPayments(ctx context.Context, param
 //
 // GET /v1/bank-statements
 func (UnimplementedHandler) ListBankStatements(ctx context.Context, params ListBankStatementsParams) (r ListBankStatementsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListBillingDocuments implements listBillingDocuments operation.
+//
+// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
+// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
+// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
+// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+//
+// GET /v1/billing-documents
+func (UnimplementedHandler) ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (r ListBillingDocumentsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

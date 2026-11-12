@@ -60,7 +60,7 @@ tags:
   - name: collections
     description: "Dunning and collections (ADR-0065): dunning runs and their notices."
   - name: sales
-    description: "Sales (ADR-0067): quotations, sales orders and the confirmations of their deliveries."
+    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries and billing documents."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -16385,6 +16385,150 @@ paths:
           $ref: "#/components/responses/Unprocessable"
         "428":
           $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/billing-documents:
+    get:
+      operationId: listBillingDocuments
+      tags:
+        - sales
+      summary: List billing documents
+      description: "The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the sales order it bills by id and number, its net value and its items. Filtered by company, customer, sales order, status and document number. Sortable by: `billing_date`, `document_number`."
+      x-permission: sales.billing.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the billing documents of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: sales_order_id
+          in: query
+          required: false
+          description: Only the billing documents of this sales order.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only billing documents in this status.
+          schema:
+            type: string
+            description: "Billing document status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - created
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of billing documents.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocumentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createBillingDocument
+      tags:
+        - sales
+      summary: Create a billing document for a sales order
+      description: "Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of the order billed, at the order's price. The order is one of a company the caller may act in (422 `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests for one order wait for one another and no quantity is billed twice. An item's amount is the order item's net value × the quantity billed so far, this document included, ÷ the quantity ordered, rounded half away from zero to the currency's minor unit, less what earlier documents billed of it: the documents of an item billed in full add up to its net value to the minor unit, the last taking the remainder. A quantity whose amount would round to zero is left for a later document. An order with nothing to bill, because nothing is delivered that is not billed, is refused (422 `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its time zone, and numbered from the company's `billing_document` number range of that date's fiscal year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company without the range). An order's items are not changed in the first version, so an order one of whose billed items names an account that can no longer be posted in the company, or a tax code that is no output tax code of the company with a rate on the billing date, cannot be billed on that date (422 `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document is created `created`; each order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`)."
+      x-permission: sales.billing.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - sales.nothing_to_bill
+        - sales.order_item_not_billable
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The sales order to bill.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingDocumentCreate"
+            examples:
+              today:
+                summary: Dated the company's date today
+                value:
+                  sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+      responses:
+        "201":
+          description: "Created; the new billing document."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/billing-documents/{id}":
+    get:
+      operationId: getBillingDocument
+      tags:
+        - sales
+      summary: Get a billing document
+      description: "One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number and name, the sales order it bills by id and number with the order's payment term, its billing date, its net value and its items, each with the order item it bills, the quantity billed, the order's unit price, its amount and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.billing.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The billing document.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/e-invoices:fetch":
@@ -44816,9 +44960,9 @@ components:
           required: [delivered_quantity, billed_quantity]
           properties:
             delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
-            billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far, in the item's unit; at most `delivered_quantity`."}
+            billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
     SalesOrder:
-      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed and with each delivery confirmed against it (`confirmSalesDelivery`), which changes what its items show as delivered."
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -44962,6 +45106,97 @@ components:
           type: array
           items: {$ref: "#/components/schemas/SalesDelivery"}
           description: The deliveries on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    BillingDocumentCreate:
+      type: object
+      description: "Create a billing document for a sales order: it bills what is delivered of the order's items and not yet billed. It is created `created`."
+      required: [sales_order_id]
+      additionalProperties: false
+      properties:
+        sales_order_id: {type: string, format: uuid, description: "The sales order to bill: one of a company the caller may act in."}
+        billing_date: {type: string, format: date, description: "The billing date, which the customer invoice it posts as takes as its invoice and tax date; absent: the company's date today in its time zone."}
+    BillingDocumentItem:
+      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the unit price, the account and the tax code are the order item's."
+      allOf:
+        - $ref: "#/components/schemas/SalesItem"
+        - type: object
+          required: [order_item_no]
+          properties:
+            order_item_no: {type: integer, format: int32, description: "The number of the sales order's item this item bills.", readOnly: true}
+    BillingDocument:
+      description: "A billing document (sales, ADR-0067 §9): what is billed of one sales order, its delivered quantities not yet billed at the order's prices. Amounts are net. It posts nothing until it is posted as a customer invoice (T79b)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, sales_order_id,
+            sales_order_number, payment_term_code, billing_date, currency, net_amount, status, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `billing_document` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that bills.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            sales_order_id: {type: string, format: uuid, description: "The sales order billed (`GET /v1/sales-orders/{id}`).", readOnly: true}
+            sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
+            payment_term_code: {type: string, description: "The sales order's payment term, which the document is billed with.", readOnly: true}
+            billing_date: {type: string, format: date, description: "The billing date: the one given, else the company's date in its time zone when the document was created.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The document's currency (ISO 4217), the sales order's.", readOnly: true}
+            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts."}
+            status:
+              type: string
+              x-extensible-enum: [created]
+              description: "`created`: created, not posted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/BillingDocumentItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+          version: 1
+          created_at: "2026-11-20T16:05:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T16:05:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: BD100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100001
+          payment_term_code: NT30
+          billing_date: "2026-11-20"
+          currency: CAD
+          net_amount: {amount: "1500.00", currency: CAD}
+          status: created
+          items:
+            - item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "120", unit: EA}
+              unit_price: {amount: "12.50", currency: CAD}
+              price_unit: 1
+              net_amount: {amount: "1500.00", currency: CAD}
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              account_number: "4000"
+              account_name: Sales revenue
+              tax_code: GO5
+              order_item_no: 1
+    BillingDocumentPage:
+      type: object
+      description: One page of billing documents.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BillingDocument"}
+          description: The billing documents on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     EInvoiceFetch:
       type: object

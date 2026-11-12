@@ -10252,6 +10252,281 @@ func (s *BankStatusReport) Validate() error {
 	return nil
 }
 
+func (s *BillingDocument) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := (validate.Int{
+			MinSet:        true,
+			Min:           1,
+			MaxSet:        false,
+			Max:           0,
+			MinExclusive:  false,
+			MaxExclusive:  false,
+			MultipleOfSet: false,
+			MultipleOf:    0,
+			Pattern:       nil,
+		}).Validate(int64(s.Version)); err != nil {
+			return errors.Wrap(err, "int")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "version",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := (validate.String{
+			MinLength:     0,
+			MinLengthSet:  false,
+			MaxLength:     0,
+			MaxLengthSet:  false,
+			Email:         false,
+			Hostname:      false,
+			Regex:         regexMap["^[A-Z]{3}$"],
+			MinNumeric:    0,
+			MinNumericSet: false,
+			MaxNumeric:    0,
+			MaxNumericSet: false,
+		}).Validate(string(s.Currency)); err != nil {
+			return errors.Wrap(err, "string")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "currency",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.NetAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "net_amount",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if s.Items == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Items {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "items",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *BillingDocumentHeaders) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Response.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "Response",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *BillingDocumentItem) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := (validate.Int{
+			MinSet:        true,
+			Min:           1,
+			MaxSet:        false,
+			Max:           0,
+			MinExclusive:  false,
+			MaxExclusive:  false,
+			MultipleOfSet: false,
+			MultipleOf:    0,
+			Pattern:       nil,
+		}).Validate(int64(s.ItemNo)); err != nil {
+			return errors.Wrap(err, "int")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "item_no",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Quantity.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "quantity",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.UnitPrice.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "unit_price",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := (validate.Int{
+			MinSet:        true,
+			Min:           1,
+			MaxSet:        false,
+			Max:           0,
+			MinExclusive:  false,
+			MaxExclusive:  false,
+			MultipleOfSet: false,
+			MultipleOf:    0,
+			Pattern:       nil,
+		}).Validate(int64(s.PriceUnit)); err != nil {
+			return errors.Wrap(err, "int")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "price_unit",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.NetAmount.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "net_amount",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *BillingDocumentPage) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if s.Items == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Items {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "items",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.NextPageToken.Get(); ok {
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     0,
+					MinLengthSet:  false,
+					MaxLength:     2048,
+					MaxLengthSet:  true,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(value)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "next_page_token",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
 func (s *BlockBusinessPartnerBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -21903,6 +22178,38 @@ func (s *CreateAssetUnprocessableEntity) Validate() error {
 	return nil
 }
 
+func (s *CreateBillingDocumentBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *CreateBillingDocumentForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *CreateBillingDocumentPreconditionRequired) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *CreateBillingDocumentUnprocessableEntity) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *CreateBusinessPartnerBadRequest) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
@@ -28960,6 +29267,53 @@ func (s *GetBankStatementRulesNotFound) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s *GetBillingDocumentBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetBillingDocumentForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetBillingDocumentNotFound) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *GetBillingDocumentOKHeaders) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Response.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "Response",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
 	}
 	return nil
 }
@@ -39521,6 +39875,22 @@ func (s *ListBankStatementsBadRequest) Validate() error {
 }
 
 func (s *ListBankStatementsForbidden) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListBillingDocumentsBadRequest) Validate() error {
+	alias := (*Problem)(s)
+	if err := alias.Validate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *ListBillingDocumentsForbidden) Validate() error {
 	alias := (*Problem)(s)
 	if err := alias.Validate(); err != nil {
 		return err

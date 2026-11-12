@@ -688,6 +688,32 @@ type Invoker interface {
 	//
 	// POST /v1/asset-transfers
 	CreateAssetTransfer(ctx context.Context, request *AssetTransferCreate, params CreateAssetTransferParams) (CreateAssetTransferRes, error)
+	// CreateBillingDocument invokes createBillingDocument operation.
+	//
+	// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
+	// quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of
+	// the order billed, at the order's price. The order is one of a company the caller may act in (422
+	// `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests
+	// for one order wait for one another and no quantity is billed twice. An item's amount is the order
+	// item's net value × the quantity billed so far, this document included, ÷ the quantity ordered,
+	// rounded half away from zero to the currency's minor unit, less what earlier documents billed of it:
+	// the documents of an item billed in full add up to its net value to the minor unit, the last taking
+	// the remainder. A quantity whose amount would round to zero is left for a later document. An order
+	// with nothing to bill, because nothing is delivered that is not billed, is refused (422
+	// `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its
+	// time zone, and numbered from the company's `billing_document` number range of that date's fiscal
+	// year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
+	// without the range). An order's items are not changed in the first version, so an order one of whose
+	// billed items names an account that can no longer be posted in the company, or a tax code that is no
+	// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
+	// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
+	// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
+	// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
+	// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
+	// answers the document created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/billing-documents
+	CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error)
 	// CreateBusinessPartner invokes createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -1760,6 +1786,16 @@ type Invoker interface {
 	//
 	// GET /v1/bank-statements/{id}/rules
 	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
+	// GetBillingDocument invokes getBillingDocument operation.
+	//
+	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
+	// and name, the sales order it bills by id and number with the order's payment term, its billing date,
+	// its net value and its items, each with the order item it bills, the quantity billed, the order's
+	// unit price, its amount and its revenue account's number and name. One of a company the caller may
+	// not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/billing-documents/{id}
+	GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error)
 	// GetBusinessPartner invokes getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -2873,6 +2909,15 @@ type Invoker interface {
 	//
 	// GET /v1/bank-statements
 	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
+	// ListBillingDocuments invokes listBillingDocuments operation.
+	//
+	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
+	// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
+	// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
+	// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+	//
+	// GET /v1/billing-documents
+	ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error)
 	// ListBusinessPartners invokes listBusinessPartners operation.
 	//
 	// Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the
@@ -13013,6 +13058,156 @@ func (c *Client) sendCreateAssetTransfer(ctx context.Context, request *AssetTran
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateAssetTransferResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateBillingDocument invokes createBillingDocument operation.
+//
+// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
+// quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of
+// the order billed, at the order's price. The order is one of a company the caller may act in (422
+// `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests
+// for one order wait for one another and no quantity is billed twice. An item's amount is the order
+// item's net value × the quantity billed so far, this document included, ÷ the quantity ordered,
+// rounded half away from zero to the currency's minor unit, less what earlier documents billed of it:
+// the documents of an item billed in full add up to its net value to the minor unit, the last taking
+// the remainder. A quantity whose amount would round to zero is left for a later document. An order
+// with nothing to bill, because nothing is delivered that is not billed, is refused (422
+// `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its
+// time zone, and numbered from the company's `billing_document` number range of that date's fiscal
+// year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
+// without the range). An order's items are not changed in the first version, so an order one of whose
+// billed items names an account that can no longer be posted in the company, or a tax code that is no
+// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
+// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
+// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
+// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
+// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
+// answers the document created. Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents
+func (c *Client) CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error) {
+	res, err := c.sendCreateBillingDocument(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (res CreateBillingDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/billing-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/billing-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateBillingDocumentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateBillingDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateBillingDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25072,6 +25267,141 @@ func (c *Client) sendGetBankStatementRules(ctx context.Context, params GetBankSt
 
 	stage = "DecodeResponse"
 	result, err := decodeGetBankStatementRulesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBillingDocument invokes getBillingDocument operation.
+//
+// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
+// and name, the sales order it bills by id and number with the order's payment term, its billing date,
+// its net value and its items, each with the order item it bills, the quantity billed, the order's
+// unit price, its amount and its revenue account's number and name. One of a company the caller may
+// not act in is not found (404), as one that does not exist.
+//
+// GET /v1/billing-documents/{id}
+func (c *Client) GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error) {
+	res, err := c.sendGetBillingDocument(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (res GetBillingDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/billing-documents/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/billing-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBillingDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBillingDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -41776,6 +42106,262 @@ func (c *Client) sendListBankStatements(ctx context.Context, params ListBankStat
 
 	stage = "DecodeResponse"
 	result, err := decodeListBankStatementsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBillingDocuments invokes listBillingDocuments operation.
+//
+// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
+// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
+// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
+// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+//
+// GET /v1/billing-documents
+func (c *Client) ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error) {
+	res, err := c.sendListBillingDocuments(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (res ListBillingDocumentsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBillingDocuments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/billing-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBillingDocumentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/billing-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBillingDocumentsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBillingDocumentsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

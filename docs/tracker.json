@@ -4621,14 +4621,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Billing documents",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A billing clerk creates a billing document for an order: its items are the order's delivered quantities not yet billed, at the order's prices (POST /v1/billing-documents)",
-        "r": "T79a · docs/design/plan-breadth-week2.md §T79a",
+        "r": "T79a · docs/design/plan-breadth-week2.md §T79a · db/migrations/000279 · sales.billing_document, billing_document_item · POST /v1/billing-documents · GET /v1/billing-documents · GET /v1/billing-documents/{id} · BillingDocumentChanged · sales.billing.read, .write, .post · number range billing_document · walkthrough step_billing · ADR-0067 §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

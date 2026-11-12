@@ -1546,8 +1546,9 @@ migrated_down_payment() {
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
 # a number range for the customer invoices of step 48 (T75a; the packs
-# number none yet), one for the quotations of step 54 (T78a) and one for
-# the sales orders of step 55 (T78b),
+# number none yet), one for the quotations of step 54 (T78a), one for
+# the sales orders of step 55 (T78b) and one for the billing documents of
+# step 56 (T79a),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1603,7 +1604,8 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
     {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999}]'
+    {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "billing_document", "fiscal_year": @YEAR@, "prefix": "BD", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -6324,6 +6326,55 @@ step_sales_order() {
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
   passed
 }
+# step_billing is T79a (ADR-0067 §9): Ruth, the receivables clerk of
+# step_customer_invoice, creates a billing document for the delivered
+# order of step_sales_order. Its items are the order's delivered
+# quantities at the order's prices and its net value the order's; the
+# order shows everything billed; a second document is refused, since
+# nothing is left to bill. Nothing is posted (posting is T79b).
+# BILLING_DOCUMENT is the created document for later steps.
+step_billing() {
+  heading "Step 56 — Billing documents: a billing document created for the delivered sales order, its items the delivered quantities at the order's prices and its net value the order's; nothing billed twice; nothing posted"
+  local customer=$CUSTOMER order=$SALES_ORDER before doc number open
+  [ -n "$order" ] || fail "step 55's sales order is not there"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  say "The order of step 55 is delivered in full. Ruth bills it: a billing document takes what is delivered of each"
+  say "item and not yet billed, at the order's prices (ADR-0067 §9). She gives no date, so it is dated Maple's today:"
+  before=$(company_day)
+  api 201 '"billing document \(.document_number) for sales order \(.sales_order_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), dated \(.billing_date), terms \(.payment_term_code), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) (order item \(.order_item_no)) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount), account \(.account_number) \(.account_name), tax code \(.tax_code // "-")")' \
+    createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  number=$(field .document_number)
+  expect "the document's status" "$(field .status)" created
+  expect_today "the billing date, Maple's today" "$(field .billing_date)" "$before"
+  expect "the document's order, customer, currency, term and net value" \
+    "$(field '"\(.sales_order_id) \(.customer_id) \(.currency) \(.payment_term_code) \(.net_amount.amount)"')" "$order $customer CAD NT30 1737.53"
+  expect "each item's order item, quantity and amount" \
+    "$(field '[.items[] | "\(.order_item_no): \(.quantity.value) \(.quantity.unit) \(.net_amount.amount)"] | join(", ")')" \
+    "1: 120 EA 1500.00, 2: 2.5 H 237.53"
+  say "Its items and its net value are the order's. The order shows everything billed; its version moved:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value)"] | join(", ")')" "120 120 120, 2.5 2.5 2.5"
+  expect "the order's version and net value" "$(field '"\(.version) \(.net_amount.amount)"')" "5 1737.53"
+  say "Nothing is left to bill, so a second document is refused; no quantity is billed twice:"
+  refused 422 sales.nothing_to_bill createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  expect "the field refused" "$(field '.errors[0].field')" sales_order_id
+  say "Read back, it is the order's one billing document:"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  expect "the document read back" "$(field '"\(.document_number) \(.status) \(.version) \(.net_amount.amount)"')" "$number created 1 1737.53"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), sales order \(.sales_order_number), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listBillingDocuments -p "sales_order_id=$order"
+  expect "the order's billing documents" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number created"
+  BILLING_DOCUMENT=$doc
+  say "A billing document posts nothing until it is posted as a customer invoice: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8348,7 +8399,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_quotation step_sales_order step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_quotation step_sales_order step_billing step_close'
 
 main() {
   stop_unseen

@@ -11,7 +11,7 @@ import (
 )
 
 // TestSalesPermissions (T78a, migration 000276; T78b, migration 000277;
-// T78c, migration 000278; ADR-0067 §7): the sales
+// T78c, migration 000278; T79a, migration 000279; ADR-0067 §7): the sales
 // permissions are seeded and are no approval permissions.
 func TestSalesPermissions(t *testing.T) {
 	need(t)
@@ -23,7 +23,7 @@ func TestSalesPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "sales.delivery.confirm sales.order.confirm sales.order.read sales.order.write sales.quotation.read sales.quotation.write"; got != want {
+	if got, want := strings.Join(codes, " "), "sales.billing.post sales.billing.read sales.billing.write sales.delivery.confirm sales.order.confirm sales.order.read sales.order.write sales.quotation.read sales.quotation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -427,6 +427,168 @@ func TestDeliveryRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), actor: id(), order: id(), other: id(), delivery: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestBillingRules (T79a, migration 000279; ADR-0067 §9): a billing
+// document is created for a confirmed order of its company, customer and
+// currency, numbered once per company, with a net value above zero, and
+// is not changed or deleted; an item is a quantity and an amount above
+// zero of an item of the document's own order, once per document; each
+// item adds its quantity to the order item's billed quantity, never above
+// what is delivered; the amounts billed of an order item never exceed its
+// net value and are its net value once it is billed in full; each
+// document moves the order's version once.
+func TestBillingRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date,
+		currency, payment_term_code, net_amount, status, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, '2026-03-12', 'EUR', 'NT30', 2000, 'draft', $1, $1)`
+	const item = `INSERT INTO sales.sales_order_item (tenant_id, sales_order_id, item_no, description, quantity, uom_code, unit_price, price_unit,
+		net_amount, account_id) VALUES ($1, $2, $3, 'Bracket', $4, 'EA', 1000, 3, 1000, gen_random_uuid())`
+	const confirm = `UPDATE sales.sales_order SET status = 'confirmed', version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const delivery = `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, created_by)
+		VALUES ($1, $2, $3, $4, '2026-03-14', $1)`
+	const shipped = `INSERT INTO sales.delivery_item (tenant_id, delivery_id, sales_order_id, order_item_no, quantity) VALUES ($1, $2, $3, $4, $5)`
+	const document = `INSERT INTO sales.billing_document (tenant_id, id, document_number, legal_entity_id, customer_id, sales_order_id, billing_date,
+		currency, net_amount, status, created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, '2026-03-15', $7, $8, $9, $10, $10)`
+	const line = `INSERT INTO sales.billing_document_item (tenant_id, billing_document_id, item_no, sales_order_id, order_item_no, quantity, net_amount)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	type scene struct{ tenant, actor, company, customer, order, other, doc uuid.UUID }
+	// ordered is a confirmed order of two items of 3 EA worth 10.00 each, 2 and 3 of them delivered, and another, a draft.
+	ordered := func(s scene) []stmt {
+		shipment := id()
+		return []stmt{step(header, s.tenant, s.order, "SO1", s.company, s.customer), step(item, s.tenant, s.order, 1, "3"), step(item, s.tenant, s.order, 2, "3"),
+			step(confirm, s.order), step(delivery, s.tenant, shipment, s.order, 1), step(shipped, s.tenant, shipment, s.order, 1, "2"),
+			step(shipped, s.tenant, shipment, s.order, 2, "3"), step(header, s.tenant, s.other, "SO2", s.company, s.customer),
+			step(item, s.tenant, s.other, 1, "3")}
+	}
+	bill := func(s scene, doc uuid.UUID, number string, order uuid.UUID, currency string, net int64, status string) stmt {
+		return step(document, s.tenant, doc, number, s.company, s.customer, order, currency, net, status, s.actor)
+	}
+	made := func(s scene) stmt { return bill(s, s.doc, "BD1", s.order, "EUR", 1667, "created") }
+	with := func(s scene, more ...stmt) []stmt { return append(append(ordered(s), made(s)), more...) }
+	// shows fails unless the order's version, the actor who changed it last and its items' billed quantities are these.
+	shows := func(tx pgx.Tx, s scene, version int, by uuid.UUID, billed string) error {
+		var got string
+		want := fmt.Sprintf("version %d by %s, billed %s", version, by, billed)
+		err := tx.QueryRow(context.Background(), `SELECT format('version %s by %s, billed %s', o.version, o.updated_by,
+				(SELECT string_agg(trim_scale(i.billed_quantity)::text, ' ' ORDER BY i.item_no) FROM sales.sales_order_item i WHERE i.sales_order_id = o.id))
+			FROM sales.sales_order o WHERE o.id = $1`, s.order).Scan(&got)
+		if err == nil && got != want {
+			err = fmt.Errorf("the order: got %s, want %s", got, want)
+		}
+		return err
+	}
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"a document adds to what is billed and moves the order's version once", func(tx pgx.Tx, s scene) error {
+			if err := all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "2", 667), step(line, s.tenant, s.doc, 2, s.order, 2, "3", 1000))...); err != nil {
+				return err
+			}
+			return shows(tx, s, 4, s.actor, "2 3")
+		}, ""},
+		{"a second document bills the rest of an item at the remainder", func(tx pgx.Tx, s scene) error {
+			shipment, second := id(), id()
+			if err := all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "2", 667), step(delivery, s.tenant, shipment, s.order, 2),
+				step(shipped, s.tenant, shipment, s.order, 1, "1"), bill(s, second, "BD2", s.order, "EUR", 333, "created"),
+				step(line, s.tenant, second, 1, s.order, 1, "1", 333))...); err != nil {
+				return err
+			}
+			return shows(tx, s, 6, s.actor, "3 0")
+		}, ""},
+		{"more billed than is delivered", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "2.000001", 667))...)
+		}, "sales_order_item_quantities"},
+		{"an item billed in full at less than its net value", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 2, "3", 999))...)
+		}, "would be billed 999 of its net value 1000"},
+		{"an item billed at more than its net value", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "1", 1001))...)
+		}, "would be billed 1001 of its net value 1000"},
+		{"a document of a draft order", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.other, "EUR", 100, "created"))...)
+		}, "its sales order is not a confirmed one"},
+		{"a document in another currency than the order's", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.order, "USD", 100, "created"))...)
+		}, "its sales order is not a confirmed one"},
+		{"a document of another customer than the order's", func(tx pgx.Tx, s scene) error {
+			o := s
+			o.customer = id()
+			return all(tx, append(ordered(s), bill(o, s.doc, "BD1", s.order, "EUR", 100, "created"))...)
+		}, "its sales order is not a confirmed one"},
+		{"a document of another company than the order's", func(tx pgx.Tx, s scene) error {
+			o := s
+			o.company = id()
+			return all(tx, append(ordered(s), bill(o, s.doc, "BD1", s.order, "EUR", 100, "created"))...)
+		}, "its sales order is not a confirmed one"},
+		{"a document of no order", func(tx pgx.Tx, s scene) error {
+			return all(tx, bill(s, s.doc, "BD1", s.order, "EUR", 100, "created"))
+		}, "billing_document_sales_order_fkey"},
+		{"a number issued twice in the company", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, bill(s, id(), "BD1", s.order, "EUR", 100, "created"))...)
+		}, "billing_document_number_once"},
+		{"created in an unknown status", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.order, "EUR", 100, "cancelled"))...)
+		}, "billing_document_status_check"},
+		{"a net value of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.order, "EUR", 0, "created"))...)
+		}, "billing_document_net_positive"},
+		{"an unknown currency", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), bill(s, s.doc, "BD1", s.order, "XXA", 100, "created"))...)
+		}, "billing_document_currency_fkey"},
+		{"a quantity of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "0", 100))...)
+		}, "billing_document_item_quantity_positive"},
+		{"an amount of zero", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "1", 0))...)
+		}, "billing_document_item_net_positive"},
+		{"an order item twice in a document", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "1", 333), step(line, s.tenant, s.doc, 2, s.order, 1, "1", 334))...)
+		}, "billing_document_item_once"},
+		{"an item numbered twice", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "1", 333), step(line, s.tenant, s.doc, 1, s.order, 2, "1", 333))...)
+		}, "billing_document_item_pkey"},
+		{"an item the order does not have", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 3, "1", 333))...)
+		}, "billing_document_item_order_item_fkey"},
+		{"an item of another order than the document's", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.other, 1, "1", 333))...)
+		}, "billing_document_item_document_fkey"},
+		{"an item of no document", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), step(line, s.tenant, s.doc, 1, s.order, 1, "1", 333))...)
+		}, "billing_document_item_document_fkey"},
+		{"a document changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`UPDATE sales.billing_document SET version = version + 1`))...)
+		}, "permission denied"},
+		{"a document deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(`DELETE FROM sales.billing_document`))...)
+		}, "permission denied"},
+		{"a document's item changed", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "1", 333), step(`UPDATE sales.billing_document_item SET quantity = 2`))...)
+		}, "permission denied"},
+		{"a document's item deleted", func(tx pgx.Tx, s scene) error {
+			return all(tx, with(s, step(line, s.tenant, s.doc, 1, s.order, 1, "1", 333), step(`DELETE FROM sales.billing_document_item`))...)
+		}, "permission denied"},
+		{"what is billed set by the application itself", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(ordered(s), step(`UPDATE sales.sales_order_item SET billed_quantity = 1`))...)
+		}, "permission denied"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), actor: id(), company: id(), customer: id(), order: id(), other: id(), doc: id()}
 			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
 			if c.want != "" {
 				failsWith(t, err, c.want)
