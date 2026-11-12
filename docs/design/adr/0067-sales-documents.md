@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's to T79a's, T80a's and T80b's are there now, with T80c's change of §11 (an entered price is the final net price, product owner 2026-11-12). The defaults
+records what it built under "As built"; T78a's to T79a's, T80a's and T80b's are there now, with T80c's change of §11 (an entered price is the final net price) and T80d's of default 12 (a price unit without a unit price is refused), both the product owner's of 2026-11-12. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -229,7 +229,10 @@ A record in another unit or another currency is not converted and does
 not count: the unit and the currency must be the item's. An item with
 neither a price nor such a record, or without an item key to look one
 up by, is refused naming the price it lacks (422 `sales.no_price`,
-`items[i].unit_price`). The item key is compared exactly, as it is
+`items[i].unit_price`). An item that sends a `price_unit` without a
+`unit_price` is refused naming it (422 `request.validation_failed`,
+`items[i].price_unit`; product owner 2026-11-12, T80d): the record's
+price comes with its own price unit. The item key is compared exactly, as it is
 stored.
 
 The price is fixed on the item when it is created: the item stores the
@@ -367,7 +370,8 @@ Taken in T80a beside plan default 8:
     customer role, not blocked for posting in the company); `valid_from`
     may be any day, past or to come.
 12. `price_unit` sent without a `unit_price` is not read: a recorded
-    price comes with its own.
+    price comes with its own. Overruled by the product owner on
+    2026-11-12: it is refused naming the field (T80d).
 13. Recording prices is human-only, as every sales write (§7).
 
 Taken in T80b beside plan default 9:
@@ -835,3 +839,33 @@ Taken in T80b beside plan default 9:
   discount is recorded, Sally quotes the bracket at a price she enters,
   11.00; the item reads `manual`, lists the price alone and keeps
   2750.00, beside the item priced from the price list with its discount.
+
+### T80d A price unit without a unit price is refused (no migration)
+- **Decision (product owner, 2026-11-12, row 3):** `price_unit` sent
+  without `unit_price` is refused with a field error; it was silently
+  ignored (default 12), so an item could be priced per another quantity
+  than its request said.
+- `internal/sales/pricing.go`: `unitPrice` refuses the item, 422
+  `request.validation_failed` naming `items[i].price_unit`, before it
+  looks for a price record, whatever the price unit sent, 1 included.
+  `itemInputs` passes a price unit the request did not give as 0, and an
+  entered price without one is per 1, as before.
+- It applies wherever the pair is accepted: `SalesItemCreate`, the item
+  of `POST /v1/quotations` and of `POST /v1/sales-orders` with `items`.
+  No operation changes an item afterwards, and an order from a
+  quotation sends no items.
+- Contract: `SalesItemCreate.price_unit` loses its `default: 1`. With
+  it the generated decoder set the field on every request, so one sent
+  could not be told from one absent; the description says 1 when absent.
+  A request that sends no `price_unit` is read as before.
+- **Decided by default:** the code is `request.validation_failed`, as
+  procurement refuses a requisition item without the `unit_price` it
+  must send, not a new `sales.*` code: the request's shape is wrong, not
+  a rule of the sales context broken. Procurement's endpoints with the
+  pair were left alone and need no change: a purchase order, contract,
+  catalog, requisition and supplier quotation item require `unit_price`, and a
+  requisition item from the catalog refuses a `price_unit` sent (422
+  `procurement.catalog_item_override`).
+- Walkthrough `step_price_list` (step 65) extended: Sally's item with a
+  price unit of 100 and no price is refused naming
+  `items[0].price_unit`.

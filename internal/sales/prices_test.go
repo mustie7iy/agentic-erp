@@ -87,7 +87,64 @@ func (e env) unpriced(l line) string {
 	default:
 		key = fmt.Sprintf(`, "item_key": %q`, l.key)
 	}
+	if l.priceUnit != 0 {
+		key += fmt.Sprintf(`, "price_unit": %d`, l.priceUnit)
+	}
 	return fmt.Sprintf(`{"description": "Machined bracket", "quantity": {"value": %q, "unit": %q}, "account_id": %q%s}`, l.quantity, l.unit, e.revenue, key)
+}
+
+// TestPriceUnitWithoutAPrice: an item that sends a price unit without a
+// unit price is refused naming the price unit, on a quotation and on a
+// sales order, whether or not a price is recorded for its key and
+// whatever the price unit, 1 included: the record's price comes with its
+// own price unit, and the one sent was ignored before (PO 2026-11-12,
+// T80d). Nothing is written.
+func TestPriceUnitWithoutAPrice(t *testing.T) {
+	e := setup(t)
+	e.priced(t, rec{amount: "1174.99", priceUnit: 100})
+	ok := e.item(line{})
+	cases := []struct {
+		name, path, body, field string
+	}{
+		{"a quotation item with a recorded price", "/v1/quotations", e.body(e.customer, far, ok, e.unpriced(line{priceUnit: 10})), "items[1].price_unit"},
+		{"a quotation item sending the record's own price unit", "/v1/quotations", e.body(e.customer, far, e.unpriced(line{priceUnit: 100})), "items[0].price_unit"},
+		{"a quotation item sending 1", "/v1/quotations", e.body(e.customer, far, e.unpriced(line{priceUnit: 1})), "items[0].price_unit"},
+		{"a quotation item without a price record", "/v1/quotations", e.body(e.customer, far, e.unpriced(line{key: "WASHER", priceUnit: 10})), "items[0].price_unit"},
+		{"a quotation item without a key", "/v1/quotations", e.body(e.customer, far, e.unpriced(line{key: "-", priceUnit: 10})), "items[0].price_unit"},
+		{"a sales order item", "/v1/sales-orders", e.direct(e.customer, "", ok, e.unpriced(line{priceUnit: 10})), "items[1].price_unit"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := e.In(t).Problem(422, "request.validation_failed", "POST", c.path, c.body, "")
+			if f := field(got); f != c.field {
+				t.Errorf("field: got %v, want %s", f, c.field)
+			}
+		})
+	}
+	var quotations, orders int
+	pgtest.Scan(t, `SELECT (SELECT count(*) FROM sales.quotation WHERE tenant_id = $1), (SELECT count(*) FROM sales.sales_order WHERE tenant_id = $1)`,
+		[]any{e.Tenant.ID}, &quotations, &orders)
+	if quotations != 0 {
+		t.Errorf("quotations written: got %d, want 0", quotations)
+	}
+	if orders != 0 {
+		t.Errorf("sales orders written: got %d, want 0", orders)
+	}
+	// With a unit price the pair is read as before, and a price without a
+	// price unit is per 1.
+	for _, c := range []struct {
+		name, item, want string
+	}{
+		{"a price with its price unit", e.item(line{price: "20.00", quantity: "3", priceUnit: 2}), "20.00 EUR per 2, manual, net 30.00 EUR"},
+		{"a price without a price unit", e.item(line{price: "20.00", quantity: "3"}), "20.00 EUR per 1, manual, net 60.00 EUR"},
+		{"a recorded price", e.unpriced(line{quantity: "250"}), "1174.99 EUR per 100, price_list, net 2937.48 EUR"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := pricing(t, e.quotedItem(t, e.customer, c.item)); got != c.want {
+				t.Errorf("pricing: got %s, want %s", got, c.want)
+			}
+		})
+	}
 }
 
 // quotedItem creates a quotation of the one item to the customer and
@@ -354,7 +411,7 @@ func TestPriceValidOnTheCompanysDate(t *testing.T) {
 	e.priced(t, rec{amount: "20.00", from: "2026-03-10"})
 	key := "BRACKET-M8"
 	in := sales.QuotationInput{LegalEntityID: e.DE, CustomerID: e.customer, Currency: "EUR",
-		Items: []sales.ItemInput{{ItemKey: &key, Description: "Bracket", Quantity: "1", Unit: "EA", PriceUnit: 1, AccountID: e.revenue}}}
+		Items: []sales.ItemInput{{ItemKey: &key, Description: "Bracket", Quantity: "1", Unit: "EA", AccountID: e.revenue}}}
 	for _, c := range []struct {
 		name, now, until string
 		want             int64

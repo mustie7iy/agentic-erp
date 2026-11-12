@@ -86,12 +86,20 @@ func price(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput) (p
 }
 
 // unitPrice is item i's unit price and its price unit: the ones entered
-// with it, else the price record's. field is the request's field a net
-// value of zero is refused on: the price entered, or the quantity of an
-// item whose price was not the request's.
+// with it, per 1 when it gives no price unit, else the price record's.
+// A price unit sent without a unit price is refused naming it (422
+// request.validation_failed; PO 2026-11-12, T80d): the record's price
+// comes with its own, and ignoring the one sent would price the item per
+// another quantity than the request said. field is the request's field a
+// net value of zero is refused on: the price entered, or the quantity of
+// an item whose price was not the request's.
 func unitPrice(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput) (priced, string, error) {
 	field := fmt.Sprintf("items[%d].unit_price", i)
 	if it.UnitPrice == nil {
+		if it.PriceUnit != 0 {
+			return priced{}, "", problem.Invalid("request.validation_failed", fmt.Sprintf("items[%d].price_unit", i),
+				"A price unit is sent with a unit price; an item without one takes the price record's price unit.")
+		}
 		p, err := determined(ctx, tx, doc, field, it)
 		return p, fmt.Sprintf("items[%d].quantity.value", i), err
 	}
@@ -102,7 +110,7 @@ func unitPrice(ctx context.Context, tx pgx.Tx, doc document, i int, it ItemInput
 	if err != nil {
 		return priced{}, "", fmt.Errorf("sales: unit price of item %d: %w", i+1, err)
 	}
-	return priced{UnitPrice: unit, PriceUnit: it.PriceUnit, Source: Manual}, field + ".amount", nil
+	return priced{UnitPrice: unit, PriceUnit: max(it.PriceUnit, 1), Source: Manual}, field + ".amount", nil
 }
 
 // validRecord is the SQL that picks, among an item key's records of the

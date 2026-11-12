@@ -4598,6 +4598,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "fix: a quotation or sales order item that sends price_unit without unit_price is refused naming the field (422), where it was silently ignored",
+        "r": "T80d · internal/sales/pricing.go (unitPrice) · SalesItemCreate.price_unit · walkthrough step_price_list · ADR-0067 §10 and As built",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: price determination variants: scales by quantity or value, prices per customer group, price list type or sales organization, surcharges and freight, minimum prices and manual price approval, currency conversion of a price, repricing a document, mass changes and price uploads, prices taken over from SAP (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80a, Later",

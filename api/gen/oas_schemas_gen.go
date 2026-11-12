@@ -75608,8 +75608,9 @@ type SalesItemCreate struct {
 	// one, then the latest `valid_from` (`price_source` `price_list`); an item with neither is refused
 	// (422 `sales.no_price`).
 	UnitPrice OptMoney `json:"unit_price"`
-	// The quantity the unit price refers to. It is read with `unit_price` alone: a price from the price
-	// records comes with its own.
+	// The quantity the unit price refers to; 1 when absent. It is sent with `unit_price` alone: a price
+	// from the price records comes with its own, so an item that sends `price_unit` without `unit_price`
+	// is refused (422 `request.validation_failed` naming `items[i].price_unit`).
 	PriceUnit OptInt32 `json:"price_unit"`
 	// The revenue account the item credits when it is billed: one that can be posted in the company
 	// (`GET /v1/accounts`).
