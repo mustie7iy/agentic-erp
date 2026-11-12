@@ -136,8 +136,8 @@ func (CloseAccounts) ProfitCenter(ctx context.Context, legalEntity uuid.UUID, ye
 // CloseAccount is an account as an accrual proposal reads it (T64e): its
 // number and name, whether it is a balance sheet account, and whether it
 // is postable by hand in the company the read is for: active, set up and
-// not blocked there, no reconciliation account and not its GR/IR account
-// (Accounts.IsPostable's rule).
+// not blocked there, no reconciliation account, not its GR/IR account
+// and no secondary cost element (Accounts.IsPostable's rule).
 type CloseAccount struct {
 	ID           uuid.UUID
 	Number, Name string
@@ -162,7 +162,7 @@ func (CloseAccounts) Accounts(ctx context.Context, legalEntity uuid.UUID, ids []
 	}
 	rows, _ := tx.Query(ctx, `SELECT a.id, a.number, a.name, a.is_balance_sheet,
 			ca.account_id IS NOT NULL AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none'
-				AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
+				AND a.cost_element <> 'secondary' AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
 					AND d.key = 'gr_ir' AND d.account_id = a.id)
 		FROM ledger.gl_account a
 		LEFT JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1

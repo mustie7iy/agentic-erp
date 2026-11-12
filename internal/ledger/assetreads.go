@@ -342,8 +342,8 @@ func (AssetReads) Accounts(ctx context.Context, legalEntity uuid.UUID, numbers [
 // OffsetAccount reads an account a manual acquisition may credit
 // (ADR-0057 §6, T57d), found false unless it is set up in the company,
 // active and not blocked there, and neither a reconciliation account of
-// any kind nor the company's GR/IR account: the accounts IsPostable
-// admits.
+// any kind, the company's GR/IR account nor a secondary cost element:
+// the accounts IsPostable admits.
 func (AssetReads) OffsetAccount(ctx context.Context, legalEntity, account uuid.UUID) (AccountRef, bool, error) {
 	tx, _, err := reqctx.Request(ctx)
 	if err != nil {
@@ -352,7 +352,7 @@ func (AssetReads) OffsetAccount(ctx context.Context, legalEntity, account uuid.U
 	a := AccountRef{ID: account}
 	err = tx.QueryRow(ctx, `SELECT a.number, a.name FROM ledger.gl_account a
 		JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $1
-		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none'
+		WHERE a.id = $2 AND a.status = 'active' AND NOT ca.is_posting_blocked AND a.reconciliation_kind = 'none' AND a.cost_element <> 'secondary'
 			AND NOT EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $1
 				AND d.key = 'gr_ir' AND d.account_id = a.id)`, legalEntity, account).Scan(&a.Number, &a.Name)
 	if errors.Is(err, pgx.ErrNoRows) {

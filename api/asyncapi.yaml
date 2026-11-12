@@ -3355,7 +3355,8 @@ components:
       description: |
         Emitted by `allocation-cycles` (POST, `created`), ADR-0064 §5: a
         cycle's sender and its receivers with their percentages, which its
-        runs charge the sender's costs of a period to. Subject is the
+        runs charge the sender's costs of a period to, and for an
+        assessment cycle the account they post on. Subject is the
         allocation cycle id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
       headers:
@@ -4995,9 +4996,11 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         code: {type: string, description: The cycle's code, unique in its legal entity.}
         name: {type: string}
-        kind: {type: string, description: 'Open enum: distribution.'}
+        kind: {type: string, description: 'Open enum: distribution, assessment.'}
         sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
         sender_cost_center_code: {type: string}
+        assessment_account_id: {$ref: '#/components/schemas/Uuid', description: 'The account an assessment''s runs post on, `ledger.gl_account.id`; present exactly on a cycle of kind assessment.'}
+        assessment_account_number: {type: string, description: 'The assessment account''s number; present with `assessment_account_id`.'}
         receivers:
           type: array
           description: The receivers, in the cycle's order; their percentages add up to 100.
@@ -5018,14 +5021,14 @@ components:
         legal_entity_id: {$ref: '#/components/schemas/Uuid'}
         code: {type: string, description: The cycle's code.}
         name: {type: string, description: The cycle's name.}
-        kind: {type: string, description: 'Open enum: distribution.'}
+        kind: {type: string, description: 'Open enum: distribution, assessment.'}
         fiscal_year: {type: integer, description: The fiscal year of the period run.}
         fiscal_period: {type: integer, description: 'The period run, and the entry''s.'}
         posting_date: {type: string, format: date, description: 'The entry''s posting date: the period''s last day.'}
         sender_cost_center_id: {$ref: '#/components/schemas/Uuid', description: 'The sender, `ledger.cost_center.id`.'}
         sender_cost_center_code: {type: string}
-        amount: {$ref: '#/components/schemas/Money', description: 'What the run moved off the sender, in the legal entity''s local currency.'}
-        account_count: {type: integer, description: How many accounts the run charged.}
+        amount: {$ref: '#/components/schemas/Money', description: 'What the run charged the receivers, in the legal entity''s local currency: the total of the sender''s primary costs of the period.'}
+        account_count: {type: integer, description: How many of the sender's accounts the run charged the costs of.}
         journal_entry_id: {$ref: '#/components/schemas/Uuid', description: 'The run''s entry in the leading ledger, `ledger.journal_entry.id`.'}
         journal_entry_number: {type: string, description: The entry's document number.}
     SegmentChangedV1:

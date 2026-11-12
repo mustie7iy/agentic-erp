@@ -28,16 +28,20 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Runs of allocation cycles (ADR-0064 §5, T60f). A distribution's run for
-// a fiscal period reads the sender's primary costs of the period per
-// account and posts one entry through the ledger's port: per account the
-// sender credited with its cost and each receiver debited with its share
-// on the same account, the shares split with money.Allocate so they add
-// up to the cost to the minor unit. Every cycle of the sender is held FOR
+// Runs of allocation cycles (ADR-0064 §5, T60f, T60g). A run for a fiscal
+// period reads the sender's primary costs of the period per account and
+// posts one entry through the ledger's port. A distribution's entry
+// credits, per account, the sender with its cost and debits each receiver
+// with its share on the same account; an assessment's credits the sender
+// with the total of its costs and debits each receiver with its share, all
+// on the cycle's assessment account, so the sender's primary costs stay on
+// their accounts. The shares are split with money.Allocate so they add up
+// to the amount to the minor unit. Every cycle of the sender is held FOR
 // UPDATE from before the run is looked for and the costs are read until
 // the run is kept (heldCycle), so there is one run per cycle and period,
-// which the database holds too, and two cycles of one sender never move
-// the same cost.
+// which the database holds too, and two cycles of one sender never charge
+// the same cost: a distribution leaves none behind, and a sender assessed
+// for a period is not run again for it (senderAssessed).
 
 func init() {
 	// A code is checked by its constraint alone. A second run is refused by
@@ -128,7 +132,7 @@ func (e *Endpoints) senderCosts(ctx context.Context, le, sender uuid.UUID, perio
 	for i, a := range actuals {
 		ids[i] = a.AccountID
 	}
-	accounts, err := e.Ledger.CostAccounts(ctx, ids)
+	accounts, err := e.Ledger.CostAccounts(ctx, le, ids)
 	if err != nil {
 		return nil, fmt.Errorf("controlling: accounts of cost center %s's costs: %w", sender, err)
 	}
@@ -177,6 +181,75 @@ func distributionLines(c cycle, costs []accountCost) ([]ledger.PostingLine, mone
 		return nil, 0, fmt.Errorf("controlling: total of allocation cycle %s: %w", c.ID, err)
 	}
 	return lines, total, nil
+}
+
+// assessmentLines are an assessment's lines, all on the cycle's assessment
+// account: the sender credited with the total of its costs and each
+// receiver, in the cycle's order, debited with its share of it, a
+// receiver whose share rounds to nothing left out; and the total charged.
+// The shares are the total times each receiver's part of the whole,
+// divided among them by largest remainder (money.Allocate), so they add
+// up to the total to the minor unit and the entry balances on the
+// account. Costs that add up to nothing have no lines.
+func assessmentLines(c cycle, costs []accountCost) ([]ledger.PostingLine, money.Minor, error) {
+	amounts := make([]money.Minor, len(costs))
+	for i, cost := range costs {
+		amounts[i] = cost.Amount
+	}
+	total, err := money.Sum(amounts...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("controlling: total of allocation cycle %s: %w", c.ID, err)
+	}
+	if total == 0 {
+		return nil, 0, nil
+	}
+	exact := make([]*big.Rat, len(c.Receivers))
+	for j, r := range c.Receivers {
+		exact[j] = new(big.Rat).Mul(big.NewRat(int64(total), 1), big.NewRat(int64(r.ShareBP), wholeBP))
+	}
+	shares, err := money.Allocate(exact)
+	if err != nil {
+		return nil, 0, fmt.Errorf("controlling: shares of allocation cycle %s: %w", c.ID, err)
+	}
+	lines := []ledger.PostingLine{{AccountID: *c.AssessmentID, Amount: -total, CostCenterID: &c.SenderID}}
+	for j, share := range shares {
+		if share != 0 {
+			lines = append(lines, ledger.PostingLine{AccountID: *c.AssessmentID, Amount: share, CostCenterID: &c.Receivers[j].CostCenterID})
+		}
+	}
+	return lines, total, nil
+}
+
+// runLines are the lines of the cycle's run by its kind, with the amount
+// charged.
+func runLines(c cycle, costs []accountCost) ([]ledger.PostingLine, money.Minor, error) {
+	if c.Kind == CycleAssessment {
+		return assessmentLines(c, costs)
+	}
+	return distributionLines(c, costs)
+}
+
+// senderAssessed refuses a run for a period in which a cycle of the
+// sender was already run as an assessment: an assessment leaves the
+// sender's primary costs on their accounts, so another run of the period,
+// of whichever cycle and kind, would read them again and charge them a
+// second time. The sender's cycles are held (heldCycle), so no such run
+// is under way.
+func senderAssessed(ctx context.Context, tx pgx.Tx, c cycle, period ledger.FiscalPeriod) error {
+	var code, number string
+	err := tx.QueryRow(ctx, `SELECT c.code, r.document_number FROM controlling.allocation_run r
+		JOIN controlling.allocation_cycle c ON c.tenant_id = r.tenant_id AND c.id = r.cycle_id
+		WHERE c.legal_entity_id = $1 AND c.sender_cost_center_id = $2 AND c.kind = $3 AND r.fiscal_year = $4 AND r.fiscal_period = $5
+		ORDER BY r.id LIMIT 1`, c.LegalEntityID, c.SenderID, CycleAssessment, period.FiscalYear, period.Number).Scan(&code, &number)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("controlling: assessments of cost center %s in %d/%d: %w", c.SenderID, period.FiscalYear, period.Number, err)
+	}
+	return problem.Conflict("controlling.allocation_sender_assessed", fmt.Sprintf("Cost center %s was already assessed for %d/%d by cycle %s (journal entry %s): "+
+		"its primary costs stay on their accounts, so another run of the period would charge them again.", c.SenderCode, period.FiscalYear, period.Number,
+		code, number))
 }
 
 // centersValid refuses a run whose sender or a receiver is not valid on
@@ -256,37 +329,53 @@ func (e *Endpoints) RunAllocationCycle(ctx context.Context, req *gen.AllocationC
 		return nil, problem.Conflict("controlling.allocation_run_exists", fmt.Sprintf("The allocation cycle was already run for %d/%d: journal entry %s.",
 			period.FiscalYear, period.Number, earlier.DocumentNumber))
 	}
+	if err := senderAssessed(ctx, tx, c, period); err != nil {
+		return nil, err
+	}
 	res := gen.AllocationRunResult{AllocationCycleID: c.ID, AllocationCycleCode: c.Code, AllocationCycleName: c.Name, LegalEntityID: le.ID,
 		FiscalYear: req.FiscalYear, FiscalPeriod: req.FiscalPeriod}
 	costs, err := e.senderCosts(ctx, le.ID, c.SenderID, period)
 	if err != nil {
 		return nil, err
 	}
-	if len(costs) == 0 {
-		return &gen.AllocationRunResultHeaders{Response: res}, nil
-	}
-	run, err := e.distribute(ctx, tx, p, c, le, period, costs)
+	run, posted, err := e.charge(ctx, tx, p, c, le, period, costs)
 	if err != nil {
 		return nil, err
+	}
+	if !posted {
+		return &gen.AllocationRunResultHeaders{Response: res}, nil
 	}
 	res.Posted = true
 	res.Run.SetTo(runToAPI(run, le.LocalCurrency, exp))
 	return &gen.AllocationRunResultHeaders{Response: res}, recordRun(ctx, run, le.LocalCurrency, exp)
 }
 
-// distribute posts the sender's costs to the receivers on the period's
-// last day and keeps the run.
-func (e *Endpoints) distribute(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
-	costs []accountCost) (allocationRun, error) {
-	if err := e.centersValid(ctx, c, period.End); err != nil {
-		return allocationRun{}, err
+// charge posts the sender's costs to the receivers by the cycle's kind on
+// the period's last day and keeps the run, which names what it charged
+// and the number of the sender's accounts whose costs it charged. Costs
+// that give no line post nothing and keep no run: posted is false.
+func (e *Endpoints) charge(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
+	costs []accountCost) (allocationRun, bool, error) {
+	lines, total, err := runLines(c, costs)
+	if err != nil || len(lines) == 0 {
+		return allocationRun{}, false, err
 	}
-	lines, total, err := distributionLines(c, costs)
-	if err != nil {
+	run, err := e.post(ctx, tx, p, c, le, period, lines, total, len(costs))
+	return run, err == nil, err
+}
+
+// post posts a run's lines and keeps the run: total is what it charged
+// the receivers and accounts the number of the sender's accounts.
+func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
+	lines []ledger.PostingLine, total money.Minor, accounts int) (allocationRun, error) {
+	if err := e.centersValid(ctx, c, period.End); err != nil {
 		return allocationRun{}, err
 	}
 	id := uuid.Must(uuid.NewV7())
 	text := "Distribution " + c.Code
+	if c.Kind == CycleAssessment {
+		text = "Assessment " + c.Code
+	}
 	entry, err := e.Postings.Post(ctx, ledger.Posting{LegalEntityID: le.ID, DocumentType: "SA", DocumentDate: period.End, PostingDate: period.End,
 		Currency: le.LocalCurrency, Reference: &c.Code, HeaderText: &text, SourceContext: "controlling", SourceDocumentID: id, Lines: lines})
 	if err != nil {
@@ -294,7 +383,7 @@ func (e *Endpoints) distribute(ctx context.Context, tx pgx.Tx, p reqctx.Principa
 	}
 	run := allocationRun{ID: id, CycleID: c.ID, LegalEntityID: le.ID, CycleCode: c.Code, CycleName: c.Name, Kind: c.Kind, FiscalYear: period.FiscalYear,
 		FiscalPeriod: period.Number, PostingDate: period.End, SenderID: c.SenderID, SenderCode: c.SenderCode, EntryID: entry.ID,
-		DocumentNumber: entry.DocumentNumber, Amount: total, Accounts: int32(len(costs)), CreatedBy: p.ID}
+		DocumentNumber: entry.DocumentNumber, Amount: total, Accounts: int32(accounts), CreatedBy: p.ID}
 	err = tx.QueryRow(ctx, `INSERT INTO controlling.allocation_run (tenant_id, id, cycle_id, legal_entity_id, fiscal_year, fiscal_period, posting_date,
 			journal_entry_id, document_number, amount, account_count, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING created_at`, p.TenantID, run.ID, run.CycleID, run.LegalEntityID, run.FiscalYear,

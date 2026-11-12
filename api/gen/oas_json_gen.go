@@ -7322,6 +7322,18 @@ func (s *AllocationCycle) encodeFields(e *jx.Encoder) {
 		e.Str(s.Kind)
 	}
 	{
+		if s.AssessmentAccountID.Set {
+			e.FieldStart("assessment_account_id")
+			s.AssessmentAccountID.Encode(e)
+		}
+	}
+	{
+		if s.AssessmentAccountNumber.Set {
+			e.FieldStart("assessment_account_number")
+			s.AssessmentAccountNumber.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("sender_cost_center_id")
 		json.EncodeUUID(e, s.SenderCostCenterID)
 	}
@@ -7339,7 +7351,7 @@ func (s *AllocationCycle) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAllocationCycle = [13]string{
+var jsonFieldsNameOfAllocationCycle = [15]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -7350,9 +7362,11 @@ var jsonFieldsNameOfAllocationCycle = [13]string{
 	7:  "code",
 	8:  "name",
 	9:  "kind",
-	10: "sender_cost_center_id",
-	11: "sender_cost_center_code",
-	12: "receivers",
+	10: "assessment_account_id",
+	11: "assessment_account_number",
+	12: "sender_cost_center_id",
+	13: "sender_cost_center_code",
+	14: "receivers",
 }
 
 // Decode decodes AllocationCycle from json.
@@ -7482,8 +7496,28 @@ func (s *AllocationCycle) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"kind\"")
 			}
+		case "assessment_account_id":
+			if err := func() error {
+				s.AssessmentAccountID.Reset()
+				if err := s.AssessmentAccountID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"assessment_account_id\"")
+			}
+		case "assessment_account_number":
+			if err := func() error {
+				s.AssessmentAccountNumber.Reset()
+				if err := s.AssessmentAccountNumber.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"assessment_account_number\"")
+			}
 		case "sender_cost_center_id":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.SenderCostCenterID = v
@@ -7495,7 +7529,7 @@ func (s *AllocationCycle) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sender_cost_center_id\"")
 			}
 		case "sender_cost_center_code":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.SenderCostCenterCode = string(v)
@@ -7507,7 +7541,7 @@ func (s *AllocationCycle) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sender_cost_center_code\"")
 			}
 		case "receivers":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				s.Receivers = make([]AllocationReceiver, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -7535,7 +7569,7 @@ func (s *AllocationCycle) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b11011111,
-		0b00011111,
+		0b01110011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -7607,6 +7641,12 @@ func (s *AllocationCycleCreate) encodeFields(e *jx.Encoder) {
 		e.Str(s.Kind)
 	}
 	{
+		if s.AssessmentAccountID.Set {
+			e.FieldStart("assessment_account_id")
+			s.AssessmentAccountID.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("sender_cost_center_id")
 		json.EncodeUUID(e, s.SenderCostCenterID)
 	}
@@ -7620,13 +7660,14 @@ func (s *AllocationCycleCreate) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAllocationCycleCreate = [6]string{
+var jsonFieldsNameOfAllocationCycleCreate = [7]string{
 	0: "legal_entity_id",
 	1: "code",
 	2: "name",
 	3: "kind",
-	4: "sender_cost_center_id",
-	5: "receivers",
+	4: "assessment_account_id",
+	5: "sender_cost_center_id",
+	6: "receivers",
 }
 
 // Decode decodes AllocationCycleCreate from json.
@@ -7686,8 +7727,18 @@ func (s *AllocationCycleCreate) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"kind\"")
 			}
+		case "assessment_account_id":
+			if err := func() error {
+				s.AssessmentAccountID.Reset()
+				if err := s.AssessmentAccountID.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"assessment_account_id\"")
+			}
 		case "sender_cost_center_id":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeUUID(d)
 				s.SenderCostCenterID = v
@@ -7699,7 +7750,7 @@ func (s *AllocationCycleCreate) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"sender_cost_center_id\"")
 			}
 		case "receivers":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				s.Receivers = make([]AllocationCycleCreateReceiversItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -7726,7 +7777,7 @@ func (s *AllocationCycleCreate) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00111111,
+		0b01101111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

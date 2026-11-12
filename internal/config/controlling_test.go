@@ -31,6 +31,16 @@ func TestControllingValid(t *testing.T) {
 	if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
 		t.Fatalf("controlled company: got %v, want no errors", fs)
 	}
+	t.Run("a secondary cost element on an expense nothing else posts to", func(t *testing.T) {
+		c := controlled(t)
+		c.Companies[0].Account("520000").CostElement = CostElementSecondary
+		if fs := Validate(c, currency.Seeded()); HasErrors(fs) {
+			t.Fatalf("got %v, want no errors", fs)
+		}
+		if got := c.Companies[0].Account("520000").CostElementOrDefault(); got != CostElementSecondary {
+			t.Errorf("the account's cost element: got %s, want secondary", got)
+		}
+	})
 	t.Run("an uncontrolled expense needs no default", func(t *testing.T) {
 		c := controlled(t)
 		c.Companies[0].Account("690000").CostElement = CostElementNone
@@ -61,7 +71,21 @@ func TestControllingRules(t *testing.T) {
 		{"category twice", func(c *Config) { c.Controlling.CostCenterCategories[1].Code = "ADMIN" }, "controlling.cost_center_categories[ADMIN]"},
 		{"category without a name", func(c *Config) { c.Controlling.CostCenterCategories[0].Name = " " }, "controlling.cost_center_categories[ADMIN].name"},
 		{"unknown cost element", func(c *Config) { c.Companies[0].Account("520000").CostElement = "costs" }, p + ".chart_of_accounts[520000].cost_element"},
-		{"secondary cost element", func(c *Config) { c.Companies[0].Account("520000").CostElement = "secondary" }, p + ".chart_of_accounts[520000].cost_element"},
+		{"secondary cost element on a revenue", func(c *Config) {
+			c.Companies[0].Account("400000").CostElement = CostElementSecondary
+		}, p + ".chart_of_accounts[400000].cost_element"},
+		{"secondary cost element on an asset", func(c *Config) {
+			c.Companies[0].Account("100000").CostElement = CostElementSecondary
+		}, p + ".chart_of_accounts[100000].cost_element"},
+		{"secondary cost element with a default cost center", func(c *Config) {
+			c.Companies[0].Account("590000").CostElement = CostElementSecondary
+		}, p + ".default_assignments[590000].account"},
+		{"secondary cost element an automatic posting uses", func(c *Config) {
+			c.Companies[0].Account("610000").CostElement = CostElementSecondary
+		}, p + ".fx_valuation.accounts[100000].unrealised_loss"},
+		{"secondary cost element with open items", func(c *Config) {
+			c.Companies[0].Account("520000").CostElement, c.Companies[0].Account("520000").OpenItems = CostElementSecondary, true
+		}, p + ".chart_of_accounts[520000].open_items"},
 		{"primary cost on a revenue", func(c *Config) {
 			c.Companies[0].Account("400000").CostElement = CostElementPrimaryCost
 		}, p + ".chart_of_accounts[400000].cost_element"},

@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
@@ -40,13 +41,22 @@ type plan struct {
 	fixture.Env
 	c                     fixture.Centers
 	office, revenue, bank uuid.UUID // 520000 (expense), 400000 (revenue), 100000 (bank, balance sheet)
+	assessed              uuid.UUID // 695000, a secondary cost element (ADR-0064 §4)
+}
+
+// withAssessmentAccount gives company 2000 a new account 695000, a
+// secondary cost element, for assessment cycles.
+func withAssessmentAccount(doc *config.Config) {
+	co := doc.Company("2000")
+	co.ChartOfAccounts = append(co.ChartOfAccounts, config.Account{Number: "695000", Name: "Assessed overhead", Type: config.Expense,
+		CostElement: config.CostElementSecondary})
 }
 
 func setup(t *testing.T) plan {
 	t.Helper()
 	e := fixture.New(t, perms...)
-	return plan{Env: e, c: e.CostCenters(t, nil), office: e.Account(t, "2000", "520000"), revenue: e.Account(t, "2000", "400000"),
-		bank: e.Account(t, "2000", "100000")}
+	return plan{Env: e, c: e.CostCenters(t, withAssessmentAccount), office: e.Account(t, "2000", "520000"), revenue: e.Account(t, "2000", "400000"),
+		bank: e.Account(t, "2000", "100000"), assessed: e.Account(t, "2000", "695000")}
 }
 
 func (p plan) in(t *testing.T) plan {

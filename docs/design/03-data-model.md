@@ -1419,7 +1419,11 @@ The configuration's controlling rules (T56c, ADR-0050 §4, migration 000140)
 are kept by the ledger's setup. `gl_account.cost_element` is the account's
 cost element category: `none`, `primary_cost` only on an expense, `revenue`
 only on a revenue (`gl_account_cost_element`); accounts set up before took
-their type's default. `cost_center_category` (code as a period's category,
+their type's default. Since T60g (ADR-0064 §4, migration 000284) it may be
+`secondary`, on an expense account alone: an account only the controlling
+context's entries post lines to (`journal_line_secondary_account`, in
+`ledger.check_line`), and one from its creation for good
+(`gl_account_secondary_kept`, a trigger on updates of the cost element). `cost_center_category` (code as a period's category,
 name, `revenue_allowed`, the lock defaults of a new cost center,
 `is_active`) is the tenant's categories, deactivated rather than deleted;
 a cost center period's category is one of them
@@ -3358,7 +3362,7 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
 internal orders with their budgets, settlement rules and settlements
 (ADR-0064; T60a-T60e), and allocation cycles with their runs (ADR-0064 §5;
-T60f).
+T60f, T60g).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3375,7 +3379,9 @@ migration 000282 the order's settlements, the status `closed` and the
 permission `controlling.order.settle` (000280 and 000281 let the journal
 take entries whose `source_context` is `controlling`). Migration 000283
 adds allocation cycles, their receivers and runs and the permissions
-`controlling.allocation.read`, `.write` and `.run`.
+`controlling.allocation.read`, `.write` and `.run`. Migration 000284 adds
+the cycle's kind `assessment` with its assessment account, and in the
+ledger the secondary cost element and its two rules (§3.7).
 
 ```mermaid
 erDiagram
@@ -3437,8 +3443,9 @@ erDiagram
     uuid legal_entity_id "tenancy context"
     text code "unique per company"
     text name
-    text kind "distribution"
-    uuid sender_cost_center_id "ledger context" }
+    text kind "distribution, assessment"
+    uuid sender_cost_center_id "ledger context"
+    uuid assessment_account_id "ledger context; an assessment's" }
   allocation_receiver { uuid cycle_id PK
     smallint position PK
     uuid cost_center_id "ledger context, once per cycle"
@@ -3463,7 +3470,7 @@ erDiagram
 | `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
 | `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
 | `controlling.order_settlement` | A settlement of an order (ADR-0064 §3, T60e), insert-only (no `UPDATE` or `DELETE` granted): the order (`order_settlement_order`), its company, the fiscal year and regular period settled up to, the posting date (the period's last day), the receiving cost center and the journal entry (the ledger's; no foreign key crosses the schema; an entry is one settlement's, `order_settlement_entry_once`) with its document number, the amount moved in minor units of the company's local currency (the total of the accounts' balances, negative for a credit balance) and the number of accounts. The entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the settlement as its source document: per account the order credited and the receiver debited, so each account's balance is unchanged. The order is read FOR UPDATE from before its balance is read (`ledger.AssignmentBalances.OrderAccountBalances`) until the entry is posted; with nothing unsettled no row is written. A settled order, its balance zero on every account, is closed (`controlling.internal_order.status` `closed`, from `released` alone and for good, `internal_order_lifecycle`): a closed order takes no posting, and the entries that posted to it are no longer reversed |
-| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution`; T60g adds `assessment` with its account) and its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company). It keeps its company, code, kind and sender (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
+| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution` or, since T60g, `assessment`), its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company) and, exactly for an assessment, its `assessment_account_id` (`allocation_cycle_assessment_account`; the ledger's, checked through `ledger.AssignmentBalances.CostAccounts` to be an active secondary cost element of the company). It keeps its company, code, kind, sender and assessment account (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
 | `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle's shares add up to 10,000 and no receiver is its sender, held when the transaction that wrote the cycle or a receiver commits (`allocation_receiver_shares_whole`, `allocation_receiver_not_sender`, raised by deferred constraint triggers on both tables) |
 | `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
 | `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`, `AllocationCycleChanged`, `AllocationRunPosted`), relayed as every context's (`outbox.Contexts`) |

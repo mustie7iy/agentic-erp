@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
@@ -742,7 +743,8 @@ func exponents(ctx context.Context, tx pgx.Tx, codes ...string) (currency.Expone
 // account is what a posting needs to know about an account in a legal entity.
 type account struct {
 	kind, status string
-	set          bool // has settings in the legal entity
+	element      config.CostElement // the account's cost element (ADR-0050 §4)
+	set          bool               // has settings in the legal entity
 	blocked      bool
 	downPayment  bool // the legal entity's down payment account (ADR-0037)
 }
@@ -806,7 +808,7 @@ func lineAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line) (m
 	for i, l := range lines {
 		ids[i] = l.AccountID
 	}
-	rows, _ := tx.Query(ctx, `SELECT a.id, a.reconciliation_kind, a.status, ca.account_id IS NOT NULL, coalesce(ca.is_posting_blocked, false),
+	rows, _ := tx.Query(ctx, `SELECT a.id, a.reconciliation_kind, a.status, a.cost_element, ca.account_id IS NOT NULL, coalesce(ca.is_posting_blocked, false),
 			EXISTS (SELECT FROM ledger.account_determination d WHERE d.tenant_id = a.tenant_id AND d.legal_entity_id = $2 AND d.key = 'down_payment'
 				AND d.account_id = a.id)
 		FROM ledger.gl_account a LEFT JOIN ledger.company_account ca ON ca.tenant_id = a.tenant_id AND ca.account_id = a.id AND ca.legal_entity_id = $2
@@ -814,7 +816,7 @@ func lineAccounts(ctx context.Context, tx pgx.Tx, le uuid.UUID, lines []Line) (m
 	accounts := map[uuid.UUID]account{}
 	var id uuid.UUID
 	var a account
-	if _, err := pgx.ForEachRow(rows, []any{&id, &a.kind, &a.status, &a.set, &a.blocked, &a.downPayment}, func() error { accounts[id] = a; return nil }); err != nil {
+	if _, err := pgx.ForEachRow(rows, []any{&id, &a.kind, &a.status, &a.element, &a.set, &a.blocked, &a.downPayment}, func() error { accounts[id] = a; return nil }); err != nil {
 		return nil, fmt.Errorf("ledger: check accounts in %s: %w", le, err)
 	}
 	return accounts, nil
@@ -1139,6 +1141,9 @@ func (e *Endpoints) prepareFor(ctx context.Context, tx pgx.Tx, le tenancy.Entity
 		return prepared{}, err
 	}
 	if err := refuseAssetReconciliation(cmp.Or(in.SourceContext, "ledger"), lines, accounts); err != nil {
+		return prepared{}, err
+	}
+	if err := refuseSecondary(cmp.Or(in.SourceContext, "ledger"), lines, accounts); err != nil {
 		return prepared{}, err
 	}
 	if err := commonOnReconciliation(choice, lines, accounts); err != nil {

@@ -136,7 +136,11 @@ A secondary cost element is **an account of the chart with `cost_element:
 secondary`**, which the configuration accepts from T60g. The ledger takes
 lines on such an account only from entries whose `source_context` is
 `controlling`; a manual entry on one is refused, and the database holds
-the rule. Primary costs stay on their accounts.
+the rule. Primary costs stay on their accounts. Every entry on it
+balances on the account itself, so **it nets to zero in the company** and
+never carries a balance; what it changes is which cost center, and so
+which profit center and segment, bears a cost. What follows from that for
+balances, statements and the other contexts is under "As built", T60g.
 
 ### 5. Cycles post through the ledger (T60f, T60g)
 A cycle (`controlling.allocation_cycle`, its receivers and its runs) has
@@ -151,6 +155,9 @@ adding up to 100, all active and of one company.
   (`source_context` `controlling`), **one run per cycle and period**,
   synchronous, not reversible in the first version (plan default 12). A
   sender without costs posts nothing.
+- An assessment leaves the sender's primary costs on their accounts, so
+  **a sender assessed for a period is not run for it again**, by any of
+  its cycles: a second run would charge the same costs twice (T60g).
 
 ## Alternatives
 - **The order master in the ledger**, with foreign keys from the journal
@@ -201,6 +208,16 @@ adding up to 100, all active and of one company.
    balance in group currency need not be zero afterwards; and it settles
    the leading ledger's balance in every ledger the company keeps. Is
    either to be settled differently?
+   Since T60g also, each stated here without a source and for the
+   specialist to confirm: a secondary cost element is an expense account
+   of the chart (SAP S/4HANA keeps secondary cost elements as G/L
+   accounts of the type "secondary costs", ADR-0050 "What SAP does";
+   this chart has no such type); it carries no balance, so it is in no
+   opening balance, no carry-forward and no revaluation, and reads as
+   zero in a company's statements; an assessment charges the sender's
+   primary costs only, not what other cycles charged to it; one lock on a
+   cost center, for actual costs, refuses primary and secondary costs
+   alike (SAP locks them apart, `docs/migration.md`, BKZKS).
 
 ## As built
 
@@ -643,3 +660,168 @@ adding up to 100, all active and of one company.
   short of 100 are refused) and runs it for the current period: CAD
   599.99 and 400.00 on account 510000, the sender's cost gone, the
   centers' reports showing the shares; a second run is refused.
+
+### T60g: an assessment cycle run (migration 000284)
+- **The configuration** (`internal/config/controlling.go`) accepts
+  `cost_element: secondary`, on an expense account alone
+  (`config.CostElementSecondary`; `Account.CostElementProblem`, which
+  country packs check their accounts with too). A secondary cost element
+  is refused wherever the company names an account something other than
+  an allocation posts to: the accounts of automatic postings
+  (`Company.AutomaticAccounts`: account determination, tax codes and
+  their components, withholding taxes, the revaluation's accounts, house
+  banks, statement posting rules), an asset class's depreciation and loss
+  accounts, a default assignment (which was already for primary cost
+  accounts alone), and with `open_items`. Reconciliation accounts and
+  revalued accounts are balance sheet accounts by their own rules, so
+  none of them is one.
+- **The ledger's account** (migration 000284; `internal/ledger`:
+  `secondaryaccounts.go`, new; `setup.go`). The check
+  `gl_account_cost_element` allows `secondary` on an expense account. An
+  account is a secondary cost element **from its creation and stays
+  one**: a trigger refuses an update that turns an account's cost element
+  to or from `secondary` (`gl_account_secondary_kept`), as only a new
+  account becomes an asset reconciliation account (ADR-0057 §3). An
+  existing account may hold lines other contexts posted, or take one in
+  flight while it is turned; a secondary one turned into a primary cost
+  account would pass its assessments off as primary costs to the next
+  run. `ledger.Setup.Check` reports both on submission
+  (`checkSecondaryNew`); the activation is refused by the trigger (409
+  `ledger.secondary_account_not_new`). A secondary cost element the chart
+  no longer has is deactivated, as any account.
+- **The ledger's posting rule** (`internal/ledger`: `secondaryaccounts.go`,
+  `journal.go`, `assignment.go`). A line on a secondary cost element is
+  posted only in an entry whose `source_context` is `controlling`:
+  `ledger.check_line`, the trigger every journal line passes, refuses
+  every other (`journal_line_secondary_account`), and the posting paths
+  refuse it first, naming the line (422 `ledger.secondary_account`,
+  `lines[i].account_id`, code `secondary_cost_element`; `refuseSecondary`
+  in `prepare`, which manual entries, parked entries, entry templates and
+  every caller of `ledger.Postings` pass). Controlling's own line on it
+  names a cost center (422 `ledger.cost_center_required`: the account has
+  no default one), which is validated as a primary cost line's is: valid
+  on the posting date and **not locked for actual costs** (422
+  `ledger.cost_center_invalid`, `locked_for_costs`). Its profit center
+  and segment derive from that cost center. A line on it naming an
+  internal order is refused as before (`not_a_cost_account`, §2). Schema
+  test: `db/secondary_account_test.go` (`TestSecondaryCostElements`).
+- **The ledger's port** (`assignmentbalances.go`). `CostAccounts` takes
+  the legal entity and reads the accounts set up in it, each with whether
+  it is a primary cost account, a secondary cost element and active.
+- **The cycle** (migration 000284). `controlling.allocation_cycle.kind`
+  may be `assessment`, and the cycle then names its
+  `assessment_account_id` (the ledger's, no foreign key), a distribution
+  none (`allocation_cycle_assessment_account`); the cycle keeps it
+  (`allocation_cycle_identity`). Schema test: `db/allocation_test.go`.
+  `POST /v1/allocation-cycles` takes `assessment_account_id`: required
+  with `assessment` (`required`), an active secondary cost element set up
+  in the cycle's company (`unknown`, `not_secondary`, `not_active`), and
+  refused with `distribution` (`not_allowed`), each a field error of 422
+  `controlling.allocation_cycle_invalid` beside the others. The cycle,
+  its audit record and `AllocationCycleChanged` show the account's id and
+  number. The account is checked when the cycle is defined; at a run, an
+  account deactivated or blocked since is the ledger's refusal of the
+  entry.
+- **A run of an assessment** (`allocationrun.go`). The sender's costs are
+  read as a distribution reads them: its primary costs of the period per
+  account, from the leading ledger. Their total is what the run charges.
+  One entry, all on the assessment account, credits the sender with the
+  total and debits each receiver, in the cycle's order, with its share:
+  the total times the receiver's basis points over 10,000, divided by
+  `money.Allocate` (largest remainder), so the shares add up to the total
+  to the minor unit and the entry balances on the account; a share that
+  rounds to nothing has no line. The entry is posted as a distribution's
+  (`source_context` `controlling`, document type `SA`, local currency,
+  dated the period's last day, header text `Assessment <code>`). The
+  sender's primary costs stay on their accounts. The run's `amount` is
+  the total and its `account_count` the number of the sender's accounts
+  whose costs it charged. Everything T60f decided for a run holds: the
+  locks, one run per cycle and period, `If-Match`, the permissions,
+  people only, the centers' validity on the posting date, the events.
+- **A sender assessed for a period is not run for it again** (409
+  `controlling.allocation_sender_assessed`, naming the assessment's cycle
+  and entry), by the same cycle (409 `controlling.allocation_run_exists`
+  first), another assessment or a distribution of that sender: the
+  primary costs are still on the sender, and the next run would read and
+  charge them again. T60f's "the second run finds what the first left"
+  holds for distributions, which leave nothing; the check is made under
+  the lock on the sender's cycles, so no such run is under way (proved by
+  `TestAssessmentRunsOfOneSender`). A distribution first and an
+  assessment after it is allowed: the assessment charges what was posted
+  to the sender since, or nothing.
+- **What a secondary cost element is refused for, and how it reads.**
+  1. *Opening balances and migration loads*: refused; a migration run's
+     entries (`integration`) are not controlling's, and the account has
+     no balance to load. The SAP configuration draft does not take SAP's
+     secondary cost elements over (unchanged: a note for the reviewer,
+     `internal/delivery/sapconfig`).
+  2. *Tax*: no tax code's account, and no line on it carries a tax code,
+     since controlling's entries name none.
+  3. *Foreign currency*: not revalued, and not an account a revaluation
+     posts to. The entry is in local currency; its group amounts are
+     converted at the run date's rate (the known limit of T60e and T60f).
+  4. *Year-end carry-forward*: a profit and loss account, so its balance
+     would go to the year's result; the balance is zero in the company,
+     so it adds nothing and nothing is carried.
+  5. *Financial statements*: in a company's trial balance it shows equal
+     debits and credits and a balance of zero, and adds nothing to the
+     result. In group reporting it is mapped to a group account like
+     every account of a company in a group (ADR-0059 §3) and adds zero.
+     By profit center or segment it need not net to zero: an assessment
+     from a center of one profit center to a center of another moves the
+     cost between them, as a settlement does (T60e, default 7).
+  6. *Cost center reports* (`GET /v1/cost-center-balances`, plan against
+     actual): the sender shows its primary costs on their accounts and
+     the credit on the assessment account, the receivers their debits on
+     it. The reports' queries are unchanged.
+  7. *Internal orders and settlement*: no line on a secondary cost
+     element names an order, and only cost centers receive in T60f and
+     T60g, so an order never carries an assessment's line and a
+     settlement, which moves an order's balance per account, never moves
+     one.
+  8. *Other contexts*: the ledger's reads of an account another context
+     may be given to post to answer no for it, as they do for a
+     reconciliation account and the GR/IR account
+     (`ledger.Accounts.IsPostable`, `CloseAccounts.Accounts`,
+     `AssetReads.OffsetAccount`; files `ports.go`, `closeparked.go`,
+     `assetreads.go`; review round 1), so a requisition, order, supplier
+     or customer invoice item, an accrual proposal and an asset's offset
+     on it are refused when they are entered, by each context's own
+     problem. Whatever still reaches a posting is refused by the ledger
+     (422 `ledger.secondary_account`).
+- **Decided by default:**
+  1. A secondary cost element is an expense account (the chart's types
+     have no "secondary costs"), new when it becomes one, and stays one.
+  2. Only controlling posts to it; a migration run does not.
+  3. A cost center's lock for actual costs refuses an assessment's line,
+     on the sender and on a receiver.
+  4. An assessment charges the sender's **primary** costs only: what
+     other cycles charged to the sender on a secondary cost element is
+     not passed on (iterative cycles are in the plan's "Later"), so a
+     receiver's own distribution or assessment does not move what it
+     received by assessment.
+  5. Costs that add up to nothing (a debit on one account, a credit of
+     the same amount on another) post nothing and keep no run, as a
+     sender without costs (T60f, default 1). A credit total is charged
+     as one (negative shares), as for a distribution (T60f, default 7).
+  6. A sender assessed for a period is not run for it again (above). A
+     cost posted to it in the period afterwards stays on it (T60f,
+     default 8).
+  7. One assessment account per cycle, entered when the cycle is
+     defined; several cycles may name the same account.
+- **Gaps for the product owner** (not in the plan's lists, not built):
+  the accounts API does not show an account's cost element, so a client
+  finds the assessment account in the configuration document; a run and
+  its event name the cycle's kind but not the assessment account, which
+  the cycle and the run's entry show (review round 1, a nit); the SAP
+  configuration draft does not take over SAP's secondary cost elements
+  or cycles.
+- **Walkthrough**: `step_assessment` (Step 53): Ada adds account 6990, a
+  secondary cost element, through a governed change; Sam sets up CC-1400
+  (facilities), Alex posts CAD 1,000.01 of rent to it, and a manual entry
+  on 6990 is refused; Carla defines the cycle `FACILITIES` (CC-1100 70 %,
+  CC-1300 30 %; without its account it is refused) and runs it for the
+  current period: CAD 700.01 and 300.00 on account 6990, the sender
+  credited with 1,000.01 there and its rent still on account 510000, the
+  centers' reports showing the assessment account's lines; a second run
+  and a distribution of the same sender are refused.

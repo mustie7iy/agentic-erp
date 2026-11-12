@@ -77,6 +77,8 @@ func TestAssetClassesValid(t *testing.T) {
 		{"an account not in the chart", accounts(func(a *AssetAccounts) { a.Gain = "999999" }), acc + ".gain"},
 		{"a gain that is no revenue", accounts(func(a *AssetAccounts) { a.Gain = "610000" }), acc + ".gain"},
 		{"a loss that is no expense", accounts(func(a *AssetAccounts) { a.Loss = "400000" }), acc + ".loss"},
+		{"a depreciation account only allocations post to", flag("620000", func(a *Account) { a.CostElement = CostElementSecondary }), acc + ".depreciation"},
+		{"a loss account only allocations post to", flag("690000", func(a *Account) { a.CostElement = CostElementSecondary }), acc + ".loss"},
 		{"a vendor reconciliation clearing account", func(c *Config) {
 			c.Companies[0].Account("211000").Type = Asset
 			c.Companies[0].AssetAccounts[0].Clearing = "211000"

@@ -7,8 +7,9 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Allocation cycles and their runs (T60f, migration 000283; ADR-0064 §5):
-// what the database keeps of a cycle, its receivers' shares and its runs.
+// Allocation cycles and their runs (T60f, migration 000283; T60g,
+// migration 000284; ADR-0064 §5): what the database keeps of a cycle, its
+// kind and assessment account, its receivers' shares and its runs.
 
 const (
 	allocationCycleSQL = `INSERT INTO controlling.allocation_cycle (tenant_id, id, legal_entity_id, code, name, kind, sender_cost_center_id, created_by, updated_by)
@@ -58,21 +59,32 @@ func TestAllocationRules(t *testing.T) {
 			receivers  []receiverShare
 			want       string
 		}{
-			"shares short of the whole":   {"X", "distribution", sender, []receiverShare{{a, 6000}, {b, 3999}}, "add up to 9999 basis points"},
-			"shares beyond the whole":     {"X", "distribution", sender, []receiverShare{{a, 6000}, {b, 4001}}, "add up to 10001 basis points"},
-			"a cycle without a receiver":  {"X", "distribution", sender, nil, "add up to 0 basis points"},
-			"the sender as a receiver":    {"X", "distribution", sender, []receiverShare{{a, 6000}, {sender, 4000}}, "names its sender as a receiver"},
-			"a receiver twice":            {"X", "distribution", sender, []receiverShare{{a, 6000}, {a, 4000}}, "allocation_receiver_once"},
-			"a share of nothing":          {"X", "distribution", sender, []receiverShare{{a, 10000}, {b, 0}}, "allocation_receiver_share_bp_check"},
-			"a share beyond the whole":    {"X", "distribution", sender, []receiverShare{{a, 10001}}, "allocation_receiver_share_bp_check"},
-			"a kind that is none":         {"X", "assessment", sender, []receiverShare{{a, 10000}}, "allocation_cycle_kind_check"},
-			"a code the form cannot hold": {"shared", "distribution", sender, []receiverShare{{a, 10000}}, "allocation_cycle_code_check"},
-			"a code twice in a company":   {"SHARED", "distribution", sender, []receiverShare{{a, 10000}}, "allocation_cycle_code_once"},
+			"shares short of the whole":         {"X", "distribution", sender, []receiverShare{{a, 6000}, {b, 3999}}, "add up to 9999 basis points"},
+			"shares beyond the whole":           {"X", "distribution", sender, []receiverShare{{a, 6000}, {b, 4001}}, "add up to 10001 basis points"},
+			"a cycle without a receiver":        {"X", "distribution", sender, nil, "add up to 0 basis points"},
+			"the sender as a receiver":          {"X", "distribution", sender, []receiverShare{{a, 6000}, {sender, 4000}}, "names its sender as a receiver"},
+			"a receiver twice":                  {"X", "distribution", sender, []receiverShare{{a, 6000}, {a, 4000}}, "allocation_receiver_once"},
+			"a share of nothing":                {"X", "distribution", sender, []receiverShare{{a, 10000}, {b, 0}}, "allocation_receiver_share_bp_check"},
+			"a share beyond the whole":          {"X", "distribution", sender, []receiverShare{{a, 10001}}, "allocation_receiver_share_bp_check"},
+			"a kind that is none":               {"X", "iterative", sender, []receiverShare{{a, 10000}}, "allocation_cycle_kind_check"},
+			"an assessment without its account": {"X", "assessment", sender, []receiverShare{{a, 10000}}, "allocation_cycle_assessment_account"},
+			"a code the form cannot hold":       {"shared", "distribution", sender, []receiverShare{{a, 10000}}, "allocation_cycle_code_check"},
+			"a code twice in a company":         {"SHARED", "distribution", sender, []receiverShare{{a, 10000}}, "allocation_cycle_code_once"},
 		} {
 			t.Run(name, func(t *testing.T) {
 				failsWith(t, f.cycleWith(t, id(), c.code, c.kind, c.sender, c.receivers...), c.want)
 			})
 		}
+	})
+	// An assessment cycle names its assessment account, as the application writes it.
+	assessment := id()
+	mustApp(t, f.tenant, func(tx pgx.Tx) error {
+		if err := exec(tx, `INSERT INTO controlling.allocation_cycle (tenant_id, id, legal_entity_id, code, name, kind, sender_cost_center_id,
+			assessment_account_id, created_by, updated_by) VALUES ($1, $2, $3, 'ASSESS', 'Cycle', 'assessment', $4, $5, $6, $6)`,
+			f.tenant, assessment, f.entity, sender, id(), f.actor); err != nil {
+			return err
+		}
+		return exec(tx, allocationReceiverSQL, f.tenant, assessment, 1, a, 10000)
 	})
 	try := func(sql string, args ...any) error {
 		return asApp(t, f.tenant, func(tx pgx.Tx) error { return exec(tx, sql, args...) })
@@ -87,9 +99,18 @@ func TestAllocationRules(t *testing.T) {
 		"a receiver's share changed":        {`UPDATE controlling.allocation_receiver SET share_bp = 1 WHERE cycle_id = $1`, []any{cycle}, "permission denied"},
 		"a receiver deleted":                {`DELETE FROM controlling.allocation_receiver WHERE cycle_id = $1`, []any{cycle}, "permission denied"},
 		"a cycle's sender changed": {`UPDATE controlling.allocation_cycle SET sender_cost_center_id = $2, version = version + 1 WHERE id = $1`, []any{cycle, id()},
-			"keeps its company, code, kind and sender"},
+			"keeps its company, code, kind, sender and assessment account"},
 		"a cycle's code changed": {`UPDATE controlling.allocation_cycle SET code = 'OTHER', version = version + 1 WHERE id = $1`, []any{cycle},
-			"keeps its company, code, kind and sender"},
+			"keeps its company, code, kind, sender and assessment account"},
+		"a distribution given an account": {`UPDATE controlling.allocation_cycle SET assessment_account_id = $2, version = version + 1 WHERE id = $1`, []any{cycle, id()},
+			"keeps its company, code, kind, sender and assessment account"},
+		"a distribution with an account": {`INSERT INTO controlling.allocation_cycle (tenant_id, id, legal_entity_id, code, name, kind, sender_cost_center_id,
+			assessment_account_id, created_by, updated_by) VALUES ($1, $2, $3, 'D', 'Cycle', 'distribution', $4, $5, $6, $6)`,
+			[]any{f.tenant, id(), f.entity, sender, id(), f.actor}, "allocation_cycle_assessment_account"},
+		"an assessment's account changed": {`UPDATE controlling.allocation_cycle SET assessment_account_id = $2, version = version + 1 WHERE id = $1`, []any{assessment, id()},
+			"keeps its company, code, kind, sender and assessment account"},
+		"an assessment turned into a distribution": {`UPDATE controlling.allocation_cycle SET kind = 'distribution', assessment_account_id = NULL, version = version + 1
+			WHERE id = $1`, []any{assessment}, "keeps its company, code, kind, sender and assessment account"},
 		"a cycle deleted":                {`DELETE FROM controlling.allocation_cycle WHERE id = $1`, []any{cycle}, "permission denied"},
 		"a second run of a period":       {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 5, id(), "2", 100, 1, f.actor}, "allocation_run_once"},
 		"an entry of two runs":           {allocationRunSQL, []any{f.tenant, id(), cycle, f.entity, 6, entry, "2", 100, 1, f.actor}, "allocation_run_entry_once"},

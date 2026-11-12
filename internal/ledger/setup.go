@@ -166,6 +166,9 @@ func (s Setup) checkCompany(ctx context.Context, tx pgx.Tx, co config.Company, w
 	if err := checkAssetReconciliationNew(ctx, tx, p, co, was, out); err != nil {
 		return err
 	}
+	if err := checkSecondaryNew(ctx, tx, p, co, out); err != nil {
+		return err
+	}
 	if dated {
 		if _, err := readControlling(ctx, tx, p, le.ID, co, today, false, out); err != nil {
 			return err

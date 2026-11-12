@@ -11,8 +11,9 @@ import (
 
 // Cost element categories (CSKB-KATYP, ADR-0050 "What SAP does"): 01
 // primary costs, 11 revenues and 12 sales deductions. The others are
-// secondary or statistical elements, which the platform does not hold
-// (secondary is refused until T60, ADR-0050 §4).
+// secondary or statistical elements, which the draft does not take over
+// (the platform's own secondary cost elements are new accounts for its
+// assessment cycles, ADR-0064 §4).
 const (
 	katypPrimaryCost     = "01"
 	katypRevenue         = "11"
@@ -62,7 +63,7 @@ func areasOf(e *sap.Extract) map[string][]string {
 // revenue account, and none on an account that is not a cost element in
 // SAP (no CSKB row), as S/4HANA keeps non-operating accounts (A12(c)),
 // which SKA1-GLACCOUNT_TYPE cross-checks. A category the account's type
-// cannot take or the platform does not hold, or areas that disagree,
+// cannot take or the draft does not take over, or areas that disagree,
 // leaves the type's default with a note. A company whose areas the
 // extract does not tell, or whose areas have no cost elements, keeps the
 // defaults.
@@ -159,7 +160,7 @@ func (g *gen) costElement(path string, a config.Account, rows map[string]sap.CSK
 	case katyp[0] == katypPrimaryCost || katyp[0] == katypRevenue || katyp[0] == katypSalesDeductions:
 		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) does not fit the account's type, "+string(a.Type)+"; left at its type's default")
 	default:
-		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) is a secondary or statistical cost element, which the platform does not hold; left at its type's default")
+		g.note(path, "category "+katyp[0]+" (CSKB-KATYP) is a secondary or statistical cost element, which the draft does not take over; left at its type's default")
 	}
 	return ""
 }

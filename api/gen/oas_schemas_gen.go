@@ -2854,9 +2854,15 @@ type AllocationCycle struct {
 	// Name.
 	Name string `json:"name"`
 	// `distribution`: a run moves the sender's primary costs to the receivers on their original accounts.
-	// Open enumeration: clients must accept and preserve values not listed here; values may be added
-	// within /v1.
+	// `assessment`: a run charges them to the receivers in one amount on the assessment account and leaves
+	// them on the sender's accounts. Open enumeration: clients must accept and preserve values not listed
+	// here; values may be added within /v1.
 	Kind string `json:"kind"`
+	// The account an assessment's runs post on, a secondary cost element (`GET /v1/accounts/{id}`);
+	// present exactly on a cycle of kind `assessment`. Immutable.
+	AssessmentAccountID OptUUID `json:"assessment_account_id"`
+	// The assessment account's number; present with `assessment_account_id`.
+	AssessmentAccountNumber OptString `json:"assessment_account_number"`
 	// The cost center whose costs a run charges to the receivers (`GET /v1/cost-centers/{id}`).
 	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
 	// The sender's code.
@@ -2913,6 +2919,16 @@ func (s *AllocationCycle) GetName() string {
 // GetKind returns the value of Kind.
 func (s *AllocationCycle) GetKind() string {
 	return s.Kind
+}
+
+// GetAssessmentAccountID returns the value of AssessmentAccountID.
+func (s *AllocationCycle) GetAssessmentAccountID() OptUUID {
+	return s.AssessmentAccountID
+}
+
+// GetAssessmentAccountNumber returns the value of AssessmentAccountNumber.
+func (s *AllocationCycle) GetAssessmentAccountNumber() OptString {
+	return s.AssessmentAccountNumber
 }
 
 // GetSenderCostCenterID returns the value of SenderCostCenterID.
@@ -2980,6 +2996,16 @@ func (s *AllocationCycle) SetKind(val string) {
 	s.Kind = val
 }
 
+// SetAssessmentAccountID sets the value of AssessmentAccountID.
+func (s *AllocationCycle) SetAssessmentAccountID(val OptUUID) {
+	s.AssessmentAccountID = val
+}
+
+// SetAssessmentAccountNumber sets the value of AssessmentAccountNumber.
+func (s *AllocationCycle) SetAssessmentAccountNumber(val OptString) {
+	s.AssessmentAccountNumber = val
+}
+
 // SetSenderCostCenterID sets the value of SenderCostCenterID.
 func (s *AllocationCycle) SetSenderCostCenterID(val uuid.UUID) {
 	s.SenderCostCenterID = val
@@ -3004,8 +3030,12 @@ type AllocationCycleCreate struct {
 	Code string `json:"code"`
 	// Name.
 	Name string `json:"name"`
-	// `distribution`. Open enumeration; a kind not listed is refused (422).
+	// `distribution` or `assessment`. Open enumeration; a kind not listed is refused (422).
 	Kind string `json:"kind"`
+	// Required with kind `assessment`, refused with `distribution`: an active account of the legal entity
+	// whose cost element is `secondary`, on which the cycle's runs credit the sender and debit the
+	// receivers.
+	AssessmentAccountID OptUUID `json:"assessment_account_id"`
 	// An active cost center of the legal entity whose costs the cycle's runs charge to the receivers.
 	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
 	// The receivers: active cost centers of the legal entity other than the sender, each once, with
@@ -3031,6 +3061,11 @@ func (s *AllocationCycleCreate) GetName() string {
 // GetKind returns the value of Kind.
 func (s *AllocationCycleCreate) GetKind() string {
 	return s.Kind
+}
+
+// GetAssessmentAccountID returns the value of AssessmentAccountID.
+func (s *AllocationCycleCreate) GetAssessmentAccountID() OptUUID {
+	return s.AssessmentAccountID
 }
 
 // GetSenderCostCenterID returns the value of SenderCostCenterID.
@@ -3061,6 +3096,11 @@ func (s *AllocationCycleCreate) SetName(val string) {
 // SetKind sets the value of Kind.
 func (s *AllocationCycleCreate) SetKind(val string) {
 	s.Kind = val
+}
+
+// SetAssessmentAccountID sets the value of AssessmentAccountID.
+func (s *AllocationCycleCreate) SetAssessmentAccountID(val OptUUID) {
+	s.AssessmentAccountID = val
 }
 
 // SetSenderCostCenterID sets the value of SenderCostCenterID.
@@ -3277,8 +3317,8 @@ type AllocationRun struct {
 	AllocationCycleCode string `json:"allocation_cycle_code"`
 	// The cycle's name.
 	AllocationCycleName string `json:"allocation_cycle_name"`
-	// The cycle's kind: `distribution`. Open enumeration: clients must accept and preserve values not
-	// listed here; values may be added within /v1.
+	// The cycle's kind: `distribution` or `assessment`. Open enumeration: clients must accept and preserve
+	// values not listed here; values may be added within /v1.
 	Kind string `json:"kind"`
 	// The cycle's legal entity (company code).
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
@@ -3292,13 +3332,15 @@ type AllocationRun struct {
 	SenderCostCenterID uuid.UUID `json:"sender_cost_center_id"`
 	// The sender's code.
 	SenderCostCenterCode string `json:"sender_cost_center_code"`
-	// What the run moved off the sender to the receivers, in the legal entity's local currency: the total
-	// of the sender's costs of the period on the accounts charged.
+	// What the run charged the receivers, in the legal entity's local currency: the total of the sender's
+	// primary costs of the period. A distribution moves it off the sender's accounts; an assessment
+	// credits it to the sender on the assessment account.
 	Amount Money `json:"amount"`
-	// How many accounts the run charged.
+	// How many of the sender's accounts the run charged the costs of.
 	AccountCount int32 `json:"account_count"`
-	// The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show
-	// each account's credit on the sender and each receiver's share.
+	// The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show the
+	// sender's credit and each receiver's share: per account for a distribution, on the assessment account
+	// for an assessment.
 	JournalEntryID uuid.UUID `json:"journal_entry_id"`
 	// The entry's document number.
 	JournalEntryNumber string `json:"journal_entry_number"`
