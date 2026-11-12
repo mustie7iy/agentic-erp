@@ -54,12 +54,14 @@ type Contract struct {
 
 // contractSelect reads contracts with their obligations by number. The
 // obligations come from a subquery, not a join: the keyset of the list
-// orders by an unqualified id.
+// orders by an unqualified id. A service date is written as an instant at
+// midnight UTC, which is what a date is everywhere in the context.
 const contractSelect = `SELECT k.id, k.legal_entity_id, k.customer_id, k.sales_order_id, k.sales_order_number, k.currency, c.exponent,
 		k.transaction_price, k.status,
 		coalesce((SELECT json_agg(json_build_object('obligation_no', o.obligation_no, 'order_item_no', o.order_item_no, 'item_key', o.item_key,
 				'description', o.description, 'net_amount', o.net_amount, 'timing', o.timing,
-				'standalone_selling_price', o.standalone_selling_price) ORDER BY o.obligation_no)
+				'service_from', to_char(o.service_from, 'YYYY-MM-DD"T00:00:00Z"'), 'service_to', to_char(o.service_to, 'YYYY-MM-DD"T00:00:00Z"'),
+				'standalone_selling_price', o.standalone_selling_price, 'allocated_amount', o.allocated_amount) ORDER BY o.obligation_no)
 			FROM revenue.performance_obligation o WHERE o.tenant_id = k.tenant_id AND o.contract_id = k.id), '[]'),
 		k.version, k.created_at, k.created_by, k.updated_at, k.updated_by
 	FROM revenue.contract k JOIN ref.currency c ON c.code = k.currency`

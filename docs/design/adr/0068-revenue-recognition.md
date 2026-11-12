@@ -4,8 +4,8 @@
 with the product owner's decisions of 2026-11-12; `go-reviewer` had no
 blocking finding on T81a's last commit). It decides the revenue context
 and the slices T81a-T81d (`docs/design/plan-breadth-week2.md`, Lane B).
-Each slice records what it built under "As built"; T81a's is there
-now. **The six statements about IFRS 15 this ADR rests on (§2) are
+Each slice records what it built under "As built"; T81a's and T81b's
+are there now. **The six statements about IFRS 15 this ADR rests on (§2) are
 not yet confirmed by the accounting specialist.**
 
 ## Context
@@ -236,7 +236,8 @@ of its order item's delivery confirmations, in proportion to the
 quantity delivered, the last delivery taking the remainder (the delivery
 confirmation is the default evidence that control passed, a planning
 default of the product owner, 2026-11-12, until the accounting
-specialist answers question 2; statement 1); an over-time obligation's amount is spread on
+specialist answers question 2; statement 1); an over-time obligation's
+amount is spread on
 a straight line by days over its service period, each fiscal period
 taking its days' share (statement 5). T81c records the detail when it
 builds it.
@@ -381,3 +382,71 @@ is answered by the product owner: yes.
   one. An obligation's number is its place among the order's items, and
   `order_item_no` names the item: they are equal today and kept apart
   for obligations that are not order items (the plan's "later").
+
+### T81b Price allocation (migration 000281)
+
+- **Schema.** `revenue.performance_obligation` gains `service_from`,
+  `service_to` and `allocated_amount`; an over-time obligation has a
+  service period, from not after to, and a point-in-time obligation none
+  (`performance_obligation_service_period`); `revenue.contract` may be
+  `active` (`contract_status_check`). A contract changes only while it
+  is a draft, and becomes active only when every obligation holds its
+  share and the shares are the transaction price
+  (`contract_fixed_once_active`, `contract_allocated_in_full`, the
+  trigger `revenue.check_contract_change`); an obligation is written and
+  changed only while its contract is a draft
+  (`performance_obligation_fixed_once_active`, which locks the
+  contract's row for its check). The application may set an obligation's
+  timing, service period, stand-alone selling price and allocated amount
+  and a contract's status and version, nothing else. Schema tests in
+  `db/revenue_test.go`.
+- **Setting the obligations.** `PATCH /v1/revenue-contracts/{id}`
+  (`application/merge-patch+json`, `If-Match`, `revenue.contract.write`,
+  human-only): `obligations` names obligations by number, each once; a
+  field left out stays; `service_from` and `service_to` are removed with
+  null. Refusals name the request's own field: 422
+  `revenue.unknown_obligation`, `revenue.obligation_repeated`,
+  `revenue.unknown_timing`,
+  `revenue.service_period_required`, `revenue.invalid_service_period`,
+  `revenue.service_period_not_allowed`, `revenue.currency_mismatch`,
+  `revenue.price_not_positive`; 409 `revenue.invalid_status` once the
+  contract is active. The contract is read under its row lock; its
+  version moves.
+- **Activation.** `POST /v1/revenue-contracts/{id}:activate`
+  (`If-Match`, `revenue.contract.activate`, human-only) under the
+  contract's row lock: `allocate` computes each obligation's exact share,
+  transaction price × stand-alone selling price ÷ the sum of the prices,
+  in big integers and rationals, and `money.Allocate` rounds them to
+  shares that add up to the transaction price, a unit left going to the
+  largest remainder, the earlier obligation first. The shares, the
+  status `active`, the audit record and the event are one transaction. A
+  second activation and a later change are refused (409
+  `revenue.invalid_status`).
+- **Tested.** The shares add up to the transaction price to the minor
+  unit for 500 fixed contracts and at the top of the amount range; equal
+  remainders go to the earlier obligation; the starting prices allocate
+  the order's item values (also for the contract an order's confirmation
+  created); two activations at once, and an activation and a change at
+  once, end with one done and one 412.
+- **Event and audit.** `RevenueContractChanged` is published for a
+  change of the obligations (`draft`, status_before `draft`) and for the
+  activation (`active`, status_before `draft`); audit records
+  `revenue.contract.update` and `revenue.contract.activate`.
+- **Walkthrough.** Step 57 extended: the support service is set to over
+  time for the fiscal year of Maple's date today with a stand-alone
+  selling price of 1300.00, above its order value of 1200.00; an
+  over-time obligation without a period is refused; the contract is
+  activated and its obligations are allocated 1446.43 and 1253.57, which
+  add up to 2700.00 and differ from the order's item values; a later
+  change and a second activation are refused; the contract of step 55's
+  order, activated with its starting prices, is allocated the order's
+  item values.
+- **Decided by default while building.** The patch's `obligations` is a
+  list keyed by `obligation_no`, not a merge patch's replacing array: the
+  obligations are the order's items and cannot be replaced. A
+  point-in-time obligation with a service period is refused rather than
+  the period being dropped silently. An allocated amount may be zero
+  (a stand-alone selling price too small for a minor unit of the
+  transaction price). The contract's `version` and
+  `RevenueContractChanged` move with a change of the obligations, so a
+  consumer following the contract sees it.

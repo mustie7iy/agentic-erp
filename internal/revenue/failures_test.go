@@ -3,6 +3,7 @@ package revenue_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -20,6 +21,7 @@ func TestDatabaseFailures(t *testing.T) {
 	other, _ := e.confirmed(t, e.goods())
 	created, _ := e.Must(201, "POST", contracts, forOrder(other), "")
 	id := uuid.MustParse(created["id"].(string))
+	day := time.Date(2026, 6, 30, 0, 0, 0, 0, time.UTC)
 	calls := map[string]func(ctx context.Context) error{
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateRevenueContract(ctx, &gen.RevenueContractCreate{SalesOrderID: uuid.MustParse(order)}, gen.CreateRevenueContractParams{})
@@ -27,6 +29,18 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"get": func(ctx context.Context) error {
 			_, err := h.GetRevenueContract(ctx, gen.GetRevenueContractParams{ID: id})
+			return err
+		},
+		"update": func(ctx context.Context) error {
+			_, err := h.UpdateRevenueContract(ctx, &gen.RevenueContractUpdate{Obligations: []gen.PerformanceObligationUpdate{{ObligationNo: 1,
+				Timing:      gen.NewOptString("over_time"),
+				ServiceFrom: gen.NewOptNilDate(day), ServiceTo: gen.NewOptNilDate(day),
+				StandaloneSellingPrice: gen.NewOptMoney(gen.Money{Amount: "900.00", Currency: "EUR"})}}},
+				gen.UpdateRevenueContractParams{ID: id, IfMatch: `"1"`})
+			return err
+		},
+		"activate": func(ctx context.Context) error {
+			_, err := h.ActivateRevenueContract(ctx, gen.ActivateRevenueContractParams{ID: id, IfMatch: `"1"`})
 			return err
 		},
 		"list": func(ctx context.Context) error {

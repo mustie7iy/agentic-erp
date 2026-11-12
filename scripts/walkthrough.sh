@@ -6383,12 +6383,20 @@ step_billing() {
 # and one performance obligation per order item, each satisfied at a
 # point in time with the item's net value as its stand-alone selling
 # price. A request for the same order is refused, since an order has one
-# contract, and so is one for an order that is not confirmed. Nothing is
-# posted. REVENUE_ORDER and REVENUE_CONTRACT are the order and its
-# contract for later steps.
+# contract, and so is one for an order that is not confirmed. T81b
+# (ADR-0068 §7): Nora sets the support service to over time for the fiscal
+# year with a stand-alone selling price above its order value and
+# activates the contract; the transaction price is allocated to the two
+# obligations in proportion to their stand-alone selling prices, the
+# amounts adding up to it to the cent; an active contract is fixed. The
+# contract of step 55's order, activated with the prices it started with,
+# is allocated the order's item values. Nothing is posted. REVENUE_ORDER
+# and REVENUE_CONTRACT are the order and its active contract for later
+# steps.
 step_revenue_contract() {
-  heading "Step 57 — Revenue contracts: a confirmed sales order gets its revenue contract by itself, one performance obligation per order item, the order's net value without tax as its transaction price; one contract per order; nothing posted"
-  local customer=$CUSTOMER sales item1 item2 order number contract open i draft
+  heading "Step 57 — Revenue contracts: a confirmed sales order gets its revenue contract by itself, one performance obligation per order item, the order's net value without tax as its transaction price; one contract per order; the price allocated in proportion to stand-alone selling prices when the contract is activated; nothing posted"
+  local customer=$CUSTOMER sales item1 item2 order number contract open i draft year first
+  [ -n "$SALES_ORDER" ] || fail "step 55's sales order is not there"
   as ada
   say "Ada adds Nora, the revenue accountant, to the team:"
   person nora "Nora Revenue" finance_staff
@@ -6447,6 +6455,52 @@ step_revenue_contract() {
   as nora
   refused 422 revenue.order_not_confirmed createRevenueContract -body "{\"sales_order_id\": \"$draft\"}"
   expect "the field refused" "$(field '.errors[0].field')" sales_order_id
+  say "The brackets are goods; the support is a service Northwind receives over the fiscal year. That is Nora's"
+  say "judgement to make: she sets the support's obligation to over time with its service period. She also knows that"
+  say "Maple sells a year of support on its own for 1300.00, above the 1200.00 on this order, and enters that as the"
+  say "obligation's stand-alone selling price (ADR-0068 §2, §7):"
+  year=$(company_day)
+  year=${year:0:4}
+  QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), version \(.version)", (.obligations[] | "  obligation \(.obligation_no) \(.description): \(.timing)" + (if .service_from then " from \(.service_from) to \(.service_to)" else "" end) + ", stand-alone selling price \(.standalone_selling_price.amount) \(.standalone_selling_price.currency)")' \
+    updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
+    -body "{\"obligations\": [{\"obligation_no\": 2, \"timing\": \"over_time\", \"service_from\": \"$year-01-01\", \"service_to\": \"$year-12-31\", \"standalone_selling_price\": {\"amount\": \"1300.00\", \"currency\": \"CAD\"}}]}"
+  expect "the obligations after the change" \
+    "$(field '[.obligations[] | "\(.timing) \(.service_from // "-") \(.service_to // "-") \(.standalone_selling_price.amount)"] | join(", ")')" \
+    "point_in_time - - 1500.00, over_time $year-01-01 $year-12-31 1300.00"
+  expect "the draft's version and allocated amounts" "$(field '"\(.status) \(.version) " + ([.obligations[] | .allocated_amount.amount // "-"] | join(" "))')" "draft 2 - -"
+  say "An over-time obligation needs its service period: setting the brackets to over time without one is refused."
+  refused 422 revenue.service_period_required updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
+    -body '{"obligations": [{"obligation_no": 1, "timing": "over_time"}]}'
+  expect "the field refused" "$(field '.errors[0].field')" "obligations[0].service_from"
+  say "Nora activates the contract. The system allocates the transaction price to the obligations in proportion to"
+  say "their stand-alone selling prices, 1500.00 and 1300.00: 2700.00 x 1500 / 2800 is 1446.428..., 2700.00 x 1300 / 2800"
+  say "is 1253.571...; the whole cents leave one cent over, which goes to the larger remainder, the brackets'. That"
+  say "arithmetic is all the system does:"
+  QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), version \(.version), transaction price \(.transaction_price.amount) \(.transaction_price.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description): order value \(.net_amount.amount), stand-alone selling price \(.standalone_selling_price.amount), allocated \(.allocated_amount.amount) \(.allocated_amount.currency)")' \
+    activateRevenueContract -p "id=$contract" -if-match "$ETAG"
+  expect "the active contract" "$(field '"\(.status) \(.version)"')" "active 3"
+  expect "the allocated amounts" "$(field '[.obligations[] | .allocated_amount.amount] | join(" ")')" "1446.43 1253.57"
+  expect "the allocated amounts' sum in cents, the transaction price's" \
+    "$(field '[.obligations[] | .allocated_amount.amount | sub("\\."; "") | tonumber] | add')" "$(field '.transaction_price.amount | sub("\\."; "") | tonumber')"
+  say "The two amounts add up to the transaction price, 2700.00, to the cent, and differ from the order's item values,"
+  say "1500.00 and 1200.00, as the proportion gives. An active contract is fixed: a change is refused, and so is a"
+  say "second activation."
+  refused 409 revenue.invalid_status updateRevenueContract -p "id=$contract" -if-match "$ETAG" \
+    -body '{"obligations": [{"obligation_no": 1, "standalone_selling_price": {"amount": "1.00", "currency": "CAD"}}]}'
+  QUIET=1 api 200 '' getRevenueContract -p "id=$contract"
+  refused 409 revenue.invalid_status activateRevenueContract -p "id=$contract" -if-match "$ETAG"
+  say "The order of step 55 got its contract the same way when Sally confirmed it. Nobody changed its obligations, so"
+  say "they have the prices they started with, the order items' net values, and activating it allocates those values:"
+  QUIET=1 api 200 '' listRevenueContracts -p "sales_order_id=$SALES_ORDER"
+  expect "the revenue contracts of step 55's order" "$(field '.items | length')" 1
+  first=$(field '.items[0].id')
+  QUIET=1 api 200 '' getRevenueContract -p "id=$first"
+  api 200 '"revenue contract of sales order \(.sales_order_number): \(.status), transaction price \(.transaction_price.amount) \(.transaction_price.currency)", (.obligations[] | "  obligation \(.obligation_no) \(.description): order value \(.net_amount.amount), allocated \(.allocated_amount.amount) \(.allocated_amount.currency)")' \
+    activateRevenueContract -p "id=$first" -if-match "$ETAG"
+  expect "the allocated amounts, the order's item values" \
+    "$(field '[.obligations[] | "\(.net_amount.amount)=\(.allocated_amount.amount)"] | join(" ")')" "1500.00=1500.00 237.53=237.53"
   REVENUE_ORDER=$order
   REVENUE_CONTRACT=$contract
   say "A revenue contract posts nothing: Northwind's open items are as they were."

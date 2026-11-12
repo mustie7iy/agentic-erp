@@ -2766,14 +2766,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Price allocation",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The revenue accountant sets per obligation whether it is satisfied at a point in time or over time, with its service period, and its stand-alone selling price, and activates the contract: the transaction price is allocated to the obligations in proportion to those prices",
-        "r": "T81b · docs/design/plan-breadth-week2.md §T81b",
+        "r": "T81b · docs/design/plan-breadth-week2.md §T81b · db/migrations/000281 · performance_obligation.service_from, service_to, allocated_amount · PATCH /v1/revenue-contracts/{id} · POST /v1/revenue-contracts/{id}:activate · revenue.contract.activate · money.Allocate · walkthrough step_revenue_contract · ADR-0068 §7 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

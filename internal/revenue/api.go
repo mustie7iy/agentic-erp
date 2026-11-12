@@ -59,7 +59,11 @@ func contractAPI(c Contract, refs references) gen.RevenueContract {
 	for i, o := range c.Obligations {
 		out.Obligations[i] = gen.PerformanceObligation{ObligationNo: o.No, OrderItemNo: o.OrderItemNo, ItemKey: apitypes.OptString(o.ItemKey),
 			Description: o.Description, NetAmount: apitypes.Money(o.Net, c.Currency, c.Exponent), Timing: o.Timing,
+			ServiceFrom: apitypes.OptDate(o.ServiceFrom), ServiceTo: apitypes.OptDate(o.ServiceTo),
 			StandaloneSellingPrice: apitypes.Money(o.StandalonePrice, c.Currency, c.Exponent)}
+		if o.Allocated != nil {
+			out.Obligations[i].AllocatedAmount = gen.NewOptMoney(apitypes.Money(*o.Allocated, c.Currency, c.Exponent))
+		}
 	}
 	return out
 }
@@ -98,6 +102,40 @@ func (e *Endpoints) GetRevenueContract(ctx context.Context, params gen.GetRevenu
 		return nil, err
 	}
 	return &gen.GetRevenueContractOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
+}
+
+// UpdateRevenueContract implements PATCH /v1/revenue-contracts/{id}.
+func (e *Endpoints) UpdateRevenueContract(ctx context.Context, req *gen.RevenueContractUpdate, params gen.UpdateRevenueContractParams) (gen.UpdateRevenueContractRes, error) {
+	changes := make([]ObligationChange, len(req.Obligations))
+	for i, o := range req.Obligations {
+		changes[i] = ObligationChange{No: o.ObligationNo, Timing: apitypes.Ptr[string](o.Timing), ServiceFrom: apitypes.OptNilDate(o.ServiceFrom), ServiceTo: apitypes.OptNilDate(o.ServiceTo)}
+		if price, ok := o.StandaloneSellingPrice.Get(); ok {
+			changes[i].Price = &Amount{Value: price.Amount, Currency: price.Currency}
+		}
+	}
+	c, err := e.Update(ctx, params.ID, changes, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.answer(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.UpdateRevenueContractOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
+}
+
+// ActivateRevenueContract implements POST /v1/revenue-contracts/{id}:activate.
+func (e *Endpoints) ActivateRevenueContract(ctx context.Context, params gen.ActivateRevenueContractParams) (gen.ActivateRevenueContractRes, error) {
+	c, err := e.Activate(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.answer(ctx, c)
+	if err != nil {
+		return nil, err
+	}
+	// The generated answer of the update: both answer the contract with its ETag.
+	return &gen.UpdateRevenueContractOKHeaders{ETag: gen.NewOptString(etag.Format(c.Version)), Response: out}, nil
 }
 
 var contractSort = pagination.Sort{Default: "sales_order_number", Fields: []pagination.Field{

@@ -1633,6 +1633,26 @@ type ActivateOrgUnitUnprocessableEntity Problem
 
 func (*ActivateOrgUnitUnprocessableEntity) activateOrgUnitRes() {}
 
+type ActivateRevenueContractBadRequest Problem
+
+func (*ActivateRevenueContractBadRequest) activateRevenueContractRes() {}
+
+type ActivateRevenueContractForbidden Problem
+
+func (*ActivateRevenueContractForbidden) activateRevenueContractRes() {}
+
+type ActivateRevenueContractNotFound Problem
+
+func (*ActivateRevenueContractNotFound) activateRevenueContractRes() {}
+
+type ActivateRevenueContractPreconditionFailed Problem
+
+func (*ActivateRevenueContractPreconditionFailed) activateRevenueContractRes() {}
+
+type ActivateRevenueContractPreconditionRequired Problem
+
+func (*ActivateRevenueContractPreconditionRequired) activateRevenueContractRes() {}
+
 type AddHierarchyNodeBadRequest Problem
 
 func (*AddHierarchyNodeBadRequest) addHierarchyNodeRes() {}
@@ -22365,6 +22385,7 @@ func (*ConflictHeaders) acceptVarianceCommentRes()                 {}
 func (*ConflictHeaders) activateChangeRequestRes()                 {}
 func (*ConflictHeaders) activateLegalEntityRes()                   {}
 func (*ConflictHeaders) activateOrgUnitRes()                       {}
+func (*ConflictHeaders) activateRevenueContractRes()               {}
 func (*ConflictHeaders) addHierarchyNodeRes()                      {}
 func (*ConflictHeaders) applyCountryPackRes()                      {}
 func (*ConflictHeaders) applyPlanBatchRes()                        {}
@@ -22596,6 +22617,7 @@ func (*ConflictHeaders) updateProfitCenterRes()                    {}
 func (*ConflictHeaders) updatePurchaseOrderChangeRes()             {}
 func (*ConflictHeaders) updatePurchaseOrderRes()                   {}
 func (*ConflictHeaders) updateRequisitionRes()                     {}
+func (*ConflictHeaders) updateRevenueContractRes()                 {}
 func (*ConflictHeaders) updateRoleRes()                            {}
 func (*ConflictHeaders) updateSegmentRes()                         {}
 func (*ConflictHeaders) updateSupplierInvoiceRes()                 {}
@@ -60421,9 +60443,18 @@ type PerformanceObligation struct {
 	// starts as, or `over_time`. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1.
 	Timing string `json:"timing"`
+	// The first day of the period an `over_time` obligation is satisfied over; absent for a
+	// `point_in_time` obligation.
+	ServiceFrom OptDate `json:"service_from"`
+	// The last day of that period, not before `service_from`; absent for a `point_in_time` obligation.
+	ServiceTo OptDate `json:"service_to"`
 	// The obligation's stand-alone selling price, a person's judgement: it starts as the order item's net
 	// value.
 	StandaloneSellingPrice Money `json:"standalone_selling_price"`
+	// The obligation's share of the contract's transaction price, allocated in proportion to the
+	// stand-alone selling prices when the contract is activated; the obligations' shares add up to the
+	// transaction price exactly. Absent while the contract is a `draft`.
+	AllocatedAmount OptMoney `json:"allocated_amount"`
 }
 
 // GetObligationNo returns the value of ObligationNo.
@@ -60456,9 +60487,24 @@ func (s *PerformanceObligation) GetTiming() string {
 	return s.Timing
 }
 
+// GetServiceFrom returns the value of ServiceFrom.
+func (s *PerformanceObligation) GetServiceFrom() OptDate {
+	return s.ServiceFrom
+}
+
+// GetServiceTo returns the value of ServiceTo.
+func (s *PerformanceObligation) GetServiceTo() OptDate {
+	return s.ServiceTo
+}
+
 // GetStandaloneSellingPrice returns the value of StandaloneSellingPrice.
 func (s *PerformanceObligation) GetStandaloneSellingPrice() Money {
 	return s.StandaloneSellingPrice
+}
+
+// GetAllocatedAmount returns the value of AllocatedAmount.
+func (s *PerformanceObligation) GetAllocatedAmount() OptMoney {
+	return s.AllocatedAmount
 }
 
 // SetObligationNo sets the value of ObligationNo.
@@ -60491,8 +60537,93 @@ func (s *PerformanceObligation) SetTiming(val string) {
 	s.Timing = val
 }
 
+// SetServiceFrom sets the value of ServiceFrom.
+func (s *PerformanceObligation) SetServiceFrom(val OptDate) {
+	s.ServiceFrom = val
+}
+
+// SetServiceTo sets the value of ServiceTo.
+func (s *PerformanceObligation) SetServiceTo(val OptDate) {
+	s.ServiceTo = val
+}
+
 // SetStandaloneSellingPrice sets the value of StandaloneSellingPrice.
 func (s *PerformanceObligation) SetStandaloneSellingPrice(val Money) {
+	s.StandaloneSellingPrice = val
+}
+
+// SetAllocatedAmount sets the value of AllocatedAmount.
+func (s *PerformanceObligation) SetAllocatedAmount(val OptMoney) {
+	s.AllocatedAmount = val
+}
+
+// What to set on one performance obligation. A field left out stays as it is.
+// Ref: #/components/schemas/PerformanceObligationUpdate
+type PerformanceObligationUpdate struct {
+	// The obligation to change, by its number within the contract.
+	ObligationNo int32 `json:"obligation_no"`
+	// When the obligation is satisfied: at a point in time (`point_in_time`), or over time (`over_time`),
+	// which needs a service period; another value is refused (422 `revenue.unknown_timing`). A person's
+	// judgement; the system does not check it. Open enumeration: values may be added within /v1.
+	Timing OptString `json:"timing"`
+	// The first day of the period an `over_time` obligation is satisfied over. Send null to remove it,
+	// with `timing` `point_in_time`.
+	ServiceFrom OptNilDate `json:"service_from"`
+	// The last day of that period, not before `service_from`. Send null to remove it, with `timing`
+	// `point_in_time`.
+	ServiceTo OptNilDate `json:"service_to"`
+	// The obligation's stand-alone selling price: more than zero, in the contract's currency. A person's
+	// judgement; the system does not estimate it.
+	StandaloneSellingPrice OptMoney `json:"standalone_selling_price"`
+}
+
+// GetObligationNo returns the value of ObligationNo.
+func (s *PerformanceObligationUpdate) GetObligationNo() int32 {
+	return s.ObligationNo
+}
+
+// GetTiming returns the value of Timing.
+func (s *PerformanceObligationUpdate) GetTiming() OptString {
+	return s.Timing
+}
+
+// GetServiceFrom returns the value of ServiceFrom.
+func (s *PerformanceObligationUpdate) GetServiceFrom() OptNilDate {
+	return s.ServiceFrom
+}
+
+// GetServiceTo returns the value of ServiceTo.
+func (s *PerformanceObligationUpdate) GetServiceTo() OptNilDate {
+	return s.ServiceTo
+}
+
+// GetStandaloneSellingPrice returns the value of StandaloneSellingPrice.
+func (s *PerformanceObligationUpdate) GetStandaloneSellingPrice() OptMoney {
+	return s.StandaloneSellingPrice
+}
+
+// SetObligationNo sets the value of ObligationNo.
+func (s *PerformanceObligationUpdate) SetObligationNo(val int32) {
+	s.ObligationNo = val
+}
+
+// SetTiming sets the value of Timing.
+func (s *PerformanceObligationUpdate) SetTiming(val OptString) {
+	s.Timing = val
+}
+
+// SetServiceFrom sets the value of ServiceFrom.
+func (s *PerformanceObligationUpdate) SetServiceFrom(val OptNilDate) {
+	s.ServiceFrom = val
+}
+
+// SetServiceTo sets the value of ServiceTo.
+func (s *PerformanceObligationUpdate) SetServiceTo(val OptNilDate) {
+	s.ServiceTo = val
+}
+
+// SetStandaloneSellingPrice sets the value of StandaloneSellingPrice.
+func (s *PerformanceObligationUpdate) SetStandaloneSellingPrice(val OptMoney) {
 	s.StandaloneSellingPrice = val
 }
 
@@ -69753,8 +69884,10 @@ type RevenueContract struct {
 	Currency string `json:"currency"`
 	// The contract's transaction price: the sales order's net value, without tax.
 	TransactionPrice Money `json:"transaction_price"`
-	// `draft`: created. Open enumeration: clients must accept and preserve values not listed here; values
-	// may be added within /v1.
+	// `draft`: created; its obligations' timing, service periods and stand-alone selling prices can be set
+	// (`updateRevenueContract`). `active`: activated, once (`:activate`): the transaction price is
+	// allocated and the obligations are fixed. Open enumeration: clients must accept and preserve values
+	// not listed here; values may be added within /v1.
 	Status string `json:"status"`
 	// The performance obligations, by number.
 	Obligations []PerformanceObligation `json:"obligations"`
@@ -70038,6 +70171,25 @@ func (s *RevenueContractPage) SetNextPageToken(val OptString) {
 }
 
 func (*RevenueContractPage) listRevenueContractsRes() {}
+
+// What a person sets on a draft revenue contract's performance obligations. Each element names one
+// obligation by `obligation_no`; obligations not named stay as they are.
+// Ref: #/components/schemas/RevenueContractUpdate
+type RevenueContractUpdate struct {
+	// The obligations to change, each named once. Unlike a plain merge patch's array, this one does not
+	// replace the contract's obligations: an element changes the obligation it names.
+	Obligations []PerformanceObligationUpdate `json:"obligations"`
+}
+
+// GetObligations returns the value of Obligations.
+func (s *RevenueContractUpdate) GetObligations() []PerformanceObligationUpdate {
+	return s.Obligations
+}
+
+// SetObligations sets the value of Obligations.
+func (s *RevenueContractUpdate) SetObligations(val []PerformanceObligationUpdate) {
+	s.Obligations = val
+}
 
 type ReverseAssetAcquisitionBadRequest Problem
 
@@ -77164,6 +77316,7 @@ func (*TooManyRequestsHeaders) acceptVarianceCommentRes()                 {}
 func (*TooManyRequestsHeaders) activateChangeRequestRes()                 {}
 func (*TooManyRequestsHeaders) activateLegalEntityRes()                   {}
 func (*TooManyRequestsHeaders) activateOrgUnitRes()                       {}
+func (*TooManyRequestsHeaders) activateRevenueContractRes()               {}
 func (*TooManyRequestsHeaders) addHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) applyCountryPackRes()                      {}
 func (*TooManyRequestsHeaders) applyPlanBatchRes()                        {}
@@ -77593,6 +77746,7 @@ func (*TooManyRequestsHeaders) updateProfitCenterRes()                    {}
 func (*TooManyRequestsHeaders) updatePurchaseOrderChangeRes()             {}
 func (*TooManyRequestsHeaders) updatePurchaseOrderRes()                   {}
 func (*TooManyRequestsHeaders) updateRequisitionRes()                     {}
+func (*TooManyRequestsHeaders) updateRevenueContractRes()                 {}
 func (*TooManyRequestsHeaders) updateRoleRes()                            {}
 func (*TooManyRequestsHeaders) updateSegmentRes()                         {}
 func (*TooManyRequestsHeaders) updateSupplierInvoiceRes()                 {}
@@ -77916,6 +78070,7 @@ func (*UnauthorizedHeaders) acceptVarianceCommentRes()                 {}
 func (*UnauthorizedHeaders) activateChangeRequestRes()                 {}
 func (*UnauthorizedHeaders) activateLegalEntityRes()                   {}
 func (*UnauthorizedHeaders) activateOrgUnitRes()                       {}
+func (*UnauthorizedHeaders) activateRevenueContractRes()               {}
 func (*UnauthorizedHeaders) addHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) applyCountryPackRes()                      {}
 func (*UnauthorizedHeaders) applyPlanBatchRes()                        {}
@@ -78345,6 +78500,7 @@ func (*UnauthorizedHeaders) updateProfitCenterRes()                    {}
 func (*UnauthorizedHeaders) updatePurchaseOrderChangeRes()             {}
 func (*UnauthorizedHeaders) updatePurchaseOrderRes()                   {}
 func (*UnauthorizedHeaders) updateRequisitionRes()                     {}
+func (*UnauthorizedHeaders) updateRevenueContractRes()                 {}
 func (*UnauthorizedHeaders) updateRoleRes()                            {}
 func (*UnauthorizedHeaders) updateSegmentRes()                         {}
 func (*UnauthorizedHeaders) updateSupplierInvoiceRes()                 {}
@@ -79655,6 +79811,70 @@ func (*UpdateRequisitionPreconditionRequired) updateRequisitionRes() {}
 type UpdateRequisitionUnprocessableEntity Problem
 
 func (*UpdateRequisitionUnprocessableEntity) updateRequisitionRes() {}
+
+type UpdateRevenueContractBadRequest Problem
+
+func (*UpdateRevenueContractBadRequest) updateRevenueContractRes() {}
+
+type UpdateRevenueContractForbidden Problem
+
+func (*UpdateRevenueContractForbidden) updateRevenueContractRes() {}
+
+type UpdateRevenueContractNotFound Problem
+
+func (*UpdateRevenueContractNotFound) updateRevenueContractRes() {}
+
+// UpdateRevenueContractOKHeaders wraps RevenueContract with response headers.
+type UpdateRevenueContractOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           RevenueContract
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateRevenueContractOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateRevenueContractOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateRevenueContractOKHeaders) GetResponse() RevenueContract {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateRevenueContractOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateRevenueContractOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateRevenueContractOKHeaders) SetResponse(val RevenueContract) {
+	s.Response = val
+}
+
+func (*UpdateRevenueContractOKHeaders) activateRevenueContractRes() {}
+func (*UpdateRevenueContractOKHeaders) updateRevenueContractRes()   {}
+
+type UpdateRevenueContractPreconditionFailed Problem
+
+func (*UpdateRevenueContractPreconditionFailed) updateRevenueContractRes() {}
+
+type UpdateRevenueContractPreconditionRequired Problem
+
+func (*UpdateRevenueContractPreconditionRequired) updateRevenueContractRes() {}
+
+type UpdateRevenueContractUnprocessableEntity Problem
+
+func (*UpdateRevenueContractUnprocessableEntity) updateRevenueContractRes() {}
 
 type UpdateRoleBadRequest Problem
 

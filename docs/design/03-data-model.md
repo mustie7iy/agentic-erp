@@ -4432,7 +4432,9 @@ revenue contract: the contract with a customer that one confirmed sales
 order stands for, with one performance obligation per order item. The
 inbox is in use: the context consumes the sales context's
 `SalesOrderChanged` and creates a confirmed order's contract, once
-(ADR-0068 §4). Nothing is posted before T81d.
+(ADR-0068 §4). T81b (migration 000281) lets a person set a draft's
+obligations and activate the contract, which allocates its transaction
+price to them and fixes it. Nothing is posted before T81d.
 
 ```mermaid
 erDiagram
@@ -4444,7 +4446,7 @@ erDiagram
     text sales_order_number "when created"
     char currency "the company's local currency"
     bigint transaction_price "the order's net value, without tax"
-    text status "draft"
+    text status "draft, active"
     int version }
   performance_obligation { int obligation_no PK
     uuid contract_id FK
@@ -4453,19 +4455,27 @@ erDiagram
     text description
     bigint net_amount "the order item's net value"
     text timing "point_in_time, over_time"
-    bigint standalone_selling_price "above 0" }
+    date service_from "over_time alone"
+    date service_to "not before service_from"
+    bigint standalone_selling_price "above 0"
+    bigint allocated_amount "set at activation; the shares are the transaction price" }
 ```
 
 - `revenue.contract`: one per sales order
   (`contract_one_per_sales_order`: the consumer's insert and a person's
-  request leave an existing one as it is); the status is `draft` alone
-  (`contract_status_check`, which T81b widens); `transaction_price` is
+  request leave an existing one as it is); the status is `draft` or
+  `active` (`contract_status_check`); `transaction_price` is
   above zero (`contract_transaction_price_positive`), minor units of
   `currency`; it keeps its order's number
   (`contract_sales_order_number_check`), which the list reads the
   tenant's contracts by (`contract_by_order_number`,
-  `contract_by_customer`). Creating is the only write: the application
-  may not update or delete a contract (T81b grants what it sets).
+  `contract_by_customer`). A contract changes only while it is a draft
+  (`contract_fixed_once_active`: its version moves with each change of
+  its obligations, and activating it is its last change), and becomes
+  active only when every obligation holds its allocated amount and the
+  amounts add up to the transaction price
+  (`contract_allocated_in_full`). The application may set its status,
+  version and `updated_by` alone, and deletes nothing.
 - `revenue.performance_obligation`: numbered from 1 within its contract,
   one per order item (`performance_obligation_one_per_order_item`), with
   the item's key and description
@@ -4476,10 +4486,19 @@ erDiagram
   `standalone_selling_price` is above zero
   (`performance_obligation_price_positive`): both are a person's
   judgement, and start as point in time and the item's net value
-  (ADR-0068 §2). The application may not update or delete one.
+  (ADR-0068 §2). An over-time obligation has a service period, from not
+  after to, and a point-in-time obligation none
+  (`performance_obligation_service_period`); `allocated_amount` is not
+  negative (`performance_obligation_allocated_check`) and absent until
+  the contract is activated. An obligation is written and changed only
+  while its contract is a draft
+  (`performance_obligation_fixed_once_active`, which locks the
+  contract's row, so a change and the activation wait for one another).
+  The application may set its timing, service period, stand-alone
+  selling price and allocated amount alone, and deletes nothing.
 - `revenue.outbox`, `revenue.inbox`: the context's events
   (`RevenueContractChanged`), and the events its consumer
   `revenue-contracts` has read (the sales context's
   `SalesOrderChanged`), each recorded in the transaction of what the
   reading did.
-- Permissions `revenue.contract.read` and `.write`.
+- Permissions `revenue.contract.read`, `.write` and `.activate`.

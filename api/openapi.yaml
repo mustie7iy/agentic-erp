@@ -16570,6 +16570,7 @@ paths:
             description: "Revenue contract status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - draft
+              - active
         - $ref: "#/components/parameters/PageSize"
         - $ref: "#/components/parameters/PageToken"
         - $ref: "#/components/parameters/OrderBy"
@@ -16599,6 +16600,7 @@ paths:
       x-problem-codes:
         - revenue.contract_exists
         - revenue.foreign_currency
+        - revenue.invalid_status
         - revenue.order_not_confirmed
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -16648,7 +16650,7 @@ paths:
       tags:
         - revenue
       summary: Get a revenue contract
-      description: "One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number and name, the sales order it stands for by id and number, its transaction price (the order's net value, without tax) and its performance obligations, each with the order item it is for, its timing and its stand-alone selling price. `created_by` is the person who asked for it, or the system's principal when the order's confirmation created it. One of a company the caller may not act in is not found (404), as one that does not exist."
+      description: "One revenue contract (ADR-0068 §3, T81a) with its company's code and name, its customer's number and name, the sales order it stands for by id and number, its transaction price (the order's net value, without tax) and its performance obligations, each with the order item it is for, its timing, an over-time obligation's service period, its stand-alone selling price and, once the contract is `active`, its allocated amount. `created_by` is the person who asked for it, or the system's principal when the order's confirmation created it. One of a company the caller may not act in is not found (404), as one that does not exist."
       x-permission: revenue.contract.read
       x-problem-codes: []
       parameters:
@@ -16671,6 +16673,123 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateRevenueContract
+      tags:
+        - revenue
+      summary: Set a draft revenue contract's obligations
+      description: "Sets, on a `draft` revenue contract, what a person judges about its performance obligations (ADR-0068 §2, §7, T81b), at the version the caller read (`If-Match`): per obligation whether it is satisfied at a point in time or over time (`timing`), an over-time obligation's service period (`service_from`, `service_to`) and its stand-alone selling price. The system makes none of these judgements and checks only their form. Each element of `obligations` names an obligation of the contract by its number (422 `revenue.unknown_obligation` naming `obligations[i].obligation_no`), once (422 `revenue.obligation_repeated`); a field left out stays as it is. `timing` is `point_in_time` or `over_time` (422 `revenue.unknown_timing`). Afterwards an `over_time` obligation has both days of its service period (422 `revenue.service_period_required` naming the day missing), `service_from` not after `service_to` (422 `revenue.invalid_service_period`), and a `point_in_time` obligation has none (422 `revenue.service_period_not_allowed`: send the dates as null when setting it back); a stand-alone selling price is in the contract's currency (422 `revenue.currency_mismatch`) and more than zero (422 `revenue.price_not_positive`). The contract is read under a row lock; one that is `active` is fixed and refused (409 `revenue.invalid_status`). Nothing is allocated before the contract is activated. The contract's `version` moves. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the contract as the first answered it. Human-only (`x-agent: false`)."
+      x-permission: revenue.contract.write
+      x-agent: false
+      x-problem-codes:
+        - request.invalid_amount
+        - request.version_mismatch
+        - revenue.currency_mismatch
+        - revenue.invalid_service_period
+        - revenue.invalid_status
+        - revenue.obligation_repeated
+        - revenue.price_not_positive
+        - revenue.service_period_not_allowed
+        - revenue.service_period_required
+        - revenue.unknown_obligation
+        - revenue.unknown_timing
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The obligations to change.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/RevenueContractUpdate"
+            examples:
+              service:
+                summary: A support service satisfied over the fiscal year, priced above its order value
+                value:
+                  obligations:
+                    - obligation_no: 2
+                      timing: over_time
+                      service_from: "2026-01-01"
+                      service_to: "2026-12-31"
+                      standalone_selling_price:
+                        amount: "1300.00"
+                        currency: CAD
+      responses:
+        "200":
+          description: "The revenue contract, changed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevenueContract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/revenue-contracts/{id}:activate":
+    post:
+      operationId: activateRevenueContract
+      tags:
+        - revenue
+      summary: Activate a revenue contract
+      description: "Activates a `draft` revenue contract (ADR-0068 §7, T81b), at the version the caller read (`If-Match`): the contract is read under a row lock and moves to `active` once. Its transaction price is allocated to its performance obligations in proportion to their stand-alone selling prices: an obligation's share is the transaction price × its stand-alone selling price ÷ the sum of the stand-alone selling prices, rounded so that the shares (`allocated_amount`) add up to the transaction price exactly; a minor unit left by the rounding goes to the obligations with the largest remainders, the earlier one first, so the same contract always allocates the same way. With the prices a contract starts with, the order items' net values, each share is its order item's value. Activating fixes the obligations and their amounts: a later change or a second activation is refused (409 `revenue.invalid_status`). The system does the arithmetic only: the obligations, their timing and their stand-alone selling prices are the person's judgement as they stand. Nothing is posted. Audited, and published as RevenueContractChanged. A retry with the same `Idempotency-Key` answers the active contract. Human-only (`x-agent: false`)."
+      x-permission: revenue.contract.activate
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - revenue.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The revenue contract, active, with each obligation's allocated amount."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RevenueContract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/e-invoices:fetch":
@@ -45362,9 +45481,48 @@ components:
           x-extensible-enum: [point_in_time, over_time]
           description: "When the obligation is satisfied, a person's judgement: `point_in_time`, which every obligation starts as, or `over_time`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           readOnly: true
+        service_from: {type: string, format: date, description: "The first day of the period an `over_time` obligation is satisfied over; absent for a `point_in_time` obligation.", readOnly: true}
+        service_to: {type: string, format: date, description: "The last day of that period, not before `service_from`; absent for a `point_in_time` obligation.", readOnly: true}
         standalone_selling_price: {$ref: "#/components/schemas/Money", description: "The obligation's stand-alone selling price, a person's judgement: it starts as the order item's net value."}
+        allocated_amount: {$ref: "#/components/schemas/Money", description: "The obligation's share of the contract's transaction price, allocated in proportion to the stand-alone selling prices when the contract is activated; the obligations' shares add up to the transaction price exactly. Absent while the contract is a `draft`."}
+    RevenueContractUpdate:
+      type: object
+      description: "What a person sets on a draft revenue contract's performance obligations. Each element names one obligation by `obligation_no`; obligations not named stay as they are."
+      required: [obligations]
+      additionalProperties: false
+      properties:
+        obligations:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/PerformanceObligationUpdate"}
+          description: "The obligations to change, each named once. Unlike a plain merge patch's array, this one does not replace the contract's obligations: an element changes the obligation it names."
+    PerformanceObligationUpdate:
+      type: object
+      description: "What to set on one performance obligation. A field left out stays as it is."
+      required: [obligation_no]
+      additionalProperties: false
+      properties:
+        obligation_no: {type: integer, format: int32, minimum: 1, description: "The obligation to change, by its number within the contract."}
+        timing:
+          type: string
+          x-extensible-enum: [point_in_time, over_time]
+          description: "When the obligation is satisfied: at a point in time (`point_in_time`), or over time (`over_time`), which needs a service period; another value is refused (422 `revenue.unknown_timing`). A person's judgement; the system does not check it. Open enumeration: values may be added within /v1."
+        service_from:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "The first day of the period an `over_time` obligation is satisfied over. Send null to remove it, with `timing` `point_in_time`."
+        service_to:
+          type:
+            - string
+            - "null"
+          format: date
+          description: "The last day of that period, not before `service_from`. Send null to remove it, with `timing` `point_in_time`."
+        standalone_selling_price: {$ref: "#/components/schemas/Money", description: "The obligation's stand-alone selling price: more than zero, in the contract's currency. A person's judgement; the system does not estimate it."}
     RevenueContract:
-      description: "A revenue contract (revenue, ADR-0068 §3): the contract with a customer that one confirmed sales order stands for, with one performance obligation per order item. Amounts are without tax, in the company's local currency."
+      description: "A revenue contract (revenue, ADR-0068 §3): the contract with a customer that one confirmed sales order stands for, with one performance obligation per order item. Amounts are without tax, in the company's local currency. Its `version` moves when its obligations are changed and when it is activated."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
@@ -45383,8 +45541,8 @@ components:
             transaction_price: {$ref: "#/components/schemas/Money", description: "The contract's transaction price: the sales order's net value, without tax."}
             status:
               type: string
-              x-extensible-enum: [draft]
-              description: "`draft`: created. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [draft, active]
+              description: "`draft`: created; its obligations' timing, service periods and stand-alone selling prices can be set (`updateRevenueContract`). `active`: activated, once (`:activate`): the transaction price is allocated and the obligations are fixed. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             obligations:
               type: array
@@ -45421,8 +45579,10 @@ components:
               order_item_no: 2
               description: Support for the fiscal year
               net_amount: {amount: "1200.00", currency: CAD}
-              timing: point_in_time
-              standalone_selling_price: {amount: "1200.00", currency: CAD}
+              timing: over_time
+              service_from: "2026-01-01"
+              service_to: "2026-12-31"
+              standalone_selling_price: {amount: "1300.00", currency: CAD}
     RevenueContractPage:
       type: object
       description: One page of revenue contracts.

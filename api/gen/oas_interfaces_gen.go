@@ -41,6 +41,10 @@ type ActivateOrgUnitRes interface {
 	activateOrgUnitRes()
 }
 
+type ActivateRevenueContractRes interface {
+	activateRevenueContractRes()
+}
+
 type AddHierarchyNodeRes interface {
 	addHierarchyNodeRes()
 }
@@ -1755,6 +1759,10 @@ type UpdatePurchaseOrderRes interface {
 
 type UpdateRequisitionRes interface {
 	updateRequisitionRes()
+}
+
+type UpdateRevenueContractRes interface {
+	updateRevenueContractRes()
 }
 
 type UpdateRoleRes interface {

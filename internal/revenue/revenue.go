@@ -2,7 +2,9 @@
 // 02-architecture §2.2, 03-data-model §3.29): the revenue contract of a
 // confirmed sales order, with one performance obligation per order item.
 // A contract's transaction price is the order's net value, without tax,
-// in the company's local currency.
+// in the company's local currency; activating the contract allocates it
+// to the obligations in proportion to their stand-alone selling prices
+// (allocation.go).
 //
 // The person makes every judgement and the system only does the
 // arithmetic (ADR-0068 §2): what is a distinct obligation, whether it is
@@ -20,11 +22,15 @@
 // The context is a leaf (ADR-0068 §1; ADR-0051 §2): it reads the sales
 // context's orders, the partner context's names and tenancy through the
 // ports below, posts nothing yet, and no context imports it.
+//
+// What the context takes IFRS 15 to say is ADR-0068 §2's six statements,
+// each from memory and not yet confirmed by the accounting specialist.
 package revenue
 
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -73,16 +79,22 @@ type Endpoints struct {
 
 // Obligation is a row of revenue.performance_obligation: what one item
 // of the contract's sales order promises the customer. Net is the order
-// item's net value and StandalonePrice the obligation's stand-alone
-// selling price, minor units of the contract's currency.
+// item's net value, StandalonePrice the obligation's stand-alone selling
+// price and Allocated its share of the contract's transaction price, nil
+// until the contract is activated: minor units of the contract's
+// currency. ServiceFrom and ServiceTo are the period an over-time
+// obligation is satisfied over, nil for a point-in-time obligation.
 type Obligation struct {
-	No              int32       `json:"obligation_no"`
-	OrderItemNo     int32       `json:"order_item_no"`
-	ItemKey         *string     `json:"item_key"`
-	Description     string      `json:"description"`
-	Net             money.Minor `json:"net_amount"`
-	Timing          string      `json:"timing"`
-	StandalonePrice money.Minor `json:"standalone_selling_price"`
+	No              int32        `json:"obligation_no"`
+	OrderItemNo     int32        `json:"order_item_no"`
+	ItemKey         *string      `json:"item_key"`
+	Description     string       `json:"description"`
+	Net             money.Minor  `json:"net_amount"`
+	Timing          string       `json:"timing"`
+	ServiceFrom     *time.Time   `json:"service_from"`
+	ServiceTo       *time.Time   `json:"service_to"`
+	StandalonePrice money.Minor  `json:"standalone_selling_price"`
+	Allocated       *money.Minor `json:"allocated_amount"`
 }
 
 // record adds the audit record of a contract's change and publishes

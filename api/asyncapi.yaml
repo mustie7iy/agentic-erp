@@ -3885,12 +3885,16 @@ components:
       name: RevenueContractChanged
       x-webhook: true
       title: Revenue contract changed
-      summary: A revenue contract was created.
+      summary: A revenue contract was created, changed or activated.
       description: |
-        Emitted at each change of a revenue contract's status (ADR-0068 §5,
-        T81a): when it is created (`draft`, status_before null), by the
+        Emitted at each change of a revenue contract (ADR-0068 §5, T81a,
+        T81b): when it is created (`draft`, status_before null), by the
         system when its sales order is confirmed or by a person for a
-        confirmed order that had none; the event's `actorid` says which.
+        confirmed order that had none (the event's `actorid` says which);
+        when a person changes its obligations' timing, service periods or
+        stand-alone selling prices (`draft`, status_before `draft`); and
+        when it is activated (`active`, status_before `draft`), which
+        allocates its transaction price and fixes its obligations.
         It carries the contract's transaction price, the order's net value
         without tax, and the number of its performance obligations, not the
         obligations, and names the customer by id and number, never by name.
@@ -3907,6 +3911,9 @@ components:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001101, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T10:00:01Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: draft, status_before: null, version: 1}
+        - name: activated
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/revenue, type: com.example.erp.revenue.revenue_contract_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {revenue_contract_id: 0192a000-0000-7000-8000-000000001111, sales_order_id: 0192a000-0000-7000-8000-000000001021, sales_order_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, transaction_price: {amount: '2700.00', currency: CAD}, obligation_count: 2, status: active, status_before: draft, version: 3}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4684,8 +4691,8 @@ components:
         customer_number: {type: string, description: "The customer's business partner number."}
         transaction_price: {$ref: '#/components/schemas/Money', description: "The contract's transaction price: the sales order's net value, without tax, in the company's local currency."}
         obligation_count: {type: integer, description: "The contract's performance obligations, one per item of the sales order."}
-        status: {type: string, description: "The contract's status after the change. Open enum: draft."}
-        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        status: {type: string, description: "The contract's status after the change. Open enum: draft, active."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created, and `draft` again when a draft''s obligations were changed.'}
         version: {type: integer, description: "The contract's version after the change."}
     ConsolidationRunChangedV1:
       type: object
