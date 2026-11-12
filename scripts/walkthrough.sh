@@ -6179,11 +6179,12 @@ step_dunning() {
 # step_rfq is T82a and T82b (ADR-0069 §1-§5, §7): Ben creates a request
 # for quotation for two items, inviting Tyrell and the supplier of SAP's
 # down payment (step 3's DP_SUPPLIER), and publishes it; he then records
-# the quotation each of them sent, the second cheaper in total. The due
-# date is the request's, two weeks after the company's date today. It
-# keeps the RFQ (RFQ).
+# the quotation each of them sent, the second cheaper in total, and reads
+# their comparison (T82c), which ranks the cheaper first and marks the
+# lowest amount of each item. The due date is the request's, two weeks
+# after the company's date today. It keeps the RFQ (RFQ).
 step_rfq() {
-  heading "Step 54 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total"
+  heading "Step 54 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total, and the comparison ranks it first"
   as ben
   local due expense body valid quote line
   due=$(date_add "$(company_day)" 14)
@@ -6240,6 +6241,18 @@ step_rfq() {
     listSupplierQuotations -p "id=$RFQ"
   expect "the RFQ's quotations" "$(field '[.items[] | "\(.supplier_id) \(.total.amount) \(.total.currency)"] | join(", ")')" \
     "$SUPPLIER 29760.00 CAD, $DP_SUPPLIER 28400.00 CAD"
+  say "Ben reads the comparison (ADR-0069 §7, T82c). It is computed on each read, by price alone: the quotations"
+  say "that price every item and are valid on Maple's date today are ranked by total, the lowest first, and the"
+  say "lowest amount quoted for each item is marked. $DP_NAME is first, and has the lowest amount of both items:"
+  api 200 '"RFQ \(.rfq_document_number) of \(.company_code) \(.company_name) compared on \(.as_of): \(.invited_count) invited, \(.answered_count) answered, \(.ranked_count) ranked, amounts in \(.currency)", (.suppliers[] | "  rank \(.rank): \(.supplier_number) \(.supplier_name), \(.supplier_reference), total \(.total.amount) \(.total.currency)", (.prices[] | "    item \(.rfq_item_no): \(.unit_price.amount) per \(.price_unit) = \(.amount.amount) \(.amount.currency)\(if .lowest then "  <- lowest" else "" end)")), (.items[] | "  lowest for item \(.rfq_item_no) \(.material_key): \(.lowest_amount.amount) \(.lowest_amount.currency)")' \
+    getRfqComparison -p "id=$RFQ"
+  expect "the comparison's day and counts" "$(field '"\(.as_of) \(.invited_count) \(.answered_count) \(.ranked_count)"')" "$(company_day) 2 2 2"
+  expect "the ranking, the cheaper supplier first" "$(field '[.suppliers[] | "\(.rank) \(.supplier_id) \(.supplier_name) \(.total.amount) \(.total.currency)"] | join(", ")')" \
+    "1 $DP_SUPPLIER $DP_NAME 28400.00 CAD, 2 $SUPPLIER Tyrell Office Products 29760.00 CAD"
+  expect "the lowest amount of each item" "$(field '[.items[] | "\(.rfq_item_no) \(.lowest_amount.amount) \(.lowest_amount.currency)"] | join(", ")')" \
+    "1 17000.00 CAD, 2 11400.00 CAD"
+  expect "the prices marked as the lowest" "$(field '[.suppliers[] | .supplier_id as $s | .prices[] | select(.lowest) | "\($s) \(.rfq_item_no) \(.amount.amount)"] | join(", ")')" \
+    "$DP_SUPPLIER 1 17000.00, $DP_SUPPLIER 2 11400.00"
   passed
 }
 

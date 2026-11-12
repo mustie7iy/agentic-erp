@@ -741,6 +741,10 @@ type GetRevaluationRunRes interface {
 	getRevaluationRunRes()
 }
 
+type GetRfqComparisonRes interface {
+	getRfqComparisonRes()
+}
+
 type GetRfqRes interface {
 	getRfqRes()
 }

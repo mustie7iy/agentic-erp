@@ -194,3 +194,57 @@ func (e *Endpoints) ListSupplierQuotations(ctx context.Context, params gen.ListS
 		func(q Quotation) gen.SupplierQuotation { return quotationToAPI(named[0], q) })
 	return &gen.SupplierQuotationPage{Items: items, NextPageToken: next}, nil
 }
+
+// comparisonToAPI shows a comparison: the RFQ's items with the lowest
+// amount quoted for each, and one row per supplier invited.
+func comparisonToAPI(c Comparison) *gen.RfqComparison {
+	r := c.RFQ
+	answered, ranked := c.counts()
+	out := &gen.RfqComparison{RfqID: r.ID, RfqDocumentNumber: r.DocumentNumber, LegalEntityID: r.LegalEntityID, CompanyCode: r.CompanyCode,
+		CompanyName: r.CompanyName, Currency: r.Currency, Status: r.Status, DueDate: r.DueDate, AsOf: c.AsOf, InvitedCount: int32(len(c.Rows)),
+		AnsweredCount: answered, RankedCount: ranked, Items: make([]gen.RfqComparisonItem, len(r.Items)),
+		Suppliers: make([]gen.RfqComparisonSupplier, len(c.Rows))}
+	for i, it := range r.Items {
+		out.Items[i] = gen.RfqComparisonItem{RfqItemNo: it.No, MaterialKey: it.MaterialKey, Description: it.Description,
+			Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}}
+		if low, ok := c.Lowest[it.No]; ok {
+			out.Items[i].LowestAmount.SetTo(apitypes.Money(low, r.Currency, r.Exponent))
+		}
+	}
+	for i, row := range c.Rows {
+		out.Suppliers[i] = comparedToAPI(c, row)
+	}
+	return out
+}
+
+// comparedToAPI shows one supplier's row of comparison c.
+func comparedToAPI(c Comparison, row Compared) gen.RfqComparisonSupplier {
+	r := c.RFQ
+	out := gen.RfqComparisonSupplier{SupplierID: row.Supplier.ID, SupplierNumber: row.Supplier.Number, SupplierName: row.Supplier.Name,
+		Answered: row.Quotation != nil, Complete: row.Quotation != nil && len(row.Unquoted) == 0, Expired: row.Expired,
+		UnquotedItemNos: row.Unquoted, Prices: make([]gen.RfqComparisonPrice, len(row.Priced))}
+	if row.Rank > 0 {
+		out.Rank.SetTo(row.Rank)
+	}
+	if q := row.Quotation; q != nil {
+		out.SupplierQuotationID.SetTo(q.ID)
+		out.SupplierReference.SetTo(q.Reference)
+		out.ValidUntil.SetTo(q.ValidUntil)
+		out.QuotationStatus.SetTo(q.Status)
+		out.Total.SetTo(apitypes.Money(row.Total, r.Currency, r.Exponent))
+	}
+	for i, it := range row.Priced {
+		out.Prices[i] = gen.RfqComparisonPrice{RfqItemNo: it.No, UnitPrice: apitypes.Money(it.UnitPrice, r.Currency, r.Exponent),
+			PriceUnit: it.PriceUnit, Amount: apitypes.Money(row.Amounts[i], r.Currency, r.Exponent), Lowest: c.lowest(row, i)}
+	}
+	return out
+}
+
+// GetRfqComparison implements GET /v1/rfqs/{id}/comparison.
+func (e *Endpoints) GetRfqComparison(ctx context.Context, params gen.GetRfqComparisonParams) (gen.GetRfqComparisonRes, error) {
+	c, err := e.comparison(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	return comparisonToAPI(c), nil
+}

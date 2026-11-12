@@ -192,6 +192,7 @@ const (
 	GetRequisitionOperation                        OperationName = "GetRequisition"
 	GetRevaluationRunOperation                     OperationName = "GetRevaluationRun"
 	GetRfqOperation                                OperationName = "GetRfq"
+	GetRfqComparisonOperation                      OperationName = "GetRfqComparison"
 	GetRoleOperation                               OperationName = "GetRole"
 	GetRoleAssignmentOperation                     OperationName = "GetRoleAssignment"
 	GetRolePermissionOperation                     OperationName = "GetRolePermission"

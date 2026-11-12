@@ -329,7 +329,14 @@ the RFQ's currency, the supplier's reference and the last day it is
 valid; a supplier has one (409 `procurement.quotation_exists`), and it may
 leave items out. `GET /v1/rfqs/{id}/quotations` (`procurement.rfq.read`)
 lists them, each with its supplier by id, number and name, its prices
-beside the RFQ items, its total, `complete` and `unquoted_item_nos`.
+beside the RFQ items, its total, `complete` and `unquoted_item_nos`. `GET
+/v1/rfqs/{id}/comparison` (`procurement.rfq.read`, T82c) compares them by
+price on the company's date today (`as_of`), storing nothing: one row per
+supplier invited, the complete quotations that are not expired ranked by
+total (equal totals share a rank, in the order invited), then the
+incomplete and the expired ones, then the suppliers that have not
+answered; each price carries its amount and whether it is the lowest
+quoted for its RFQ item, and the RFQ's items carry that lowest amount.
 
 Internal orders (ADR-0064 §1, T60a) are the controlling context's.
 `POST /v1/internal-orders` (`controlling.order.write`, `x-agent: false`)
@@ -855,7 +862,7 @@ with the month's total against the tenant's cap.
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
-| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts`, `rfqs` (requests for quotation, ADR-0069, with `{id}/quotations`, the suppliers' quotations recorded by the buyer) | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse`, `:publish` |
+| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts`, `rfqs` (requests for quotation, ADR-0069, with `{id}/quotations`, the suppliers' quotations recorded by the buyer, and `{id}/comparison`, those quotations compared by price) | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse`, `:publish` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, status, document number and invoice date, ADR-0063 §2-§4, T75a); `incoming-payments` (a receipt from a house bank's incoming payments clearing account applied to a customer's open items in full and exactly, written once; filtered by company, customer, document number and posting date) and `unapplied-receipts` (a company's receipts not yet applied, read-only), ADR-0063 §6, T75c | `customer-invoices/{id}:post` (T75b) |
 | collections | `dunning-runs` (started for a company at a key date, `proposed` with their totals; the companies the caller may act in, filtered by company, status and key date, the latest first) and their `notices` (one per customer with its overdue items and the level each would reach, by customer number, filtered by customer and level; ADR-0065 §3-§4, T76a) | none yet (`:confirm` with T76b) |

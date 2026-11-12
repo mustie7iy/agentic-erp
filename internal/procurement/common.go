@@ -131,16 +131,26 @@ func quantity(value, field string) error {
 	return nil
 }
 
-// itemsTotal is the sum of the items' extended amounts, quantity × price /
-// price unit rounded half away from zero, checked for range.
-func itemsTotal(items []Item) (money.Minor, error) {
+// itemAmounts are the items' extended amounts, quantity × price / price
+// unit rounded half away from zero, each checked for range.
+func itemAmounts(items []Item) ([]money.Minor, error) {
 	amounts := make([]money.Minor, len(items))
 	for i, it := range items {
 		a, err := money.Scale(it.UnitPrice, it.Quantity, int64(it.PriceUnit))
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		amounts[i] = a
+	}
+	return amounts, nil
+}
+
+// itemsTotal is the sum of the items' extended amounts (itemAmounts),
+// checked for range.
+func itemsTotal(items []Item) (money.Minor, error) {
+	amounts, err := itemAmounts(items)
+	if err != nil {
+		return 0, err
 	}
 	return money.Sum(amounts...)
 }

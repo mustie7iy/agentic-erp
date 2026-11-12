@@ -3,8 +3,8 @@
 **Status:** accepted (T82a, 2026-11-12; decided by default under ADR-0053 d;
 `go-reviewer` had no blocking finding on T82a's last commit). It decides
 the slices T82a-T82d (`docs/design/plan-breadth-week2.md`, Lane C). Each
-slice records what it built under "As built"; T82a's and T82b's are
-there now. The defaults taken are listed at the end for the product
+slice records what it built under "As built"; T82a's, T82b's and T82c's
+are there now. The defaults taken are listed at the end for the product
 owner's digest.
 
 ## Context
@@ -175,6 +175,18 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
    quotations are the "later" leaf's.
 9. A quotation's total is computed from its prices and the RFQ's
    quantities on each read, never stored.
+10. The comparison (T82c) is by price alone and compares amounts, exact
+    in minor units. Equal totals share a rank (1, 1, 3) and stand in the
+    order their suppliers were invited, as every other group of rows
+    does.
+11. The lowest price of an item is the lowest amount (the RFQ's quantity
+    at the quoted price) among the quotations not expired, an incomplete
+    one included; every price at that amount is marked. An expired
+    quotation's price is never marked: it no longer holds.
+12. A quotation valid until the company's date today is still valid that
+    day; it is expired from the next.
+13. The comparison is readable for an RFQ in any status and is not paged:
+    an RFQ invites at most 100 suppliers.
 
 ## As built
 
@@ -267,3 +279,43 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
 - **Walkthrough.** `step_rfq` extended: a quotation recorded for each of
   the two suppliers, one of them cheaper in total, a second quotation of a
   supplier and a supplier not invited refused.
+
+### T82c Quotations compared (no migration)
+
+- **API.** `GET /v1/rfqs/{id}/comparison` (`procurement.rfq.read`; agents
+  may read it: the week 3 agent does) answers the comparison of one RFQ,
+  computed on the read and stored nowhere: the RFQ by id, number, company
+  (id, code, name), currency, status and due date; `as_of`, the legal
+  entity's date today in its company's time zone, the day validity is
+  judged on; `invited_count`, `answered_count` and `ranked_count`; the
+  RFQ's `items`, each with the lowest amount quoted for it
+  (`lowest_amount`, absent when no quotation that is not expired prices
+  it); and `suppliers`, one row per supplier invited (id, number, name).
+- **Rows.** A row carries `answered`, and for a quotation its id,
+  reference, `valid_until`, status, `complete`, `expired`,
+  `unquoted_item_nos`, `total` and `prices` (RFQ item number, unit price,
+  price unit, amount, `lowest`). The quotations that are complete and
+  not expired (`valid_until` not before `as_of`) are ranked by total, the
+  lowest first (`rank`); equal totals share a rank and the next is
+  skipped (1, 1, 3). After them come the quotations not ranked
+  (incomplete or expired, without a `rank`), then the suppliers without
+  a quotation (`answered` false, every item in `unquoted_item_nos`).
+  Within each group, and between equal totals, the rows stand in the
+  order the suppliers were invited, so the same data reads the same way
+  each time.
+- **Lowest.** Amounts are compared, not unit prices: quantity × unit
+  price ÷ price unit in minor units, so prices with different price
+  units compare exactly. The lowest amount of an RFQ item is taken over
+  the quotations not expired, an incomplete one included, and every
+  price at it is marked.
+- **Code.** `internal/procurement/rfq_comparison.go` (`compare`, pure;
+  `Compared.CanWin`, the rule T82d awards by); the handler in
+  `rfq_api.go`. One query reads the RFQ's quotations. `itemsTotal`'s loop
+  is `itemAmounts` (`common.go`), which the comparison shares. An amount
+  out of range, which recording refuses, fails the read rather than
+  ranking a wrong total.
+- **Budget.** `TestRFQComparisonBudget`: an RFQ of 50 items and 20
+  quotations (1,000 prices) within the budget of a list page (p95
+  150 ms; 01 §1.3), measured at a median of 14 ms.
+- **Walkthrough.** `step_rfq` extended: the comparison ranks the cheaper
+  supplier first and marks the lowest amount of each item.

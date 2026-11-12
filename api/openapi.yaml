@@ -11415,6 +11415,35 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/rfqs/{id}/comparison":
+    get:
+      operationId: getRfqComparison
+      tags:
+        - procurement
+      summary: Compare an RFQ's quotations
+      description: "The comparison of one RFQ's quotations by price (ADR-0069 §7), computed on each read and stored nowhere: one row per supplier invited, with its quotation's total and its price and amount of each RFQ item. A quotation that prices every RFQ item and is valid on the legal entity's date today in its company's time zone (`as_of`) is ranked by its total, the lowest first; equal totals share a rank and stand in the order the suppliers were invited. After the ranked rows come the quotations that are not ranked, in the order invited: one that leaves RFQ items out (`complete` false, `unquoted_item_nos` naming them) and one whose `valid_until` is before `as_of` (`expired`). Last come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly, in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a quotation that is not ranked for leaving other items out. The rows are bounded by the suppliers an RFQ can invite (100), so the comparison is not paged. An RFQ of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: procurement.rfq.read
+      x-problem-codes:
+        - config.not_bootstrapped
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The comparison.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RfqComparison"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/rfqs/{id}:publish":
     post:
       operationId: publishRfq
@@ -38341,6 +38370,306 @@ components:
               amount:
                 amount: "16500.00"
                 currency: EUR
+    RfqComparisonItem:
+      type: object
+      description: "An item of the RFQ compared, with the lowest amount quoted for it."
+      required:
+        - rfq_item_no
+        - material_key
+        - description
+        - quantity
+      properties:
+        rfq_item_no:
+          type: integer
+          format: int32
+          description: The RFQ item's number.
+        material_key:
+          type: string
+          description: The RFQ item's material key.
+        description:
+          type: string
+          description: The RFQ item's description.
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: The quantity the RFQ asks for and its unit of measure.
+        lowest_amount:
+          $ref: "#/components/schemas/Money"
+          description: "The lowest amount (quantity × unit price ÷ price unit) quoted for the item by a quotation that is not expired; absent when none prices it."
+      examples:
+        - rfq_item_no: 1
+          material_key: CHAIR-ERGO-01
+          description: Office chairs, ergonomic
+          quantity:
+            value: "40"
+            unit: EA
+          lowest_amount:
+            amount: "16500.00"
+            currency: EUR
+    RfqComparisonPrice:
+      type: object
+      description: "A supplier's price of one RFQ item in the comparison."
+      required:
+        - rfq_item_no
+        - unit_price
+        - price_unit
+        - amount
+        - lowest
+      properties:
+        rfq_item_no:
+          type: integer
+          format: int32
+          description: The RFQ item priced, by its item number.
+        unit_price:
+          $ref: "#/components/schemas/Money"
+          description: "Quoted price per `price_unit` of the RFQ item's unit of measure."
+        price_unit:
+          type: integer
+          format: int32
+          description: Quantity the unit price refers to.
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "The item's value: quantity × unit price ÷ price unit, rounded half away from zero to the minor unit."
+        lowest:
+          type: boolean
+          description: "Whether the amount is the lowest quoted for the RFQ item among the quotations not expired; several quotations at the same amount are all marked."
+      examples:
+        - rfq_item_no: 1
+          unit_price:
+            amount: "412.50"
+            currency: EUR
+          price_unit: 1
+          amount:
+            amount: "16500.00"
+            currency: EUR
+          lowest: true
+    RfqComparisonSupplier:
+      type: object
+      description: "A supplier invited to an RFQ in the comparison, with its quotation when it has one."
+      required:
+        - supplier_id
+        - supplier_number
+        - supplier_name
+        - answered
+        - complete
+        - expired
+        - unquoted_item_nos
+        - prices
+      properties:
+        supplier_id:
+          type: string
+          format: uuid
+          description: The supplier (business partner id).
+        supplier_number:
+          type: string
+          description: The business partner's number.
+        supplier_name:
+          type: string
+          description: The business partner's name.
+        answered:
+          type: boolean
+          description: Whether a quotation of the supplier is recorded.
+        rank:
+          type: integer
+          format: int32
+          description: "The quotation's place by total among the quotations ranked, 1 the lowest; equal totals share a rank and the next rank is skipped. Absent when the quotation is not ranked (none, incomplete or expired)."
+          minimum: 1
+        supplier_quotation_id:
+          type: string
+          format: uuid
+          description: "The quotation; absent when the supplier has not answered."
+        supplier_reference:
+          type: string
+          description: "The supplier's own reference of its quotation; absent when the supplier has not answered."
+        valid_until:
+          type: string
+          format: date
+          description: "The last day the quotation is valid; absent when the supplier has not answered."
+        quotation_status:
+          type: string
+          description: "The quotation's lifecycle status; absent when the supplier has not answered. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - recorded
+        complete:
+          type: boolean
+          description: "Whether the quotation prices every item of the RFQ; false when the supplier has not answered."
+        expired:
+          type: boolean
+          description: "Whether the quotation's `valid_until` is before the comparison's `as_of`; false when the supplier has not answered."
+        unquoted_item_nos:
+          type: array
+          items:
+            type: integer
+            format: int32
+          description: "The RFQ items the supplier gives no price for, by item number: empty for a complete quotation, every item when the supplier has not answered."
+        total:
+          $ref: "#/components/schemas/Money"
+          description: "The sum of the quotation's amounts, in the RFQ's currency; absent when the supplier has not answered."
+        prices:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqComparisonPrice"
+          description: "The quotation's prices, by RFQ item number; empty when the supplier has not answered."
+      examples:
+        - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+          supplier_number: BP90000001
+          supplier_name: Tyrell Office Products
+          answered: true
+          rank: 1
+          supplier_quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"
+          supplier_reference: Q-2026-0457
+          valid_until: "2027-01-31"
+          quotation_status: recorded
+          complete: true
+          expired: false
+          unquoted_item_nos: []
+          total:
+            amount: "16500.00"
+            currency: EUR
+          prices:
+            - rfq_item_no: 1
+              unit_price:
+                amount: "412.50"
+                currency: EUR
+              price_unit: 1
+              amount:
+                amount: "16500.00"
+                currency: EUR
+              lowest: true
+    RfqComparison:
+      type: object
+      description: "The comparison of an RFQ's quotations by price (ADR-0069 §7): the suppliers invited, the ranked quotations first."
+      required:
+        - rfq_id
+        - rfq_document_number
+        - legal_entity_id
+        - company_code
+        - company_name
+        - currency
+        - status
+        - due_date
+        - as_of
+        - invited_count
+        - answered_count
+        - ranked_count
+        - items
+        - suppliers
+      properties:
+        rfq_id:
+          type: string
+          format: uuid
+          description: The RFQ compared.
+        rfq_document_number:
+          type: string
+          description: The RFQ's document number.
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity.
+        company_code:
+          type: string
+          description: The legal entity's company code.
+        company_name:
+          type: string
+          description: The legal entity's name.
+        currency:
+          type: string
+          description: "The RFQ's currency, which every amount of the comparison is in."
+          pattern: "^[A-Z]{3}$"
+          example: EUR
+        status:
+          type: string
+          description: "The RFQ's lifecycle status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - draft
+            - published
+        due_date:
+          type: string
+          format: date
+          description: The date quotations are due.
+        as_of:
+          type: string
+          format: date
+          description: "The legal entity's date today in its company's time zone, the day the quotations' validity is judged on."
+        invited_count:
+          type: integer
+          format: int32
+          description: The number of suppliers invited.
+        answered_count:
+          type: integer
+          format: int32
+          description: The number of suppliers invited that have a quotation.
+        ranked_count:
+          type: integer
+          format: int32
+          description: "The number of quotations ranked: complete and not expired."
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqComparisonItem"
+          description: "The RFQ's items, by item number, each with the lowest amount quoted for it."
+        suppliers:
+          type: array
+          items:
+            $ref: "#/components/schemas/RfqComparisonSupplier"
+          description: "One row per supplier invited: the ranked quotations by rank, then the quotations not ranked, then the suppliers that have not answered, each group in the order the suppliers were invited."
+      examples:
+        - rfq_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          rfq_document_number: RQ100000
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
+          company_code: "2000"
+          company_name: Acme Deutschland GmbH
+          currency: EUR
+          status: published
+          due_date: "2026-12-04"
+          as_of: "2026-12-07"
+          invited_count: 2
+          answered_count: 1
+          ranked_count: 1
+          items:
+            - rfq_item_no: 1
+              material_key: CHAIR-ERGO-01
+              description: Office chairs, ergonomic
+              quantity:
+                value: "40"
+                unit: EA
+              lowest_amount:
+                amount: "16500.00"
+                currency: EUR
+          suppliers:
+            - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
+              supplier_number: BP90000001
+              supplier_name: Tyrell Office Products
+              answered: true
+              rank: 1
+              supplier_quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d43"
+              supplier_reference: Q-2026-0457
+              valid_until: "2027-01-31"
+              quotation_status: recorded
+              complete: true
+              expired: false
+              unquoted_item_nos: []
+              total:
+                amount: "16500.00"
+                currency: EUR
+              prices:
+                - rfq_item_no: 1
+                  unit_price:
+                    amount: "412.50"
+                    currency: EUR
+                  price_unit: 1
+                  amount:
+                    amount: "16500.00"
+                    currency: EUR
+                  lowest: true
+            - supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d58"
+              supplier_number: BP90000002
+              supplier_name: Cabot Components
+              answered: false
+              complete: false
+              expired: false
+              unquoted_item_nos:
+                - 1
+              prices: []
     SupplierQuotationCreate:
       type: object
       description: Record a supplier's quotation for an RFQ.

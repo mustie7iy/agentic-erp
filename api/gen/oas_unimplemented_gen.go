@@ -2956,6 +2956,27 @@ func (UnimplementedHandler) GetRfq(ctx context.Context, params GetRfqParams) (r 
 	return r, ht.ErrNotImplemented
 }
 
+// GetRfqComparison implements getRfqComparison operation.
+//
+// The comparison of one RFQ's quotations by price (ADR-0069 §7), computed on each read and stored
+// nowhere: one row per supplier invited, with its quotation's total and its price and amount of each
+// RFQ item. A quotation that prices every RFQ item and is valid on the legal entity's date today in
+// its company's time zone (`as_of`) is ranked by its total, the lowest first; equal totals share a
+// rank and stand in the order the suppliers were invited. After the ranked rows come the quotations
+// that are not ranked, in the order invited: one that leaves RFQ items out (`complete` false,
+// `unquoted_item_nos` naming them) and one whose `valid_until` is before `as_of` (`expired`). Last
+// come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly,
+// in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired
+// is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a
+// quotation that is not ranked for leaving other items out. The rows are bounded by the suppliers an
+// RFQ can invite (100), so the comparison is not paged. An RFQ of a legal entity the caller cannot act
+// in is answered as missing (404).
+//
+// GET /v1/rfqs/{id}/comparison
+func (UnimplementedHandler) GetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (r GetRfqComparisonRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetRole implements getRole operation.
 //
 // Returns one role.

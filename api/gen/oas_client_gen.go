@@ -2414,6 +2414,24 @@ type Invoker interface {
 	//
 	// GET /v1/rfqs/{id}
 	GetRfq(ctx context.Context, params GetRfqParams) (GetRfqRes, error)
+	// GetRfqComparison invokes getRfqComparison operation.
+	//
+	// The comparison of one RFQ's quotations by price (ADR-0069 §7), computed on each read and stored
+	// nowhere: one row per supplier invited, with its quotation's total and its price and amount of each
+	// RFQ item. A quotation that prices every RFQ item and is valid on the legal entity's date today in
+	// its company's time zone (`as_of`) is ranked by its total, the lowest first; equal totals share a
+	// rank and stand in the order the suppliers were invited. After the ranked rows come the quotations
+	// that are not ranked, in the order invited: one that leaves RFQ items out (`complete` false,
+	// `unquoted_item_nos` naming them) and one whose `valid_until` is before `as_of` (`expired`). Last
+	// come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly,
+	// in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired
+	// is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a
+	// quotation that is not ranked for leaving other items out. The rows are bounded by the suppliers an
+	// RFQ can invite (100), so the comparison is not paged. An RFQ of a legal entity the caller cannot act
+	// in is answered as missing (404).
+	//
+	// GET /v1/rfqs/{id}/comparison
+	GetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (GetRfqComparisonRes, error)
 	// GetRole invokes getRole operation.
 	//
 	// Returns one role.
@@ -33454,6 +33472,150 @@ func (c *Client) sendGetRfq(ctx context.Context, params GetRfqParams) (res GetRf
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRfqResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetRfqComparison invokes getRfqComparison operation.
+//
+// The comparison of one RFQ's quotations by price (ADR-0069 §7), computed on each read and stored
+// nowhere: one row per supplier invited, with its quotation's total and its price and amount of each
+// RFQ item. A quotation that prices every RFQ item and is valid on the legal entity's date today in
+// its company's time zone (`as_of`) is ranked by its total, the lowest first; equal totals share a
+// rank and stand in the order the suppliers were invited. After the ranked rows come the quotations
+// that are not ranked, in the order invited: one that leaves RFQ items out (`complete` false,
+// `unquoted_item_nos` naming them) and one whose `valid_until` is before `as_of` (`expired`). Last
+// come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly,
+// in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired
+// is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a
+// quotation that is not ranked for leaving other items out. The rows are bounded by the suppliers an
+// RFQ can invite (100), so the comparison is not paged. An RFQ of a legal entity the caller cannot act
+// in is answered as missing (404).
+//
+// GET /v1/rfqs/{id}/comparison
+func (c *Client) GetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (GetRfqComparisonRes, error) {
+	res, err := c.sendGetRfqComparison(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetRfqComparison(ctx context.Context, params GetRfqComparisonParams) (res GetRfqComparisonRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getRfqComparison"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/rfqs/{id}/comparison"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetRfqComparisonOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/rfqs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/comparison"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetRfqComparisonOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetRfqComparisonResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
