@@ -211,13 +211,17 @@ func (e *Endpoints) rate(ctx context.Context, tx pgx.Tx, in PriceInput) (rate, e
 		required bool
 	}{{"unit", in.Unit != nil, false, true}, {"unit_price", in.UnitPrice != nil, false, true}, {"price_unit", in.PriceUnit != nil, false, false},
 		{"percent", in.Percent != nil, true, true}}
+	// A field of the other kind first: it says what the client meant, so
+	// a percent without a condition type is refused as that, not as a
+	// price that lacks its unit.
 	for _, g := range given {
-		mine := g.discount == (kind == config.ConditionDiscountPercent)
-		switch {
-		case g.set && !mine:
-			return rate{}, problem.Invalid("sales.price_or_percent", g.field,
-				"A price gives unit and unit_price, with price_unit when it is not 1; a discount gives percent. This record is a "+kindName(kind)+".")
-		case !g.set && mine && g.required:
+		if g.set && g.discount != (kind == config.ConditionDiscountPercent) {
+			return rate{}, problem.Invalid("sales.price_or_percent", g.field, "A price gives unit and unit_price, with price_unit when it is not 1; "+
+				"a discount gives condition_type, a type of kind discount_percent, and percent. This record is a "+kindName(kind)+".")
+		}
+	}
+	for _, g := range given {
+		if !g.set && g.required && g.discount == (kind == config.ConditionDiscountPercent) {
 			return rate{}, problem.Invalid("sales.price_or_percent", g.field, "A "+kindName(kind)+" gives "+g.field+".")
 		}
 	}

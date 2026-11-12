@@ -136,7 +136,7 @@ func TestConditionRecordRefusals(t *testing.T) {
 		{"a discount type not in the procedure, without a percent", map[string]any{"condition_type": "KA00"}, "sales.price_or_percent", "percent"},
 		{"a typed price with a percent", map[string]any{"condition_type": "PR00", "unit": "EA", "unit_price": price, "percent": "5"}, "sales.price_or_percent", "percent"},
 		{"an untyped record with a percent", map[string]any{"unit": "EA", "unit_price": price, "percent": "5"}, "sales.price_or_percent", "percent"},
-		{"a percent without a type", map[string]any{"percent": "5"}, "sales.price_or_percent", "unit"},
+		{"a percent without a type", map[string]any{"percent": "5"}, "sales.price_or_percent", "percent"},
 		{"a typed price without a unit", map[string]any{"condition_type": "PR00", "unit_price": price}, "sales.price_or_percent", "unit"},
 		{"a price without a price", map[string]any{"unit": "EA"}, "sales.price_or_percent", "unit_price"},
 		{"a discount of nothing", map[string]any{"condition_type": "K007", "percent": "0"}, "sales.invalid_percent", "percent"},

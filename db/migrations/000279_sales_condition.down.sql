@@ -1,3 +1,4 @@
+SET LOCAL row_security = off; -- the down migration deletes every tenant's discounts (06 §6.4)
 ALTER TABLE sales.sales_order_item DROP COLUMN conditions;
 ALTER TABLE sales.quotation_item DROP COLUMN conditions;
 DROP INDEX sales.price_by_condition;
