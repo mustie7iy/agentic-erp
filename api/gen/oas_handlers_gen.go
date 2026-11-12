@@ -8054,6 +8054,215 @@ func (s *Server) handleCompleteYearCloseTaskRequest(args [2]string, argsEscaped 
 	}
 }
 
+// handleConfirmDunningRunRequest handles confirmDunningRun operation.
+//
+// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+// with it. From then on a run started for the company reads the recorded level as the item's
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+// is no longer the run's `previous_level`), the proposal is stale and refused (409
+// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+// not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:confirm
+func (s *Server) handleConfirmDunningRunRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmDunningRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/v1/dunning-runs/{id}:confirm"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), ConfirmDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(attrs...)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ConfirmDunningRunOperation,
+			ID:   "confirmDunningRun",
+		}
+	)
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			sctx, ok, err := s.securityOidc(ctx, ConfirmDunningRunOperation, r)
+			if err != nil {
+				err = &ogenerrors.SecurityError{
+					OperationContext: opErrContext,
+					Security:         "Oidc",
+					Err:              err,
+				}
+				defer recordError("Security:Oidc", err)
+				s.cfg.ErrorHandler(ctx, w, r, err)
+				return
+			}
+			if ok {
+				satisfied[0] |= 1 << 0
+				ctx = sctx
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			err = &ogenerrors.SecurityError{
+				OperationContext: opErrContext,
+				Err:              ogenerrors.ErrSecurityRequirementIsNotSatisfied,
+			}
+			defer recordError("Security", err)
+			s.cfg.ErrorHandler(ctx, w, r, err)
+			return
+		}
+	}
+	params, err := decodeConfirmDunningRunParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	var rawBody []byte
+
+	var response ConfirmDunningRunRes
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    ConfirmDunningRunOperation,
+			OperationSummary: "Confirm a dunning run",
+			OperationID:      "confirmDunningRun",
+			Body:             nil,
+			RawBody:          rawBody,
+			Params: middleware.Parameters{
+				{
+					Name: "id",
+					In:   "path",
+				}: params.ID,
+				{
+					Name: "If-Match",
+					In:   "header",
+				}: params.IfMatch,
+				{
+					Name: "Idempotency-Key",
+					In:   "header",
+				}: params.IdempotencyKey,
+			},
+			Raw: r,
+		}
+
+		type (
+			Request  = struct{}
+			Params   = ConfirmDunningRunParams
+			Response = ConfirmDunningRunRes
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			unpackConfirmDunningRunParams,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.ConfirmDunningRun(ctx, params)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.ConfirmDunningRun(ctx, params)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeConfirmDunningRunResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
+}
+
 // handleCreateAssetRequest handles createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -11322,13 +11531,16 @@ func (s *Server) handleCreateDownPaymentRequestRequest(args [0]string, argsEscap
 // net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 // of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 // payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-// notice's level is the highest among its items. A company without dunning levels is refused (422
-// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-// Human-only (`x-agent: false`).
+// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+// highest level stays there. A notice's level is the highest among its items. A key date after
+// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (s *Server) handleCreateDunningRunRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

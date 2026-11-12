@@ -48,6 +48,10 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.CreateDunningRun(ctx, &gen.DunningRunCreate{LegalEntityID: e.DE, KeyDate: date(t, keyDate)}, gen.CreateDunningRunParams{})
 			return err
 		},
+		"confirm": func(ctx context.Context) error {
+			_, err := h.ConfirmDunningRun(ctx, gen.ConfirmDunningRunParams{ID: id, IfMatch: `"1"`})
+			return err
+		},
 		"get": func(ctx context.Context) error {
 			_, err := h.GetDunningRun(ctx, gen.GetDunningRunParams{ID: id})
 			return err

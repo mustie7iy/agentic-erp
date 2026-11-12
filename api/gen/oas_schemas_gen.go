@@ -21665,6 +21665,69 @@ func (s *ConfigVersionPage) SetTotalEstimate(val OptInt64) {
 
 func (*ConfigVersionPage) listConfigVersionsRes() {}
 
+type ConfirmDunningRunBadRequest Problem
+
+func (*ConfirmDunningRunBadRequest) confirmDunningRunRes() {}
+
+type ConfirmDunningRunForbidden Problem
+
+func (*ConfirmDunningRunForbidden) confirmDunningRunRes() {}
+
+type ConfirmDunningRunNotFound Problem
+
+func (*ConfirmDunningRunNotFound) confirmDunningRunRes() {}
+
+// ConfirmDunningRunOKHeaders wraps DunningRun with response headers.
+type ConfirmDunningRunOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *ConfirmDunningRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ConfirmDunningRunOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ConfirmDunningRunOKHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ConfirmDunningRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ConfirmDunningRunOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ConfirmDunningRunOKHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*ConfirmDunningRunOKHeaders) confirmDunningRunRes() {}
+
+type ConfirmDunningRunPreconditionFailed Problem
+
+func (*ConfirmDunningRunPreconditionFailed) confirmDunningRunRes() {}
+
+type ConfirmDunningRunPreconditionRequired Problem
+
+func (*ConfirmDunningRunPreconditionRequired) confirmDunningRunRes() {}
+
+type ConfirmDunningRunUnprocessableEntity Problem
+
+func (*ConfirmDunningRunUnprocessableEntity) confirmDunningRunRes() {}
+
 // ConflictHeaders wraps Problem with response headers.
 type ConflictHeaders struct {
 	RetryAfter OptInt32
@@ -21729,6 +21792,7 @@ func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
+func (*ConflictHeaders) confirmDunningRunRes()                     {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -31166,7 +31230,8 @@ type DunningNoticeItem struct {
 	Amount Money `json:"amount"`
 	// The same in the company's currency, as it was booked.
 	LocalAmount Money `json:"local_amount"`
-	// The dunning level the item was last dunned at; 0 for an item never dunned.
+	// The dunning level the item was last dunned at when the run was started, the highest a confirmed run
+	// recorded for it; 0 for an item never dunned.
 	PreviousLevel int32 `json:"previous_level"`
 	// The dunning level the item would reach: the last level whose days overdue it has reached, one above
 	// `previous_level` at most.
@@ -31357,7 +31422,9 @@ type DunningRun struct {
 	CompanyName string `json:"company_name"`
 	// The date the items' days overdue were counted on.
 	KeyDate time.Time `json:"key_date"`
-	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open
+	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent.
+	// `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date,
+	// the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Status string `json:"status"`
@@ -31529,7 +31596,8 @@ type DunningRunCreate struct {
 	// The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in
 	// the configuration.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The date the items' days overdue are counted on. An item due on this date is not overdue.
+	// The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31
+	// at the latest.
 	KeyDate time.Time `json:"key_date"`
 }
 
@@ -72549,6 +72617,7 @@ func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
+func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -73063,6 +73132,7 @@ func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
+func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}

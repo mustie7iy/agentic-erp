@@ -5808,20 +5808,24 @@ step_customer_invoice() {
   passed
 }
 
-# step_dunning is T76a (ADR-0065 §2-§5): Ruth posts a second invoice to
-# Northwind; Ada gives Maple its dunning levels
+# step_dunning is T76a and T76b (ADR-0065 §2-§5, §8): Ruth posts a second
+# invoice to Northwind; Ada gives Maple its dunning levels
 # through a tier 2 change, a run before them refused; Ruth starts a
 # dunning run at a key date ten days past the invoice's due date and reads
 # its proposal, one notice for Northwind with the invoice's open item at
 # level 1; a run at the due date itself proposes nothing; the customer's
-# open items are unchanged. The key dates are the requests': nothing here
-# depends on today's date. The step duns its own invoice, so it holds
-# whether or not the invoice of step 48 is still open.
+# open items are unchanged. She confirms the run, once: a second
+# confirmation is refused, and so is a second proposal of the same key
+# date, stale now that the first recorded the items' levels. A run twenty
+# days later proposes the invoice's item at level 2. The key dates are the
+# requests': nothing here depends on today's date. The step duns its own
+# invoice, so it holds whether or not the invoice of step 48 is still open.
 step_dunning() {
-  heading "Step 49 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items"
-  local customer=$CUSTOMER entry due key base cr request run before
+  heading "Step 49 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items; the run is confirmed once, a stale proposal is refused, and the next run proposes level 2"
+  local customer=$CUSTOMER entry due key later base cr request run before twin twin_tag
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  later=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 60 * 86400 | strftime("%Y-%m-%d")')
   as ruth
   say "Ruth enters and posts another invoice to Northwind Traders, for a spare part, on Northwind's terms, NT30:"
   QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
@@ -5884,6 +5888,30 @@ step_dunning() {
   api 200 '.items[] | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"' \
     listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.net_due_date)"] | join(", ")')" "$before"
+  say "A colleague had started a proposal of her own at the same key date. Ruth confirms hers (T76b, ADR-0065 §8):"
+  say "each item's level and its dunning date, the key date, are recorded, and one event per customer is published,"
+  say "naming the customer by id and number. Nothing is posted, and no letter is sent:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  twin=$(field .id) twin_tag=$ETAG
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  api 200 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice, \(.item_count) item(s), version \(.version)"' \
+    confirmDunningRun -p "id=$run" -if-match "$ETAG"
+  expect "the confirmed run" "$(field '"\(.id) \(.status) \(.version)"')" "$run confirmed 2"
+  say "A run is confirmed once: confirming it again records and publishes nothing."
+  refused 409 collections.invalid_status confirmDunningRun -p "id=$run" -if-match "$ETAG"
+  say "The colleague's proposal still says Northwind's items were never dunned. It is stale, and a new run is started instead:"
+  refused 409 collections.proposal_stale confirmDunningRun -p "id=$twin" -if-match "$twin_tag"
+  QUIET=1 api 200 '' getDunningRun -p "id=$twin"
+  expect "the stale run" "$(field .status)" proposed
+  say "Twenty days later, on $later, the invoice is 30 days overdue: past the second level's 20 days. The next run"
+  say "reads the level recorded for each item and proposes the next one, a level per confirmed run at most:"
+  api 201 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice, \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$later\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level)", (.items[] | "  item \(.item_no): entry \(.document_number) (\(.reference)), \(.days_overdue) days overdue, level \(.previous_level) -> \(.level)")' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Northwind's notice in the second run" "$(field '[.items[] | "\(.customer_id) \(.level)"] | join(", ")')" "$customer 2"
+  expect "the invoice's item in the second run" \
+    "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\") | \"\(.days_overdue) \(.previous_level) \(.level)\"] | join(\", \")")" "30 1 2"
   passed
 }
 

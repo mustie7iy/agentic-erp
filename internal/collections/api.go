@@ -12,7 +12,6 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/platform/apitypes"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
-	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/etag"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
@@ -57,6 +56,19 @@ func (e *Endpoints) CreateDunningRun(ctx context.Context, req *gen.DunningRunCre
 	}
 	return &gen.DunningRunHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Location: gen.NewOptString("/v1/dunning-runs/" + r.ID.String()),
 		Response: runToAPI(r, companies)}, nil
+}
+
+// ConfirmDunningRun implements POST /v1/dunning-runs/{id}:confirm.
+func (e *Endpoints) ConfirmDunningRun(ctx context.Context, params gen.ConfirmDunningRunParams) (gen.ConfirmDunningRunRes, error) {
+	r, err := e.ConfirmRun(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	companies, err := e.companies(ctx, []Run{r})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ConfirmDunningRunOKHeaders{ETag: gen.NewOptString(etag.Format(r.Version)), Response: runToAPI(r, companies)}, nil
 }
 
 // GetDunningRun implements GET /v1/dunning-runs/{id}.
@@ -155,15 +167,10 @@ func (e *Endpoints) ListDunningNotices(ctx context.Context, params gen.ListDunni
 	if err != nil {
 		return nil, fmt.Errorf("collections: page of dunning notices: %w", err)
 	}
-	q, args := ks.SQL(`SELECT id, dunning_run_id, customer_id, customer_number, level, item_count, overdue_amount
-		FROM collections.dunning_notice
-		WHERE dunning_run_id = $1 AND ($2::uuid IS NULL OR customer_id = $2) AND ($3::int IS NULL OR level = $3)`, []any{run.ID, customer, level})
+	q, args := ks.SQL(noticeSelect+` WHERE dunning_run_id = $1 AND ($2::uuid IS NULL OR customer_id = $2) AND ($3::int IS NULL OR level = $3)`,
+		[]any{run.ID, customer, level})
 	rows, _ := tx.Query(ctx, q, args...)
-	notices, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Notice, error) {
-		var n Notice
-		err := r.Scan(&n.ID, &n.RunID, &n.CustomerID, &n.CustomerNumber, &n.Level, &n.ItemCount, &n.OverdueAmount)
-		return n, errs.Wrapf(err, "scan dunning notice")
-	})
+	notices, err := pgx.CollectRows(rows, scanNotice)
 	if err != nil {
 		return nil, fmt.Errorf("collections: list the notices of dunning run %s: %w", run.ID, err)
 	}

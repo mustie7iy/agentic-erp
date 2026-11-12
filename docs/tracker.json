@@ -2841,10 +2841,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller confirms a dunning run: each item's level and dunning date are recorded, one event per customer is published, and the next run proposes the next level",
-        "r": "T76b · docs/design/plan-breadth-week1.md §T76b",
+        "r": "T76b · docs/design/plan-breadth-week1.md §T76b · db/migrations/000269 · collections.dunned_item · POST /v1/dunning-runs/{id}:confirm · DunningNoticeIssued · 409 collections.proposal_stale, collections.invalid_status · walkthrough step_dunning · ADR-0065 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A dunning run's and the collection worklist's key date is bounded (2100-12-31 at the latest, 422 collections.invalid_key_date naming key_date): ledger.ReceivableItem.DaysOverdue counts through a time.Duration, so a key date about 292 years past a due date gave a wrong day count",
+        "r": "T76b · internal/collections (LastKeyDate) · ADR-0065 As built, Key date limit · the worklist applies it with T76c",
+        "src": "review:T76a",
         "c": []
        },
        {

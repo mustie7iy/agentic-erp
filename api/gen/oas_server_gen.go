@@ -464,6 +464,26 @@ type Handler interface {
 	//
 	// POST /v1/year-closes/{id}/tasks/{code}:complete
 	CompleteYearCloseTask(ctx context.Context, req OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error)
+	// ConfirmDunningRun implements confirmDunningRun operation.
+	//
+	// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+	// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+	// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+	// with it. From then on a run started for the company reads the recorded level as the item's
+	// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+	// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+	// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+	// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+	// is no longer the run's `previous_level`), the proposal is stale and refused (409
+	// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+	// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+	// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+	// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+	// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+	// not found (404). Human-only (`x-agent: false`).
+	//
+	// POST /v1/dunning-runs/{id}:confirm
+	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
 	// CreateAsset implements createAsset operation.
 	//
 	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -788,13 +808,16 @@ type Handler interface {
 	// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 	// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 	// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-	// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-	// notice's level is the highest among its items. A company without dunning levels is refused (422
-	// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-	// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-	// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-	// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-	// Human-only (`x-agent: false`).
+	// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+	// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+	// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+	// highest level stays there. A notice's level is the highest among its items. A key date after
+	// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+	// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+	// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+	// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+	// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+	// answers the run started. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs
 	CreateDunningRun(ctx context.Context, req *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)

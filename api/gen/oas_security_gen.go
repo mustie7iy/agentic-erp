@@ -90,6 +90,7 @@ var operationRolesOidc = map[string][]string{
 	ClosePurchaseOrderOperation:                    []string{},
 	CompleteCloseTaskOperation:                     []string{},
 	CompleteYearCloseTaskOperation:                 []string{},
+	ConfirmDunningRunOperation:                     []string{},
 	CreateAssetOperation:                           []string{},
 	CreateAssetAcquisitionOperation:                []string{},
 	CreateAssetRetirementOperation:                 []string{},

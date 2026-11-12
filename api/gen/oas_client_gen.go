@@ -485,6 +485,26 @@ type Invoker interface {
 	//
 	// POST /v1/year-closes/{id}/tasks/{code}:complete
 	CompleteYearCloseTask(ctx context.Context, request OptCloseTaskComplete, params CompleteYearCloseTaskParams) (CompleteYearCloseTaskRes, error)
+	// ConfirmDunningRun invokes confirmDunningRun operation.
+	//
+	// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+	// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+	// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+	// with it. From then on a run started for the company reads the recorded level as the item's
+	// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+	// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+	// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+	// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+	// is no longer the run's `previous_level`), the proposal is stale and refused (409
+	// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+	// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+	// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+	// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+	// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+	// not found (404). Human-only (`x-agent: false`).
+	//
+	// POST /v1/dunning-runs/{id}:confirm
+	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
 	// CreateAsset invokes createAsset operation.
 	//
 	// Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -809,13 +829,16 @@ type Invoker interface {
 	// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 	// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 	// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-	// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-	// notice's level is the highest among its items. A company without dunning levels is refused (422
-	// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-	// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-	// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-	// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-	// Human-only (`x-agent: false`).
+	// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+	// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+	// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+	// highest level stays there. A notice's level is the highest among its items. A key date after
+	// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+	// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+	// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+	// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+	// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+	// answers the run started. Human-only (`x-agent: false`).
 	//
 	// POST /v1/dunning-runs
 	CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
@@ -11547,6 +11570,177 @@ func (c *Client) sendCompleteYearCloseTask(ctx context.Context, request OptClose
 	return result, nil
 }
 
+// ConfirmDunningRun invokes confirmDunningRun operation.
+//
+// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+// with it. From then on a run started for the company reads the recorded level as the item's
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+// is no longer the run's `previous_level`), the proposal is stale and refused (409
+// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+// not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:confirm
+func (c *Client) ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error) {
+	res, err := c.sendConfirmDunningRun(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (res ConfirmDunningRunRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmDunningRun"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/dunning-runs/{id}:confirm"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ConfirmDunningRunOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/dunning-runs/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":confirm"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ConfirmDunningRunOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeConfirmDunningRunResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateAsset invokes createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -13750,13 +13944,16 @@ func (c *Client) sendCreateDownPaymentRequest(ctx context.Context, request *Down
 // net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 // of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 // payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-// notice's level is the highest among its items. A company without dunning levels is refused (422
-// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-// Human-only (`x-agent: false`).
+// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+// highest level stays there. A notice's level is the highest among its items. A key date after
+// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (c *Client) CreateDunningRun(ctx context.Context, request *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error) {

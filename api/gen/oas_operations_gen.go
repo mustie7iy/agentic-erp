@@ -44,6 +44,7 @@ const (
 	ClosePurchaseOrderOperation                    OperationName = "ClosePurchaseOrder"
 	CompleteCloseTaskOperation                     OperationName = "CompleteCloseTask"
 	CompleteYearCloseTaskOperation                 OperationName = "CompleteYearCloseTask"
+	ConfirmDunningRunOperation                     OperationName = "ConfirmDunningRun"
 	CreateAssetOperation                           OperationName = "CreateAsset"
 	CreateAssetAcquisitionOperation                OperationName = "CreateAssetAcquisition"
 	CreateAssetRetirementOperation                 OperationName = "CreateAssetRetirement"

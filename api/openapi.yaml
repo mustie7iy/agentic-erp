@@ -14927,6 +14927,7 @@ paths:
             description: "Dunning run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - proposed
+              - confirmed
         - name: key_date_from
           in: query
           required: false
@@ -14964,11 +14965,12 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per run at most: one never dunned would reach level 1. A notice's level is the highest among its items. A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
         - collections.amount_too_large
+        - collections.invalid_key_date
         - collections.no_dunning_levels
         - collections.run_too_large
         - config.not_bootstrapped
@@ -15044,6 +15046,53 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-runs/{id}:confirm":
+    post:
+      operationId: confirmDunningRun
+      tags:
+        - collections
+      summary: Confirm a dunning run
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.run
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_status
+        - collections.proposal_stale
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The confirmed run."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   "/v1/dunning-runs/{id}/notices":
@@ -42692,7 +42741,7 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in the configuration."}
-        key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue."}
+        key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31 at the latest."}
     DunningRun:
       description: "A dunning run (collections, ADR-0065 §3): a company's customer items overdue on a key date, proposed for dunning."
       allOf:
@@ -42706,8 +42755,8 @@ components:
             key_date: {type: string, format: date, description: "The date the items' days overdue were counted on.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [proposed]
-              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [proposed, confirmed]
+              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date, the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of `overdue_amount`.", readOnly: true}
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
@@ -42755,7 +42804,7 @@ components:
         days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
-        previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at; 0 for an item never dunned.", readOnly: true}
+        previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at when the run was started, the highest a confirmed run recorded for it; 0 for an item never dunned.", readOnly: true}
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The dunning level the item would reach: the last level whose days overdue it has reached, one above `previous_level` at most.", readOnly: true}
     DunningNotice:
       type: object

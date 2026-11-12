@@ -153,6 +153,10 @@ type CompleteYearCloseTaskRes interface {
 	completeYearCloseTaskRes()
 }
 
+type ConfirmDunningRunRes interface {
+	confirmDunningRunRes()
+}
+
 type CreateAssetAcquisitionRes interface {
 	createAssetAcquisitionRes()
 }
