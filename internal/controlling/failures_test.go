@@ -66,6 +66,20 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	}
 	unsettled, settled := uuid.MustParse(unsettledID), uuid.MustParse(settledID)
 	settlements := gen.ListInternalOrderSettlementsParams{ID: settled, PageSize: gen.NewOptInt32(1)}
+	// A cycle run for May, with costs to run for June, and a second cycle.
+	ranCycle := uuid.MustParse(c.cycle(t, "RAN", share{c.c.Sales, "100"}))
+	otherCycle := c.cycle(t, "OTHER", share{c.c.Sales, "100"})
+	for _, m := range []int{5, 6} {
+		c.post(t, fmt.Sprintf("2026-%02d-12", m), on(c.office, 1000, &c.c.Admin), on(c.bank, -1000, nil))
+	}
+	c.Must(200, "POST", "/v1/allocation-cycles/"+ranCycle.String()+":run", settleBody(2026, 5), `"1"`)
+	// A cost posted after the first cycle's run is the second cycle's to move: two runs to list.
+	c.post(t, "2026-05-13", on(c.office, 1000, &c.c.Admin), on(c.bank, -1000, nil))
+	c.Must(200, "POST", "/v1/allocation-cycles/"+otherCycle+":run", settleBody(2026, 5), `"1"`)
+	var aRun uuid.UUID
+	pgtest.Scan(t, `SELECT id FROM controlling.allocation_run WHERE tenant_id = $1 AND cycle_id = $2`, []any{c.Tenant.ID, ranCycle}, &aRun)
+	allRuns := gen.ListAllocationRunsParams{PageSize: gen.NewOptInt32(1)}
+	allCycles := gen.ListAllocationCyclesParams{PageSize: gen.NewOptInt32(1)}
 	calls := map[string]func(ctx context.Context) error{
 		"create an order": func(ctx context.Context) error {
 			_, err := h.CreateInternalOrder(ctx, &gen.InternalOrderCreate{LegalEntityID: c.DE, Code: "NEW", Name: "N", ResponsibleCostCenterID: c.c.Admin},
@@ -135,6 +149,48 @@ func TestPlanDatabaseFailures(t *testing.T) {
 		},
 		"the ledger's balances of an order by account": func(ctx context.Context) error {
 			_, err := ledger.AssignmentBalances{}.OrderAccountBalances(ctx, c.DE, unsettled, &ledger.PeriodKey{FiscalYear: 2026, Period: 5})
+			return err
+		},
+		"create an allocation cycle": func(ctx context.Context) error {
+			_, err := h.CreateAllocationCycle(ctx, &gen.AllocationCycleCreate{LegalEntityID: c.DE, Code: "MADE", Name: "M", Kind: "distribution",
+				SenderCostCenterID: c.c.Admin, Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: "100"}}},
+				gen.CreateAllocationCycleParams{})
+			return err
+		},
+		"get an allocation cycle": func(ctx context.Context) error {
+			_, err := h.GetAllocationCycle(ctx, gen.GetAllocationCycleParams{ID: ranCycle})
+			return err
+		},
+		"list allocation cycles, a page after the first": func(ctx context.Context) error {
+			res, err := h.ListAllocationCycles(ctx, allCycles)
+			if err != nil {
+				return err
+			}
+			next := allCycles
+			next.PageToken = gen.NewOptString(res.(*gen.AllocationCyclePage).NextPageToken.Or("none"))
+			_, err = h.ListAllocationCycles(ctx, next)
+			return err
+		},
+		"run an allocation cycle": func(ctx context.Context) error {
+			_, err := h.RunAllocationCycle(ctx, &gen.AllocationCycleRun{FiscalYear: 2026, FiscalPeriod: 6}, gen.RunAllocationCycleParams{ID: ranCycle, IfMatch: `"1"`})
+			return err
+		},
+		"get an allocation run": func(ctx context.Context) error {
+			_, err := h.GetAllocationRun(ctx, gen.GetAllocationRunParams{ID: aRun})
+			return err
+		},
+		"list allocation runs, a page after the first": func(ctx context.Context) error {
+			res, err := h.ListAllocationRuns(ctx, allRuns)
+			if err != nil {
+				return err
+			}
+			next := allRuns
+			next.PageToken = gen.NewOptString(res.(*gen.AllocationRunPage).NextPageToken.Or("none"))
+			_, err = h.ListAllocationRuns(ctx, next)
+			return err
+		},
+		"the ledger's accounts of an allocation": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.CostAccounts(ctx, []uuid.UUID{c.office})
 			return err
 		},
 		"the ledger's validity of a cost center": func(ctx context.Context) error {
@@ -286,7 +342,8 @@ func TestPlanActualRefusals(t *testing.T) {
 func TestPlanConstraintProblems(t *testing.T) {
 	for constraint, code := range map[string]string{
 		"plan_category_code_once": "controlling.plan_category_exists", "plan_category_open": "controlling.plan_category_locked",
-		"internal_order_code_once": "controlling.internal_order_exists",
+		"internal_order_code_once": "controlling.internal_order_exists", "allocation_cycle_code_once": "controlling.allocation_cycle_exists",
+		"allocation_run_once": "controlling.allocation_run_exists",
 	} {
 		t.Run(constraint, func(t *testing.T) {
 			if got := problem.From(&pgconn.PgError{Code: "23514", ConstraintName: constraint}).Code; got != code {

@@ -8632,6 +8632,344 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
         "503":
           $ref: "#/components/responses/ServiceUnavailable"
+  /v1/allocation-cycles:
+    get:
+      operationId: listAllocationCycles
+      tags:
+        - controlling
+      summary: List allocation cycles
+      description: "Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender and its receivers, their codes and percentages. Sortable by: `code`."
+      x-permission: controlling.allocation.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: code
+          in: query
+          required: false
+          description: Only the cycles with this code (one per legal entity).
+          schema:
+            type: string
+            pattern: "^[0-9A-Z_-]{1,12}$"
+        - name: kind
+          in: query
+          required: false
+          description: Only cycles of this kind.
+          schema:
+            type: string
+            description: "Allocation cycle kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - distribution
+        - name: sender_cost_center_id
+          in: query
+          required: false
+          description: Only the cycles whose sender is this cost center.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of allocation cycles.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCyclePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createAllocationCycle
+      tags:
+        - controlling
+      summary: Create an allocation cycle
+      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`: a run moves the sender's primary costs to the receivers on their original accounts. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
+      x-permission: controlling.allocation.write
+      x-agent: false
+      x-problem-codes:
+        - controlling.allocation_cycle_exists
+        - controlling.allocation_cycle_invalid
+        - request.validation_failed
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The allocation cycle create request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocationCycleCreate"
+      responses:
+        "201":
+          description: "Created; the new allocation cycle."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCycle"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/allocation-cycles/{id}":
+    get:
+      operationId: getAllocationCycle
+      tags:
+        - controlling
+      summary: Get an allocation cycle
+      description: "Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller cannot act in is answered as missing (404)."
+      x-permission: controlling.allocation.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The allocation cycle.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationCycle"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/allocation-cycles/{id}:run":
+    post:
+      operationId: runAllocationCycle
+      tags:
+        - controlling
+      summary: Run an allocation cycle for a period
+      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day): per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). A sender without costs in the period posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. The cycle is held under a row lock, so two runs of one period never both post. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
+      x-permission: controlling.allocation.run
+      x-also-permissions:
+        - ledger.entry.read
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - controlling.allocation_center_not_valid
+        - controlling.allocation_run_exists
+        - controlling.period_not_regular
+        - ledger.account_not_postable
+        - ledger.amount_too_large
+        - ledger.asset_reconciliation_account
+        - ledger.automatic_account
+        - ledger.cost_center_invalid
+        - ledger.cost_center_required
+        - ledger.currency_mismatch
+        - ledger.gr_ir_currency_mismatch
+        - ledger.internal_order_closed
+        - ledger.internal_order_invalid
+        - ledger.invalid_tax_code
+        - ledger.jurisdiction_not_levied
+        - ledger.jurisdiction_required
+        - ledger.ledger_not_kept
+        - ledger.ledger_or_group
+        - ledger.ledger_specific_reconciliation
+        - ledger.legal_entity_not_active
+        - ledger.no_exchange_rate
+        - ledger.no_fiscal_period
+        - ledger.no_fx_account
+        - ledger.no_gr_ir_account
+        - ledger.no_tax_rate
+        - ledger.output_tax_mismatch
+        - ledger.partner_not_allowed
+        - ledger.partner_not_postable
+        - ledger.partner_required
+        - ledger.period_not_open
+        - ledger.profit_center_invalid
+        - ledger.profit_center_mismatch
+        - ledger.rate_not_recordable
+        - ledger.segment_mismatch
+        - ledger.special_gl_account
+        - ledger.special_gl_required
+        - ledger.tax_base_inconsistent
+        - ledger.tax_base_mismatch
+        - ledger.tax_base_not_import
+        - ledger.tax_code_components
+        - ledger.tax_code_off_leading
+        - ledger.tax_date_in_return
+        - ledger.trading_partner_conflict
+        - ledger.trading_partner_invalid
+        - ledger.unbalanced
+        - ledger.unknown_currency
+        - ledger.unknown_ledger
+        - ledger.unknown_ledger_group
+        - ledger.unknown_tax_code
+        - ledger.unknown_unit
+        - ledger.zero_amount
+        - ledger.zero_tax_base
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The period the cycle is run for.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AllocationCycleRun"
+      responses:
+        "200":
+          description: "What the run did: the run posted, or that the sender had no costs in the period."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRunResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /v1/allocation-runs:
+    get:
+      operationId: listAllocationRuns
+      tags:
+        - controlling
+      summary: List allocation runs
+      description: "The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest first: each with its cycle's code, name and kind, the period, the sender with its code, the amount moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.allocation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: allocation_cycle_id
+          in: query
+          required: false
+          description: Only the runs of this cycle.
+          schema:
+            type: string
+            format: uuid
+        - name: fiscal_year
+          in: query
+          required: false
+          description: Only the runs of periods of this fiscal year.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1900
+            maximum: 2999
+        - name: fiscal_period
+          in: query
+          required: false
+          description: Only the runs of this period.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 16
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of allocation runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRunPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/allocation-runs/{id}":
+    get:
+      operationId: getAllocationRun
+      tags:
+        - controlling
+      summary: Get an allocation run
+      description: "Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise)."
+      x-permission: controlling.allocation.read
+      x-also-permissions:
+        - ledger.entry.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The allocation run.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AllocationRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/internal-order-balances:
     get:
       operationId: listInternalOrderBalances
@@ -34508,6 +34846,440 @@ components:
           items:
             $ref: "#/components/schemas/ProfitCenterBalance"
           description: The profit center balances on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    AllocationCycle:
+      description: "An allocation cycle (ADR-0064 §5): one sender cost center of a legal entity and receiver cost centers with fixed percentages adding up to 100, which a run charges the sender's costs of a period to."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - legal_entity_id
+            - code
+            - name
+            - kind
+            - sender_cost_center_id
+            - sender_cost_center_code
+            - receivers
+          properties:
+            legal_entity_id:
+              type: string
+              format: uuid
+              description: "Legal entity (company code) the cycle belongs to. Immutable."
+              readOnly: true
+            code:
+              type: string
+              pattern: "^[0-9A-Z_-]{1,12}$"
+              description: "Code, unique in the legal entity. Immutable."
+              readOnly: true
+            name:
+              type: string
+              minLength: 1
+              maxLength: 100
+              description: Name.
+              readOnly: true
+            kind:
+              type: string
+              description: "`distribution`: a run moves the sender's primary costs to the receivers on their original accounts. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - distribution
+              readOnly: true
+            sender_cost_center_id:
+              type: string
+              format: uuid
+              description: "The cost center whose costs a run charges to the receivers (`GET /v1/cost-centers/{id}`)."
+              readOnly: true
+            sender_cost_center_code:
+              type: string
+              description: The sender's code.
+              readOnly: true
+            receivers:
+              type: array
+              minItems: 1
+              maxItems: 100
+              description: "The receivers, in the order given when the cycle was created; their percentages add up to 100."
+              readOnly: true
+              items:
+                $ref: "#/components/schemas/AllocationReceiver"
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d01"
+          version: 1
+          created_at: "2026-11-12T09:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+          updated_at: "2026-11-12T09:00:00Z"
+          updated_by: "0192a000-0000-7000-8000-000000000101"
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: SHARED-IT
+          name: IT services to the offices
+          kind: distribution
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          sender_cost_center_code: CC-1200
+          receivers:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              cost_center_code: CC-1100
+              percentage: "60.00"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              cost_center_code: CC-2100
+              percentage: "40.00"
+    AllocationReceiver:
+      type: object
+      description: A receiver of an allocation cycle with its share.
+      required:
+        - cost_center_id
+        - cost_center_code
+        - percentage
+      properties:
+        cost_center_id:
+          type: string
+          format: uuid
+          description: "The receiving cost center (`GET /v1/cost-centers/{id}`)."
+          readOnly: true
+        cost_center_code:
+          type: string
+          description: The receiving cost center's code.
+          readOnly: true
+        percentage:
+          type: string
+          description: "The receiver's share of the sender's costs in percent, with two decimals."
+          readOnly: true
+      examples:
+        - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+          cost_center_code: CC-1100
+          percentage: "60.00"
+    AllocationCycleCreate:
+      type: object
+      description: The allocation cycle create request.
+      required:
+        - legal_entity_id
+        - code
+        - name
+        - kind
+        - sender_cost_center_id
+        - receivers
+      properties:
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: Legal entity (company code) the cycle belongs to.
+        code:
+          type: string
+          pattern: "^[0-9A-Z_-]{1,12}$"
+          description: "Code, unique in the legal entity."
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Name.
+        kind:
+          type: string
+          description: "`distribution`. Open enumeration; a kind not listed is refused (422)."
+          x-extensible-enum:
+            - distribution
+        sender_cost_center_id:
+          type: string
+          format: uuid
+          description: An active cost center of the legal entity whose costs the cycle's runs charge to the receivers.
+        receivers:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: "The receivers: active cost centers of the legal entity other than the sender, each once, with percentages adding up to 100."
+          items:
+            type: object
+            required:
+              - cost_center_id
+              - percentage
+            properties:
+              cost_center_id:
+                type: string
+                format: uuid
+                description: The receiving cost center.
+              percentage:
+                type: string
+                pattern: "^(100(\\.0{1,2})?|[0-9]{1,2}(\\.[0-9]{1,2})?)$"
+                description: "The receiver's share in percent: above 0 and at most 100, with up to two decimals."
+            additionalProperties: false
+      additionalProperties: false
+      examples:
+        - legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          code: SHARED-IT
+          name: IT services to the offices
+          kind: distribution
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          receivers:
+            - cost_center_id: "0192a000-0000-7000-8000-000000000201"
+              percentage: "60"
+            - cost_center_id: "0192a000-0000-7000-8000-000000000202"
+              percentage: "40"
+    AllocationCyclePage:
+      type: object
+      description: One page of allocation cycles.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllocationCycle"
+          description: The allocation cycles on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
+    AllocationCycleRun:
+      type: object
+      description: The period an allocation cycle is run for.
+      required:
+        - fiscal_year
+        - fiscal_period
+      properties:
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          description: "The fiscal year of the period, one set up for the legal entity."
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          description: "A regular posting period of the fiscal year: the sender's costs posted in it are charged to the receivers, and the entry is dated its last day."
+      additionalProperties: false
+      examples:
+        - fiscal_year: 2026
+          fiscal_period: 11
+    AllocationRun:
+      type: object
+      description: "A run of an allocation cycle for a fiscal period (ADR-0064 §5): the journal entry that charged the sender's costs of the period to the cycle's receivers. Never changed."
+      required:
+        - id
+        - allocation_cycle_id
+        - allocation_cycle_code
+        - allocation_cycle_name
+        - kind
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - posting_date
+        - sender_cost_center_id
+        - sender_cost_center_code
+        - amount
+        - account_count
+        - journal_entry_id
+        - journal_entry_number
+        - created_at
+        - created_by
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The run's id.
+          readOnly: true
+        allocation_cycle_id:
+          type: string
+          format: uuid
+          description: "The cycle run (`GET /v1/allocation-cycles/{id}`), whose receivers and percentages the run used."
+          readOnly: true
+        allocation_cycle_code:
+          type: string
+          description: The cycle's code.
+          readOnly: true
+        allocation_cycle_name:
+          type: string
+          description: The cycle's name.
+          readOnly: true
+        kind:
+          type: string
+          description: "The cycle's kind: `distribution`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          x-extensible-enum:
+            - distribution
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The cycle's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period run.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: "The period run, and the entry's."
+        posting_date:
+          type: string
+          format: date
+          description: "The entry's posting date: the period's last day."
+          readOnly: true
+        sender_cost_center_id:
+          type: string
+          format: uuid
+          description: "The cycle's sender (`GET /v1/cost-centers/{id}`)."
+          readOnly: true
+        sender_cost_center_code:
+          type: string
+          description: The sender's code.
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/Money"
+          description: "What the run moved off the sender to the receivers, in the legal entity's local currency: the total of the sender's costs of the period on the accounts charged."
+          readOnly: true
+        account_count:
+          type: integer
+          format: int32
+          minimum: 1
+          description: How many accounts the run charged.
+          readOnly: true
+        journal_entry_id:
+          type: string
+          format: uuid
+          description: "The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show each account's credit on the sender and each receiver's share."
+          readOnly: true
+        journal_entry_number:
+          type: string
+          description: The entry's document number.
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          description: When the cycle was run (UTC).
+          readOnly: true
+        created_by:
+          type: string
+          format: uuid
+          description: The principal who ran it.
+          readOnly: true
+      examples:
+        - id: "0192a000-0000-7000-8000-000000000d11"
+          allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+          allocation_cycle_code: SHARED-IT
+          allocation_cycle_name: IT services to the offices
+          kind: distribution
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posting_date: "2026-11-30"
+          sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+          sender_cost_center_code: CC-1200
+          amount:
+            amount: "999.99"
+            currency: EUR
+          account_count: 1
+          journal_entry_id: "0192a000-0000-7000-8000-000000000e42"
+          journal_entry_number: "100000043"
+          created_at: "2026-11-30T17:00:00Z"
+          created_by: "0192a000-0000-7000-8000-000000000101"
+    AllocationRunResult:
+      type: object
+      description: "What running an allocation cycle for a period did (ADR-0064 §5): the run it posted, or that the sender had no costs in the period."
+      required:
+        - allocation_cycle_id
+        - allocation_cycle_code
+        - allocation_cycle_name
+        - legal_entity_id
+        - fiscal_year
+        - fiscal_period
+        - posted
+      properties:
+        allocation_cycle_id:
+          type: string
+          format: uuid
+          description: "The cycle (`GET /v1/allocation-cycles/{id}`)."
+          readOnly: true
+        allocation_cycle_code:
+          type: string
+          description: The cycle's code.
+          readOnly: true
+        allocation_cycle_name:
+          type: string
+          description: The cycle's name.
+          readOnly: true
+        legal_entity_id:
+          type: string
+          format: uuid
+          description: The cycle's legal entity (company code).
+          readOnly: true
+        fiscal_year:
+          type: integer
+          format: int32
+          minimum: 1900
+          maximum: 2999
+          readOnly: true
+          description: The fiscal year of the period run.
+        fiscal_period:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 16
+          readOnly: true
+          description: The period run.
+        posted:
+          type: boolean
+          description: "Whether an entry was posted: false when the sender had no primary costs in the period, so nothing changed and no run is kept."
+          readOnly: true
+        run:
+          $ref: "#/components/schemas/AllocationRun"
+          description: "The run posted. Absent when `posted` is false."
+          readOnly: true
+      examples:
+        - allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+          allocation_cycle_code: SHARED-IT
+          allocation_cycle_name: IT services to the offices
+          legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+          fiscal_year: 2026
+          fiscal_period: 11
+          posted: true
+          run:
+            id: "0192a000-0000-7000-8000-000000000d11"
+            allocation_cycle_id: "0192a000-0000-7000-8000-000000000d01"
+            allocation_cycle_code: SHARED-IT
+            allocation_cycle_name: IT services to the offices
+            kind: distribution
+            legal_entity_id: "0192a000-0000-7000-8000-000000000011"
+            fiscal_year: 2026
+            fiscal_period: 11
+            posting_date: "2026-11-30"
+            sender_cost_center_id: "0192a000-0000-7000-8000-000000000203"
+            sender_cost_center_code: CC-1200
+            amount:
+              amount: "999.99"
+              currency: EUR
+            account_count: 1
+            journal_entry_id: "0192a000-0000-7000-8000-000000000e42"
+            journal_entry_number: "100000043"
+            created_at: "2026-11-30T17:00:00Z"
+            created_by: "0192a000-0000-7000-8000-000000000101"
+    AllocationRunPage:
+      type: object
+      description: One page of allocation runs.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AllocationRun"
+          description: The allocation runs on this page.
         next_page_token:
           type: string
           description: "Opaque cursor for the next page; absent on the last page."

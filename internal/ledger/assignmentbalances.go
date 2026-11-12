@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pagination"
@@ -361,6 +362,30 @@ func (AssignmentBalances) CostCenterValidOn(ctx context.Context, id uuid.UUID, d
 	err = tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM ledger.cost_center_period WHERE cost_center_id = $1 AND retired_by_change_id IS NULL
 		AND daterange(valid_from, valid_to) @> $2::date)`, id, day).Scan(&valid)
 	return valid, errs.Wrapf(err, "ledger: validity of cost center %s on %s", id, day.Format(time.DateOnly))
+}
+
+// CostAccount is an account as an allocation reads it: its number and
+// whether it is a primary cost account (cost_element primary_cost).
+type CostAccount struct {
+	Number      string
+	PrimaryCost bool
+}
+
+// CostAccounts reads the tenant's accounts with the ids, keyed by id
+// (ADR-0064 §5, T60f): a distribution moves the sender's costs on primary
+// cost accounts alone and posts them in account number order. An id that
+// is no account has no entry.
+func (AssignmentBalances) CostAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]CostAccount, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT id, number, cost_element = $2 FROM ledger.gl_account WHERE id = ANY($1)`, ids, config.CostElementPrimaryCost)
+	out := map[uuid.UUID]CostAccount{}
+	var id uuid.UUID
+	var a CostAccount
+	_, err = pgx.ForEachRow(rows, []any{&id, &a.Number, &a.PrimaryCost}, func() error { out[id] = a; return nil })
+	return out, errs.Wrapf(err, "ledger: accounts of an allocation")
 }
 
 // PeriodKey names a fiscal period by its year and number.

@@ -531,3 +531,105 @@ adding up to 100, all active and of one company.
   shown), the order's balance is zero and CC-1100's report shows the
   cost; settling again posts nothing; the order is closed and a posting
   to it is refused (`closed`).
+
+### T60f: a distribution cycle run (migration 000276)
+- **Tables.** `controlling.allocation_cycle`: a company's cycle with a
+  code unique in it (`allocation_cycle_code_once`), a name, a `kind`
+  (`distribution` alone) and its sender cost center; it keeps its company,
+  code, kind and sender (`allocation_cycle_identity`).
+  `controlling.allocation_receiver`: a cycle's receivers in their order,
+  each cost center once (`allocation_receiver_once`) with its share in
+  basis points (a percentage with two decimals); insert-only. Two deferred
+  constraint triggers hold, when the transaction commits, that a cycle's
+  shares add up to 10,000 basis points and that no receiver is the sender
+  (`allocation_receiver_shares_whole`, `allocation_receiver_not_sender`).
+  `controlling.allocation_run`: a run of a cycle for a fiscal period with
+  its posting date, journal entry (once), document number, the amount
+  moved and the number of accounts; one per cycle and period
+  (`allocation_run_once`); insert-only. Row-level security on all three;
+  the centers and the entry are the ledger's, without foreign keys.
+  Schema test: `db/allocation_test.go` (`TestAllocationRules`).
+- **Shaped for T60g.** An assessment is a further `kind` of the same
+  cycle: T60g widens the kind's check and adds the assessment account to
+  `allocation_cycle` (required exactly for that kind); receivers, runs,
+  the operations and the events stay as they are, `kind` already on the
+  cycle, the run and both events. The run's lines are built by
+  `distributionLines` alone, so an assessment adds its own beside it.
+- **API.** `POST /v1/allocation-cycles` (201; 409
+  `controlling.allocation_cycle_exists`; 422
+  `controlling.allocation_cycle_invalid`, naming every field that cannot
+  stand: `kind` `unsupported`; `sender_cost_center_id` and
+  `receivers[i].cost_center_id` `unknown`, `not_in_company`, `not_active`,
+  `is_sender`, `duplicate`; `receivers[i].percentage` `invalid`;
+  `receivers` `not_100`), `GET /v1/allocation-cycles` (filters
+  `legal_entity_id`, `code`, `kind`, `sender_cost_center_id`; by `code`),
+  `GET /v1/allocation-cycles/{id}`, `POST /v1/allocation-cycles/{id}:run`
+  (body `fiscal_year`, `fiscal_period`; `If-Match` the cycle's version),
+  `GET /v1/allocation-runs` (filters `legal_entity_id`,
+  `allocation_cycle_id`, `fiscal_year`, `fiscal_period`; latest first by
+  `posting_date`), `GET /v1/allocation-runs/{id}`. Cycles and runs show
+  their centers' codes and the run its cycle's code, name and kind, its
+  amount with its currency and its entry's id and number.
+- **A run** reads the cycle `FOR UPDATE`, so two runs of a cycle
+  serialize; a period the cycle was already run for is refused (409
+  `controlling.allocation_run_exists`, naming the run's entry), and the
+  database holds it. The sender's costs of the period are the ledger's
+  actuals of the center (`ledger.AssignmentBalances.CostCenterActuals`,
+  what the cost center report shows, read page by page), less the
+  accounts that are no primary cost accounts and those whose cost is zero
+  (a new read of the port, `CostAccounts`: number and whether primary
+  cost), in account number order. Per account the sender is credited
+  with its cost and each receiver, in the cycle's order, debited with its
+  share on the same account; the shares are the cost times each
+  receiver's basis points over 10,000, divided by `money.Allocate`
+  (largest remainder), so they add up to the cost to the minor unit and
+  the entry balances per account; a share that rounds to nothing has no
+  line. The entry is posted through `ledger.Postings.Post`
+  (`source_context` `controlling`, document type `SA`, local currency,
+  dated the period's last day, its source document the run). The run is
+  kept, audited (`controlling.allocation_cycle.run`) and published
+  (`AllocationRunPosted`). An Idempotency-Key replay answers the same.
+- **Events** `AllocationCycleChanged` (`created`, with the receivers and
+  their percentages) and `AllocationRunPosted`; audit actions
+  `controlling.allocation_cycle.create` and `.run`.
+- **Permissions** `controlling.allocation.read`, `.write`, `.run` (none
+  an approval permission).
+- **Not a report read**: the runs are a plain listing of a table, so
+  they get no budget test (07 §7.7 item 7).
+- **Decided by default:**
+  1. A sender without primary costs in the period posts nothing and
+     **keeps no run** (`posted: false`): a run is not reversed, so a kept
+     empty run would close the period to the cycle for good.
+  2. A percentage is above 0 and at most 100 with up to two decimals,
+     kept as integer basis points; no float touches an amount.
+  3. A cycle has 1 to 100 receivers, none of them the sender, each once.
+  4. A cycle, once created, is not changed or deleted in the first
+     version (the event is named for the changes to come); its `version`
+     is the `If-Match` of `:run`, as every custom method takes one.
+  5. Defining and running a cycle are a person's (`x-agent: false`), as
+     the order writes are (§1); agents read cycles and runs. Running and
+     reading runs also need `ledger.entry.read`, since they show ledger
+     amounts.
+  6. The centers are checked active when the cycle is defined and valid
+     on the period's last day when it is run (409
+     `controlling.allocation_center_not_valid`, naming the center); a
+     center locked for actual costs, a closed period and every other
+     refusal of the entry are the ledger's own problems.
+  7. A credit balance on a cost account moves as one (negative shares).
+     Revenue posted to the sender stays on it.
+  8. A cost posted to the sender in a period after the cycle's run of
+     that period stays on the sender (no second run, no reversal in the
+     first version); it is not picked up by a later period's run.
+  9. Two cycles may name the same sender; the second run of a period
+     finds what the first left (nothing, unless costs were posted since).
+  10. Each receiver's line takes the receiver's profit center and
+      segment, the sender's line the sender's, as a settlement's do.
+- **Known limits, for a specialist** (question 2): as for a settlement,
+  the entry's group amounts are converted at the run date's rate, and the
+  leading ledger's costs are moved in every ledger the company keeps.
+- **Walkthrough**: `step_distribution` (Step 52): Sam sets up CC-1200
+  (shared services) and CC-1300, Alex posts CAD 999.99 to CC-1200, Carla
+  defines the cycle `SHARED` (CC-1100 60 %, CC-1300 40 %; percentages
+  short of 100 are refused) and runs it for the current period: CAD
+  599.99 and 400.00 on account 510000, the sender's cost gone, the
+  centers' reports showing the shares; a second run is refused.

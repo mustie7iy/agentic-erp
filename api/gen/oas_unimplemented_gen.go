@@ -603,6 +603,28 @@ func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCl
 	return r, ht.ErrNotImplemented
 }
 
+// CreateAllocationCycle implements createAllocationCycle operation.
+//
+// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
+// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
+// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
+// original accounts. The code is unique in the legal entity (409
+// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
+// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
+// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
+// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
+// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
+// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
+// `request.reference_not_found`). A cycle is not changed in this version. Created directly by
+// permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may
+// not create one.
+//
+// POST /v1/allocation-cycles
+func (UnimplementedHandler) CreateAllocationCycle(ctx context.Context, req *AllocationCycleCreate, params CreateAllocationCycleParams) (r CreateAllocationCycleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateAsset implements createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -1647,6 +1669,28 @@ func (UnimplementedHandler) GetAiPolicy(ctx context.Context) (r GetAiPolicyRes, 
 //
 // GET /v1/ai-usage
 func (UnimplementedHandler) GetAiUsage(ctx context.Context, params GetAiUsageParams) (r GetAiUsageRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAllocationCycle implements getAllocationCycle operation.
+//
+// Returns one allocation cycle with its sender and receivers. A cycle of a legal entity the caller
+// cannot act in is answered as missing (404).
+//
+// GET /v1/allocation-cycles/{id}
+func (UnimplementedHandler) GetAllocationCycle(ctx context.Context, params GetAllocationCycleParams) (r GetAllocationCycleRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAllocationRun implements getAllocationRun operation.
+//
+// Returns one run of an allocation cycle. A run of a legal entity the caller cannot act in is answered
+// as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.read` the
+// caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing`
+// otherwise).
+//
+// GET /v1/allocation-runs/{id}
+func (UnimplementedHandler) GetAllocationRun(ctx context.Context, params GetAllocationRunParams) (r GetAllocationRunRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3095,6 +3139,29 @@ func (UnimplementedHandler) ListAgentSessions(ctx context.Context, params ListAg
 //
 // GET /v1/agent-sessions/{id}/tool-calls
 func (UnimplementedHandler) ListAgentToolCalls(ctx context.Context, params ListAgentToolCallsParams) (r ListAgentToolCallsRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAllocationCycles implements listAllocationCycles operation.
+//
+// Allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, each with its sender
+// and its receivers, their codes and percentages. Sortable by: `code`.
+//
+// GET /v1/allocation-cycles
+func (UnimplementedHandler) ListAllocationCycles(ctx context.Context, params ListAllocationCyclesParams) (r ListAllocationCyclesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAllocationRuns implements listAllocationRuns operation.
+//
+// The runs of allocation cycles (ADR-0064 §5) of the legal entities the caller may act in, latest
+// first: each with its cycle's code, name and kind, the period, the sender with its code, the amount
+// moved in the legal entity's local currency and its journal entry. Sortable by: `posting_date`. The
+// amounts are ledger amounts, so besides `controlling.allocation.read` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+//
+// GET /v1/allocation-runs
+func (UnimplementedHandler) ListAllocationRuns(ctx context.Context, params ListAllocationRunsParams) (r ListAllocationRunsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -5726,6 +5793,36 @@ func (UnimplementedHandler) ReverseSupplierInvoice(ctx context.Context, req *Sup
 //
 // POST /v1/webhook-subscriptions/{id}:rotateSecret
 func (UnimplementedHandler) RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (r RotateWebhookSubscriptionSecretRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// RunAllocationCycle implements runAllocationCycle operation.
+//
+// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
+// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
+// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
+// local currency through the ledger (source context `controlling`, document type `SA`, dated the
+// period's last day): per account, the sender credited with its cost and each receiver debited with
+// its share on the same account, so the entry balances per account and every account's balance is
+// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
+// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
+// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
+// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+// entry); a run is not reversed in this version. `If-Match` is the cycle's version. The cycle is held
+// under a row lock, so two runs of one period never both post. Refused besides: a fiscal year not set
+// up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
+// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
+// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
+// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
+// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
+// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
+// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
+// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
+// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+// not run a cycle.
+//
+// POST /v1/allocation-cycles/{id}:run
+func (UnimplementedHandler) RunAllocationCycle(ctx context.Context, req *AllocationCycleRun, params RunAllocationCycleParams) (r RunAllocationCycleRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

@@ -398,6 +398,38 @@ released order whose balance is zero on every account (409
 `ledger.internal_order_invalid`, `closed`), and an entry that posted to
 it is not reversed (409 `ledger.internal_order_closed`).
 
+Allocation cycles (ADR-0064 §5, T60f) are the controlling context's.
+`POST /v1/allocation-cycles` (`controlling.allocation.write`, `x-agent:
+false`) defines a cycle of a company: a `kind` (`distribution`), one
+sender cost center and 1 to 100 receivers with percentages (strings, up
+to two decimals) adding up to 100; every field that cannot stand is named
+in one 422 `controlling.allocation_cycle_invalid` (`kind` `unsupported`;
+a center `unknown`, `not_in_company`, `not_active`, `is_sender` or
+`duplicate`; a percentage `invalid`; `receivers` `not_100`), and a code
+used twice in the company is 409 `controlling.allocation_cycle_exists`.
+`GET /v1/allocation-cycles` (`controlling.allocation.read`; filters
+`legal_entity_id`, `code`, `kind`, `sender_cost_center_id`) and `GET
+/v1/allocation-cycles/{id}` show a cycle with its centers' codes. `POST
+/v1/allocation-cycles/{id}:run` (`controlling.allocation.run` and
+`ledger.entry.read`, `x-agent: false`; `If-Match` the cycle's version)
+names a `fiscal_year` and a regular `fiscal_period` and runs the cycle
+for it, synchronously: one journal entry dated the period's last day
+moves the sender's primary costs of the period to the receivers on their
+original accounts, the shares adding up to each account's cost to the
+minor unit. It answers 200 with `posted` and, when an entry was posted,
+the `run` (cycle code, name and kind, period, posting date, sender with
+its code, amount with its currency, number of accounts, the entry's id
+and number); a sender without costs posts nothing, `posted` is false and
+no run is kept. A period already run is 409
+`controlling.allocation_run_exists`; a center not valid on the posting
+date 409 `controlling.allocation_center_not_valid`; what the ledger
+refuses of the entry is its own problem. Published as
+`AllocationRunPosted`. `GET /v1/allocation-runs`
+(`controlling.allocation.read` and `ledger.entry.read`; filters
+`legal_entity_id`, `allocation_cycle_id`, `fiscal_year`, `fiscal_period`;
+latest first by `posting_date`) and `GET /v1/allocation-runs/{id}` show
+the runs.
+
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
 locked by a person (`:lock`, `:unlock`: `controlling.plan.lock`, an

@@ -157,6 +157,10 @@ type CompleteYearCloseTaskRes interface {
 	completeYearCloseTaskRes()
 }
 
+type CreateAllocationCycleRes interface {
+	createAllocationCycleRes()
+}
+
 type CreateAssetAcquisitionRes interface {
 	createAssetAcquisitionRes()
 }
@@ -411,6 +415,14 @@ type GetAiPolicyRes interface {
 
 type GetAiUsageRes interface {
 	getAiUsageRes()
+}
+
+type GetAllocationCycleRes interface {
+	getAllocationCycleRes()
+}
+
+type GetAllocationRunRes interface {
+	getAllocationRunRes()
 }
 
 type GetAnalyticsModelRes interface {
@@ -807,6 +819,14 @@ type ListAgentSessionsRes interface {
 
 type ListAgentToolCallsRes interface {
 	listAgentToolCallsRes()
+}
+
+type ListAllocationCyclesRes interface {
+	listAllocationCyclesRes()
+}
+
+type ListAllocationRunsRes interface {
+	listAllocationRunsRes()
 }
 
 type ListApprovalRequestsRes interface {
@@ -1503,6 +1523,10 @@ type ReverseSupplierInvoiceRes interface {
 
 type RotateWebhookSubscriptionSecretRes interface {
 	rotateWebhookSubscriptionSecretRes()
+}
+
+type RunAllocationCycleRes interface {
+	runAllocationCycleRes()
 }
 
 type RunAnalyticsQueryRes interface {

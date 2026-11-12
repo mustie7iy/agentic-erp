@@ -71,7 +71,9 @@ func (p plan) entryLines(t *testing.T, id any) []string {
 		if code, ok := m["internal_order_code"]; ok {
 			object = fmt.Sprint("order ", code)
 		} else if cc, ok := m["cost_center_id"].(string); ok {
-			object = "center " + p.code(cc)
+			var code string
+			pgtest.Scan(t, `SELECT code FROM ledger.cost_center WHERE tenant_id = $1 AND id = $2`, []any{p.Tenant.ID, cc}, &code)
+			object = "center " + code
 		}
 		out = append(out, fmt.Sprintf("%s %v on %s", number, m["amount"].(map[string]any)["amount"], object))
 	}
@@ -79,7 +81,7 @@ func (p plan) entryLines(t *testing.T, id any) []string {
 }
 
 // centerCosts are the 2026 actuals of a cost center of company 2000 as
-// "account amount", by account.
+// "account amount", by account, the accounts with a balance.
 func (p plan) centerCosts(t *testing.T, center uuid.UUID) []string {
 	t.Helper()
 	var rows []ledger.AssignmentActual
@@ -94,7 +96,9 @@ func (p plan) centerCosts(t *testing.T, center uuid.UUID) []string {
 	for _, r := range rows {
 		var number string
 		pgtest.Scan(t, `SELECT number FROM ledger.gl_account WHERE tenant_id = $1 AND id = $2`, []any{p.Tenant.ID, r.AccountID}, &number)
-		out = append(out, fmt.Sprintf("%s %d", number, r.Amount))
+		if r.Amount != 0 {
+			out = append(out, fmt.Sprintf("%s %d", number, r.Amount))
+		}
 	}
 	return out
 }
