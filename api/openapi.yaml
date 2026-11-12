@@ -16410,6 +16410,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -17110,6 +17111,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
