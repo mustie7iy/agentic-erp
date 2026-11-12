@@ -59,6 +59,8 @@ tags:
     description: "Accounts receivable (ADR-0063): customer invoices."
   - name: collections
     description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
+  - name: sales
+    description: "Sales (ADR-0067): quotations, sales orders, the confirmations of their deliveries and billing documents."
   - name: credit
     description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
   - name: payments
@@ -17264,6 +17266,728 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "422":
           $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/quotations:
+    get:
+      operationId: listQuotations
+      tags:
+        - sales
+      summary: List quotations
+      description: "The quotations of the companies the caller may act in (ADR-0067 §2, T78a), each as `getQuotation` gives it: with its company's code and name, its customer's number and name, its net value and its items. Filtered by company, customer, status and document number. Sortable by: `quotation_date`, `document_number`."
+      x-permission: sales.quotation.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the quotations to this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only quotations in this status.
+          schema:
+            type: string
+            description: "Quotation status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - open
+              - accepted
+              - rejected
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of quotations.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuotationPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createQuotation
+      tags:
+        - sales
+      summary: Create a quotation
+      description: "Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a date. It is created `open`, dated the company's date today in its time zone, with a document number from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no document is sent to the customer. The customer is an active business partner with the customer role that is not blocked for posting in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is required from the sales order, not here. `valid_until` is not before the quotation's date (422 `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text `item_key` (there is no material master; neither is white space alone, 422 `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`, `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per `price_unit`, the revenue account its billing credits, one that can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`)."
+      x-permission: sales.quotation.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - request.invalid_amount
+        - request.validation_failed
+        - sales.account_not_postable
+        - sales.amount_not_positive
+        - sales.amount_too_large
+        - sales.currency_mismatch
+        - sales.customer_not_usable
+        - sales.invalid_quantity
+        - sales.invalid_validity
+        - sales.items_required
+        - sales.tax_jurisdiction_not_supported
+        - sales.unknown_currency
+        - sales.unknown_tax_code
+        - sales.unknown_unit
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The quotation to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/QuotationCreate"
+            examples:
+              one_item:
+                summary: One item with an output tax code
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  valid_until: "2026-12-18"
+                  currency: CAD
+                  items:
+                    - item_key: BRACKET-M8
+                      description: Machined bracket M8
+                      quantity:
+                        value: "120"
+                        unit: EA
+                      unit_price:
+                        amount: "12.50"
+                        currency: CAD
+                      account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+                      tax_code: GO5
+      responses:
+        "201":
+          description: "Created; the new quotation."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/quotations/{id}":
+    get:
+      operationId: getQuotation
+      tags:
+        - sales
+      summary: Get a quotation
+      description: "One quotation (ADR-0067 §2, T78a) with its company's code and name, its customer's number and name, its net value and its items, each with its quantity, unit price, net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.quotation.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The quotation.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/quotations/{id}:accept":
+    post:
+      operationId: acceptQuotation
+      tags:
+        - sales
+      summary: Record that the customer accepted a quotation
+      description: "Records that the customer accepted an `open` quotation (ADR-0067 §2, T78a), at the version the caller read (`If-Match`): the quotation is read under a row lock and moves to `accepted` once. One that is not open is refused (409 `sales.invalid_status`), and so is one whose `valid_until` is before the company's date today in its time zone (409 `sales.quotation_expired`): it is made again. Nothing is posted. Audited, and published as QuotationChanged. A retry with the same `Idempotency-Key` answers the accepted quotation. Human-only (`x-agent: false`)."
+      x-permission: sales.quotation.write
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - request.version_mismatch
+        - sales.invalid_status
+        - sales.quotation_expired
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The quotation, accepted."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/quotations/{id}:decline":
+    post:
+      operationId: declineQuotation
+      tags:
+        - sales
+      summary: Record that the customer rejected a quotation
+      description: "Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the caller read (`If-Match`): the quotation is read under a row lock and moves to `rejected` once, whether or not it is still valid. One that is not open is refused (409 `sales.invalid_status`). The action is `:decline` because `:reject` is an approval decision's, made on approval requests alone (04 §4.9); a quotation has no approval. Nothing is posted. Audited, and published as QuotationChanged. A retry with the same `Idempotency-Key` answers the rejected quotation. Human-only (`x-agent: false`)."
+      x-permission: sales.quotation.write
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - sales.invalid_status
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The quotation, rejected."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quotation"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/sales-orders:
+    get:
+      operationId: listSalesOrders
+      tags:
+        - sales
+      summary: List sales orders
+      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value and its items with their ordered, delivered and billed quantities. Filtered by company, customer, status, document number and quotation. Sortable by: `order_date`, `document_number`."
+      x-permission: sales.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the orders of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only orders in this status.
+          schema:
+            type: string
+            description: "Sales order status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - draft
+              - confirmed
+        - $ref: "#/components/parameters/DocumentNumber"
+        - name: quotation_id
+          in: query
+          required: false
+          description: Only the order created from this quotation.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of sales orders.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrderPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createSalesOrder
+      tags:
+        - sales
+      summary: Create a sales order
+      description: "Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With `quotation_id`, the order copies the quotation's company, customer, currency and items as they were offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the field given). The quotation is one of a company the caller may act in (422 `request.reference_not_found` naming `quotation_id`) that the customer accepted (409 `sales.quotation_not_accepted`), and it gives one order: a second is refused (409 `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`, `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and the items are checked and priced as a quotation's are (`createQuotation`), on the order's date. Either way the order needs the customer's data in the company, as a receivables document does: a customer that is not active, has no customer role, has no data in the company or is blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`). The order's payment term is `payment_term_code`, a configured term (422 `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the company's date today in its time zone, with a document number from the company's `sales_order` number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the order created. Human-only (`x-agent: false`)."
+      x-permission: sales.order.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - request.invalid_amount
+        - request.validation_failed
+        - sales.account_not_postable
+        - sales.amount_not_positive
+        - sales.amount_too_large
+        - sales.currency_mismatch
+        - sales.customer_not_usable
+        - sales.invalid_quantity
+        - sales.items_required
+        - sales.quotation_not_accepted
+        - sales.quotation_or_items
+        - sales.quotation_ordered
+        - sales.tax_jurisdiction_not_supported
+        - sales.unknown_currency
+        - sales.unknown_payment_term
+        - sales.unknown_tax_code
+        - sales.unknown_unit
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The sales order to create.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesOrderCreate"
+            examples:
+              from_quotation:
+                summary: From an accepted quotation
+                value:
+                  quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+              direct:
+                summary: Directly, with items
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  currency: CAD
+                  payment_term_code: NT14
+                  items:
+                    - item_key: BRACKET-M8
+                      description: Machined bracket M8
+                      quantity:
+                        value: "120"
+                        unit: EA
+                      unit_price:
+                        amount: "12.50"
+                        currency: CAD
+                      account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+                      tax_code: GO5
+      responses:
+        "201":
+          description: "Created; the new sales order."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}":
+    get:
+      operationId: getSalesOrder
+      tags:
+        - sales
+      summary: Get a sales order
+      description: "One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and name, the quotation it was created from by id and number, its payment term, its net value and its items, each with its ordered, delivered and billed quantities, its unit price, its net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.order.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The sales order.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}:confirm":
+    post:
+      operationId: confirmSalesOrder
+      tags:
+        - sales
+      summary: Confirm a sales order
+      description: "Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is not changed or cancelled in the first version. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`)."
+      x-permission: sales.order.confirm
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - sales.invalid_status
+        - sales.quotation_ordered
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The sales order, confirmed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}/deliveries":
+    get:
+      operationId: listSalesDeliveries
+      tags:
+        - sales
+      summary: List a sales order's deliveries
+      description: "The delivery confirmations of a sales order (ADR-0067 §8, T78c), each as `confirmSalesDelivery` answered it: its number within the order, its date and its items, each naming the order's item by number, item key and description with the quantity delivered in the item's unit. The order's own items show the sum (`delivered_quantity`, `getSalesOrder`). An order of a company the caller may not act in is not found (404), as one that does not exist. Sortable by: `delivery_date`."
+      x-permission: sales.order.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of the order's deliveries.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDeliveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: confirmSalesDelivery
+      tags:
+        - sales
+      summary: Confirm a delivery against a sales order
+      description: "Records that quantities of a `confirmed` sales order's items were delivered, or a service made available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is read under a row lock, so two confirmations of one order wait for one another. An order that is not confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations racing for an item's last quantity, one is recorded. The delivery is numbered within its order and written once; it is not changed or reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only (`x-agent: false`)."
+      x-permission: sales.delivery.confirm
+      x-agent: false
+      x-problem-codes:
+        - config.not_bootstrapped
+        - sales.delivery_date_in_future
+        - sales.exceeds_open_quantity
+        - sales.invalid_quantity
+        - sales.item_repeated
+        - sales.items_required
+        - sales.order_not_confirmed
+        - sales.unit_mismatch
+        - sales.unknown_order_item
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The delivery to confirm.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SalesDeliveryCreate"
+            examples:
+              in_full:
+                summary: An item delivered in full
+                value:
+                  delivery_date: "2026-11-20"
+                  items:
+                    - item_no: 1
+                      quantity:
+                        value: "120"
+                        unit: EA
+      responses:
+        "201":
+          description: "Created; the delivery confirmation."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesDelivery"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/billing-documents:
+    get:
+      operationId: listBillingDocuments
+      tags:
+        - sales
+      summary: List billing documents
+      description: "The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the sales order it bills by id and number, its net value and its items. Filtered by company, customer, sales order, status and document number. Sortable by: `billing_date`, `document_number`."
+      x-permission: sales.billing.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the billing documents of this customer (business partner id).
+          schema:
+            type: string
+            format: uuid
+        - name: sales_order_id
+          in: query
+          required: false
+          description: Only the billing documents of this sales order.
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: Only billing documents in this status.
+          schema:
+            type: string
+            description: "Billing document status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - created
+        - $ref: "#/components/parameters/DocumentNumber"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of billing documents.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocumentPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createBillingDocument
+      tags:
+        - sales
+      summary: Create a billing document for a sales order
+      description: "Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of the order billed, at the order's price. The order is one of a company the caller may act in (422 `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests for one order wait for one another and no quantity is billed twice. An item's amount is the order item's net value × the quantity billed so far, this document included, ÷ the quantity ordered, rounded half away from zero to the currency's minor unit, less what earlier documents billed of it: the documents of an item billed in full add up to its net value to the minor unit, the last taking the remainder. A quantity whose amount would round to zero is left for a later document. An order with nothing to bill, because nothing is delivered that is not billed, is refused (422 `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its time zone, and numbered from the company's `billing_document` number range of that date's fiscal year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company without the range). An order's items are not changed in the first version, so an order one of whose billed items names an account that can no longer be posted in the company, or a tax code that is no output tax code of the company with a rate on the billing date, cannot be billed on that date (422 `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document is created `created`; each order item's `billed_quantity` rises by what was billed and the order's `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key` answers the document created. Human-only (`x-agent: false`)."
+      x-permission: sales.billing.write
+      x-agent: false
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - sales.nothing_to_bill
+        - sales.order_item_not_billable
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The sales order to bill.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillingDocumentCreate"
+            examples:
+              today:
+                summary: Dated the company's date today
+                value:
+                  sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+      responses:
+        "201":
+          description: "Created; the new billing document."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/billing-documents/{id}":
+    get:
+      operationId: getBillingDocument
+      tags:
+        - sales
+      summary: Get a billing document
+      description: "One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number and name, the sales order it bills by id and number with the order's payment term, its billing date, its net value and its items, each with the order item it bills, the quantity billed, the order's unit price, its amount and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: sales.billing.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The billing document.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BillingDocument"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/receivables-aging:
@@ -47127,6 +47851,383 @@ components:
           type: array
           items: {$ref: "#/components/schemas/UnappliedReceipt"}
           description: The receipts on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    SalesItemCreate:
+      type: object
+      description: "An item of a quotation or a sales order to create (ADR-0067 §3): a quantity of what is sold at a unit price, with the revenue account and output tax code its billing posts with."
+      required: [description, quantity, unit_price, account_id]
+      additionalProperties: false
+      properties:
+        item_key: {type: string, minLength: 1, maxLength: 40, description: "A free-text key naming what is sold, as the company calls it; there is no material master."}
+        description: {type: string, minLength: 1, maxLength: 200, description: "What is sold."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity, more than zero, in a unit of measure of the reference data."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`, in the document's currency."}
+        price_unit: {type: integer, format: int32, minimum: 1, default: 1, description: "The quantity the unit price refers to."}
+        account_id: {type: string, format: uuid, description: "The revenue account the item credits when it is billed: one that can be posted in the company (`GET /v1/accounts`)."}
+        tax_code: {type: string, minLength: 1, maxLength: 20, description: "An output tax code of the company with a rate in force on the document's date; absent: the item bears no tax. The tax is calculated when the item is billed."}
+    SalesItem:
+      type: object
+      description: "An item of a quotation (ADR-0067 §3), with its net value."
+      required: [item_no, description, quantity, unit_price, price_unit, net_amount, account_id, account_number, account_name]
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The item's number in the document.", readOnly: true}
+        item_key: {type: string, description: "The free-text key naming what is sold; absent when none was given.", readOnly: true}
+        description: {type: string, description: "What is sold.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity and its unit of measure."}
+        unit_price: {$ref: "#/components/schemas/Money", description: "The net price per `price_unit`."}
+        price_unit: {type: integer, format: int32, minimum: 1, description: "The quantity the unit price refers to.", readOnly: true}
+        net_amount: {$ref: "#/components/schemas/Money", description: "The item's net value: quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit."}
+        account_id: {type: string, format: uuid, description: "The revenue account the item credits when it is billed.", readOnly: true}
+        account_number: {type: string, description: "The account's number.", readOnly: true}
+        account_name: {type: string, description: "The account's name, as it is now.", readOnly: true}
+        tax_code: {type: string, description: "The item's output tax code; absent: it bears no tax.", readOnly: true}
+    QuotationCreate:
+      type: object
+      description: "Create a quotation. It is created `open`, dated the company's date today; its items' values and its net value are calculated."
+      required: [legal_entity_id, customer_id, valid_until, currency, items]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company that makes the quotation: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer: an active business partner with the customer role."}
+        valid_until: {type: string, format: date, description: "The last day the customer may accept the quotation, on the company's date; not before today."}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The quotation's currency (ISO 4217), every item's."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/SalesItemCreate"}
+          description: "The items, numbered in this order from 1."
+    Quotation:
+      description: "A quotation to a customer (sales, ADR-0067 §2): what the company offers, valid until a date. Amounts are net."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, quotation_date,
+            valid_until, currency, net_amount, status, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `quotation` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that made the quotation.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            quotation_date: {type: string, format: date, description: "The day the quotation was made: the company's date in its time zone.", readOnly: true}
+            valid_until: {type: string, format: date, description: "The last day the customer may accept it, on the company's date.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The quotation's currency (ISO 4217).", readOnly: true}
+            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' net values."}
+            status:
+              type: string
+              x-extensible-enum: [open, accepted, rejected]
+              description: "`open`: made, the customer has not answered; `accepted` or `rejected`: the customer's answer, recorded once (`:accept`, `:decline`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/SalesItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          version: 1
+          created_at: "2026-11-18T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-18T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: QT100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          quotation_date: "2026-11-18"
+          valid_until: "2026-12-18"
+          currency: CAD
+          net_amount: {amount: "1500.00", currency: CAD}
+          status: open
+          items:
+            - item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "120", unit: EA}
+              unit_price: {amount: "12.50", currency: CAD}
+              price_unit: 1
+              net_amount: {amount: "1500.00", currency: CAD}
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              account_number: "4000"
+              account_name: Sales revenue
+              tax_code: GO5
+    QuotationPage:
+      type: object
+      description: One page of quotations.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/Quotation"}
+          description: The quotations on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    SalesOrderCreate:
+      type: object
+      description: "Create a sales order: from an accepted quotation (`quotation_id` alone, with `payment_term_code` if wanted), or directly (`legal_entity_id`, `customer_id`, `currency` and `items`). It is created `draft`, dated the company's date today."
+      additionalProperties: false
+      properties:
+        quotation_id: {type: string, format: uuid, description: "The accepted quotation the order is created from: its company, customer, currency and items are copied. Absent: the order is created directly."}
+        legal_entity_id: {type: string, format: uuid, description: "The company that takes the order: a legal entity the caller may act in. Required without `quotation_id`, refused with it."}
+        customer_id: {type: string, format: uuid, description: "The customer: an active business partner with the customer role and data in the company. Required without `quotation_id`, refused with it."}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217), every item's. Required without `quotation_id`, refused with it."}
+        payment_term_code: {type: string, minLength: 1, maxLength: 20, description: "The payment term the order is billed with: a configured term; absent: the customer's in the company."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/SalesItemCreate"}
+          description: "The items, numbered in this order from 1. Required without `quotation_id`, refused with it."
+    SalesOrderItem:
+      description: "An item of a sales order (ADR-0067 §5): a sales item with what was delivered and billed of it so far."
+      allOf:
+        - $ref: "#/components/schemas/SalesItem"
+        - type: object
+          required: [delivered_quantity, billed_quantity]
+          properties:
+            delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
+            billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
+    SalesOrder:
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, order_date,
+            currency, payment_term_code, net_amount, status, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `sales_order` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that took the order.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            quotation_id: {type: string, format: uuid, description: "The quotation the order was created from (`GET /v1/quotations/{id}`); absent for an order created directly.", readOnly: true}
+            quotation_number: {type: string, description: "The quotation's document number; absent, as `quotation_id` is, for an order created directly.", readOnly: true}
+            order_date: {type: string, format: date, description: "The day the order was created: the company's date in its time zone.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The order's currency (ISO 4217).", readOnly: true}
+            payment_term_code: {type: string, description: "The payment term the order is billed with: the one given with it, else the customer's in the company when it was created.", readOnly: true}
+            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' net values."}
+            status:
+              type: string
+              x-extensible-enum: [draft, confirmed]
+              description: "`draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/SalesOrderItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 1
+          created_at: "2026-11-19T09:10:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-19T09:10:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: SO100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          quotation_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d71"
+          quotation_number: QT100001
+          order_date: "2026-11-19"
+          currency: CAD
+          payment_term_code: NT30
+          net_amount: {amount: "1500.00", currency: CAD}
+          status: draft
+          items:
+            - item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "120", unit: EA}
+              unit_price: {amount: "12.50", currency: CAD}
+              price_unit: 1
+              net_amount: {amount: "1500.00", currency: CAD}
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              account_number: "4000"
+              account_name: Sales revenue
+              tax_code: GO5
+              delivered_quantity: {value: "0", unit: EA}
+              billed_quantity: {value: "0", unit: EA}
+    SalesOrderPage:
+      type: object
+      description: One page of sales orders.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesOrder"}
+          description: The sales orders on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    SalesDeliveryCreate:
+      type: object
+      description: "Confirm a delivery against a sales order: the date and the quantities delivered of the order's items."
+      required: [delivery_date, items]
+      additionalProperties: false
+      properties:
+        delivery_date: {type: string, format: date, description: "The day the quantities were delivered, or the service made available; not after the company's date today."}
+        items:
+          type: array
+          minItems: 1
+          maxItems: 999
+          items: {$ref: "#/components/schemas/SalesDeliveryItemCreate"}
+          description: "The order's items delivered, each at most once."
+    SalesDeliveryItemCreate:
+      type: object
+      description: "A quantity delivered of one item of the order."
+      required: [item_no, quantity]
+      additionalProperties: false
+      properties:
+        item_no: {type: integer, format: int32, minimum: 1, description: "The order item's number."}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity delivered: more than zero, in the order item's unit, at most the item's open quantity (ordered less delivered)."}
+    SalesDeliveryItem:
+      type: object
+      description: "An item of a delivery confirmation: the quantity delivered of one item of the order."
+      required: [item_no, description, quantity]
+      properties:
+        item_no: {type: integer, format: int32, description: "The order item's number.", readOnly: true}
+        item_key: {type: string, description: "The order item's item key; absent when it has none.", readOnly: true}
+        description: {type: string, description: "The order item's description.", readOnly: true}
+        quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity delivered, in the order item's unit."}
+    SalesDelivery:
+      type: object
+      description: "A delivery confirmation (sales, ADR-0067 §8): quantities of a sales order's items a person confirmed as delivered on a date. It moves no stock and posts nothing. It is written once and never changed."
+      required: [id, delivery_no, sales_order_id, sales_order_number, delivery_date, items, created_at, created_by]
+      properties:
+        id: {type: string, format: uuid, description: "Identifier (UUIDv7).", readOnly: true}
+        delivery_no: {type: integer, format: int32, description: "The delivery's number within its order, from 1 in the order they were confirmed.", readOnly: true}
+        sales_order_id: {type: string, format: uuid, description: "The sales order (`GET /v1/sales-orders/{id}`).", readOnly: true}
+        sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
+        delivery_date: {type: string, format: date, description: "The day the quantities were delivered.", readOnly: true}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesDeliveryItem"}
+          description: "The items delivered, by the order's item number."
+          readOnly: true
+        created_at: {type: string, format: date-time, description: "When the delivery was confirmed.", readOnly: true}
+        created_by: {type: string, format: uuid, description: "The principal who confirmed it.", readOnly: true}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d91"
+          delivery_no: 1
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100001
+          delivery_date: "2026-11-20"
+          items:
+            - item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "120", unit: EA}
+          created_at: "2026-11-20T15:42:07Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+    SalesDeliveryPage:
+      type: object
+      description: One page of a sales order's deliveries.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/SalesDelivery"}
+          description: The deliveries on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    BillingDocumentCreate:
+      type: object
+      description: "Create a billing document for a sales order: it bills what is delivered of the order's items and not yet billed. It is created `created`."
+      required: [sales_order_id]
+      additionalProperties: false
+      properties:
+        sales_order_id: {type: string, format: uuid, description: "The sales order to bill: one of a company the caller may act in."}
+        billing_date: {type: string, format: date, description: "The billing date, which the customer invoice it posts as takes as its invoice and tax date; absent: the company's date today in its time zone."}
+    BillingDocumentItem:
+      description: "An item of a billing document (ADR-0067 §9): what is billed of one item of the sales order. `quantity` is the quantity billed and `net_amount` its amount in this document; what is sold, the unit price, the account and the tax code are the order item's."
+      allOf:
+        - $ref: "#/components/schemas/SalesItem"
+        - type: object
+          required: [order_item_no]
+          properties:
+            order_item_no: {type: integer, format: int32, description: "The number of the sales order's item this item bills.", readOnly: true}
+    BillingDocument:
+      description: "A billing document (sales, ADR-0067 §9): what is billed of one sales order, its delivered quantities not yet billed at the order's prices. Amounts are net. It posts nothing until it is posted as a customer invoice (T79b)."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, sales_order_id,
+            sales_order_number, payment_term_code, billing_date, currency, net_amount, status, items]
+          properties:
+            document_number: {type: string, description: "The document number, from the company's `billing_document` number range.", readOnly: true}
+            legal_entity_id: {type: string, format: uuid, description: "The company that bills.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            sales_order_id: {type: string, format: uuid, description: "The sales order billed (`GET /v1/sales-orders/{id}`).", readOnly: true}
+            sales_order_number: {type: string, description: "The sales order's document number.", readOnly: true}
+            payment_term_code: {type: string, description: "The sales order's payment term, which the document is billed with.", readOnly: true}
+            billing_date: {type: string, format: date, description: "The billing date: the one given, else the company's date in its time zone when the document was created.", readOnly: true}
+            currency: {type: string, pattern: "^[A-Z]{3}$", description: "The document's currency (ISO 4217), the sales order's.", readOnly: true}
+            net_amount: {$ref: "#/components/schemas/Money", description: "The sum of the items' amounts."}
+            status:
+              type: string
+              x-extensible-enum: [created]
+              description: "`created`: created, not posted. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            items:
+              type: array
+              items: {$ref: "#/components/schemas/BillingDocumentItem"}
+              description: "The items, by item number."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5da1"
+          version: 1
+          created_at: "2026-11-20T16:05:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-20T16:05:00Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          document_number: BD100001
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          sales_order_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          sales_order_number: SO100001
+          payment_term_code: NT30
+          billing_date: "2026-11-20"
+          currency: CAD
+          net_amount: {amount: "1500.00", currency: CAD}
+          status: created
+          items:
+            - item_no: 1
+              item_key: BRACKET-M8
+              description: Machined bracket M8
+              quantity: {value: "120", unit: EA}
+              unit_price: {amount: "12.50", currency: CAD}
+              price_unit: 1
+              net_amount: {amount: "1500.00", currency: CAD}
+              account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d51"
+              account_number: "4000"
+              account_name: Sales revenue
+              tax_code: GO5
+              order_item_no: 1
+    BillingDocumentPage:
+      type: object
+      description: One page of billing documents.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BillingDocument"}
+          description: The billing documents on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
     ReceivablesAgingBucket:
       type: object

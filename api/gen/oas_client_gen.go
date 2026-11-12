@@ -102,6 +102,17 @@ type Invoker interface {
 	//
 	// POST /v1/memo-records/{id}:acceptProposal
 	AcceptMemoRecordProposal(ctx context.Context, request OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (AcceptMemoRecordProposalRes, error)
+	// AcceptQuotation invokes acceptQuotation operation.
+	//
+	// Records that the customer accepted an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `accepted` once. One
+	// that is not open is refused (409 `sales.invalid_status`), and so is one whose `valid_until` is
+	// before the company's date today in its time zone (409 `sales.quotation_expired`): it is made again.
+	// Nothing is posted. Audited, and published as QuotationChanged. A retry with the same
+	// `Idempotency-Key` answers the accepted quotation. Human-only (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:accept
+	AcceptQuotation(ctx context.Context, params AcceptQuotationParams) (AcceptQuotationRes, error)
 	// AcceptVarianceComment invokes acceptVarianceComment operation.
 	//
 	// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
@@ -525,6 +536,39 @@ type Invoker interface {
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
+	// ConfirmSalesDelivery invokes confirmSalesDelivery operation.
+	//
+	// Records that quantities of a `confirmed` sales order's items were delivered, or a service made
+	// available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
+	// context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
+	// read under a row lock, so two confirmations of one order wait for one another. An order that is not
+	// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
+	// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
+	// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
+	// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
+	// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
+	// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
+	// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
+	// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
+	// written once; it is not changed or reversed in the first version. Each order item's
+	// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
+	// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
+	// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
+	// `listSalesDeliveries`. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}/deliveries
+	ConfirmSalesDelivery(ctx context.Context, request *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error)
+	// ConfirmSalesOrder invokes confirmSalesOrder operation.
+	//
+	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
+	// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
+	// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
+	// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
+	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:confirm
+	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
 	// CreateAllocationCycle invokes createAllocationCycle operation.
 	//
 	// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
@@ -709,6 +753,32 @@ type Invoker interface {
 	//
 	// POST /v1/asset-transfers
 	CreateAssetTransfer(ctx context.Context, request *AssetTransferCreate, params CreateAssetTransferParams) (CreateAssetTransferRes, error)
+	// CreateBillingDocument invokes createBillingDocument operation.
+	//
+	// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
+	// quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of
+	// the order billed, at the order's price. The order is one of a company the caller may act in (422
+	// `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests
+	// for one order wait for one another and no quantity is billed twice. An item's amount is the order
+	// item's net value × the quantity billed so far, this document included, ÷ the quantity ordered,
+	// rounded half away from zero to the currency's minor unit, less what earlier documents billed of it:
+	// the documents of an item billed in full add up to its net value to the minor unit, the last taking
+	// the remainder. A quantity whose amount would round to zero is left for a later document. An order
+	// with nothing to bill, because nothing is delivered that is not billed, is refused (422
+	// `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its
+	// time zone, and numbered from the company's `billing_document` number range of that date's fiscal
+	// year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
+	// without the range). An order's items are not changed in the first version, so an order one of whose
+	// billed items names an account that can no longer be posted in the company, or a tax code that is no
+	// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
+	// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
+	// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
+	// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
+	// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
+	// answers the document created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/billing-documents
+	CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error)
 	// CreateBusinessPartner invokes createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -1161,6 +1231,33 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders/{id}/changes
 	CreatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error)
+	// CreateQuotation invokes createQuotation operation.
+	//
+	// Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a
+	// date. It is created `open`, dated the company's date today in its time zone, with a document number
+	// from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no
+	// document is sent to the customer. The customer is an active business partner with the customer role
+	// that is not blocked for posting in the company (422 `request.reference_not_found` naming
+	// `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is
+	// required from the sales order, not here. `valid_until` is not before the quotation's date (422
+	// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
+	// `item_key` (there is no material master; neither is white space alone, 422
+	// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
+	// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
+	// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
+	// `price_unit`, the revenue account its billing credits, one that can be posted in the company (422
+	// `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the
+	// company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming
+	// `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422
+	// `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is
+	// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+	// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the
+	// quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the
+	// order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/quotations
+	CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
 	// CreateRecommendation invokes createRecommendation operation.
 	//
 	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -1219,6 +1316,29 @@ type Invoker interface {
 	//
 	// POST /v1/role-assignments
 	CreateRoleAssignment(ctx context.Context, request *RoleAssignmentCreate, params CreateRoleAssignmentParams) (CreateRoleAssignmentRes, error)
+	// CreateSalesOrder invokes createSalesOrder operation.
+	//
+	// Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With
+	// `quotation_id`, the order copies the quotation's company, customer, currency and items as they were
+	// offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the
+	// field given). The quotation is one of a company the caller may act in (422
+	// `request.reference_not_found` naming `quotation_id`) that the customer accepted (409
+	// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
+	// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
+	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
+	// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date.
+	// Either way the order needs the customer's data in the company, as a receivables document does: a
+	// customer that is not active, has no customer role, has no data in the company or is blocked for
+	// posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`).
+	// The order's payment term is `payment_term_code`, a configured term (422
+	// `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the
+	// company's date today in its time zone, with a document number from the company's `sales_order`
+	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
+	// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders
+	CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
 	// CreateSegment invokes createSegment operation.
 	//
 	// Creates a segment at once: a segment changes nothing until a profit center names it, which is an
@@ -1321,6 +1441,18 @@ type Invoker interface {
 	//
 	// POST /v1/recommendations/{id}:decide
 	DecideRecommendation(ctx context.Context, request *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
+	// DeclineQuotation invokes declineQuotation operation.
+	//
+	// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `rejected` once,
+	// whether or not it is still valid. One that is not open is refused (409 `sales.invalid_status`). The
+	// action is `:decline` because `:reject` is an approval decision's, made on approval requests alone
+	// (04 §4.9); a quotation has no approval. Nothing is posted. Audited, and published as
+	// QuotationChanged. A retry with the same `Idempotency-Key` answers the rejected quotation. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:decline
+	DeclineQuotation(ctx context.Context, params DeclineQuotationParams) (DeclineQuotationRes, error)
 	// DeleteWebhookSubscription invokes deleteWebhookSubscription operation.
 	//
 	// Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer
@@ -1814,6 +1946,16 @@ type Invoker interface {
 	//
 	// GET /v1/bank-statements/{id}/rules
 	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
+	// GetBillingDocument invokes getBillingDocument operation.
+	//
+	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
+	// and name, the sales order it bills by id and number with the order's payment term, its billing date,
+	// its net value and its items, each with the order item it bills, the quantity billed, the order's
+	// unit price, its amount and its revenue account's number and name. One of a company the caller may
+	// not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/billing-documents/{id}
+	GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error)
 	// GetBusinessPartner invokes getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -2572,6 +2714,15 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetQuotation invokes getQuotation operation.
+	//
+	// One quotation (ADR-0067 §2, T78a) with its company's code and name, its customer's number and name,
+	// its net value and its items, each with its quantity, unit price, net value and its revenue account's
+	// number and name. One of a company the caller may not act in is not found (404), as one that does not
+	// exist.
+	//
+	// GET /v1/quotations/{id}
+	GetQuotation(ctx context.Context, params GetQuotationParams) (GetQuotationRes, error)
 	// GetReceivablesAging invokes getReceivablesAging operation.
 	//
 	// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
@@ -2646,6 +2797,16 @@ type Invoker interface {
 	//
 	// GET /v1/roles/{id}/permissions/{permission_id}
 	GetRolePermission(ctx context.Context, params GetRolePermissionParams) (GetRolePermissionRes, error)
+	// GetSalesOrder invokes getSalesOrder operation.
+	//
+	// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
+	// name, the quotation it was created from by id and number, its payment term, its net value and its
+	// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
+	// revenue account's number and name. One of a company the caller may not act in is not found (404), as
+	// one that does not exist.
+	//
+	// GET /v1/sales-orders/{id}
+	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
 	// GetSchema invokes getSchema operation.
 	//
 	// The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the
@@ -3020,6 +3181,15 @@ type Invoker interface {
 	//
 	// GET /v1/bank-statements
 	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
+	// ListBillingDocuments invokes listBillingDocuments operation.
+	//
+	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
+	// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
+	// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
+	// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+	//
+	// GET /v1/billing-documents
+	ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error)
 	// ListBusinessPartners invokes listBusinessPartners operation.
 	//
 	// Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the
@@ -3830,6 +4000,15 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
+	// ListQuotations invokes listQuotations operation.
+	//
+	// The quotations of the companies the caller may act in (ADR-0067 §2, T78a), each as `getQuotation`
+	// gives it: with its company's code and name, its customer's number and name, its net value and its
+	// items. Filtered by company, customer, status and document number. Sortable by: `quotation_date`,
+	// `document_number`.
+	//
+	// GET /v1/quotations
+	ListQuotations(ctx context.Context, params ListQuotationsParams) (ListQuotationsRes, error)
 	// ListRecommendations invokes listRecommendations operation.
 	//
 	// Agent recommendations, newest first. Sortable by: `created_at`.
@@ -3884,6 +4063,26 @@ type Invoker interface {
 	//
 	// GET /v1/roles
 	ListRoles(ctx context.Context, params ListRolesParams) (ListRolesRes, error)
+	// ListSalesDeliveries invokes listSalesDeliveries operation.
+	//
+	// The delivery confirmations of a sales order (ADR-0067 §8, T78c), each as `confirmSalesDelivery`
+	// answered it: its number within the order, its date and its items, each naming the order's item by
+	// number, item key and description with the quantity delivered in the item's unit. The order's own
+	// items show the sum (`delivered_quantity`, `getSalesOrder`). An order of a company the caller may not
+	// act in is not found (404), as one that does not exist. Sortable by: `delivery_date`.
+	//
+	// GET /v1/sales-orders/{id}/deliveries
+	ListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (ListSalesDeliveriesRes, error)
+	// ListSalesOrders invokes listSalesOrders operation.
+	//
+	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
+	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
+	// quotation it came from, its net value and its items with their ordered, delivered and billed
+	// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
+	// `order_date`, `document_number`.
+	//
+	// GET /v1/sales-orders
+	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
 	// ListSegments invokes listSegments operation.
 	//
 	// Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`.
@@ -6715,6 +6914,168 @@ func (c *Client) sendAcceptMemoRecordProposal(ctx context.Context, request OptMe
 
 	stage = "DecodeResponse"
 	result, err := decodeAcceptMemoRecordProposalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AcceptQuotation invokes acceptQuotation operation.
+//
+// Records that the customer accepted an `open` quotation (ADR-0067 §2, T78a), at the version the
+// caller read (`If-Match`): the quotation is read under a row lock and moves to `accepted` once. One
+// that is not open is refused (409 `sales.invalid_status`), and so is one whose `valid_until` is
+// before the company's date today in its time zone (409 `sales.quotation_expired`): it is made again.
+// Nothing is posted. Audited, and published as QuotationChanged. A retry with the same
+// `Idempotency-Key` answers the accepted quotation. Human-only (`x-agent: false`).
+//
+// POST /v1/quotations/{id}:accept
+func (c *Client) AcceptQuotation(ctx context.Context, params AcceptQuotationParams) (AcceptQuotationRes, error) {
+	res, err := c.sendAcceptQuotation(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendAcceptQuotation(ctx context.Context, params AcceptQuotationParams) (res AcceptQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptQuotation"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/quotations/{id}:accept"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcceptQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/quotations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":accept"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcceptQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcceptQuotationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -12514,6 +12875,333 @@ func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunnin
 	return result, nil
 }
 
+// ConfirmSalesDelivery invokes confirmSalesDelivery operation.
+//
+// Records that quantities of a `confirmed` sales order's items were delivered, or a service made
+// available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
+// context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
+// read under a row lock, so two confirmations of one order wait for one another. An order that is not
+// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
+// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
+// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
+// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
+// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
+// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
+// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
+// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
+// written once; it is not changed or reversed in the first version. Each order item's
+// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
+// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
+// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
+// `listSalesDeliveries`. Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}/deliveries
+func (c *Client) ConfirmSalesDelivery(ctx context.Context, request *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error) {
+	res, err := c.sendConfirmSalesDelivery(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendConfirmSalesDelivery(ctx context.Context, request *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (res ConfirmSalesDeliveryRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmSalesDelivery"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}/deliveries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ConfirmSalesDeliveryOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/deliveries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeConfirmSalesDeliveryRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ConfirmSalesDeliveryOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeConfirmSalesDeliveryResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ConfirmSalesOrder invokes confirmSalesOrder operation.
+//
+// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
+// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
+// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
+// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
+// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:confirm
+func (c *Client) ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error) {
+	res, err := c.sendConfirmSalesOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (res ConfirmSalesOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("confirmSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}:confirm"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ConfirmSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":confirm"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ConfirmSalesOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeConfirmSalesOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateAllocationCycle invokes createAllocationCycle operation.
 //
 // Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
@@ -13311,6 +13999,156 @@ func (c *Client) sendCreateAssetTransfer(ctx context.Context, request *AssetTran
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateAssetTransferResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateBillingDocument invokes createBillingDocument operation.
+//
+// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
+// quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of
+// the order billed, at the order's price. The order is one of a company the caller may act in (422
+// `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests
+// for one order wait for one another and no quantity is billed twice. An item's amount is the order
+// item's net value × the quantity billed so far, this document included, ÷ the quantity ordered,
+// rounded half away from zero to the currency's minor unit, less what earlier documents billed of it:
+// the documents of an item billed in full add up to its net value to the minor unit, the last taking
+// the remainder. A quantity whose amount would round to zero is left for a later document. An order
+// with nothing to bill, because nothing is delivered that is not billed, is refused (422
+// `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its
+// time zone, and numbered from the company's `billing_document` number range of that date's fiscal
+// year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
+// without the range). An order's items are not changed in the first version, so an order one of whose
+// billed items names an account that can no longer be posted in the company, or a tax code that is no
+// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
+// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
+// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
+// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
+// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
+// answers the document created. Human-only (`x-agent: false`).
+//
+// POST /v1/billing-documents
+func (c *Client) CreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error) {
+	res, err := c.sendCreateBillingDocument(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateBillingDocument(ctx context.Context, request *BillingDocumentCreate, params CreateBillingDocumentParams) (res CreateBillingDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/billing-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/billing-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateBillingDocumentRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateBillingDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateBillingDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -17795,6 +18633,157 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 	return result, nil
 }
 
+// CreateQuotation invokes createQuotation operation.
+//
+// Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a
+// date. It is created `open`, dated the company's date today in its time zone, with a document number
+// from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no
+// document is sent to the customer. The customer is an active business partner with the customer role
+// that is not blocked for posting in the company (422 `request.reference_not_found` naming
+// `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is
+// required from the sales order, not here. `valid_until` is not before the quotation's date (422
+// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
+// `item_key` (there is no material master; neither is white space alone, 422
+// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
+// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
+// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
+// `price_unit`, the revenue account its billing credits, one that can be posted in the company (422
+// `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the
+// company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming
+// `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422
+// `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is
+// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the
+// quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the
+// order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/quotations
+func (c *Client) CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error) {
+	res, err := c.sendCreateQuotation(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (res CreateQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createQuotation"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/quotations"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/quotations"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateQuotationRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateQuotationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateRecommendation invokes createRecommendation operation.
 //
 // Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -18590,6 +19579,153 @@ func (c *Client) sendCreateRoleAssignment(ctx context.Context, request *RoleAssi
 
 	stage = "DecodeResponse"
 	result, err := decodeCreateRoleAssignmentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// CreateSalesOrder invokes createSalesOrder operation.
+//
+// Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With
+// `quotation_id`, the order copies the quotation's company, customer, currency and items as they were
+// offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the
+// field given). The quotation is one of a company the caller may act in (422
+// `request.reference_not_found` naming `quotation_id`) that the customer accepted (409
+// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
+// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
+// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
+// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date.
+// Either way the order needs the customer's data in the company, as a receivables document does: a
+// customer that is not active, has no customer role, has no data in the company or is blocked for
+// posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or `customer_id`).
+// The order's payment term is `payment_term_code`, a configured term (422
+// `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the
+// company's date today in its time zone, with a document number from the company's `sales_order`
+// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
+// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders
+func (c *Client) CreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error) {
+	res, err := c.sendCreateSalesOrder(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateSalesOrder(ctx context.Context, request *SalesOrderCreate, params CreateSalesOrderParams) (res CreateSalesOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sales-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateSalesOrderRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateSalesOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateSalesOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -19857,6 +20993,169 @@ func (c *Client) sendDecideRecommendation(ctx context.Context, request *Recommen
 
 	stage = "DecodeResponse"
 	result, err := decodeDecideRecommendationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DeclineQuotation invokes declineQuotation operation.
+//
+// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
+// caller read (`If-Match`): the quotation is read under a row lock and moves to `rejected` once,
+// whether or not it is still valid. One that is not open is refused (409 `sales.invalid_status`). The
+// action is `:decline` because `:reject` is an approval decision's, made on approval requests alone
+// (04 §4.9); a quotation has no approval. Nothing is posted. Audited, and published as
+// QuotationChanged. A retry with the same `Idempotency-Key` answers the rejected quotation. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/quotations/{id}:decline
+func (c *Client) DeclineQuotation(ctx context.Context, params DeclineQuotationParams) (DeclineQuotationRes, error) {
+	res, err := c.sendDeclineQuotation(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendDeclineQuotation(ctx context.Context, params DeclineQuotationParams) (res DeclineQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("declineQuotation"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/quotations/{id}:decline"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DeclineQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/quotations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":decline"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DeclineQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDeclineQuotationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -25769,6 +27068,141 @@ func (c *Client) sendGetBankStatementRules(ctx context.Context, params GetBankSt
 
 	stage = "DecodeResponse"
 	result, err := decodeGetBankStatementRulesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetBillingDocument invokes getBillingDocument operation.
+//
+// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
+// and name, the sales order it bills by id and number with the order's payment term, its billing date,
+// its net value and its items, each with the order item it bills, the quantity billed, the order's
+// unit price, its amount and its revenue account's number and name. One of a company the caller may
+// not act in is not found (404), as one that does not exist.
+//
+// GET /v1/billing-documents/{id}
+func (c *Client) GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error) {
+	res, err := c.sendGetBillingDocument(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (res GetBillingDocumentRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getBillingDocument"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/billing-documents/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetBillingDocumentOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/billing-documents/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetBillingDocumentOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetBillingDocumentResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -34846,6 +36280,140 @@ func (c *Client) sendGetPurchaseOrderDocument(ctx context.Context, params GetPur
 	return result, nil
 }
 
+// GetQuotation invokes getQuotation operation.
+//
+// One quotation (ADR-0067 §2, T78a) with its company's code and name, its customer's number and name,
+// its net value and its items, each with its quantity, unit price, net value and its revenue account's
+// number and name. One of a company the caller may not act in is not found (404), as one that does not
+// exist.
+//
+// GET /v1/quotations/{id}
+func (c *Client) GetQuotation(ctx context.Context, params GetQuotationParams) (GetQuotationRes, error) {
+	res, err := c.sendGetQuotation(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetQuotation(ctx context.Context, params GetQuotationParams) (res GetQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getQuotation"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/quotations/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/quotations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetQuotationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetReceivablesAging invokes getReceivablesAging operation.
 //
 // The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
@@ -36178,6 +37746,141 @@ func (c *Client) sendGetRolePermission(ctx context.Context, params GetRolePermis
 
 	stage = "DecodeResponse"
 	result, err := decodeGetRolePermissionResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetSalesOrder invokes getSalesOrder operation.
+//
+// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
+// name, the quotation it was created from by id and number, its payment term, its net value and its
+// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
+// revenue account's number and name. One of a company the caller may not act in is not found (404), as
+// one that does not exist.
+//
+// GET /v1/sales-orders/{id}
+func (c *Client) GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error) {
+	res, err := c.sendGetSalesOrder(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetSalesOrder(ctx context.Context, params GetSalesOrderParams) (res GetSalesOrderRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getSalesOrder"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetSalesOrderOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetSalesOrderOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetSalesOrderResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -43730,6 +45433,262 @@ func (c *Client) sendListBankStatements(ctx context.Context, params ListBankStat
 
 	stage = "DecodeResponse"
 	result, err := decodeListBankStatementsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListBillingDocuments invokes listBillingDocuments operation.
+//
+// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
+// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
+// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
+// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+//
+// GET /v1/billing-documents
+func (c *Client) ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error) {
+	res, err := c.sendListBillingDocuments(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (res ListBillingDocumentsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listBillingDocuments"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/billing-documents"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListBillingDocumentsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/billing-documents"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "sales_order_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "sales_order_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SalesOrderID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListBillingDocumentsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListBillingDocumentsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -62386,6 +64345,245 @@ func (c *Client) sendListPurchaseOrders(ctx context.Context, params ListPurchase
 	return result, nil
 }
 
+// ListQuotations invokes listQuotations operation.
+//
+// The quotations of the companies the caller may act in (ADR-0067 §2, T78a), each as `getQuotation`
+// gives it: with its company's code and name, its customer's number and name, its net value and its
+// items. Filtered by company, customer, status and document number. Sortable by: `quotation_date`,
+// `document_number`.
+//
+// GET /v1/quotations
+func (c *Client) ListQuotations(ctx context.Context, params ListQuotationsParams) (ListQuotationsRes, error) {
+	res, err := c.sendListQuotations(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListQuotations(ctx context.Context, params ListQuotationsParams) (res ListQuotationsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listQuotations"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/quotations"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListQuotationsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/quotations"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListQuotationsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListQuotationsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // ListRecommendations invokes listRecommendations operation.
 //
 // Agent recommendations, newest first. Sortable by: `created_at`.
@@ -64182,6 +66380,454 @@ func (c *Client) sendListRoles(ctx context.Context, params ListRolesParams) (res
 
 	stage = "DecodeResponse"
 	result, err := decodeListRolesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListSalesDeliveries invokes listSalesDeliveries operation.
+//
+// The delivery confirmations of a sales order (ADR-0067 §8, T78c), each as `confirmSalesDelivery`
+// answered it: its number within the order, its date and its items, each naming the order's item by
+// number, item key and description with the quantity delivered in the item's unit. The order's own
+// items show the sum (`delivered_quantity`, `getSalesOrder`). An order of a company the caller may not
+// act in is not found (404), as one that does not exist. Sortable by: `delivery_date`.
+//
+// GET /v1/sales-orders/{id}/deliveries
+func (c *Client) ListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (ListSalesDeliveriesRes, error) {
+	res, err := c.sendListSalesDeliveries(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (res ListSalesDeliveriesRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSalesDeliveries"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}/deliveries"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListSalesDeliveriesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/deliveries"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListSalesDeliveriesOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListSalesDeliveriesResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListSalesOrders invokes listSalesOrders operation.
+//
+// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
+// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
+// quotation it came from, its net value and its items with their ordered, delivered and billed
+// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
+// `order_date`, `document_number`.
+//
+// GET /v1/sales-orders
+func (c *Client) ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error) {
+	res, err := c.sendListSalesOrders(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (res ListSalesOrdersRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listSalesOrders"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/sales-orders"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListSalesOrdersOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/sales-orders"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "quotation_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "quotation_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.QuotationID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListSalesOrdersOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListSalesOrdersResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

@@ -4488,14 +4488,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Quotations",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative creates a quotation for a customer (items by description and optional item key with quantity, unit, unit price, revenue account and output tax code, valid until a date), reads it back with its net value and records that the customer accepted or rejected it; the sales context and its ADR",
-        "r": "T78a · docs/design/plan-breadth-week2.md §T78a",
+        "r": "T78a · docs/design/plan-breadth-week2.md §T78a · db/migrations/000290 · sales.quotation, quotation_item · POST /v1/quotations · GET /v1/quotations · GET /v1/quotations/{id} · POST /v1/quotations/{id}:accept, :decline · QuotationChanged · sales.quotation.read, .write · number range quotation · walkthrough step_quotation · ADR-0067 §1-§4, §6, §7 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4509,14 +4509,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Sales orders",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative creates a sales order, from an accepted quotation or directly, and confirms it; the order shows each item's ordered, delivered and billed quantities (POST /v1/sales-orders, :confirm)",
-        "r": "T78b · docs/design/plan-breadth-week2.md §T78b",
+        "r": "T78b · docs/design/plan-breadth-week2.md §T78b · db/migrations/000291 · sales.sales_order, sales_order_item · POST /v1/sales-orders · GET /v1/sales-orders · GET /v1/sales-orders/{id} · POST /v1/sales-orders/{id}:confirm · SalesOrderChanged · sales.order.read, .write, .confirm · number range sales_order · sales.Orders · walkthrough step_sales_order · ADR-0067 §5 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4530,14 +4530,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Order-to-delivery flow",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales administrator confirms that quantities of a confirmed order's items were delivered on a date; the order shows what is delivered and what is open; a delivery confirmation in the sales context, no stock and no posting (POST /v1/sales-orders/{id}/deliveries)",
-        "r": "T78c · docs/design/plan-breadth-week2.md §T78c",
+        "r": "T78c · docs/design/plan-breadth-week2.md §T78c · db/migrations/000292 · sales.delivery, delivery_item · POST /v1/sales-orders/{id}/deliveries · GET /v1/sales-orders/{id}/deliveries · SalesOrderDelivered · sales.delivery.confirm · sales.Orders (each item's deliveries) · walkthrough step_sales_order · ADR-0067 §8 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4628,14 +4628,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Billing documents",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A billing clerk creates a billing document for an order: its items are the order's delivered quantities not yet billed, at the order's prices (POST /v1/billing-documents)",
-        "r": "T79a · docs/design/plan-breadth-week2.md §T79a",
+        "r": "T79a · docs/design/plan-breadth-week2.md §T79a · db/migrations/000293 · sales.billing_document, billing_document_item · POST /v1/billing-documents · GET /v1/billing-documents · GET /v1/billing-documents/{id} · BillingDocumentChanged · sales.billing.read, .write, .post · number range billing_document · walkthrough step_billing · ADR-0067 §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

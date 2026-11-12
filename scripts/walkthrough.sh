@@ -1546,7 +1546,9 @@ migrated_down_payment() {
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
 # a number range for the customer invoices of step 48 (T75a; the packs
-# number none yet),
+# number none yet), one for the quotations of step 54 (T78a), one for
+# the sales orders of step 55 (T78b) and one for the billing documents of
+# step 56 (T79a),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1602,7 +1604,10 @@ PILOT_SETTINGS='
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
-    {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999}]'
+    {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999},
+    {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "billing_document", "fiscal_year": @YEAR@, "prefix": "BD", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -6803,6 +6808,201 @@ step_catalog() {
   passed
 }
 
+# step_quotation is T78a (ADR-0067 §2-§4): Sally, the sales
+# representative, makes a quotation to the customer of step_customer,
+# valid for thirty days, and reads it back with each item's value and its
+# net value; an input tax code and an unknown unit are refused naming the
+# item's own field; she records that Northwind accepted it, once. Nothing
+# is posted. QUOTATION is the accepted quotation for later steps.
+step_quotation() {
+  heading "Step 54 — Quotations: a quotation to a customer created with its items priced net of tax, read back with its net value; the customer's acceptance recorded once; nothing posted"
+  local customer=$CUSTOMER sales until before item1 item2 quotation number open
+  as ada
+  say "Ada adds Sally, the sales representative, to the team:"
+  person sally "Sally Sales" finance_staff
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  sales=$(account 4000)
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Northwind Traders asks for a price for 120 machined brackets and their installation. Sally makes a"
+  say "quotation, valid until $until. An item names what is sold by a description and Maple's own item key (there is"
+  say "no material master), with its quantity, its price, the revenue account its billing will credit and the"
+  say "output tax code it will be billed with. Amounts are net: the GST is calculated when the order is billed"
+  say "(ADR-0067 §3). 2.5 hours at 95.01 are 237.525: 237.53, rounded half away from zero."
+  item1="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.50\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  item2="{\"description\": \"Installation on site\", \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}, \"unit_price\": {\"amount\": \"95.01\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  before=$(company_day)
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), made \(.quotation_date), valid until \(.valid_until), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) = \(.net_amount.amount), on \(.account_number) \(.account_name), \(.tax_code // "no tax code")")' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item1, $item2]}"
+  quotation=$(field .id)
+  number=$(field .document_number)
+  expect "the quotation's status" "$(field .status)" open
+  expect_today "the quotation's date, Maple's today" "$(field .quotation_date)" "$before"
+  expect "each item's net value" "$(field '[.items[] | .net_amount.amount] | join(" ")')" "1500.00 237.53"
+  expect "the net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "1737.53 CAD"
+  expect "the customer by name" "$(field .customer_name)" "Northwind Traders"
+  say "Read back, it is the same quotation, and it is among Northwind's open ones:"
+  api 200 '"quotation \(.document_number): \(.status), valid until \(.valid_until), net \(.net_amount.amount) \(.net_amount.currency), \(.items | length) items"' \
+    getQuotation -p "id=$quotation"
+  expect "read back" "$(field '"\(.document_number) \(.status) \(.valid_until) \(.net_amount.amount) \(.version)"')" "$number open $until 1737.53 1"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listQuotations -p "customer_id=$customer" -p status=open
+  expect "the customer's open quotations" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  say "GA, an input tax code (the return's adjustment of step 2), is no output tax code, and XX is no unit of measure;"
+  say "each refusal names the item's own field:"
+  refused 422 sales.unknown_tax_code createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [${item1/GO5/GA}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].tax_code"
+  refused 422 sales.unknown_unit createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item1, ${item2/\"H\"/\"XX\"}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[1].quantity.unit"
+  say "Northwind accepts. Sally records the answer at the version she read; it is recorded once:"
+  QUIET=1 api 200 '' getQuotation -p "id=$quotation"
+  api 200 '"quotation \(.document_number): \(.status), version \(.version)"' acceptQuotation -p "id=$quotation" -if-match "$ETAG"
+  expect "the accepted quotation" "$(field '"\(.status) \(.version) \(.net_amount.amount)"')" "accepted 2 1737.53"
+  refused 409 sales.invalid_status declineQuotation -p "id=$quotation" -if-match "$ETAG"
+  QUIET=1 api 200 '' listQuotations -p "customer_id=$customer" -p status=accepted
+  expect "the customer's accepted quotations" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  QUOTATION=$quotation
+  say "A quotation posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+# step_sales_order is T78b (ADR-0067 §5): Sally creates a sales order from
+# the accepted quotation of step_quotation, which copies its customer,
+# currency and items and takes Northwind's payment term; a second order
+# from the quotation is refused; she confirms the order, once. T78c
+# (ADR-0067 §8): she confirms its items as delivered in two deliveries; a
+# quantity above what is open is refused naming the item, and the order
+# reads as fully delivered. Nothing is posted and no stock moves.
+# SALES_ORDER is the confirmed, fully delivered order for later steps.
+step_sales_order() {
+  heading "Step 55 — Sales orders: an order created from the accepted quotation with its customer, currency and items, on the customer's payment term; one order per quotation; confirmed once; its items confirmed as delivered; nothing posted"
+  local customer=$CUSTOMER quotation=$QUOTATION before order number open day
+  [ -n "$quotation" ] || fail "step 54's quotation is not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  say "Northwind accepted the quotation of step 54, so Sally creates the sales order from it. The order copies the"
+  say "quotation's customer, currency and items as they were offered; its payment term is Northwind's in Maple,"
+  say "NT30, since the request names none (ADR-0067 §5). Each item shows what is ordered, delivered and billed:"
+  before=$(company_day)
+  api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), from quotation \(.quotation_number), dated \(.order_date), terms \(.payment_term_code), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): ordered \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    createSalesOrder -body "{\"quotation_id\": \"$quotation\"}"
+  order=$(field .id)
+  number=$(field .document_number)
+  expect "the order's status" "$(field .status)" draft
+  expect_today "the order's date, Maple's today" "$(field .order_date)" "$before"
+  expect "the order's customer, currency, term and net value" "$(field '"\(.customer_id) \(.currency) \(.payment_term_code) \(.net_amount.amount)"')" "$customer CAD NT30 1737.53"
+  expect "the order's quotation" "$(field .quotation_id)" "$quotation"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.quantity.unit) \(.delivered_quantity.value) \(.billed_quantity.value) \(.net_amount.amount)"] | join(", ")')" \
+    "120 EA 0 0 1500.00, 2.5 H 0 0 237.53"
+  say "A quotation gives one order: a second is refused."
+  refused 409 sales.quotation_ordered createSalesOrder -body "{\"quotation_id\": \"$quotation\"}"
+  say "Sally confirms the order at the version she read; it is confirmed once:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  expect "the confirmed order" "$(field '"\(.status) \(.version) \(.net_amount.amount)"')" "confirmed 2 1737.53"
+  refused 409 sales.invalid_status confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  say "Read back, it is the quotation's order, among Northwind's confirmed ones:"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), from \(.quotation_number), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listSalesOrders -p "quotation_id=$quotation"
+  expect "the quotation's order" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number confirmed"
+  QUIET=1 api 200 '' listSalesOrders -p "customer_id=$customer" -p status=confirmed
+  expect "the customer's confirmed orders" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  SALES_ORDER=$order
+  say "The brackets leave in two shipments. There is no stock in the ERP yet, so a delivery is a confirmation by a"
+  say "person: Sally records what was delivered and when, against the confirmed order (ADR-0067 §8)."
+  say "The first shipment is 100 of the 120 brackets:"
+  day=$(company_day)
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  expect "the first delivery" "$(field '"\(.delivery_no) \(.sales_order_id) \(.sales_order_number) \(.delivery_date)"')" "1 $order $number $day"
+  say "The order shows what is delivered and, against what was ordered, what is open; its version moved:"
+  api 200 '"sales order \(.document_number), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "the order after the first delivery" "$(field '"\(.version) " + ([.items[] | "\(.quantity.value)/\(.delivered_quantity.value)"] | join(" "))')" "3 120/100 2.5/0"
+  say "Twenty brackets are open. A delivery of more is refused, naming the item and what is open of it; so is a date"
+  say "after Maple's today:"
+  refused 422 sales.exceeds_open_quantity confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"21\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.value"
+  refused 422 sales.delivery_date_in_future confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"2099-12-31\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  say "The second shipment brings the last twenty, and the installation is done: 2.5 hours, confirmed as made available."
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}, {\"item_no\": 2, \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}}]}"
+  expect "the second delivery" "$(field '"\(.delivery_no) " + ([.items[] | "\(.item_no):\(.quantity.value) \(.quantity.unit)"] | join(", "))')" "2 1:20 EA, 2:2.5 H"
+  say "The order reads as fully delivered, nothing billed yet, and lists its two deliveries:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value)"] | join(", ")')" "120 120 0, 2.5 2.5 0"
+  expect "the order's status and version" "$(field '"\(.status) \(.version)"')" "confirmed 4"
+  api 200 '.items[] | "  delivery \(.delivery_no) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    listSalesDeliveries -p "id=$order"
+  expect "the order's deliveries" "$(field '[.items[] | "\(.delivery_no):" + ([.items[] | "\(.item_no)=\(.quantity.value)"] | join("+"))] | join(" ")')" "1:1=100 2:1=20+2=2.5"
+  say "Nothing more is open: another delivery is refused."
+  refused 422 sales.exceeds_open_quantity confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"0.5\", \"unit\": \"H\"}}]}"
+  say "An order and its deliveries post nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+# step_billing is T79a (ADR-0067 §9): Ruth, the receivables clerk of
+# step_customer_invoice, creates a billing document for the delivered
+# order of step_sales_order. Its items are the order's delivered
+# quantities at the order's prices and its net value the order's; the
+# order shows everything billed; a second document is refused, since
+# nothing is left to bill. Nothing is posted (posting is T79b).
+# BILLING_DOCUMENT is the created document for later steps.
+step_billing() {
+  heading "Step 56 — Billing documents: a billing document created for the delivered sales order, its items the delivered quantities at the order's prices and its net value the order's; nothing billed twice; nothing posted"
+  local customer=$CUSTOMER order=$SALES_ORDER before doc number open
+  [ -n "$order" ] || fail "step 55's sales order is not there"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  say "The order of step 55 is delivered in full. Ruth bills it: a billing document takes what is delivered of each"
+  say "item and not yet billed, at the order's prices (ADR-0067 §9). She gives no date, so it is dated Maple's today:"
+  before=$(company_day)
+  api 201 '"billing document \(.document_number) for sales order \(.sales_order_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), dated \(.billing_date), terms \(.payment_term_code), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) (order item \(.order_item_no)) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount), account \(.account_number) \(.account_name), tax code \(.tax_code // "-")")' \
+    createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  number=$(field .document_number)
+  expect "the document's status" "$(field .status)" created
+  expect_today "the billing date, Maple's today" "$(field .billing_date)" "$before"
+  expect "the document's order, customer, currency, term and net value" \
+    "$(field '"\(.sales_order_id) \(.customer_id) \(.currency) \(.payment_term_code) \(.net_amount.amount)"')" "$order $customer CAD NT30 1737.53"
+  expect "each item's order item, quantity and amount" \
+    "$(field '[.items[] | "\(.order_item_no): \(.quantity.value) \(.quantity.unit) \(.net_amount.amount)"] | join(", ")')" \
+    "1: 120 EA 1500.00, 2: 2.5 H 237.53"
+  say "Its items and its net value are the order's. The order shows everything billed; its version moved:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value)"] | join(", ")')" "120 120 120, 2.5 2.5 2.5"
+  expect "the order's version and net value" "$(field '"\(.version) \(.net_amount.amount)"')" "5 1737.53"
+  say "Nothing is left to bill, so a second document is refused; no quantity is billed twice:"
+  refused 422 sales.nothing_to_bill createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  expect "the field refused" "$(field '.errors[0].field')" sales_order_id
+  say "Read back, it is the order's one billing document:"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  expect "the document read back" "$(field '"\(.document_number) \(.status) \(.version) \(.net_amount.amount)"')" "$number created 1 1737.53"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), sales order \(.sales_order_number), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listBillingDocuments -p "sales_order_id=$order"
+  expect "the order's billing documents" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number created"
+  BILLING_DOCUMENT=$doc
+  say "A billing document posts nothing until it is posted as a customer invoice: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8827,7 +9027,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_close'
 
 main() {
   stop_unseen
