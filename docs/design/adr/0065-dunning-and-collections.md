@@ -294,8 +294,8 @@ is a report read and gets a budget test.
   Northwind on NT30; a run before Maple has dunning levels is refused;
   Ada gives Maple its levels through a tier 2 change; a run at a key date
   40 days after the invoice date, ten days past its due date, proposes
-  one notice for Northwind with the invoice's item at level 1; a run at
-  the due date proposes none; the customer's open items are unchanged.
+  one notice for Northwind at level 1, the invoice's item among its
+  items; a run at the due date proposes none; the customer's open items are unchanged.
   The step duns an invoice of its own, so it holds whether or not the
   invoice of step 48 is still open when it runs.
 
@@ -425,4 +425,6 @@ is a report read and gets a budget test.
 - **Walkthrough.** `step_collections` (step 57): at the key date of the
   run confirmed in `step_dunning`, Northwind leads Maple's worklist with
   its notice's overdue amount, its items' due date, level 1 and the key
-  date as last dunning date; at the due date it is not listed.
+  date as last dunning date, its open amount less than that by the
+  credit memo of step 54, which reduces nothing overdue; at the due date
+  it is not listed.

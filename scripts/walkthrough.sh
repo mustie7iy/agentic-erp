@@ -6352,8 +6352,8 @@ rbc_incoming() {
 # invoice to Northwind; Ada gives Maple its dunning levels
 # through a tier 2 change, a run before them refused; Ruth starts a
 # dunning run at a key date ten days past the invoice's due date and reads
-# its proposal, one notice for Northwind with the invoice's open item at
-# level 1; a run at the due date itself proposes nothing; the customer's
+# its proposal, one notice for Northwind at level 1 with the invoice's open
+# item among its items; a run at the due date itself proposes nothing; the customer's
 # open items are unchanged. She confirms the run, once: a second
 # confirmation is refused, and so is a second proposal of the same key
 # date, stale now that the first recorded the items' levels. A run twenty
@@ -6479,8 +6479,11 @@ step_collections() {
     "$(field '.items[0] | "\(.oldest_due_date) \(.dunning_level) \(.last_dunning_date)"')" "$DUNNING_DUE 1 $key"
   expect "the largest overdue amount first" "$(field '[.items[].overdue_amount.amount | tonumber] | . == (sort | reverse)')" true
   expect "the totals count every customer" "$(field '.customer_count == (.items | length) and .currency == "CAD"')" true
-  say "Northwind owes nothing but these items, so what is open is what is overdue. On the due date itself, $DUNNING_DUE,"
-  say "nothing of Northwind's is overdue yet, and a customer with nothing overdue is not on the worklist:"
+  expect "its open amount, the overdue amount less the credit memo of step 54" "$(cents "$(field '.items[0].open_amount.amount')")" \
+    "$(($(cents "${DUNNED_AMOUNT% *}") - 42000))"
+  say "Northwind's open amount nets the credit memo of step 54, CAD 420.00, which reduces nothing overdue (ADR-0065 §4),"
+  say "so less is open than overdue. On the due date itself, $DUNNING_DUE, nothing of Northwind's is overdue yet, and a"
+  say "customer with nothing overdue is not on the worklist:"
   api 200 '"worklist at \(.key_date): \(.customer_count) customer(s), \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
     getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$DUNNING_DUE"
   expect "Northwind on the worklist at the due date" "$(field "[.items[] | select(.customer_id == \"$customer\")] | length")" 0
