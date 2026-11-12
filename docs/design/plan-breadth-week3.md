@@ -49,17 +49,17 @@ The 140 placeholders, by what this plan does with them:
 |---|---|---|---|
 | Finance | 6 | 14 | PP 3 · DET 5 · POD 4 · OUT 1 · OTH 1 |
 | Controlling | 4 | 3 | DET 1 · OUT 2 |
-| Sourcing and procurement | 3 | 10 | PP 6 · W 1 · DET 1 · PO12 2 |
+| Sourcing and procurement | 3 | 10 | PP 6 · W 1 · POD 1 · PO12 2 |
 | Sales and service | 4 | 11 | PP 2 · DET 1 · PO12 8 |
 | Master data | 2 | 2 | PP 2 |
 | GRC and security | 6 | 1 | PP 1 |
 | Analytics and planning | 12 | 5 | W 1 · WEB 1 · OUT 2 · POD 1 |
 | Platform | 0 | 6 | PP 3 · DET 1 · WEB 1 · OTH 1 |
-| Non-functional and infrastructure | 4 | 7 | PP 3 · W 2 · DET 2 |
+| Non-functional and infrastructure | 4 | 7 | PP 3 · W 2 · DET 1 · POD 1 |
 | Agentic delivery | 12 | 19 | PP 6 · W 4 · SAP 6 · OTH 3 |
-| Migration from SAP | 0 | 6 | PP 1 · W 3 · WEB 1 · DET 1 |
+| Migration from SAP | 0 | 6 | PP 1 · W 3 · WEB 1 · POD 1 |
 | Quality engineering | 0 | 3 | PP 3 |
-| **Total** | **53** | **87** | PP 30 · DET 12 · W 11 · PO12 10 · SAP 6 · POD 5 · OUT 5 · OTH 5 · WEB 3 |
+| **Total** | **53** | **87** | PP 30 · W 11 · PO12 10 · DET 9 · POD 8 · SAP 6 · OUT 5 · OTH 5 · WEB 3 |
 
 The reasons are spelled out, leaf by leaf, under "Open leaves left for
 after 1 December". After the split the same areas hold **360 open
@@ -134,19 +134,23 @@ lane; nothing here depends on them.
   request files, a capture file; `internal/collections`: a new dispute
   file and the dunning proposal's and worklist's queries;
   `internal/payables`: a new expense report file; new `internal/leases`;
-  `internal/partner`: the partner change's creation): T85a → T85b → T85c →
+  `internal/partner`: the partner change's creation; `internal/config`:
+  the expense types of T87a and the account determination keys of T88b
+  and T88c): T85a → T85b → T85c →
   T85d → T86a → T86b → T87a → T89a → T88a → T88b → T88c → T90a, then three
   agents that need nothing of lanes B and C: T109a → T109b → T110a.
 - **Lane B, analytics and planning** (`internal/analytics` with its
   `endpoint`, `extract` and `store`; `internal/controlling`: new
   profitability, margin and plan copy files; `internal/config` for the
   margin report's accounts): T91a → T91b → T92b → T93a → T92a → T94b →
-  T94a → T95a → T95b → T95c → T95d → T96a → T96b → T97a → T97b. T92a needs
-  T85d.
+  T94a → T95a → T95b → T95c → T96a → T96b → T97a → T97b → T95d. T92a needs
+  T85d; T95d is last because it waits for a file (question 8). T91a reads
+  orders and billing documents through the API, and the store's extract
+  reads the sales tables as it reads the others, so it adds no file to
+  `internal/sales`.
 - **Lane C, governance, records and delivery tools** (new `internal/grc`,
   `internal/records`, `internal/processmining`; `internal/partner`: the
-  partner's reads and block; `internal/audit` and a migration of the audit
-  schema; `internal/config` for retention; `cmd/erp` and
+  partner's reads and block; `internal/audit` for the evidence export; `internal/config` for retention; `cmd/erp` and
   `internal/apitools` for the MCP server; `internal/delivery/sapconfig`):
   T98a → T98b → T98c → T99a → T99b → T100a → T100b → T100c → T101a → T103a
   → T103b → T104a → T102a.
@@ -166,9 +170,9 @@ By build day, two slices a lane a day:
 | 3 | T86a, T86b | T92a, T94b | T99b, T100a | T106c, T107a |
 | 4 | T87a, T89a | T94a, T95a | T100b, T100c | T107b, T105b |
 | 5 | T88a, T88b | T95b, T95c | T101a, T103a | T108a, T108b |
-| 6 | T88c, T90a | T95d, T96a | T103b, T104a | T108c, T105d |
-| 7 | T109a, T109b | T96b, T97a | T102a | T105e, T105f |
-| 8 | T110a | T97b | — | T105g |
+| 6 | T88c, T90a | T96a, T96b | T103b, T104a | T108c, T105d |
+| 7 | T109a, T109b | T97a, T97b | T102a | T105e, T105f |
+| 8 | T110a | T95d | — | T105g |
 
 Fifty-eight slices in eight build days of four lanes, one batch a day.
 Day 1 is the first day after this plan is merged. With a start on
@@ -177,15 +181,17 @@ Day 1 is the first day after this plan is merged. With a start on
 whole-codebase review (07 §7.7 step 9; the tracker's "Pre-pilot
 whole-codebase review" leaf) and the release candidate. A start later
 than 19 November leaves no such margin; the coordinator then drops the
-last day's slices of each lane first (T110a, T97b, T105g), which nothing
+last day's slices of each lane first (T110a, T95d, T105g), which nothing
 depends on, and reports them as not started.
 
 What merges first, where two lanes touch one package:
 
 - `internal/partner`: lane A's T89a (the change's creation, day 4) before
   lane C's T100b (reads and block, day 4); different files.
-- `internal/config`: T92b (lane B, day 2) and T99a (lane C, day 2) each add
-  a section of their own; lane B first.
+- `internal/config` (`config.go`, `validate.go`): T92b (lane B, day 2)
+  and T99a (lane C, day 2) each add a section of their own, lane B
+  first; lane A adds T87a's expense types on day 4 and the account
+  determination keys of T88b and T88c on days 5 and 6, after both.
 - `internal/collections`: lane D's T105b only reads it through the API.
 - `internal/platform/autonomy` (`Types`), `cmd/erp`'s agent and eval
   commands and `internal/layout`'s import table: every agent slice adds
@@ -208,8 +214,8 @@ numbers.
   reads identity (permissions, SoD rules) and the configuration through
   ports; it posts nothing.
 - **`records`** (T99a): retention status, archiving runs, the personal
-  data inventory and deletion runs. A leaf: it reads the ledger and writes
-  through ports the partner and audit contexts publish for blanking; the
+  data inventory and deletion runs. A leaf: it reads the ledger and blanks a
+  partner's data through a port the partner context publishes; the
   retention rules themselves are a section of the configuration document.
 - **`processmining`** (T103a): event logs and process maps, computed on
   read. A leaf that reads procurement, payables, payments and the audit
@@ -581,15 +587,23 @@ contract posts the right-of-use asset against the lease liability.
   `right_of_use_asset` and `lease_liability`; permission
   `leases.contract.activate`.
 - **Walkthrough:** `step_lease` extended: the schedule is read (its
-  opening liability below the sum of the payments, its last closing
-  liability zero); the contract is activated and the two accounts moved
-  by the opening liability.
-- **Acceptance:** the opening liability is the sum of each payment
-  discounted from its date to the commencement date at the contract's
-  rate (how an annual rate becomes a period's rate is default 6 and the
-  accounting specialist's question 2); each period's interest is the
-  opening liability × the period's rate, and the last period takes the
-  remainder so the liability ends at exactly zero; the depreciation's
+  opening balance below the sum of the payments, no interest on the
+  first payment, its last closing liability zero); the contract is
+  activated and the two accounts moved by the right-of-use amount.
+- **Acceptance:** the lease liability at commencement is the sum of the
+  payments not paid on the commencement date, each discounted from its
+  date at the contract's rate (how an annual rate becomes a period's
+  rate is default 6 and the accounting specialist's question 2); a
+  payment due on the commencement date is not in that liability and is
+  added to the right-of-use asset; activation credits the liability
+  account with both, so the schedule's first opening balance holds the
+  commencement payment until the lessor's invoice for it is posted that
+  day; each period's interest is the period's rate × the balance
+  outstanding during it: the opening balance for payments in arrears,
+  the opening balance less the period's payment for payments in advance;
+  the last period takes only the rounding remainder so the liability
+  ends at exactly zero, and a test bounds that remainder by one minor
+  unit per period; the depreciation's
   shares add up to the opening right-of-use amount exactly; a draft's
   schedule is computed on read and an active one's is the stored one;
   activation moves `draft` to `active` once, on the commencement date in
@@ -991,8 +1005,8 @@ decimals.
   as text, never as a formula; a test reads the workbook back and
   compares it with the CSV; the file format's details are checked against
   the standard's text, which the coordinator supplies (question 8).
-- **Depends on:** T95b for the run's download; the query's download
-  needs nothing.
+- **Depends on:** T95b for the run's download, and the format's text as
+  a file (question 8), for which it is the lane's last slice.
 
 **Later for Excel export (after 1 December):** several sheets with
 formatting and charts; a workbook that refreshes from the API; export of
@@ -1303,7 +1317,8 @@ inventory reviewed and signed off on a schedule.
 ### T100b Personal data blocked
 
 **Capability.** The privacy officer blocks a business partner's personal
-data once nothing is open for it: reads then answer its name, address and
+data once nothing is open for it: the partner's own reads and the names
+other contexts take from the partner then answer its name, address and
 bank details masked, except to holders of a permission, and new documents
 for it are refused.
 
@@ -1324,37 +1339,35 @@ for it are refused.
   (409) naming the company; open orders and unposted documents are the
   person's to check in the first version, and the ADR says so; blocking
   also sets the partner's block, so entry and
-  posting are refused by the checks in place; every read that returns the
-  partner's name, address or bank details masks them for a caller without
-  the permission (the reads are listed in the ADR and each has a test);
-  events and exports written before stay as they are; closed to agents.
+  posting are refused by the checks in place; masking is at the source
+  only: the partner's own reads, its bank accounts and the names other
+  contexts take from the partner (`partner.Payees.Names`) answer masked
+  for a caller without the permission, each with a test; a name a
+  context stored on its own document, and events and exports written
+  before, stay as they are and the ADR lists them as not masked; closed
+  to agents.
 - **Depends on:** T100a.
 
 **Later for Personal data blocking (after 1 December):** blocking
 proposed by a run at the end of purpose; blocking of principals and of
-contact persons; unblocking with approval; masked data in events, exports
-and analytics already written; blocking per company.
+contact persons; unblocking with approval; masking of names a context
+stored on its own documents; masked data in events, exports and
+analytics already written; blocking per company.
 
 ### T100c Deletion run
 
 **Capability.** The privacy officer previews and starts a deletion run:
 for each business partner blocked longer than the retention rule for
-personal data, its name, address and bank details are blanked, and the
-client addresses of a blocked principal's audit events are blanked as a
-tenant's erasure blanks them; ledger documents stay.
+personal data, its name, address and bank details are blanked; ledger
+documents and audit events stay.
 
 - **Reuses:** T99a's rule of the kind `personal_data`, T100b's block,
-  the principal's block (`blockPrincipal`), the tenant
-  erasure's blanking of audit client addresses and the one exception
-  `audit.event_immutable` allows for it (migration 000151,
-  `platform.erase_tenant`), the queue-and-worker pattern of T99b.
+  the queue-and-worker pattern of T99b.
 - **Adds:** table `records.deletion_run`, `records.deletion_run_subject`;
   `POST /v1/personal-data-deletion-runs:preview`,
   `POST /v1/personal-data-deletion-runs`,
-  `GET /v1/personal-data-deletion-runs/{id}`; a database function that
-  blanks one principal's audit client addresses under a setting only the
-  run sets, as the tenant's erasure does; ports `partner.Privacy.Blank`
-  and the audit function; event `PersonalDataDeleted` (ids only);
+  `GET /v1/personal-data-deletion-runs/{id}`; the port
+  `partner.Privacy.Blank`; event `PersonalDataDeleted` (ids only);
   permission `records.privacy.delete`.
 - **Walkthrough:** `step_privacy` extended: with a personal data rule of
   zero years the preview lists the blocked supplier; the run blanks its
@@ -1363,15 +1376,18 @@ tenant's erasure blanks them; ledger documents stay.
 - **Acceptance:** without a `personal_data` rule nothing is eligible; the
   preview and the run list the same subjects; blanking replaces each
   inventory field of the partner by a fixed marker and ends its bank
-  accounts, in one transaction per subject, and is not reversible; the
-  audit chain still verifies after a principal's addresses are blanked
-  (a tamper test: any other change to an audit event is still refused);
-  journal entries, invoices and audit events are not removed; the run is
+  accounts, in one transaction per subject, and is not reversible; no
+  audit event is touched, so the audit schema and `audit.event_immutable`
+  do not change; journal entries, invoices and audit events are not removed; the run is
   closed to agents, audited per subject, idempotent (run-twice test) and
   refuses a requester deactivated since.
 - **Depends on:** T99a, T100b.
 
-**Later for Deletion runs (after 1 December):** deletion on a schedule;
+**Later for Deletion runs (after 1 December):** a person's erasure
+blanking the client addresses of their audit events as the tenant's
+erasure does (`audit.event_immutable` allows that alone; migration
+000151), which the Compliance leaf names and which changes a
+security-sensitive trigger; deletion on a schedule;
 deleting rows in place of blanking them; personal data in object storage
 files and in archives, in free-text fields and attachments; deletion
 requested by the data subject with its deadline; a certificate of
@@ -1938,9 +1954,11 @@ the compliance officer to decide.
   link that is broken if one is) or `no_exception`. Type
   `control_monitoring`.
 - **Never:** recording a test, changing a control or a link.
-- **Walkthrough:** `step_control_agent`: after a payment run is released
-  by its proposer in a tenant without the SoD rule, the agent reports an
-  exception on the control of `step_controls` and names the two events.
+- **Walkthrough:** `step_control_agent`: the step creates an SoD rule
+  and a control of its own linked to it, then ends the rule; the matrix
+  shows the link as broken and the agent reports an exception on that
+  control, naming the audit event of the rule's end. The walkthrough's
+  own propose-and-release rule is not touched.
 - **Acceptance:** every event it cites is one the API returned; a control
   with no link and no automated evidence gets `no_exception` only with
   the statement that nothing could be checked; one recommendation per
@@ -2120,8 +2138,10 @@ Not split here; each stays as it is in the tracker. The codes are the
 table's at the top.
 
 **PP, post-pilot by the product owner's triage of 2026-10-21 (30).** Each
-leaf's reference says so; the breadth decision did not bring them back,
-and most refine something built. Finance: capture of subsequent debits
+leaf's reference says so. The breadth decision did not name them, but
+week 2 split one such leaf (scheduling agreements), so the triage alone
+does not settle it: by default they wait, and question 1 lists the nine
+that are capabilities rather than refinements of something built. Finance: capture of subsequent debits
 and credits; cash discounts granted to customers; budget availability
 check. Sourcing and procurement: the lock order of approving and closing
 an order; GR/IR regrouping; `erp invoices` settling every invoice; email
@@ -2152,7 +2172,7 @@ usage rating; cXML order and invoice exchange (supplier network); the
 contingent workforce connector.
 
 **DET, not a placeholder any more: its work is held by detailed leaves or
-is built, and the leaf is closed by hand as 07 §7.5 says (12).**
+is built, and the leaf is closed by hand as 07 §7.5 says (9).**
 - Forecast agent with variance explanations (T53i: `internal/cashagent`),
   accrual proposals by agent and variance commentary by agent (T64e–T64j:
   `internal/closeagent`): built; the coordinator closes them.
@@ -2167,11 +2187,6 @@ is built, and the leaf is closed by hand as 07 §7.5 says (12).**
   are done.
 - Compliance › Data retention policies: the same capability as Master
   data › Retention rules, split here (T99a); closed by hand with it.
-- Move open direct-valued orders onto GR/IR (optional, T72f), the
-  override rate's counting of payment runs (T54) and the removal of
-  `payments.release_approvals` (a contract step, once no stored document
-  needs it): refinements of built behaviour with their step, not
-  capabilities; features first (product owner, 2026-10-31).
 
 **SAP, needs facts about SAP that are not in the repository, or the
 pilot's system (6).** Discovery agent: usage analysis (ST03N/STAD) and
@@ -2182,12 +2197,17 @@ table structures and export forms would have to be stated from memory;
 07 §7.6 has T69 wait for SAP data access at the pilot. See the SAP
 specialist's question and product owner question 1.
 
-**POD, held by an earlier product owner decision (5).** Tax engine
+**POD, held by an earlier product owner decision (8).** Tax engine
 integration (no provider now, ADR-0049 P1); Peppol network connector (no
 provider appointed, 2026-11-09); country formats (one more format when a
 country pack needs it, ADR-0061); SAF-T and statutory reports (the FTA
 Audit File waits for its specification, Canada for Q4; ADR-0061 §10);
-PDF export (no PDF for the pilot, 2026-11-04).
+PDF export (no PDF for the pilot, 2026-11-04). And three refinements of
+built behaviour, held by "features first, polishing to the backlog"
+(2026-10-31, restated 2026-11-10): moving open direct-valued orders onto
+GR/IR (optional, T72f); the override rate's counting of payment runs
+(T54); the removal of `payments.release_approvals` (a contract step, once
+no stored document needs it).
 
 **OUT, depends on an area outside the required scope (5).** Budget
 control (industry pack); cost estimates and actual costing (product
@@ -2237,9 +2257,11 @@ that makes the main path work, and the slice records it in its ADR.
    the employee is a business partner with the role supplier and is paid
    by the payment run.
 6. A lease's period rate is its annual rate divided by the payments a
-   year; a payment in advance on the commencement date is not discounted;
-   amounts are rounded half away from zero and the last period takes the
-   remainder.
+   year. A payment due on the commencement date is not part of the
+   measured lease liability; it is added to the right-of-use asset and
+   bears no interest. Interest is on the balance outstanding during the
+   period. Amounts are rounded half away from zero and the last period
+   takes the rounding remainder only.
 7. A lease posts through the ledger with five accounts from the account
    determination; the right-of-use asset is not an asset record; the run
    posts interest and depreciation and never the payment.
@@ -2255,9 +2277,9 @@ that makes the main path work, and the slice records it in its ADR.
     empty; framework references are the tenant's free text; scores are
     likelihood × impact on scales of 1 to 5.
 12. Retention rules ship empty. Archiving writes a file and deletes
-    nothing. A deletion run blanks a blocked partner's master data and a
-    blocked principal's audit client addresses, and removes no row; it
-    finds nothing without a rule the tenant set.
+    nothing. A deletion run blanks a blocked partner's master data, touches
+    no audit event and removes no row; it finds nothing without a rule
+    the tenant set.
 13. Process maps, the fit-gap report and forecasts are computed, never
     written by a model. An agent gives no score and no saving in money:
     it recommends, with the API's figures.
@@ -2283,12 +2305,20 @@ and the recommended answer.
    inventory, unused-code retirement, mapping to extensions, interface
    inventory), the operations agent's three, the expense system connector
    and Go extensions. Product costing's two and the three "outside area"
-   leaves are left as outside the scope. *Default: all wait until after
-   1 December. Recommended: confirm.*
+   leaves are left as outside the scope. Nine more are capabilities your
+   triage of 2026-10-21 marked post-pilot, which the breadth decision
+   neither named nor excluded: the supplier self-service portal, the
+   supplier risk screening agent, periodic access reviews, cash discounts
+   granted to customers, the budget availability check, governance for
+   customers, continuous data-quality monitoring (with cleansing
+   proposals), form templates, and substitution rules. *Default: all wait
+   until after 1 December. Recommended: confirm; if any is wanted before,
+   it is split as week 2's scheduling agreements were, and the first to
+   take would be periodic access reviews, which T106c prepares.*
 2. **Archiving and deletion (security posture, legal).** Archiving
    deletes nothing from the database; a deletion run blanks master data
-   of blocked partners and audit client addresses of blocked principals,
-   keeps every ledger document and audit event, and is irreversible.
+   of blocked partners, keeps every ledger document and touches no audit
+   event, and is irreversible.
    *Default: built as described, behind a retention rule the tenant must
    set. Recommended: confirm, and say whether deletion may be built
    before a privacy lawyer has read ADR-0079; if not, T100c waits and
@@ -2319,8 +2349,8 @@ and the recommended answer.
 8. **Two specifications the lanes cannot fetch (process).** T102a needs
    the Model Context Protocol specification's schema and T95d the
    workbook format's relevant part as files in the repository or the
-   scratchpad. *Default: the slices wait for the files and are built
-   last in their lanes. Recommended: the coordinator supplies them; no
+   scratchpad. *Default: the slices wait for the files and are the last
+   of their lanes (T95d, T102a). Recommended: the coordinator supplies them; no
    new module is added for either.*
 9. **Disputed invoices (money rule).** A disputed invoice is not dunned
    at all, even when only part is disputed, and still counts in the
@@ -2339,8 +2369,9 @@ and the recommended answer.
 2. **The period's discount rate**: the first version divides the annual
    rate by the payments a year (default 6). Should it be the effective
    rate, (1 + annual rate) to the power of the period's share of a year,
-   less 1? And is a payment on the commencement date left undiscounted
-   and counted in the right-of-use asset but not in the liability?
+   less 1? And confirm that a payment on the commencement date is
+   counted in the right-of-use asset and not in the measured liability
+   (statements 2 and 3).
 3. **The right-of-use asset and asset accounting**: is it to appear in
    the asset history sheet and its depreciation in the depreciation run,
    or is a separate account and schedule acceptable for the pilot?

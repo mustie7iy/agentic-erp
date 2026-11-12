@@ -2845,7 +2845,6 @@
      {
       "s": "T",
       "t": "Credit scoring agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -2861,7 +2860,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
@@ -2950,7 +2950,6 @@
      {
       "s": "T",
       "t": "Dispute cases",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -2973,12 +2972,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Collections agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -2994,7 +2993,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -3020,7 +3020,6 @@
      {
       "s": "T",
       "t": "Lease contracts",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -3036,12 +3035,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Right-of-use asset and liability schedules",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -3064,7 +3063,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -3083,7 +3083,6 @@
      {
       "s": "T",
       "t": "Expense postings",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -3099,7 +3098,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -3547,7 +3547,6 @@
      {
       "s": "T",
       "t": "Profitability segments",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -3564,12 +3563,12 @@
         "c": []
        }
       ],
-      "ph": 3
+      "ph": 3,
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Margin reporting",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -3585,7 +3584,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T60"
      }
     ]
    },
@@ -3618,7 +3618,6 @@
      {
       "s": "T",
       "t": "Planning versions",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -3634,12 +3633,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Planning agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -3655,7 +3654,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    }
@@ -4569,7 +4569,6 @@
      {
       "s": "T",
       "t": "Spend cube in the semantic layer",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -4585,12 +4584,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Savings opportunity agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -4606,7 +4605,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    }
@@ -4644,7 +4644,6 @@
      {
       "s": "T",
       "t": "Duplicate checks",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -4660,7 +4659,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
@@ -4805,7 +4805,6 @@
      {
       "s": "T",
       "t": "Order capture agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -4821,7 +4820,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
@@ -4910,7 +4910,6 @@
      {
       "s": "T",
       "t": "Returns orders",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -4933,12 +4932,12 @@
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first; 2026-11-12, returns in week 3) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Credit memo requests",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -4961,7 +4960,8 @@
         "src": "po:2026-11-12 · design:03 §3.16",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first; 2026-11-12, returns in week 3) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -5906,7 +5906,6 @@
      {
       "s": "T",
       "t": "Retention rules",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -5922,12 +5921,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Archiving runs",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -5943,7 +5942,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    }
@@ -6135,7 +6135,6 @@
      {
       "s": "T",
       "t": "Control library",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6151,12 +6150,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Continuous control monitoring agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6172,7 +6171,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -6184,7 +6184,6 @@
      {
       "s": "T",
       "t": "Risk register",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6200,12 +6199,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Risk agent",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6221,7 +6220,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -6233,44 +6233,44 @@
      {
       "s": "T",
       "t": "Personal data blocking",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
-        "t": "The privacy officer blocks a business partner's personal data once nothing is open for it: reads then answer its name, address and bank details masked, except to holders of a permission, and new documents for it are refused (POST /v1/business-partners/{id}:block-personal-data)",
+        "t": "The privacy officer blocks a business partner's personal data once nothing is open for it: the partner's own reads and the names other contexts take from the partner then answer its name, address and bank details masked, except to holders of a permission, and new documents for it are refused (POST /v1/business-partners/{id}:block-personal-data)",
         "r": "T100b · docs/design/plan-breadth-week3.md §T100b",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
         "s": "T",
-        "t": "later: personal data blocking variants: blocking proposed by a run at the end of purpose, blocking of principals and of contact persons, unblocking with approval, masked data in events, exports and analytics already written, blocking per company (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: personal data blocking variants: blocking proposed by a run at the end of purpose, blocking of principals and of contact persons, unblocking with approval, masking of names a context stored on its own documents, masked data in events, exports and analytics already written, blocking per company (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T100b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Deletion runs",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
-        "t": "The privacy officer previews and starts a deletion run: for each business partner blocked longer than the retention rule for personal data, its name, address and bank details are blanked, and the client addresses of a blocked principal's audit events are blanked as a tenant's erasure blanks them; ledger documents stay (POST /v1/personal-data-deletion-runs)",
+        "t": "The privacy officer previews and starts a deletion run: for each business partner blocked longer than the retention rule for personal data, its name, address and bank details are blanked; ledger documents and audit events stay (POST /v1/personal-data-deletion-runs)",
         "r": "T100c · docs/design/plan-breadth-week3.md §T100c",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
         "s": "T",
-        "t": "later: deletion run variants: deletion on a schedule, deleting rows in place of blanking them, personal data in object storage files and in archives, in free-text fields and attachments, deletion requested by the data subject with its deadline, a certificate of deletion (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: deletion run variants: a person's erasure blanking the client addresses of their audit events as the tenant's erasure does (audit.event_immutable allows that alone), deletion on a schedule, deleting rows in place of blanking them, personal data in object storage files and in archives, in free-text fields and attachments, deletion requested by the data subject with its deadline, a certificate of deletion (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week3.md §T100c, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    }
@@ -6358,7 +6358,6 @@
       "s": "T",
       "t": "Sales metrics as that module lands",
       "ph": 3,
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6374,7 +6373,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
@@ -6550,7 +6550,6 @@
      {
       "s": "T",
       "t": "Follow-up questions in the same analysis",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6566,12 +6565,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T59"
      },
      {
       "s": "T",
       "t": "Drill-through to documents",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6587,7 +6586,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T59"
      }
     ]
    },
@@ -6606,7 +6606,6 @@
      {
       "s": "T",
       "t": "Scheduled delivery",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6629,12 +6628,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T63"
      },
      {
       "s": "T",
       "t": "Sharing with per-viewer access",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6650,7 +6649,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T63"
      }
     ]
    },
@@ -6669,7 +6669,6 @@
      {
       "s": "T",
       "t": "Excel export",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6685,7 +6684,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T63"
      },
      {
       "s": "T",
@@ -6704,7 +6704,6 @@
      {
       "s": "T",
       "t": "Metric watchers",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6720,12 +6719,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Anomaly alerts in workspaces",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6741,7 +6740,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -6753,7 +6753,6 @@
      {
       "s": "T",
       "t": "Forecasts on governed metrics",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6769,12 +6768,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Scenario modeling",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6790,7 +6789,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -6802,7 +6802,6 @@
      {
       "s": "T",
       "t": "Event logs from SAP and core document flows",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6818,12 +6817,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T69"
      },
      {
       "s": "T",
       "t": "Discovery agent process maps",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -6839,7 +6838,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T69"
      }
     ]
    }
@@ -8914,7 +8914,6 @@
      {
       "s": "T",
       "t": "MCP servers so agents use the same governed APIs",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -8930,7 +8929,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67"
      }
     ]
    },
@@ -9687,7 +9687,6 @@
      {
       "s": "T",
       "t": "SOX control mapping (ITGCs and application controls)",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -9703,12 +9702,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T66"
      },
      {
       "s": "T",
       "t": "GDPR: personal data inventory, blocking and deletion; the inventory includes the API audit trail's client addresses (audit.audit_event.client_address, T73c), and a person's erasure blanks those of their events as the tenant's erasure does (audit.event_immutable allows that alone)",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -9724,12 +9723,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T66"
      },
      {
       "s": "T",
       "t": "Audit evidence export for external auditors",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -9745,7 +9744,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T66"
      },
      {
       "s": "T",
@@ -10257,7 +10257,6 @@
      {
       "s": "T",
       "t": "Fit-gap report",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10273,7 +10272,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T69"
      }
     ]
    },
@@ -10313,7 +10313,6 @@
      {
       "s": "T",
       "t": "Roles from actual usage",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10329,12 +10328,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67 · also the phase 1 GRC item \"Access agent: least-privilege roles from usage\" (triage, PO 2026-10-21)"
      },
      {
       "s": "T",
       "t": "SoD analysis on every role change",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10350,12 +10349,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67"
      },
      {
       "s": "T",
       "t": "Access review preparation",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10371,7 +10370,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T67"
      }
     ]
    },
@@ -10383,7 +10383,6 @@
      {
       "s": "T",
       "t": "Regulatory change monitoring",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10399,12 +10398,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T71"
      },
      {
       "s": "T",
       "t": "Configuration and report updates",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10420,7 +10419,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md · T71"
      }
     ]
    },
@@ -10439,7 +10439,6 @@
      {
       "s": "T",
       "t": "Connector generation and monitoring",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10455,7 +10454,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
@@ -10467,7 +10467,6 @@
      {
       "s": "T",
       "t": "How-to answers",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10483,12 +10482,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Root cause from audit trail and logs",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10504,12 +10503,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "Fixes as configuration change requests",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10525,7 +10524,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
@@ -10544,7 +10544,6 @@
      {
       "s": "T",
       "t": "Process docs from live configuration",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10560,12 +10559,12 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      },
      {
       "s": "T",
       "t": "In-context help",
-      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
       "c": [
        {
         "s": "T",
@@ -10581,7 +10580,8 @@
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        }
-      ]
+      ],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md"
      }
     ]
    },
