@@ -12,6 +12,8 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // TestBasisPoints: a percentage is read exactly, above 0 and at most 100
@@ -148,7 +150,14 @@ func TestAssessmentLines(t *testing.T) {
 	// The most negative amount has no magnitude an amount can hold.
 	_, _, err = runLines(sixty, []accountCost{{AccountID: x, Amount: math.MinInt64}})
 	if !errors.Is(err, money.ErrOverflow) {
-		t.Errorf("shares of a total beyond an amount: got %v, want an overflow", err)
+		t.Errorf("a total beyond an amount: got %v, want an overflow", err)
+	}
+	// Shares the database never holds, twice the whole: what no amount can
+	// hold is an error, not a wrapped amount.
+	twice := cycle{Kind: CycleAssessment, SenderID: s, AssessmentID: &z, Receivers: []cycleReceiver{{CostCenterID: a, ShareBP: wholeBP}, {CostCenterID: b, ShareBP: wholeBP}}}
+	_, _, err = runLines(twice, []accountCost{{AccountID: x, Amount: math.MaxInt64}})
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("shares beyond an amount: got %v, want an overflow", err)
 	}
 }
 
@@ -165,9 +174,11 @@ func TestRunLinesOfADistribution(t *testing.T) {
 	if len(lines) != 2 || lines[0].AccountID != x || lines[1].AccountID != x || total != 700 {
 		t.Errorf("a distribution's lines: got %v and a total of %d, want two lines on the cost's account and 700", lines, total)
 	}
-	_, _, err = runLines(c, []accountCost{{AccountID: uuid.New(), Amount: math.MaxInt64}, {AccountID: uuid.New(), Amount: 1}})
-	if !errors.Is(err, money.ErrOverflow) {
-		t.Errorf("got %v, want an overflow and nothing posted", err)
+	e := &Endpoints{}
+	_, posted, err := e.charge(context.Background(), nil, reqctx.Principal{}, c, tenancy.Entity{}, ledger.FiscalPeriod{},
+		[]accountCost{{AccountID: uuid.New(), Amount: math.MaxInt64}, {AccountID: uuid.New(), Amount: 1}})
+	if !errors.Is(err, money.ErrOverflow) || posted {
+		t.Errorf("a run beyond an amount: got %v and posted %v, want an overflow and nothing posted", err, posted)
 	}
 }
 

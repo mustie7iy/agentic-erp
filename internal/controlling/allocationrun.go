@@ -338,26 +338,35 @@ func (e *Endpoints) RunAllocationCycle(ctx context.Context, req *gen.AllocationC
 	if err != nil {
 		return nil, err
 	}
-	lines, total, err := runLines(c, costs)
+	run, posted, err := e.charge(ctx, tx, p, c, le, period, costs)
 	if err != nil {
 		return nil, err
 	}
-	if len(lines) == 0 {
+	if !posted {
 		return &gen.AllocationRunResultHeaders{Response: res}, nil
-	}
-	run, err := e.charge(ctx, tx, p, c, le, period, lines, total, len(costs))
-	if err != nil {
-		return nil, err
 	}
 	res.Posted = true
 	res.Run.SetTo(runToAPI(run, le.LocalCurrency, exp))
 	return &gen.AllocationRunResultHeaders{Response: res}, recordRun(ctx, run, le.LocalCurrency, exp)
 }
 
-// charge posts the run's lines on the period's last day and keeps the
-// run: total is what it charged the receivers and accounts the number of
-// the sender's accounts whose costs it charged.
+// charge posts the sender's costs to the receivers by the cycle's kind on
+// the period's last day and keeps the run, which names what it charged
+// and the number of the sender's accounts whose costs it charged. Costs
+// that give no line post nothing and keep no run: posted is false.
 func (e *Endpoints) charge(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
+	costs []accountCost) (allocationRun, bool, error) {
+	lines, total, err := runLines(c, costs)
+	if err != nil || len(lines) == 0 {
+		return allocationRun{}, false, err
+	}
+	run, err := e.post(ctx, tx, p, c, le, period, lines, total, len(costs))
+	return run, err == nil, err
+}
+
+// post posts a run's lines and keeps the run: total is what it charged
+// the receivers and accounts the number of the sender's accounts.
+func (e *Endpoints) post(ctx context.Context, tx pgx.Tx, p reqctx.Principal, c cycle, le tenancy.Entity, period ledger.FiscalPeriod,
 	lines []ledger.PostingLine, total money.Minor, accounts int) (allocationRun, error) {
 	if err := e.centersValid(ctx, c, period.End); err != nil {
 		return allocationRun{}, err
