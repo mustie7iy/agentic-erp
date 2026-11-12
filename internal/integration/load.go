@@ -594,7 +594,9 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 // code amount are left out (they have no document amount either, which
 // the quality gate checks: foreignLine, documentCurrencies, leftOutLines),
 // so it also maps each SAP line to its platform line number, the same in
-// every run. Each line carries its centers (assignCenters); unloaded
+// every run. A line without a supplier carries the trading partner it
+// names itself (target.ownPartner), and each line its centers
+// (assignCenters); unloaded
 // names one the load did not load, which refuses the document.
 func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (in ledger.Posting, posted loadedEntry, unloaded string) {
 	slices.SortFunc(lines, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
@@ -625,6 +627,10 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		if l.reconciliation(line.RBUKRS, line.RACCT) {
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
+		} else if gc, ok := l.t.ownPartner(line); ok && l.t.takesOwn() {
+			// The line's own trading partner (ACDOCA-RASSC); a vendor line
+			// takes its supplier's in the ledger (tradingpartner.go).
+			pl.TradingPartner = &gc.id
 		}
 		downPaymentPosting(&pl, line, dp)
 		l.fixMethod(&pl, line)

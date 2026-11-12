@@ -19,22 +19,29 @@ import (
 // A vendor that is a company of the group names it in its master
 // (LFA1-VBUND [H]), and SAP gives the vendor's lines the same trading
 // partner (ACDOCA-RASSC [H]) but does not guarantee it on a document's
-// other lines [M]. So the load does not post RASSC line by line: it links
-// the supplier it creates to the legal entity the vendor's trading
-// partner is (partner's group company), and the ledger derives every
-// posting's trading partners from its suppliers and gives a document's
-// other lines its vendor line's, as it does for every posting on the
-// platform (ledger.deriveTradingPartners). A VBUND is a company ID, not a
-// company code: the company code assigned to it (T001-RCOMP, read from
-// every company code of the source, sap.Extract.CompanyCodes) names the
-// legal entity, by its code. One that names none (no company code, several,
-// or a company code that is no legal entity of the tenant) is a warning of
-// the quality gate, never a refusal: a group has companies that are not on
-// the platform, and the supplier then loads unlinked, its documents
-// without a trading partner, as a consolidation run lists them. The gate
-// reads RASSC only to report where SAP's lines say something else than
-// the load gives them, and the reconciliation compares the open payables
-// per trading partner.
+// other lines [M]. So the load takes it from two places. It links the
+// supplier it creates to the legal entity the vendor's trading partner is
+// (partner's group company), and the ledger derives every posting's
+// trading partners from its suppliers and gives a document's other lines
+// its vendor line's, as it does for every posting on the platform
+// (ledger.deriveTradingPartners). And a line the load posts without a
+// supplier is posted with the trading partner it names itself (RASSC),
+// when that is a legal entity other than the line's company
+// (target.ownPartner; po:2026-11-10): so an intercompany document without
+// a vendor line, a loan or a recharge between G/L accounts, carries its
+// partner, and a line SAP left without one still takes its document's
+// vendor line's. A vendor line keeps its supplier's: the platform derives
+// a partner line's trading partner from its business partner and refuses
+// another. A VBUND or RASSC is a company ID, not a company code: the
+// company code assigned to it (T001-RCOMP, read from every company code of
+// the source, sap.Extract.CompanyCodes) names the legal entity, by its
+// code. One that names none (no company code, several, or a company code
+// that is no legal entity of the tenant) is a warning of the quality gate,
+// never a refusal: a group has companies that are not on the platform, and
+// the supplier then loads unlinked and the line without a trading partner
+// of its own, as a consolidation run lists them. The reconciliation
+// compares the open payables per trading partner and the other accounts'
+// balances per account and trading partner.
 
 // groupCompany is what a trading partner's company ID names on the
 // platform: the company code T001 assigns to it and that code's legal
@@ -45,20 +52,32 @@ type groupCompany struct {
 	why  string
 }
 
-// groupCompanies resolves the trading partners the extract's vendors
-// name, each once, by company ID.
+// groupCompanies resolves the trading partners the extract names, each
+// once, by company ID: its vendors' (LFA1-VBUND) and its journal lines'
+// (ACDOCA-RASSC).
 func (e *Endpoints) groupCompanies(ctx context.Context, ext *sap.Extract) (map[string]groupCompany, error) {
 	out := map[string]groupCompany{}
-	for _, v := range ext.LFA1 {
-		id := sap.CompanyID(v.VBUND)
+	resolve := func(field, raw string) error {
+		id := sap.CompanyID(raw)
 		if _, seen := out[id]; seen || id == "" {
-			continue
+			return nil
 		}
 		gc, err := e.groupCompany(ctx, ext.CompanyCodes[id])
 		if err != nil {
-			return nil, fmt.Errorf("integration: the legal entity of trading partner %s: %w", v.VBUND, err)
+			return fmt.Errorf("integration: the legal entity of trading partner %s (%s): %w", strings.TrimSpace(raw), field, err)
 		}
 		out[id] = gc
+		return nil
+	}
+	for _, v := range ext.LFA1 {
+		if err := resolve("LFA1-VBUND", v.VBUND); err != nil {
+			return nil, err
+		}
+	}
+	for _, l := range ext.ACDOCA {
+		if err := resolve("ACDOCA-RASSC", l.RASSC); err != nil {
+			return nil, err
+		}
 	}
 	return out, nil
 }
@@ -96,9 +115,9 @@ func (t target) groupCompanyOf(v sap.LFA1) *uuid.UUID {
 }
 
 // tradingPartners reports what the load does not take over of SAP's
-// trading partners: an extract that cannot carry them, each vendor whose
-// trading partner names no legal entity, and the journal lines whose own
-// trading partner the load does not give them (lineTradingPartners).
+// trading partners: an extract that cannot carry its vendors', each vendor
+// whose trading partner names no legal entity, and the journal lines whose
+// own trading partner the load does not give them (lineTradingPartners).
 func (q *qualityCheck) tradingPartners() {
 	if q.e.NoTradingPartners && len(q.e.LFA1) > 0 {
 		q.add(SevWarning, "LFA1", "VBUND", "the extract carries no trading partner: the OData mapping reads neither LFA1-VBUND nor ACDOCA-RASSC. "+
@@ -122,14 +141,13 @@ type partnerLines struct {
 	others          map[string]int
 }
 
-// lineTradingPartners reads the lines' own trading partner (ACDOCA-RASSC),
-// which the load does not post, and warns where it differs from what the
-// load gives the line: per company code and vendor, the vendor lines
-// carrying another one than the vendor's master, which load with the
-// master's (a vendor linked, relinked or unlinked since the posting); and
-// per company code, the other lines carrying one their document does not
-// give them (otherLines). An extract whose lines carry none at all (it
-// may not hold the field) reports nothing.
+// lineTradingPartners reads the lines' own trading partner (ACDOCA-RASSC)
+// and warns where the load gives the line another or none: per company
+// code and vendor, the vendor lines carrying another one than the
+// vendor's master, which load with the master's (a vendor linked,
+// relinked or unlinked since the posting); and the other lines whose own
+// the load cannot post (otherLines). An extract whose lines carry none at
+// all (it may not hold the field) reports nothing.
 func (q *qualityCheck) lineTradingPartners() {
 	if !slices.ContainsFunc(q.e.ACDOCA, func(l sap.ACDOCA) bool { return sap.CompanyID(l.RASSC) != "" }) {
 		return
@@ -173,15 +191,81 @@ func (c *lineCount) add(document string) {
 	c.documents[document] = true
 }
 
-// otherLines warns, per company code, of the lines naming no vendor that
-// carry a trading partner in SAP which the load does not give them: in a
-// document without a vendor line they load with none; in one with vendor
-// lines they load with the trading partner those lines share (derived),
-// or with none where the vendors name different ones, none or one that
-// is no legal entity. A line SAP left without one is not reported: that
-// the load gives it its document's is the purpose (A2).
+// noCompanyCode is why a company ID no company code of the extract is
+// assigned to names no legal entity.
+const noCompanyCode = "is the company ID of no company code in the extract (T001-RCOMP)"
+
+// ownPartner is the legal entity a journal line names as its trading
+// partner itself (ACDOCA-RASSC), which the load posts a line without a
+// supplier with (po:2026-11-10); or, not ok, why it does not (why): the
+// company ID names no legal entity of the tenant, or the line's own
+// company, which is no trading partner of its lines (the ledger's rule);
+// why is empty for a line that names none.
+func (t target) ownPartner(l sap.ACDOCA) (gc groupCompany, ok bool) {
+	id := sap.CompanyID(l.RASSC)
+	if id == "" {
+		return groupCompany{}, false
+	}
+	gc, ok = t.partners[id]
+	switch {
+	case !ok:
+		return groupCompany{why: noCompanyCode}, false
+	case gc.why != "":
+		return gc, false
+	case gc.id == t.entities[l.RBUKRS].ID:
+		return groupCompany{code: gc.code, why: "is the line's own company, which is no trading partner of its own lines"}, false
+	}
+	return gc, true
+}
+
+// takesOwn reports whether the run posts a line without a supplier with
+// the trading partner the line names itself: a run in documents mode. A
+// balances run loads its lines as before (otherLinesOfBalances).
+func (t target) takesOwn() bool { return !t.balances }
+
+// otherLines warns of the lines the load posts without a supplier that
+// name a trading partner in SAP which the load does not give them: per
+// company code and trading partner, those naming one that is no legal
+// entity of the tenant or the line's own company, which load without a
+// trading partner of their own. A line naming a legal entity loads with
+// it, and one SAP left without loads with its document's vendor lines',
+// which is the purpose (A2): neither is reported.
 func (q *qualityCheck) otherLines() {
-	derived, withVendor := q.derivedPartners()
+	if !q.t.takesOwn() {
+		q.otherLinesOfBalances()
+		return
+	}
+	counts, why := map[string]*lineCount{}, map[string]string{}
+	for _, l := range q.e.ACDOCA {
+		gc, ok := q.t.ownPartner(l)
+		if q.t.supplierLine(l) || ok || gc.why == "" {
+			continue
+		}
+		key := l.RBUKRS + "/" + strings.TrimSpace(l.RASSC)
+		if counts[key] == nil {
+			counts[key], why[key] = &lineCount{}, gc.why
+		}
+		counts[key].add(documentKey(l))
+	}
+	for _, key := range sortedKeys(counts) {
+		cc, partner, _ := strings.Cut(key, "/")
+		q.add(SevWarning, "ACDOCA", key, "journal lines of company %s name trading partner %s (ACDOCA-RASSC), which %s: lines %d, documents %d. "+
+			"They load without a trading partner of their own: with the one their document's vendor lines share, or without one where it has "+
+			"none or those name different ones, and a consolidation run lists a balance without one as no_trading_partner", cc, partner, why[key],
+			counts[key].lines, len(counts[key].documents))
+	}
+}
+
+// otherLinesOfBalances warns, per company code of a balances run, of the
+// lines naming no vendor that carry a trading partner in SAP which the
+// load does not give them: in a document without a vendor line they load
+// with none; in one with vendor lines they load with none in the opening
+// entry, and in a document that posts on its own with the trading partner
+// those lines share (derived), or with none where the vendors name
+// different ones, none or one that is no legal entity. A line SAP left
+// without one is not reported.
+func (q *qualityCheck) otherLinesOfBalances() {
+	derived, withVendor := derivedPartners(q.e, q.t, q.foreign)
 	alone, differing := map[string]*lineCount{}, map[string]*lineCount{}
 	for _, l := range q.e.ACDOCA {
 		own, key := sap.CompanyID(l.RASSC), documentKey(l)
@@ -199,44 +283,43 @@ func (q *qualityCheck) otherLines() {
 	}
 	for _, cc := range sortedKeys(alone) {
 		q.add(SevWarning, "ACDOCA", cc, "journal lines of company %s that carry a trading partner (ACDOCA-RASSC) in documents without a vendor line "+
-			"load without one: lines %d, documents %d. The load derives a document's trading partner from its vendor line, so a consolidation run "+
-			"lists their balances as no_trading_partner until they are reposted with one", cc, alone[cc].lines, len(alone[cc].documents))
-	}
-	// What such a line loads with, as the run's mode has it: a balances
-	// run's opening entry gives its account balances none.
-	outcome := "They load with the trading partner the document's vendors share, or without one where those name different ones, none or a " +
-		"company that is no legal entity"
-	if q.t.balances {
-		outcome = "They load without one in the opening entry, whose account balances take none whatever its vendor items name; in a document " +
-			"that posts on its own (a down payment's, an item in a foreign currency) they load with the trading partner its vendors share, or without " +
-			"one where those name different ones, none or a company that is no legal entity"
+			"load without one: lines %d, documents %d. A balances run derives a document's trading partner from its vendor line, so a consolidation "+
+			"run lists their balances as no_trading_partner until they are reposted with one", cc, alone[cc].lines, len(alone[cc].documents))
 	}
 	for _, cc := range sortedKeys(differing) {
 		q.add(SevWarning, "ACDOCA", cc, "journal lines of company %s that carry another trading partner (ACDOCA-RASSC) than their document's vendor "+
-			"lines give them: lines %d, documents %d. %s", cc, differing[cc].lines, len(differing[cc].documents), outcome)
+			"lines give them: lines %d, documents %d. They load without one in the opening entry, whose account balances take none whatever its vendor "+
+			"items name; in a document that posts on its own (a down payment's, an item in a foreign currency) they load with the trading partner its "+
+			"vendors share, or without one where those name different ones, none or a company that is no legal entity", cc, differing[cc].lines,
+			len(differing[cc].documents))
 	}
 }
 
 // derivedPartners are, per document, the company ID of the trading
-// partner the ledger gives the lines naming no vendor, "" for none, and
-// whether the document has a vendor line: the one every vendor line's
-// supplier is linked to, another company than the document's (the
-// ledger's rule, deriveTradingPartners). In balances mode only a document
-// that posts as an entry of its own gives its other lines one: the
-// opening entry's balances take none (ledger.Posting.Collective). It is
-// the gate's prediction from SAP's vendor masters, not the ledger's rule
-// to the letter: the ledger reads the group company the platform's
-// supplier has, which for a supplier an earlier run loaded may be another
-// than its VBUND now names, and the reconciliation shows that difference.
-func (q *qualityCheck) derivedPartners() (derived map[string]string, withVendor map[string]bool) {
+// partner the ledger gives the lines naming no vendor and no trading
+// partner of their own, "" for none, and whether the document has a
+// vendor line: the one every vendor line's supplier is linked to, another
+// company than the document's (the ledger's rule, deriveTradingPartners).
+// In balances mode only a document that posts as an entry of its own
+// (downPaymentDocs, foreign) gives its other lines one: the opening
+// entry's balances take none (ledger.Posting.Collective). It is a
+// prediction from SAP's vendor masters, for the quality gate and the SAP
+// side of the reconciliation, not the ledger's rule to the letter: the
+// ledger reads the group company the platform's supplier has, which for a
+// supplier an earlier run loaded may be another than its VBUND now names,
+// and the reconciliation shows that difference.
+func derivedPartners(e *sap.Extract, t target, foreign map[string]string) (derived map[string]string, withVendor map[string]bool) {
 	derived, withVendor = map[string]string{}, map[string]bool{}
-	own := downPaymentDocs(q.e)
-	for _, l := range q.e.ACDOCA {
-		if !q.vendorLine(l) {
+	own, vbund := downPaymentDocs(e), map[string]string{}
+	for _, v := range e.LFA1 {
+		vbund[v.LIFNR] = sap.CompanyID(v.VBUND)
+	}
+	for _, l := range e.ACDOCA {
+		if l.LIFNR == "" || !t.supplierLine(l) {
 			continue
 		}
-		key, id := documentKey(l), sap.CompanyID(q.vendor[l.LIFNR].VBUND)
-		if gc, ok := q.t.partners[id]; !ok || gc.why != "" || gc.id == q.t.entities[l.RBUKRS].ID || q.t.balances && own[key] == nil && q.foreign[key] == "" {
+		key, id := documentKey(l), vbund[l.LIFNR]
+		if gc, ok := t.partners[id]; !ok || gc.why != "" || gc.id == t.entities[l.RBUKRS].ID || t.balances && own[key] == nil && foreign[key] == "" {
 			id = ""
 		}
 		if seen := withVendor[key]; seen && derived[key] != id {
@@ -271,7 +354,7 @@ func (q *qualityCheck) differingVendorLines(p partnerLines) {
 
 // tradingPartnerKey names a trading partner in a reconciliation: by the
 // SAP company code its company ID is assigned to, or, for a legal entity
-// no vendor of the extract names, by its id alone, as the API shows a
+// the extract does not name, by its id alone, as the API shows a
 // trading partner to a caller who may not act in that company (product
 // owner 2026-11-05).
 func (rc *reconciler) tradingPartnerKey(id uuid.UUID) string {

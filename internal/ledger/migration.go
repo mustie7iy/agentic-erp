@@ -343,6 +343,42 @@ func (Reports) OpenPayablesByTradingPartner(ctx context.Context, legalEntity uui
 	return out, nil
 }
 
+// PartnerBalance is an account's balance of a fiscal year with one trading
+// partner, in local currency (Reports.BalancesByTradingPartner).
+type PartnerBalance struct {
+	Account        string // the account's number
+	TradingPartner uuid.UUID
+	Amount         money.Minor
+}
+
+// BalancesByTradingPartner sums the legal entity's journal lines of the
+// fiscal year that carry a trading partner on accounts that are no
+// supplier reconciliation accounts, in local currency per account and
+// trading partner, in the leading ledger and in account and trading
+// partner order: the intercompany balances a consolidation run reads by
+// trading partner beside the payables (OpenPayablesByTradingPartner),
+// which a migration run reconciles with SAP's (ADR-0059 As built, the
+// migration leaf; po:2026-11-10). It reads the lines, not
+// ledger.trading_partner_balance, which holds only projected entries.
+func (Reports) BalancesByTradingPartner(ctx context.Context, legalEntity uuid.UUID, fiscalYear int16) ([]PartnerBalance, error) {
+	tx, _, err := reqctx.Request(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := tx.Query(ctx, `SELECT a.number, l.trading_partner_id, sum(l.amount_lc) FROM ledger.journal_line l
+		JOIN ledger.ledger g ON g.tenant_id = l.tenant_id AND g.id = l.ledger_id AND g.is_leading
+		JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind <> 'supplier'
+		WHERE l.legal_entity_id = $1 AND l.fiscal_year = $2 AND l.trading_partner_id IS NOT NULL
+		GROUP BY a.number, l.trading_partner_id ORDER BY a.number, l.trading_partner_id`, legalEntity, fiscalYear)
+	out, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (b PartnerBalance, err error) {
+		return b, row.Scan(&b.Account, &b.TradingPartner, &b.Amount)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ledger: balances of %s %d by trading partner: %w", legalEntity, fiscalYear, err)
+	}
+	return out, nil
+}
+
 // OpenForeignItems sums the legal entity's open supplier items of the
 // fiscal year posted in a currency other than its local one, ordinary
 // items and down payments alike, in their transaction currency per

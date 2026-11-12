@@ -34,8 +34,11 @@ func TestFilterScopeKeepsEveryCompanyID(t *testing.T) {
 
 // TestMockTradingPartner: the mock's company codes each have a company ID,
 // and company 3000's vendor Muskoka Office Supply names company 2000's as its
-// trading partner; its vendor lines carry it and no other line does, as
-// SAP leaves the lines invoice verification posts (po:2026-11-09, A2).
+// trading partner; its vendor lines carry it and no other line of its
+// documents does, as SAP leaves the lines invoice verification posts
+// (po:2026-11-09, A2). One document without a vendor line carries it too,
+// on its revenue line alone: company 3000's sale of January
+// (po:2026-11-10).
 func TestMockTradingPartner(t *testing.T) {
 	e := GenerateMock(42, "2026")
 	for _, c := range e.T001 {
@@ -52,12 +55,16 @@ func TestMockTradingPartner(t *testing.T) {
 			t.Errorf("vendor %s %s: got trading partner %q, want %q", v.LIFNR, v.NAME1, v.VBUND, want)
 		}
 	}
-	vendorLines := 0
+	vendorLines, saleLines := 0, 0
 	for _, l := range e.ACDOCA {
 		want := ""
-		if l.LIFNR == intercompanyVendor {
+		switch {
+		case l.LIFNR == intercompanyVendor:
 			want = intercompanyPartner
 			vendorLines++
+		case l.RBUKRS == "3000" && l.XBLNR == intercompanySale && l.RACCT == mockRevenueAccount:
+			want = intercompanyPartner
+			saleLines++
 		}
 		if l.RASSC != want {
 			t.Errorf("line %s/%s/%s of vendor %q: got trading partner %q, want %q", l.RBUKRS, l.BELNR, l.DOCLN, l.LIFNR, l.RASSC, want)
@@ -65,6 +72,9 @@ func TestMockTradingPartner(t *testing.T) {
 	}
 	if vendorLines == 0 {
 		t.Error("the intercompany vendor's lines: got none, want some")
+	}
+	if saleLines != 1 {
+		t.Errorf("the intercompany sale's revenue lines: got %d, want 1", saleLines)
 	}
 }
 

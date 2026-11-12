@@ -323,10 +323,12 @@ type ACDOCA struct {
 	// it on a document's other lines (A2(c) [M]: lines from materials
 	// management, tax, exchange and price difference and cash discount
 	// lines, documents with several vendors and lines a user cleared often
-	// lack it), so the load does not post it: a document's lines take their
-	// trading partner from its vendor line's supplier (ADR-0059 §4), and
-	// the quality gate reads RASSC only to report where SAP's lines say
-	// something else (internal/integration tradingpartner.go).
+	// lack it), so the load posts it on the lines it posts without a
+	// supplier (po:2026-11-10), an intercompany document without a vendor
+	// line carrying its partner; a vendor line takes its supplier's, and a
+	// line SAP left without one its document's vendor line's (ADR-0059
+	// §4). The quality gate reports where SAP's lines say something else
+	// than the load gives them (internal/integration tradingpartner.go).
 	RASSC string `json:"RASSC,omitempty"`
 	// ZLSCH is the payment method the item fixes, one character (as
 	// T042Z's), blank for none: an item can override its vendor's methods

@@ -46015,11 +46015,15 @@ type MigrationDiff struct {
 	// `<currency> items of vendor <LIFNR>` or `<currency> items of partner <id> (<name>)` (the open items
 	// in a foreign document currency, in it), `trading partner <company code>` or `trading partner <id>`
 	// (the open payables per trading partner: by the SAP company code the vendors' trading partner,
-	// LFA1-VBUND, is, or by the id alone of a legal entity no vendor of the extract names; ADR-0059),
-	// `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a center's periods, ADR-0050
-	// §10), or `cost center total <KOKRS>/<KOSTL>`, `profit center total <KOKRS>/<PRCTR>` or
-	// `segment total <SEGMENT>` (the migrated lines' total on profit and loss accounts against the center
-	// reports', documents mode), or `payment method <method> items of vendor <LIFNR>` or
+	// LFA1-VBUND, is, or by the id alone of a legal entity the extract does not name; ADR-0059),
+	// `account <number> trading partner <company code>` or `account <number> trading partner <id>` (the
+	// balance by trading partner of an account that is no supplier reconciliation account: the lines
+	// posted without a supplier, each under the trading partner it names itself, ACDOCA-RASSC, or else its
+	// document's vendor lines'), `cost center <KOKRS>/<KOSTL>` or `profit center <KOKRS>/<PRCTR>` (a
+	// center's periods, ADR-0050 §10), or `cost center total <KOKRS>/<KOSTL>`,
+	// `profit center total <KOKRS>/<PRCTR>` or `segment total <SEGMENT>` (the migrated lines' total on
+	// profit and loss accounts against the center reports', documents mode), or
+	// `payment method <method> items of vendor <LIFNR>` or
 	// `payment method <method> items of partner <id> (<name>)` (the open items that fix that payment
 	// method, SAP ZLSCH: their number and total, as `2 items, -1250.00 EUR`).
 	Key string `json:"key"`

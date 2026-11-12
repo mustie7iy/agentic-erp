@@ -51,7 +51,9 @@ import (
 // (centers): cost and profit centers and a segment. One of its vendors,
 // Muskoka Office Supply, is a company of the group (intercompanyVendor): its
 // master names company 2000's company ID as its trading partner, and its
-// vendor lines carry it; every company code has a company ID (T001-RCOMP).
+// vendor lines carry it; so does the revenue line of its sales document of
+// January, an intercompany sale without a vendor line (intercompanySale);
+// every company code has a company ID (T001-RCOMP).
 //
 // Revenue follows a monthly trend that grows about 7% a year, so extracts
 // for consecutive years support year-over-year analytics.
@@ -86,11 +88,14 @@ func GenerateMockThrough(seed uint64, fiscalYear string, throughMonth int) *Extr
 
 // tradingPartner gives the lines of intercompanyVendor its trading
 // partner, as SAP does from the vendor's master, and no other line of its
-// documents. It draws nothing from the generator and changes no amount.
+// documents; and the revenue line of company 3000's intercompanySale the
+// same one, a document without a vendor line. It draws nothing from the
+// generator and changes no amount.
 func (g *mockGen) tradingPartner() {
 	for i := range g.e.ACDOCA {
-		if g.e.ACDOCA[i].LIFNR == intercompanyVendor {
-			g.e.ACDOCA[i].RASSC = intercompanyPartner
+		l := &g.e.ACDOCA[i]
+		if l.LIFNR == intercompanyVendor || l.RBUKRS == "3000" && l.XBLNR == intercompanySale && l.RACCT == mockRevenueAccount {
+			l.RASSC = intercompanyPartner
 		}
 	}
 }
@@ -128,9 +133,17 @@ var mockCompanies = []T001{
 // lines the trading partner (ACDOCA-RASSC) and, its invoices coming from
 // invoice verification, their other lines none (the SAP specialist,
 // po:2026-11-09, A2).
+//
+// intercompanySale is the reference of company 3000's sales document of
+// January, which stands for a sale to that company posted between G/L
+// accounts: no vendor line, and its revenue line (mockRevenueAccount)
+// names the trading partner itself (ACDOCA-RASSC [H], A2), which is where
+// a migration takes it from (po:2026-11-10).
 const (
 	intercompanyVendor  = "0000300005"
 	intercompanyPartner = "002000"
+	intercompanySale    = "SALES-01"
+	mockRevenueAccount  = "0000400000"
 )
 
 var mockAccounts = []SKB1{
@@ -528,7 +541,7 @@ func (g *mockGen) revenue(cc string, m int) {
 	amt := money.Minor(base * (95 + g.r.Int64N(11)) / 100)
 	g.fiDoc(cc, g.date(m, 28), "SA", fmt.Sprintf("SALES-%02d", m), []fiLine{
 		{acct: "0000100000", amount: amt},
-		{acct: "0000400000", amount: -amt},
+		{acct: mockRevenueAccount, amount: -amt},
 	})
 	payroll := money.Minor(base * 55 / 100)
 	g.fiDoc(cc, g.date(m, 27), "SA", fmt.Sprintf("PAYROLL-%02d", m), []fiLine{
