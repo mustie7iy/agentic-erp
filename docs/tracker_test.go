@@ -22,8 +22,10 @@ import (
 // item given its real source, or removed, lowers it here, so no new item can
 // take a baseline item's place unseen in the diff. 936 since the thirteen
 // week 1 placeholders were split once into slices and "later" leaves, each
-// naming its source (po:2026-11-10, design/plan-breadth-week1.md).
-const baselineItems = 936
+// naming its source (po:2026-11-10, design/plan-breadth-week1.md). 919
+// since the seventeen week 2 placeholders were split the same way
+// (design/plan-breadth-week2.md).
+const baselineItems = 919
 
 // pilotItems is the number of leaves carrying "pilot": the pilot-ready list the
 // product owner approved on 2026-10-31, the finish line of the first pilot. It
