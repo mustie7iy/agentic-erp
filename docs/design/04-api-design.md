@@ -308,6 +308,29 @@ number, currency and kind, each with its account's number, name and type,
 and carries the whole run's totals on every page, whatever `account_id`
 filters.
 
+Requests for quotation (ADR-0069, T82a) are the procurement context's.
+`POST /v1/rfqs` (`procurement.rfq.manage`) creates a draft RFQ of a
+company: the currency quotations are given in, the date they are due (422
+`procurement.rfq_due_date_past` for a date before the company's date today
+in its time zone, which the refusal names), items with a quantity and no
+price, each material key once, and the suppliers invited, each once (422
+`procurement.rfq_supplier_repeated`) and each one an order could be placed
+with (422 `procurement.supplier_not_usable`, naming `supplier_ids[i]`).
+`POST /v1/rfqs/{id}:publish` (`If-Match`) publishes it once, checked
+again (409 `procurement.invalid_status` for one already published).
+`GET /v1/rfqs` (`procurement.rfq.read`) lists the RFQs of the companies
+the caller may act in, filtered by `legal_entity_id`, `supplier_id` (the
+RFQs a supplier is invited to), `status` and `document_number`, each with
+its company's code and name, its items with their accounts' numbers and
+names, and its suppliers by id, number and name. `POST
+/v1/rfqs/{id}/quotations` (`procurement.rfq.manage`, T82b) records an
+invited supplier's quotation for a published RFQ: a price per RFQ item in
+the RFQ's currency, the supplier's reference and the last day it is
+valid; a supplier has one (409 `procurement.quotation_exists`), and it may
+leave items out. `GET /v1/rfqs/{id}/quotations` (`procurement.rfq.read`)
+lists them, each with its supplier by id, number and name, its prices
+beside the RFQ items, its total, `complete` and `unquoted_item_nos`.
+
 Internal orders (ADR-0064 §1, T60a) are the controlling context's.
 `POST /v1/internal-orders` (`controlling.order.write`, `x-agent: false`)
 creates an order of a company in status `created`: its code is unique in
@@ -398,14 +421,18 @@ released order whose balance is zero on every account (409
 `ledger.internal_order_invalid`, `closed`), and an entry that posted to
 it is not reversed (409 `ledger.internal_order_closed`).
 
-Allocation cycles (ADR-0064 §5, T60f) are the controlling context's.
+Allocation cycles (ADR-0064 §5, T60f, T60g) are the controlling context's.
 `POST /v1/allocation-cycles` (`controlling.allocation.write`, `x-agent:
-false`) defines a cycle of a company: a `kind` (`distribution`), one
-sender cost center and 1 to 100 receivers with percentages (strings, up
-to two decimals) adding up to 100; every field that cannot stand is named
+false`) defines a cycle of a company: a `kind` (`distribution` or
+`assessment`), one sender cost center and 1 to 100 receivers with
+percentages (strings, up to two decimals) adding up to 100, and for an
+assessment its `assessment_account_id`, an active account of the company
+whose cost element is `secondary`; every field that cannot stand is named
 in one 422 `controlling.allocation_cycle_invalid` (`kind` `unsupported`;
-a center `unknown`, `not_in_company`, `not_active`, `is_sender` or
-`duplicate`; a percentage `invalid`; `receivers` `not_100`), and a code
+`assessment_account_id` `required`, `unknown`, `not_secondary`,
+`not_active`, or `not_allowed` on a distribution; a center `unknown`,
+`not_in_company`, `not_active`, `is_sender` or `duplicate`; a percentage
+`invalid`; `receivers` `not_100`), and a code
 used twice in the company is 409 `controlling.allocation_cycle_exists`.
 `GET /v1/allocation-cycles` (`controlling.allocation.read`; filters
 `legal_entity_id`, `code`, `kind`, `sender_cost_center_id`) and `GET
@@ -413,15 +440,21 @@ used twice in the company is 409 `controlling.allocation_cycle_exists`.
 /v1/allocation-cycles/{id}:run` (`controlling.allocation.run` and
 `ledger.entry.read`, `x-agent: false`; `If-Match` the cycle's version)
 names a `fiscal_year` and a regular `fiscal_period` and runs the cycle
-for it, synchronously: one journal entry dated the period's last day
-moves the sender's primary costs of the period to the receivers on their
-original accounts, the shares adding up to each account's cost to the
-minor unit. It answers 200 with `posted` and, when an entry was posted,
+for it, synchronously, in one journal entry dated the period's last day.
+A distribution moves the sender's primary costs of the period to the
+receivers on their original accounts, the shares adding up to each
+account's cost to the minor unit; an assessment credits the sender with
+the total of those costs and debits each receiver with its share, all on
+the assessment account, the shares adding up to the total, and the
+primary costs stay on the sender's accounts. It answers 200 with `posted` and, when an entry was posted,
 the `run` (cycle code, name and kind, period, posting date, sender with
 its code, amount with its currency, number of accounts, the entry's id
 and number); a sender without costs posts nothing, `posted` is false and
 no run is kept. A period already run is 409
-`controlling.allocation_run_exists`; a center not valid on the posting
+`controlling.allocation_run_exists`; a period for which a cycle of the
+same sender was run as an assessment is 409
+`controlling.allocation_sender_assessed`, whichever cycle is run, since
+its costs would be charged twice; a center not valid on the posting
 date 409 `controlling.allocation_center_not_valid`; what the ledger
 refuses of the entry is its own problem. Published as
 `AllocationRunPosted`. `GET /v1/allocation-runs`
@@ -894,11 +927,12 @@ with the month's total against the tenant's cap.
 | configuration | `change-requests`, `config-versions`, `number-ranges` | `:submit`, `:withdraw`, `:activate`, `:simulate` |
 | partner | `business-partners`, `bank-accounts`, `partner-changes` | `:block`, `:unblock`, `:submit` |
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
-| procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
+| procurement | `requisitions` (an item described by the requester or taken from the catalog by `catalog_item_id` with a quantity, T84b, ADR-0071 §6), `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts`, `rfqs` (requests for quotation, ADR-0069, with `{id}/quotations`, the suppliers' quotations recorded by the buyer), `catalog-items` (a supplier's items in a company's catalog, loaded one per request and searched by `legal_entity_id` with `text`, `supplier_id` and `status`, each with its supplier's number and name, ADR-0071) | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse`, `:publish`, `:retire` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
 | receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, kind, the invoice a credit memo names, status, document number and invoice date, ADR-0063 §2-§4, T75a; credit memos are the same resource with `kind` `credit_memo` and `reference_invoice_id`, §7, T75d); `incoming-payments` (a receipt from a house bank's incoming payments clearing account applied to a customer's open items in full and exactly, written once; filtered by company, customer, document number and posting date) and `unapplied-receipts` (a company's receipts not yet applied, read-only), ADR-0063 §6, T75c; `receivables-aging` (a company's customer open items on a key date per customer and in total, not yet due and in buckets of days overdue, computed on read, read-only; cursor pages of customers), ADR-0063 §10, T75e | `customer-invoices/{id}:post` (T75b) |
 | collections | `collection-worklist` (a company's customers with overdue items on a key date, the largest overdue amount first, with its totals; computed on read, `x-slo-class: report`, `x-snapshot: true`; ADR-0065 §9, T76c), `dunning-runs` (started for a company at a key date, `proposed` with their totals; the companies the caller may act in, filtered by company, status and key date, the latest first) and their `notices` (one per customer with its overdue items and the level each would reach, by customer number, filtered by customer and level; ADR-0065 §3-§4, T76a) | `:confirm` (a proposed run, once; a stale proposal is refused 409, ADR-0065 §8, T76b) |
 | credit | `credit-limits` (a customer's limit in a company, one amount in the company's currency, set and changed by people with `If-Match`; the companies the caller may act in, filtered by company and customer, by customer number), `credit-exposure` (a customer's open items added up as booked, credits netted, its limit, what is available and whether an amount is within the limit; computed on read, `x-snapshot: true`; it changes and blocks nothing; ADR-0066 §2-§4, T77a) | none |
+| sales | `quotations` (created `open` for a customer, dated the company's date and valid until a date, their items priced net of tax; the companies the caller may act in, filtered by company, customer, status and document number, ADR-0067 §2-§4, T78a), `sales-orders` (created `draft` from an accepted quotation, one per quotation, or directly, on the customer's payment term unless one is given, each item with its ordered, delivered and billed quantities; filtered by company, customer, status, document number and quotation, ADR-0067 §5, T78b) with their `deliveries` (`sales-orders/{id}/deliveries`: a confirmation that quantities of a confirmed order's items were delivered on a date, written once, numbered within the order, listed by date; no stock and no posting, ADR-0067 §8, T78c), `billing-documents` (created `created` for one sales order, billing its delivered quantities not yet billed at the order's prices, dated the billing date given or the company's date; filtered by company, customer, sales order, status and document number; nothing posted, ADR-0067 §9, T79a), `sales-prices` (the price of an item key in a company, for every customer or for one, valid from a day, written once and never changed; a quotation or order item without a `unit_price` takes the one valid on its document's date, the customer's first, and says so in `price_source`; filtered by company, item key, customer, condition type and a day of validity, ADR-0067 §10, T80a; a record of a configured condition type of kind `discount_percent` is a discount, a `percent` of the item's value, and with a pricing procedure in the configuration an item lists the `conditions` applied, the price and each discount, with its net value after them, ADR-0067 §11, T80b) | `:accept`, `:decline` (the customer's answer, once; `:reject` is an approval decision's), `:confirm` (a draft order, once) |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | einvoicing | `e-invoices` (received from the tenant's accredited provider through an `einvoice_provider` connector, ADR-0061 §15, T65a: the companies the caller may act in, filtered by company, connector, status, fetch and when received, newest first); `/{id}/content` (the bytes as received, compared with their hash, human-only, T65b) | `:fetch` (202 with its `Operation`, carried out as the workflow `FetchEInvoices`, T65a; the same fetch scheduled once per period, T65b) |

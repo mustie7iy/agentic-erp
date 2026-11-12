@@ -115,7 +115,7 @@ type Ledger interface {
 	OrderBalance(ctx context.Context, le, order uuid.UUID) (money.Minor, error)
 	CostCenterValidOn(ctx context.Context, id uuid.UUID, day time.Time) (bool, error)
 	OrderAccountBalances(ctx context.Context, le, order uuid.UUID, upTo *ledger.PeriodKey) ([]ledger.OrderAccountBalance, error)
-	CostAccounts(ctx context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CostAccount, error)
+	CostAccounts(ctx context.Context, le uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]ledger.CostAccount, error)
 }
 
 // Postings is what controlling posts its entries through (ledger.Postings,

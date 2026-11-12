@@ -1546,7 +1546,9 @@ migrated_down_payment() {
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
 # a number range for the customer invoices of step 48 (T75a; the packs
-# number none yet),
+# number none yet), one for the quotations of step 62 (T78a), one for
+# the sales orders of step 63 (T78b) and one for the billing documents of
+# step 64 (T79a),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1598,10 +1600,14 @@ PILOT_SETTINGS='
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
 | .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "rfq", "fiscal_year": @YEAR@, "prefix": "RQ", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
-    {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999}]'
+    {"company": "@CC@", "document_type": "journal_dg", "fiscal_year": @YEAR@, "first": 1600000000, "last": 1699999999},
+    {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "sales_order", "fiscal_year": @YEAR@, "prefix": "SO", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "billing_document", "fiscal_year": @YEAR@, "prefix": "BD", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -6129,6 +6135,104 @@ step_distribution() {
   passed
 }
 
+# step_assessment: an assessment cycle and its run (ADR-0064 §4-§5, T60g):
+# Ada adds a secondary cost element to Maple's chart through a governed
+# change, an account only allocations post to; Sam sets up a cost center
+# for the facilities, Alex posts its rent, and a manual entry on the new
+# account is refused. Carla defines an assessment cycle that charges the
+# facilities' costs to the finance office and the sales office at 70 and
+# 30 percent and runs it for this period: one entry on the assessment
+# account relieves the sender and charges the receivers, in one amount
+# each, the shares adding up to the cost to the cent; the rent stays on
+# its account. The centers' reports show the assessment account's lines,
+# and a sender assessed for a period is not run for it again.
+step_assessment() {
+  heading "Step 53 — An assessment cycle: a cost center's costs of the period are charged to two others in one amount each on a secondary cost element, and stay on their accounts"
+  local base first second sender expense bank secondary cycle tag period entry before_first before_second other
+  as ada
+  say "An assessment is posted on a secondary cost element (ADR-0064 §4): an account of the chart that only"
+  say "allocations post to. Maple's chart has none, so Ada proposes account 6990, a change of the chart, tier 4, with"
+  say "its evidence and two approvers:"
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Assessment account\", rationale: \"Assessment cycles of the pilot company (T60g)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"6990\", \"name\": \"Assessed facility costs\", \"type\": \"expense\", \"cost_element\": \"secondary\"}
+      + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G5000\"} else {} end]))}" "$WORK/last.json" >"$WORK/assessment.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @assessment.json
+  governed "$(field .id)" "the assessment account"
+  as sam
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  first=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  second=$(field '.items[0].id')
+  say "Sam sets up cost center CC-1400 for the facilities, whose costs the offices bear; Carla approves it."
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1400\", \"name\": \"Facilities\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The offices' premises\"}"
+  sender=$(field .id)
+  center_approved sam
+  as alex
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  secondary=$(account 6990)
+  say "Alex posts this month's rent, CAD 1,000.01, to the facilities' cost center. A manual entry on the assessment"
+  say "account is refused: only allocations post to it."
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .cost_center_code then " on cost center \(.cost_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Rent\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"1000.01\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$sender\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-1000.01\", \"currency\": \"CAD\"}}]}"
+  refused 422 ledger.secondary_account postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$secondary\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$first\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+  expect "the refused line" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].account_id secondary_cost_element"
+  as carla
+  say "Carla defines an assessment cycle: as a distribution's, one sender and receivers with percentages, and besides"
+  say "the assessment account, which a cycle of this kind must name:"
+  refused 422 controlling.allocation_cycle_invalid createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FACILITIES\", \"name\": \"Facilities to the offices\", \"kind\": \"assessment\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"70\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"30\"}]}"
+  expect "why the cycle is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "assessment_account_id required"
+  api 201 '"cycle \(.code) \(.name) (\(.kind) on account \(.assessment_account_number)): from \(.sender_cost_center_code) to \([.receivers[] | "\(.cost_center_code) \(.percentage) %"] | join(", "))"' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FACILITIES\", \"name\": \"Facilities to the offices\", \"kind\": \"assessment\", \"assessment_account_id\": \"$secondary\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"70\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"30\"}]}"
+  cycle=$(field .id)
+  tag=$ETAG
+  expect "the cycle's kind, account, sender and receivers" \
+    "$(field '"\(.kind) \(.assessment_account_id) \(.assessment_account_number) \(.sender_cost_center_code) \([.receivers[] | "\(.cost_center_code) \(.percentage)"] | join(" "))"')" \
+    "assessment $secondary 6990 CC-1400 CC-1100 70.00 CC-1300 30.00"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  period=$(field "[.items[] | select(.is_special | not) | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period][0]")
+  before_first=$(center_costs "$first" "$secondary")
+  before_second=$(center_costs "$second" "$secondary")
+  say "She runs the cycle for this period, $YEAR/$period. One journal entry, dated the period's last day and all on the"
+  say "assessment account, credits the sender with the total of its costs and debits each receiver with its share."
+  say "70 percent of CAD 1,000.01 is 700.007 and 30 percent is 300.003: the shares are rounded so that they add up to"
+  say "the total to the cent."
+  api 200 '"cycle \(.allocation_cycle_code) run for \(.fiscal_year)/\(.fiscal_period): \(.run.amount.amount) \(.run.amount.currency) from \(.run.sender_cost_center_code), the costs of \(.run.account_count) account, entry \(.run.journal_entry_number) dated \(.run.posting_date)"' \
+    runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the run charged" "$(field '"\(.posted) \(.run.amount.amount) \(.run.amount.currency) \(.run.sender_cost_center_code) \(.run.account_count) \(.run.kind)"')" \
+    "true 1000.01 CAD CC-1400 1 assessment"
+  entry=$(field .run.journal_entry_id)
+  api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) on cost center \(.cost_center_code)"] | join(" / "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the run's entry: the sender credited, the receivers debited with their shares, on the assessment account" \
+    "$(field '[.lines[] | "\(.account_id) \(.amount.amount) \(.cost_center_code)"] | join("; ")')" \
+    "$secondary -1000.01 CC-1400; $secondary 700.01 CC-1100; $secondary 300.00 CC-1300"
+  say "The centers' reports show the assessment account's lines; the rent stays on its account, on the sender:"
+  say "  CC-1400: account 510000 $(cents_plain "$(center_costs "$sender" "$expense")") CAD, account 6990 a credit of $(cents_plain $((-$(center_costs "$sender" "$secondary")))) CAD"
+  say "  CC-1100: account 6990 $(cents_plain $(($(center_costs "$first" "$secondary") - before_first))) CAD; CC-1300: account 6990 $(cents_plain $(($(center_costs "$second" "$secondary") - before_second))) CAD"
+  expect "the sender's rent left on its account, in cents" "$(center_costs "$sender" "$expense")" 100001
+  expect "the sender relieved on the assessment account, in cents" "$(center_costs "$sender" "$secondary")" -100001
+  expect "the first receiver charged on the assessment account, in cents" "$(($(center_costs "$first" "$secondary") - before_first))" 70001
+  expect "the second receiver charged on the assessment account, in cents" "$(($(center_costs "$second" "$secondary") - before_second))" 30000
+  say "The rent is still on the sender's account, so no cycle of the sender is run for the period again: a second"
+  say "run, of this cycle or of a distribution of the same sender, would charge it twice."
+  refused 409 controlling.allocation_run_exists runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  QUIET=1 api 201 '' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAC-MOVE\", \"name\": \"Facilities moved to the finance office\", \"kind\": \"distribution\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"100\"}]}"
+  other=$(field .id)
+  refused 409 controlling.allocation_sender_assessed runAllocationCycle -p "id=$other" -if-match "$ETAG" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  api 200 '.items[] | "  run of \(.allocation_cycle_code) (\(.kind)) for \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) from \(.sender_cost_center_code), entry \(.journal_entry_number)"' \
+    listAllocationRuns -p "allocation_cycle_id=$cycle"
+  expect "the cycle's runs" "$(field '.items | length')" 1
+  passed
+}
+
 # step_incoming_payment is T75c (ADR-0063 §6, ADR-0047): Northwind pays
 # the invoice of step 48. RBC's third statement of the day shows the
 # credit; Tom matches it as an incoming payment and posts it, so it waits
@@ -6137,7 +6241,7 @@ step_distribution() {
 # invoice, in full and exactly: one entry clears the receipt and the
 # invoice, the customer has no open item left and nothing waits on 1015.
 step_incoming_payment() {
-  heading "Step 53 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
+  heading "Step 54 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
   local customer=$CUSTOMER invoice=$CUSTOMER_INVOICE item st receipt payment clearing body number reference
   [ -n "$customer" ] && [ -n "$invoice" ] && [ -n "$CUSTOMER_INVOICE_ENTRY" ] || fail "step 48's customer invoice is not there"
   as tom
@@ -6221,7 +6325,7 @@ step_incoming_payment() {
 # memo stay open for step_ar_aging: CREDITED_INVOICE and CREDIT_MEMO are
 # the documents, CREDITED_INVOICE_ENTRY and CREDIT_MEMO_ENTRY their entries.
 step_customer_credit() {
-  heading "Step 54 — Customer credit memos: a second invoice partly credited by a credit memo naming it, posted with the signs turned; invoice and memo are the customer's open items, net what the customer owes"
+  heading "Step 55 — Customer credit memos: a second invoice partly credited by a credit memo naming it, posted with the signs turned; invoice and memo are the customer's open items, net what the customer owes"
   local customer=$CUSTOMER sales invoice number entry memo memo_entry over due item
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ruth
@@ -6290,16 +6394,16 @@ step_customer_credit() {
 # depends on the day it runs. The totals are the open items of the
 # customer reconciliation account 1200.
 step_ar_aging() {
-  heading "Step 55 — AR aging: the customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue; the credit memo reduces its customer's bucket and total"
+  heading "Step 56 — AR aging: the customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue; the credit memo reduces its customer's bucket and total"
   local customer=$CUSTOMER due later row cents
-  [ -n "$customer" ] && [ -n "$CREDITED_INVOICE_ENTRY" ] && [ -n "$CREDIT_MEMO_ENTRY" ] || fail "step 54's invoice and credit memo are not there"
+  [ -n "$customer" ] && [ -n "$CREDITED_INVOICE_ENTRY" ] && [ -n "$CREDIT_MEMO_ENTRY" ] || fail "step 55's invoice and credit memo are not there"
   as ruth
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   later=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 45 * 86400 | strftime("%Y-%m-%d")')
   row='"  \(.customer_number) \(.customer_name): \(.item_count) items, \(.amount.amount) \(.amount.currency)", (.buckets[] | "    \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount.amount) \(.amount.currency)")'
   say "Ruth reads the aging of Maple's customer open items (T75e). It is computed on read from the ledger's open"
   say "items on customer reconciliation accounts; each item falls in one bucket by its net due date. On $due,"
-  say "the day Northwind's invoice of step 54 and its credit memo are due, neither is overdue: an item due on the"
+  say "the day Northwind's invoice of step 55 and its credit memo are due, neither is overdue: an item due on the"
   say "key date is not yet due. The credit memo reduces Northwind's bucket and total to what it owes, CAD 1,680.00:"
   api 200 '"aging of \(.company_code) \(.company_name) on \(.key_date), in \(.currency), buckets to \(.aging_days | map(tostring) | join(", ")) days", (.items[] | '"$row"')' \
     getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$due" -p aging_days=30,60 -p "customer_id=$customer"
@@ -6361,7 +6465,7 @@ rbc_incoming() {
 # requests': nothing here depends on today's date. The step duns its own
 # invoice, so it holds whether or not the invoice of step 48 is still open.
 step_dunning() {
-  heading "Step 56 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items; the run is confirmed once, a stale proposal is refused, and the next run proposes level 2"
+  heading "Step 57 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items; the run is confirmed once, a stale proposal is refused, and the next run proposes level 2"
   local customer=$CUSTOMER entry due key later base cr request run before twin twin_tag
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
@@ -6466,7 +6570,7 @@ step_dunning() {
 # Northwind's is overdue, so it is not listed. The key dates are the
 # requests'.
 step_collections() {
-  heading "Step 57 — The collection worklist: the company's customers with overdue items on a key date, the largest overdue amount first, each with its open and overdue amounts, oldest due date, dunning level and last dunning date"
+  heading "Step 58 — The collection worklist: the company's customers with overdue items on a key date, the largest overdue amount first, each with its open and overdue amounts, oldest due date, dunning level and last dunning date"
   local customer=$DUNNED_CUSTOMER key=$DUNNING_KEY
   as ruth
   say "Ruth reads whom to chase: Maple's customers with items overdue on $key, the largest overdue amount first."
@@ -6479,9 +6583,9 @@ step_collections() {
     "$(field '.items[0] | "\(.oldest_due_date) \(.dunning_level) \(.last_dunning_date)"')" "$DUNNING_DUE 1 $key"
   expect "the largest overdue amount first" "$(field '[.items[].overdue_amount.amount | tonumber] | . == (sort | reverse)')" true
   expect "the totals count every customer" "$(field '.customer_count == (.items | length) and .currency == "CAD"')" true
-  expect "its open amount, the overdue amount less the credit memo of step 54" "$(cents "$(field '.items[0].open_amount.amount')")" \
+  expect "its open amount, the overdue amount less the credit memo of step 55" "$(cents "$(field '.items[0].open_amount.amount')")" \
     "$(($(cents "${DUNNED_AMOUNT% *}") - 42000))"
-  say "Northwind's open amount nets the credit memo of step 54, CAD 420.00, which reduces nothing overdue (ADR-0065 §4),"
+  say "Northwind's open amount nets the credit memo of step 55, CAD 420.00, which reduces nothing overdue (ADR-0065 §4),"
   say "so less is open than overdue. On the due date itself, $DUNNING_DUE, nothing of Northwind's is overdue yet, and a"
   say "customer with nothing overdue is not on the worklist:"
   api 200 '"worklist at \(.key_date): \(.customer_count) customer(s), \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
@@ -6500,7 +6604,7 @@ step_collections() {
 # and the larger amount is within it. The amounts follow from the exposure
 # read, so the step holds whatever earlier steps left open.
 step_credit_limit() {
-  heading "Step 58 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
+  heading "Step 59 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
   local customer=$CUSTOMER exposure limit raised id tag before
   as ruth
   say "Ruth looks after Maple's credit as well. Before more is sold to Northwind Traders on account she reads what"
@@ -6562,6 +6666,461 @@ step_credit_limit() {
   passed
 }
 
+# step_rfq is T82a and T82b (ADR-0069 §1-§5, §7): Ben creates a request
+# for quotation for two items, inviting Tyrell and the supplier of SAP's
+# down payment (step 3's DP_SUPPLIER), and publishes it; he then records
+# the quotation each of them sent, the second cheaper in total. The due
+# date is the request's, two weeks after the company's date today. It
+# keeps the RFQ (RFQ).
+step_rfq() {
+  heading "Step 60 — Sourcing: a request for quotation for two items is created with two suppliers invited and published; a quotation is recorded for each supplier, one cheaper in total"
+  as ben
+  local due expense body valid quote line
+  due=$(date_add "$(company_day)" 14)
+  expense=$(account 6000)
+  say "Ben wants prices for the new office's chairs and desks before he commits to a supplier. He creates a request"
+  say "for quotation (ADR-0069): what Maple asks for, with quantities and no prices, the currency quotations are to"
+  say "be given in, the date they are due, and the suppliers invited, Tyrell and $DP_NAME:"
+  body="{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"due_date\": \"$due\", \"items\": [
+    {\"material_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chairs\", \"quantity\": {\"value\": \"40\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"},
+    {\"material_key\": \"DESK-ADJ\", \"description\": \"Height-adjustable desks\", \"quantity\": {\"value\": \"12\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}],
+    \"supplier_ids\": [\"$SUPPLIER\", \"$DP_SUPPLIER\"]}"
+  api 201 '"RFQ \(.document_number) of \(.company_code) \(.company_name): \(.status), quotations in \(.currency) due \(.due_date)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.quantity.value) \(.quantity.unit), on \(.account_number) \(.account_name)"), (.suppliers[] | "  invited: \(.supplier_number) \(.supplier_name)")' \
+    createRfq -body "$body"
+  RFQ=$(field .id)
+  expect "the new RFQ" "$(field '"\(.status) \(.company_code) \(.currency) \(.due_date) \(.items | length) \([.items[].account_number] | unique | join(" "))"')" "draft $CC CAD $due 2 6000"
+  expect "the suppliers invited, in the order named" "$(field '[.suppliers[] | "\(.supplier_id) \(.supplier_name)"] | join(", ")')" \
+    "$SUPPLIER Tyrell Office Products, $DP_SUPPLIER $DP_NAME"
+  say "A supplier is invited once, and a due date that has passed is refused, naming Maple's date today:"
+  refused 422 procurement.rfq_supplier_repeated createRfq -body "${body/\"$DP_SUPPLIER\"]/\"$SUPPLIER\"]}"
+  expect "the supplier named twice" "$(field '.errors[0].field')" "supplier_ids[1]"
+  refused 422 procurement.rfq_due_date_past createRfq -body "${body/$due/$(date_add "$(company_day)" -1)}"
+  say "Ben publishes the RFQ at the version he read. From then on the suppliers' quotations are recorded against"
+  say "it, and nothing changes it; it is published once:"
+  QUIET=1 api 200 '' getRfq -p "id=$RFQ"
+  api 200 '"RFQ \(.document_number): \(.status), version \(.version)"' publishRfq -p "id=$RFQ" -if-match "$ETAG"
+  expect "the published RFQ" "$(field '"\(.status) \(.version)"')" "published 2"
+  refused 409 procurement.invalid_status publishRfq -p "id=$RFQ" -if-match "$ETAG"
+  say "It is among Maple's published RFQs, and among those Tyrell is invited to:"
+  api 200 '.items[] | "  RFQ \(.document_number): \(.status), due \(.due_date), \(.items | length) items, \(.suppliers | length) suppliers"' \
+    listRfqs -p "legal_entity_id=$LE" -p status=published -p "supplier_id=$SUPPLIER"
+  expect "Maple's published RFQs Tyrell is invited to" "$(field '[.items[].id] | join(" ")')" "$RFQ"
+  valid=$(date_add "$(company_day)" 60)
+  line='"quotation \(.supplier_reference) of \(.supplier_number) \(.supplier_name) for RFQ \(.rfq_document_number): \(.status), valid until \(.valid_until), total \(.total.amount) \(.total.currency), complete: \(.complete)", (.items[] | "  item \(.rfq_item_no) \(.material_key): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) = \(.amount.amount) \(.amount.currency)")'
+  say "The quotations come in by e-mail. Ben records each against the RFQ (ADR-0069 §7): the supplier's reference,"
+  say "how long it is valid, and a price for each item, in the RFQ's currency. Tyrell quotes 450.00 a chair and"
+  say "980.00 a desk; each item's value is the RFQ's quantity at that price, and the total is exact to the cent:"
+  api 201 "$line" createSupplierQuotation -p "id=$RFQ" -body "{\"supplier_id\": \"$SUPPLIER\", \"supplier_reference\": \"TY-Q-118\", \"valid_until\": \"$valid\", \"items\": [
+    {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}},
+    {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"980.00\", \"currency\": \"CAD\"}}]}"
+  expect "Tyrell's quotation" "$(field '"\(.supplier_name) \(.status) \(.complete) \(.total.amount) \(.total.currency) \([.items[].amount.amount] | join(" "))"')" \
+    "Tyrell Office Products recorded true 29760.00 CAD 18000.00 11760.00"
+  say "$DP_NAME quotes 425.00 a chair and prices its desks by threes, 2,850.00 for three:"
+  quote="{\"supplier_id\": \"$DP_SUPPLIER\", \"supplier_reference\": \"CB-7731\", \"valid_until\": \"$valid\", \"items\": [
+    {\"rfq_item_no\": 1, \"unit_price\": {\"amount\": \"425.00\", \"currency\": \"CAD\"}},
+    {\"rfq_item_no\": 2, \"unit_price\": {\"amount\": \"2850.00\", \"currency\": \"CAD\"}, \"price_unit\": 3}]}"
+  api 201 "$line" createSupplierQuotation -p "id=$RFQ" -body "$quote"
+  expect "$DP_NAME's quotation" "$(field '"\(.supplier_name) \(.status) \(.complete) \(.total.amount) \(.total.currency) \([.items[].amount.amount] | join(" "))"')" \
+    "$DP_NAME recorded true 28400.00 CAD 17000.00 11400.00"
+  say "A supplier has one quotation for an RFQ, and only a supplier the RFQ invites has one:"
+  refused 409 procurement.quotation_exists createSupplierQuotation -p "id=$RFQ" -body "$quote"
+  refused 422 procurement.supplier_not_invited createSupplierQuotation -p "id=$RFQ" -body "${quote/$DP_SUPPLIER/$CUSTOMER}"
+  say "The RFQ's quotations, as recorded: $DP_NAME's is the cheaper in total, by 1,360.00:"
+  api 200 '.items[] | "  \(.supplier_reference) of \(.supplier_number) \(.supplier_name): total \(.total.amount) \(.total.currency), complete: \(.complete)"' \
+    listSupplierQuotations -p "id=$RFQ"
+  expect "the RFQ's quotations" "$(field '[.items[] | "\(.supplier_id) \(.total.amount) \(.total.currency)"] | join(", ")')" \
+    "$SUPPLIER 29760.00 CAD, $DP_SUPPLIER 28400.00 CAD"
+  passed
+}
+
+# step_catalog: catalog items (ADR-0071, T84a). Priya, the purchasing
+# manager, loads items of Tyrell into Maple's catalog; Ben, a requester,
+# finds them by a word of their description. The catalog is the tenant's
+# own table: nothing is fetched from a supplier's system. Then (T84b) Ben
+# raises a requisition from the chair with a quantity: its description,
+# unit, price and supplier are the catalog's, and it is submitted and
+# approved as any other.
+step_catalog() {
+  heading "Step 61 — Catalog items: two items of a supplier loaded into the company's catalog and found by a search on a word of their description; a retired item is no longer found; a requisition from a catalog item takes its price and supplier"
+  as priya
+  local chair desk arm req request expense
+  say "Priya loads Tyrell's items into Maple's catalog, one at a time: an item key, a description, a unit and one"
+  say "price each (ADR-0071). The supplier must be one Maple can order from, as a purchase order's must be."
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chair, mesh back\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}}"
+  chair=$(field .id)
+  expect "the chair in the catalog" "$(field '"\(.status) \(.supplier_id) \(.unit_price.amount) \(.unit_price.currency)"')" "active $SUPPLIER 450.00 CAD"
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"DESK-OAK\", \"description\": \"Standing desk, oak, with office cable tray\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"890.00\", \"currency\": \"CAD\"}}"
+  desk=$(field .id)
+  QUIET=1 api 201 '' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"ARM-01\", \"description\": \"Monitor arm for an office desk\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"75.00\", \"currency\": \"CAD\"}}"
+  arm=$(field .id)
+  say "An item key is the supplier's once among Maple's active items:"
+  refused 409 procurement.catalog_item_exists createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"CHAIR-ERGO\", \"description\": \"Another chair\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  say "Tyrell no longer makes the monitor arm. Priya retires it, at the version she read; an item is retired once:"
+  QUIET=1 api 200 '' getCatalogItem -p "id=$arm"
+  api 200 '"catalog item \(.item_key): \(.status), version \(.version)"' retireCatalogItem -p "id=$arm" -if-match "$ETAG"
+  expect "the arm's status" "$(field .status)" retired
+  refused 409 procurement.invalid_status retireCatalogItem -p "id=$arm" -if-match "$ETAG"
+  as ben
+  say "Ben needs furniture for a new colleague. He searches Maple's catalog for a word, whatever its case; the"
+  say "search reads item keys and descriptions and returns active items, each with its supplier's number and name:"
+  api 200 '.items[] | "  \(.item_key) \(.description): \(.unit_price.amount) \(.unit_price.currency) per \(.unit), from \(.supplier_number) \(.supplier_name)"' \
+    listCatalogItems -p "legal_entity_id=$LE" -p text=Office
+  expect "the items found by a word of their description" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$chair active, $desk active"
+  expect "each with its supplier's name" "$(field '[.items[].supplier_name] | unique | length')" 1
+  api 200 '.items[] | "  \(.item_key) \(.description)"' listCatalogItems -p "legal_entity_id=$LE" -p text=chair -p "supplier_id=$SUPPLIER"
+  expect "the chair found by text and supplier" "$(field '[.items[].id] | join(" ")')" "$chair"
+  say "The retired arm is found only when retired items are asked for:"
+  api 200 '.items[] | "  \(.item_key) \(.description): \(.status)"' listCatalogItems -p "legal_entity_id=$LE" -p text=office -p status=retired
+  expect "the retired items" "$(field '[.items[].id] | join(" ")')" "$arm"
+  accounts
+  expense=$(account 6000)
+  say "Ben asks for two of the chairs. He names the catalog item, a quantity and the account to charge; the"
+  say "description, the unit, the price and the supplier are the catalog's (ADR-0071 §6, T84b):"
+  api 201 '"requisition \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit) of \(.item_key) \(.description) at \(.unit_price.amount) \(.unit_price.currency)")' createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$chair\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}]}"
+  req=$(field .id)
+  say "A price of his own is not his to give for a catalog item:"
+  refused 422 procurement.catalog_item_override createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$chair\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}]}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "items[0].unit_price"
+  say "Nor is a retired item to be had:"
+  refused 422 procurement.invalid_catalog_item createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$arm\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}]}"
+  say "Read back, the requisition has the catalog's price and Tyrell as its supplier:"
+  api 200 '"requisition \(.document_number) for \(.expanded.supplier.number) \(.expanded.supplier.name): \(.items[0].item_key) at \(.items[0].unit_price.amount) \(.items[0].unit_price.currency), total \(.total_amount.amount) \(.total_amount.currency)"' \
+    getRequisition -p "id=$req" -p expand=supplier
+  expect "the requisition's item from the catalog" \
+    "$(field '.items[0] | "\(.catalog_item_id) \(.item_key) \(.description) \(.quantity.value) \(.quantity.unit) \(.unit_price.amount) \(.unit_price.currency)"')" \
+    "$chair CHAIR-ERGO Ergonomic office chair, mesh back 2 EA 450.00 CAD"
+  expect "the requisition's supplier and total" "$(field '"\(.supplier_id) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER 900.00 CAD"
+  say "Ben submits it; it goes to approval as any other requisition, and Priya approves it:"
+  api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
+  expect "the submitted requisition" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "Furniture for the new colleague"
+  as ben
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the approved requisition" "$(field .status)" approved
+  passed
+}
+
+# step_quotation is T78a (ADR-0067 §2-§4): Sally, the sales
+# representative, makes a quotation to the customer of step_customer,
+# valid for thirty days, and reads it back with each item's value and its
+# net value; an input tax code and an unknown unit are refused naming the
+# item's own field; she records that Northwind accepted it, once. Nothing
+# is posted. QUOTATION is the accepted quotation for later steps.
+step_quotation() {
+  heading "Step 62 — Quotations: a quotation to a customer created with its items priced net of tax, read back with its net value; the customer's acceptance recorded once; nothing posted"
+  local customer=$CUSTOMER sales until before item1 item2 quotation number open
+  as ada
+  say "Ada adds Sally, the sales representative, to the team:"
+  person sally "Sally Sales" finance_staff
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  sales=$(account 4000)
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Northwind Traders asks for a price for 120 machined brackets and their installation. Sally makes a"
+  say "quotation, valid until $until. An item names what is sold by a description and Maple's own item key (there is"
+  say "no material master), with its quantity, its price, the revenue account its billing will credit and the"
+  say "output tax code it will be billed with. Amounts are net: the GST is calculated when the order is billed"
+  say "(ADR-0067 §3). 2.5 hours at 95.01 are 237.525: 237.53, rounded half away from zero."
+  item1="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.50\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  item2="{\"description\": \"Installation on site\", \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}, \"unit_price\": {\"amount\": \"95.01\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  before=$(company_day)
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), made \(.quotation_date), valid until \(.valid_until), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) = \(.net_amount.amount), on \(.account_number) \(.account_name), \(.tax_code // "no tax code")")' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item1, $item2]}"
+  quotation=$(field .id)
+  number=$(field .document_number)
+  expect "the quotation's status" "$(field .status)" open
+  expect_today "the quotation's date, Maple's today" "$(field .quotation_date)" "$before"
+  expect "each item's net value" "$(field '[.items[] | .net_amount.amount] | join(" ")')" "1500.00 237.53"
+  expect "the net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "1737.53 CAD"
+  expect "the customer by name" "$(field .customer_name)" "Northwind Traders"
+  say "Read back, it is the same quotation, and it is among Northwind's open ones:"
+  api 200 '"quotation \(.document_number): \(.status), valid until \(.valid_until), net \(.net_amount.amount) \(.net_amount.currency), \(.items | length) items"' \
+    getQuotation -p "id=$quotation"
+  expect "read back" "$(field '"\(.document_number) \(.status) \(.valid_until) \(.net_amount.amount) \(.version)"')" "$number open $until 1737.53 1"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listQuotations -p "customer_id=$customer" -p status=open
+  expect "the customer's open quotations" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  say "GA, an input tax code (the return's adjustment of step 2), is no output tax code, and XX is no unit of measure;"
+  say "each refusal names the item's own field:"
+  refused 422 sales.unknown_tax_code createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [${item1/GO5/GA}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].tax_code"
+  refused 422 sales.unknown_unit createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item1, ${item2/\"H\"/\"XX\"}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[1].quantity.unit"
+  say "Northwind accepts. Sally records the answer at the version she read; it is recorded once:"
+  QUIET=1 api 200 '' getQuotation -p "id=$quotation"
+  api 200 '"quotation \(.document_number): \(.status), version \(.version)"' acceptQuotation -p "id=$quotation" -if-match "$ETAG"
+  expect "the accepted quotation" "$(field '"\(.status) \(.version) \(.net_amount.amount)"')" "accepted 2 1737.53"
+  refused 409 sales.invalid_status declineQuotation -p "id=$quotation" -if-match "$ETAG"
+  QUIET=1 api 200 '' listQuotations -p "customer_id=$customer" -p status=accepted
+  expect "the customer's accepted quotations" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  QUOTATION=$quotation
+  say "A quotation posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+# step_sales_order is T78b (ADR-0067 §5): Sally creates a sales order from
+# the accepted quotation of step_quotation, which copies its customer,
+# currency and items and takes Northwind's payment term; a second order
+# from the quotation is refused; she confirms the order, once. T78c
+# (ADR-0067 §8): she confirms its items as delivered in two deliveries; a
+# quantity above what is open is refused naming the item, and the order
+# reads as fully delivered. Nothing is posted and no stock moves.
+# SALES_ORDER is the confirmed, fully delivered order for later steps.
+step_sales_order() {
+  heading "Step 63 — Sales orders: an order created from the accepted quotation with its customer, currency and items, on the customer's payment term; one order per quotation; confirmed once; its items confirmed as delivered; nothing posted"
+  local customer=$CUSTOMER quotation=$QUOTATION before order number open day
+  [ -n "$quotation" ] || fail "step 62's quotation is not there"
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  say "Northwind accepted the quotation of step 62, so Sally creates the sales order from it. The order copies the"
+  say "quotation's customer, currency and items as they were offered; its payment term is Northwind's in Maple,"
+  say "NT30, since the request names none (ADR-0067 §5). Each item shows what is ordered, delivered and billed:"
+  before=$(company_day)
+  api 201 '"sales order \(.document_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), from quotation \(.quotation_number), dated \(.order_date), terms \(.payment_term_code), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): ordered \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    createSalesOrder -body "{\"quotation_id\": \"$quotation\"}"
+  order=$(field .id)
+  number=$(field .document_number)
+  expect "the order's status" "$(field .status)" draft
+  expect_today "the order's date, Maple's today" "$(field .order_date)" "$before"
+  expect "the order's customer, currency, term and net value" "$(field '"\(.customer_id) \(.currency) \(.payment_term_code) \(.net_amount.amount)"')" "$customer CAD NT30 1737.53"
+  expect "the order's quotation" "$(field .quotation_id)" "$quotation"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.quantity.unit) \(.delivered_quantity.value) \(.billed_quantity.value) \(.net_amount.amount)"] | join(", ")')" \
+    "120 EA 0 0 1500.00, 2.5 H 0 0 237.53"
+  say "A quotation gives one order: a second is refused."
+  refused 409 sales.quotation_ordered createSalesOrder -body "{\"quotation_id\": \"$quotation\"}"
+  say "Sally confirms the order at the version she read; it is confirmed once:"
+  QUIET=1 api 200 '' getSalesOrder -p "id=$order"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)"' confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  expect "the confirmed order" "$(field '"\(.status) \(.version) \(.net_amount.amount)"')" "confirmed 2 1737.53"
+  refused 409 sales.invalid_status confirmSalesOrder -p "id=$order" -if-match "$ETAG"
+  say "Read back, it is the quotation's order, among Northwind's confirmed ones:"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), from \(.quotation_number), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listSalesOrders -p "quotation_id=$quotation"
+  expect "the quotation's order" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number confirmed"
+  QUIET=1 api 200 '' listSalesOrders -p "customer_id=$customer" -p status=confirmed
+  expect "the customer's confirmed orders" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  SALES_ORDER=$order
+  say "The brackets leave in two shipments. There is no stock in the ERP yet, so a delivery is a confirmation by a"
+  say "person: Sally records what was delivered and when, against the confirmed order (ADR-0067 §8)."
+  say "The first shipment is 100 of the 120 brackets:"
+  day=$(company_day)
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    confirmSalesDelivery -p "id=$order" -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}}]}"
+  expect "the first delivery" "$(field '"\(.delivery_no) \(.sales_order_id) \(.sales_order_number) \(.delivery_date)"')" "1 $order $number $day"
+  say "The order shows what is delivered and, against what was ordered, what is open; its version moved:"
+  api 200 '"sales order \(.document_number), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "the order after the first delivery" "$(field '"\(.version) " + ([.items[] | "\(.quantity.value)/\(.delivered_quantity.value)"] | join(" "))')" "3 120/100 2.5/0"
+  say "Twenty brackets are open. A delivery of more is refused, naming the item and what is open of it; so is a date"
+  say "after Maple's today:"
+  refused 422 sales.exceeds_open_quantity confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"21\", \"unit\": \"EA\"}}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].quantity.value"
+  refused 422 sales.delivery_date_in_future confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"2099-12-31\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}]}"
+  say "The second shipment brings the last twenty, and the installation is done: 2.5 hours, confirmed as made available."
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit)")' \
+    confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"20\", \"unit\": \"EA\"}}, {\"item_no\": 2, \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}}]}"
+  expect "the second delivery" "$(field '"\(.delivery_no) " + ([.items[] | "\(.item_no):\(.quantity.value) \(.quantity.unit)"] | join(", "))')" "2 1:20 EA, 2:2.5 H"
+  say "The order reads as fully delivered, nothing billed yet, and lists its two deliveries:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value)"] | join(", ")')" "120 120 0, 2.5 2.5 0"
+  expect "the order's status and version" "$(field '"\(.status) \(.version)"')" "confirmed 4"
+  api 200 '.items[] | "  delivery \(.delivery_no) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    listSalesDeliveries -p "id=$order"
+  expect "the order's deliveries" "$(field '[.items[] | "\(.delivery_no):" + ([.items[] | "\(.item_no)=\(.quantity.value)"] | join("+"))] | join(" ")')" "1:1=100 2:1=20+2=2.5"
+  say "Nothing more is open: another delivery is refused."
+  refused 422 sales.exceeds_open_quantity confirmSalesDelivery -p "id=$order" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 2, \"quantity\": {\"value\": \"0.5\", \"unit\": \"H\"}}]}"
+  say "An order and its deliveries post nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+# step_billing is T79a (ADR-0067 §9): Ruth, the receivables clerk of
+# step_customer_invoice, creates a billing document for the delivered
+# order of step_sales_order. Its items are the order's delivered
+# quantities at the order's prices and its net value the order's; the
+# order shows everything billed; a second document is refused, since
+# nothing is left to bill. Nothing is posted (posting is T79b).
+# BILLING_DOCUMENT is the created document for later steps.
+step_billing() {
+  heading "Step 64 — Billing documents: a billing document created for the delivered sales order, its items the delivered quantities at the order's prices and its net value the order's; nothing billed twice; nothing posted"
+  local customer=$CUSTOMER order=$SALES_ORDER before doc number open
+  [ -n "$order" ] || fail "step 63's sales order is not there"
+  as ruth
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  say "The order of step 63 is delivered in full. Ruth bills it: a billing document takes what is delivered of each"
+  say "item and not yet billed, at the order's prices (ADR-0067 §9). She gives no date, so it is dated Maple's today:"
+  before=$(company_day)
+  api 201 '"billing document \(.document_number) for sales order \(.sales_order_number) of \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), dated \(.billing_date), terms \(.payment_term_code), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) (order item \(.order_item_no)) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) = \(.net_amount.amount), account \(.account_number) \(.account_name), tax code \(.tax_code // "-")")' \
+    createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  doc=$(field .id)
+  number=$(field .document_number)
+  expect "the document's status" "$(field .status)" created
+  expect_today "the billing date, Maple's today" "$(field .billing_date)" "$before"
+  expect "the document's order, customer, currency, term and net value" \
+    "$(field '"\(.sales_order_id) \(.customer_id) \(.currency) \(.payment_term_code) \(.net_amount.amount)"')" "$order $customer CAD NT30 1737.53"
+  expect "each item's order item, quantity and amount" \
+    "$(field '[.items[] | "\(.order_item_no): \(.quantity.value) \(.quantity.unit) \(.net_amount.amount)"] | join(", ")')" \
+    "1: 120 EA 1500.00, 2: 2.5 H 237.53"
+  say "Its items and its net value are the order's. The order shows everything billed; its version moved:"
+  api 200 '"sales order \(.document_number): \(.status), version \(.version), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.description): ordered \(.quantity.value) \(.quantity.unit), delivered \(.delivered_quantity.value), billed \(.billed_quantity.value)")' \
+    getSalesOrder -p "id=$order"
+  expect "each item's ordered, delivered and billed quantity" \
+    "$(field '[.items[] | "\(.quantity.value) \(.delivered_quantity.value) \(.billed_quantity.value)"] | join(", ")')" "120 120 120, 2.5 2.5 2.5"
+  expect "the order's version and net value" "$(field '"\(.version) \(.net_amount.amount)"')" "5 1737.53"
+  say "Nothing is left to bill, so a second document is refused; no quantity is billed twice:"
+  refused 422 sales.nothing_to_bill createBillingDocument -body "{\"sales_order_id\": \"$order\"}"
+  expect "the field refused" "$(field '.errors[0].field')" sales_order_id
+  say "Read back, it is the order's one billing document:"
+  QUIET=1 api 200 '' getBillingDocument -p "id=$doc"
+  expect "the document read back" "$(field '"\(.document_number) \(.status) \(.version) \(.net_amount.amount)"')" "$number created 1 1737.53"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), sales order \(.sales_order_number), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listBillingDocuments -p "sales_order_id=$order"
+  expect "the order's billing documents" "$(field '[.items[] | "\(.document_number) \(.status)"] | join(" ")')" "$number created"
+  BILLING_DOCUMENT=$doc
+  say "A billing document posts nothing until it is posted as a customer invoice: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
+# step_price_list is T80a (ADR-0067 §10): Paula, the pricing analyst,
+# records a general price and Northwind's own price for one item key;
+# Sally's quotation item that names the key without a price takes
+# Northwind's price, another customer's takes the general one, and a
+# price entered with an item stays; an item with neither is refused
+# naming its price; a later record does not change an item priced
+# before. T80b (ADR-0067 §11): Ada activates a pricing procedure, a price
+# and a customer discount, through a governed change; Paula records
+# Northwind's discount of five percent; a new quotation item shows the
+# price, the discount and the net value after it.
+step_price_list() {
+  heading "Step 65 — Sales prices: a general price and a customer's price recorded for an item key; a quotation item without a price takes the customer's, another customer's the general one; an entered price stays; the price is fixed on the item; a pricing procedure through a governed change, a customer's discount, and an item's conditions with its net value after them"
+  local customer=$CUSTOMER sales ar until from item manual quotation contoso base cr request
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ada
+  say "Ada adds Paula, the pricing analyst, to the team:"
+  person paula "Paula Pricing" finance_staff
+  as paula
+  sales=$(account 4000)
+  ar=$(account 1200)
+  from="$YEAR-01-01"
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Maple sells its machined bracket, item key BRACKET-M8, at 12.50 CAD each. Paula records that as the general"
+  say "price, for every customer, valid from $from, and Northwind's own price, 1174.99 CAD per 100 (ADR-0067 §10):"
+  api 201 '"price of \(.item_key) for every customer, \(.company_code) \(.company_name): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"12.50\", \"currency\": \"CAD\"}, \"valid_from\": \"$from\"}"
+  expect "the general price names no customer" "$(field '.customer_id // "none"')" none
+  api 201 '"price of \(.item_key) for \(.customer_number) \(.customer_name): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"1174.99\", \"currency\": \"CAD\"}, \"price_unit\": 100, \"valid_from\": \"$from\"}"
+  expect "the customer's price by name" "$(field '"\(.customer_name) \(.unit_price.amount) \(.price_unit)"')" "Northwind Traders 1174.99 100"
+  api 200 '.items[] | "  \(.item_key) \(.customer_number // "every customer"): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit) from \(.valid_from)"' \
+    listSalesPrices -p "legal_entity_id=$LE" -p item_key=BRACKET-M8 -p "valid_on=$TODAY" -p order_by=valid_from
+  expect "the prices of the key valid today" "$(field '[.items[] | .unit_price.amount] | sort | join(" ")')" "1174.99 12.50"
+  as sally
+  say "Sally quotes Northwind 250 brackets without a price, and the installation at a price she enters. The bracket"
+  say "takes Northwind's price: 250 at 1174.99 per 100 are 2937.475, 2937.48 rounded half away from zero. The"
+  say "installation keeps her price:"
+  item="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"250\", \"unit\": \"EA\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  manual="{\"description\": \"Installation on site\", \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}, \"unit_price\": {\"amount\": \"95.01\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)) = \(.net_amount.amount)")' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item, $manual]}"
+  expect "each item's price, its source and its value" \
+    "$(field '[.items[] | "\(.unit_price.amount) per \(.price_unit) \(.price_source) \(.net_amount.amount)"] | join(", ")')" \
+    "1174.99 per 100 price_list 2937.48, 95.01 per 1 manual 237.53"
+  expect "the net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "3175.01 CAD"
+  say "Contoso, a new customer, has no price of its own. Ruth creates it and Carla approves it, as Northwind was:"
+  as ruth
+  api 201 '"business partner \(.number) \(.name): \(.status), \(.roles | join(", "))"' createBusinessPartner \
+    -body "{\"kind\": \"organization\", \"name\": \"Contoso Ltd\", \"country_code\": \"CA\", \"roles\": [\"customer\"], \"customer_companies\": [{\"legal_entity_id\": \"$LE\", \"reconciliation_account_id\": \"$ar\", \"payment_term_code\": \"NT30\"}], \"reason\": \"Buys machined parts from Maple\"}"
+  contoso=$(field .id)
+  QUIET=1 api 200 '' listPartnerChanges -p "partner_id=$contoso" -p kind=create
+  approve carla "$(field '.items[0].workflow_request_id')" "Customer confirmed against its purchase order"
+  as sally
+  say "The same item for Contoso takes the general price:"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)) = \(.net_amount.amount)")' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item]}"
+  quotation=$(field .id)
+  expect "the general price on Contoso's item" "$(field '.items[0] | "\(.unit_price.amount) per \(.price_unit) \(.price_source) \(.net_amount.amount)"')" \
+    "12.50 per 1 price_list 3125.00"
+  say "WASHER-M8 has no price record, and an item without a key cannot be looked up: each is refused naming the"
+  say "price the item lacks:"
+  refused 422 sales.no_price createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [${item/BRACKET-M8/WASHER-M8}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].unit_price"
+  refused 422 sales.no_price createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item, ${item/\"item_key\": \"BRACKET-M8\", /}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[1].unit_price"
+  say "Paula raises the general price to 13.25 from today. A record is never changed: the new price is a new"
+  say "record, and Contoso's quotation keeps the price it was made with:"
+  as paula
+  api 201 '"price of \(.item_key) for every customer: \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"13.25\", \"currency\": \"CAD\"}, \"valid_from\": \"$TODAY\"}"
+  as sally
+  api 200 '"quotation \(.document_number): item 1 at \(.items[0].unit_price.amount) per \(.items[0].price_unit) = \(.items[0].net_amount.amount), net \(.net_amount.amount) \(.net_amount.currency)"' \
+    getQuotation -p "id=$quotation"
+  expect "the item priced before" "$(field '.items[0] | "\(.unit_price.amount) \(.net_amount.amount)"')" "12.50 3125.00"
+  say "Maple now gives Northwind a discount. Discounts need a pricing procedure (ADR-0067 §11): the condition types"
+  say "and the order they apply in are the tenant's configuration, and none is shipped. Ada proposes a price, PR00,"
+  say "and a customer discount, K007, a percentage of the value before it. They post nothing, so the change is"
+  say "tier 2, approved by the process owner:"
+  as ada
+  QUIET=1 api 200 '' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Pricing procedure\", rationale: \"Maple's condition types and their order (T80b)\", base_version: $base,
+    proposed: (.items[0].document | .pricing = {condition_types: [{code: \"PR00\", name: \"Price\", kind: \"price\"},
+      {code: \"K007\", name: \"Customer discount\", kind: \"discount_percent\"}], procedure: [{condition_type: \"PR00\"}, {condition_type: \"K007\"}]})}" \
+    "$WORK/last.json" >"$WORK/pricing.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @pricing.json
+  cr=$(field .id)
+  api 200 '"\(.status), tier \(.tier): \([.items[].path] | join(", "))"' submitChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "the change's tier" "$(field .tier)" 2
+  expect "the pricing settings among the changes" "$(field '[.items[] | select(.path | startswith("pricing."))] | length')" 4
+  request=$(field .workflow_request_id)
+  approve priya "$request" "The pricing procedure, as agreed with sales"
+  as ada
+  QUIET=1 api 200 '' getChangeRequest -p "id=$cr"
+  api 200 '"\(.status): configuration version \(.activated_version)"' activateChangeRequest -p "id=$cr" -if-match "$ETAG"
+  expect "status after activation" "$(field .status)" active
+  as paula
+  say "Paula records Northwind's discount on the bracket, five percent. A record of a condition type the"
+  say "configuration does not have is refused:"
+  api 201 '"\(.kind) \(.condition_type) on \(.item_key) for \(.customer_number) \(.customer_name): \(.percent) percent, valid from \(.valid_from)"' \
+    createSalesPrice -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"condition_type\": \"K007\", \"percent\": \"5\", \"valid_from\": \"$from\"}"
+  expect "the discount" "$(field '"\(.kind) \(.condition_type) \(.percent) \(.customer_name)"')" "discount_percent K007 5 Northwind Traders"
+  refused 422 sales.unknown_condition_type createSalesPrice \
+    -body "{\"legal_entity_id\": \"$LE\", \"item_key\": \"BRACKET-M8\", \"customer_id\": \"$customer\", \"condition_type\": \"ZZ00\", \"percent\": \"5\", \"valid_from\": \"$from\"}"
+  expect "the field refused" "$(field '.errors[0].field')" "condition_type"
+  as sally
+  say "A new quotation to Northwind shows each condition applied to the item and the net value after it: the price,"
+  say "2937.48, less five percent of it, 146.874: 146.87 rounded half away from zero, leaves 2790.61:"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)), net \(.net_amount.amount)", (.conditions[] | "    \(.condition_type) \(.name): \(if .kind == "price" then "\(.unit_price.amount) per \(.price_unit)" else "\(.percent) percent" end) = \(.amount.amount) \(.amount.currency)"))' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item]}"
+  expect "the conditions applied" "$(field '[.items[0].conditions[] | "\(.condition_type) \(.kind) \(.amount.amount)"] | join(", ")')" \
+    "PR00 price 2937.48, K007 discount_percent -146.87"
+  expect "the discount's rate" "$(field '.items[0].conditions[1].percent')" 5
+  expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8586,7 +9145,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_close'
 
 main() {
   stop_unseen

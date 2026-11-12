@@ -429,8 +429,9 @@ As built in T56c (migration 000140):
   `lock_actual_revenue`, `lock_plan`: the locks a new cost center of the
   category starts with, SAP's category defaults); per account
   `cost_element` (`none`, `primary_cost` on an expense only, `revenue` on a
-  revenue only; `secondary` is refused until T60; empty takes the type's
-  default, `config.Account.CostElementOrDefault`); per company
+  revenue only; `secondary` is refused until T60 and, since T60g, accepted
+  on an expense account that only allocations post to, ADR-0064 §4; empty
+  takes the type's default, `config.Account.CostElementOrDefault`); per company
   `cost_center_accounting`, `profit_center_accounting`,
   `default_profit_center` and `default_assignments` (`{account,
   cost_center}`, one per account, only for an account that needs a cost
@@ -550,6 +551,7 @@ trigger, for postings dated in fiscal years from T56's activation):
 |---|---|---|---|
 | `primary_cost` | required (or, from T60, another real cost object) | required, derived | derived |
 | `revenue` | optional, only a revenue-allowed category, statistical | required | derived |
+| `secondary` (T60g, ADR-0064 §4) | required, named by the allocation; only controlling's entries post the line | required, derived | derived |
 | `none`, P&L account | refused | required, derived or default | derived |
 | `none`, balance sheet | refused | optional (entered only; no splitting, P3) | derived if a profit center is given |
 

@@ -81,6 +81,17 @@ type Handler interface {
 	//
 	// POST /v1/memo-records/{id}:acceptProposal
 	AcceptMemoRecordProposal(ctx context.Context, req OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (AcceptMemoRecordProposalRes, error)
+	// AcceptQuotation implements acceptQuotation operation.
+	//
+	// Records that the customer accepted an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `accepted` once. One
+	// that is not open is refused (409 `sales.invalid_status`), and so is one whose `valid_until` is
+	// before the company's date today in its time zone (409 `sales.quotation_expired`): it is made again.
+	// Nothing is posted. Audited, and published as QuotationChanged. A retry with the same
+	// `Idempotency-Key` answers the accepted quotation. Human-only (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:accept
+	AcceptQuotation(ctx context.Context, params AcceptQuotationParams) (AcceptQuotationRes, error)
 	// AcceptVarianceComment implements acceptVarianceComment operation.
 	//
 	// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
@@ -112,7 +123,10 @@ type Handler interface {
 	// `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
 	// replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that
 	// the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new
-	// account becomes an asset reconciliation account.
+	// account becomes an asset reconciliation account. An existing account whose cost element becomes
+	// `secondary`, or a secondary cost element given another cost element, is refused (409
+	// `ledger.secondary_account_not_new`, ADR-0064 §4): an account is a secondary cost element from its
+	// creation and stays one.
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -501,16 +515,55 @@ type Handler interface {
 	//
 	// POST /v1/dunning-runs/{id}:confirm
 	ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (ConfirmDunningRunRes, error)
+	// ConfirmSalesDelivery implements confirmSalesDelivery operation.
+	//
+	// Records that quantities of a `confirmed` sales order's items were delivered, or a service made
+	// available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
+	// context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
+	// read under a row lock, so two confirmations of one order wait for one another. An order that is not
+	// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
+	// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
+	// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
+	// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
+	// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
+	// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
+	// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
+	// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
+	// written once; it is not changed or reversed in the first version. Each order item's
+	// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
+	// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
+	// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
+	// `listSalesDeliveries`. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}/deliveries
+	ConfirmSalesDelivery(ctx context.Context, req *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error)
+	// ConfirmSalesOrder implements confirmSalesOrder operation.
+	//
+	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
+	// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
+	// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
+	// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
+	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:confirm
+	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
 	// CreateAllocationCycle implements createAllocationCycle operation.
 	//
 	// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
 	// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
-	// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
-	// original accounts. The code is unique in the legal entity (409
-	// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
-	// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
-	// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
-	// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+	// The kind is `distribution`, whose run moves the sender's primary costs to the receivers on their
+	// original accounts, or `assessment`, whose run charges them to the receivers in one amount on the
+	// cycle's assessment account and leaves them on the sender's accounts. An assessment cycle names its
+	// assessment account, `assessment_account_id`: an active account of the legal entity whose cost
+	// element is `secondary` (ADR-0064 §4), which only allocations post to; a distribution names none.
+	// The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422
+	// `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind that is
+	// neither (`kind`, `unsupported`); an assessment without its account (`assessment_account_id`,
+	// `required`), with one that is no account of the legal entity (`unknown`), not a secondary cost
+	// element (`not_secondary`) or not active (`not_active`), and a distribution with one (`not_allowed`);
+	// a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id`
+	// or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
 	// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
 	// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
 	// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
@@ -679,6 +732,32 @@ type Handler interface {
 	//
 	// POST /v1/asset-transfers
 	CreateAssetTransfer(ctx context.Context, req *AssetTransferCreate, params CreateAssetTransferParams) (CreateAssetTransferRes, error)
+	// CreateBillingDocument implements createBillingDocument operation.
+	//
+	// Creates a billing document for one sales order (ADR-0067 §9, T79a): each of its items bills the
+	// quantity delivered of an order item (`confirmSalesDelivery`) less what earlier billing documents of
+	// the order billed, at the order's price. The order is one of a company the caller may act in (422
+	// `request.reference_not_found` naming `sales_order_id`) and is read under a row lock, so two requests
+	// for one order wait for one another and no quantity is billed twice. An item's amount is the order
+	// item's net value × the quantity billed so far, this document included, ÷ the quantity ordered,
+	// rounded half away from zero to the currency's minor unit, less what earlier documents billed of it:
+	// the documents of an item billed in full add up to its net value to the minor unit, the last taking
+	// the remainder. A quantity whose amount would round to zero is left for a later document. An order
+	// with nothing to bill, because nothing is delivered that is not billed, is refused (422
+	// `sales.nothing_to_bill`). The document is dated `billing_date`, else the company's date today in its
+	// time zone, and numbered from the company's `billing_document` number range of that date's fiscal
+	// year (422 `ledger.no_fiscal_period` for a date without one, `config.no_number_range` for a company
+	// without the range). An order's items are not changed in the first version, so an order one of whose
+	// billed items names an account that can no longer be posted in the company, or a tax code that is no
+	// output tax code of the company with a rate on the billing date, cannot be billed on that date (422
+	// `sales.order_item_not_billable` naming `sales_order_id`, with the item in the message). The document
+	// is created `created`; each order item's `billed_quantity` rises by what was billed and the order's
+	// `version` moves. Amounts are net; nothing is posted (posting it as a customer invoice comes with
+	// T79b). Audited, and published as BillingDocumentChanged. A retry with the same `Idempotency-Key`
+	// answers the document created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/billing-documents
+	CreateBillingDocument(ctx context.Context, req *BillingDocumentCreate, params CreateBillingDocumentParams) (CreateBillingDocumentRes, error)
 	// CreateBusinessPartner implements createBusinessPartner operation.
 	//
 	// Creates the partner in status `pending` together with a partner change of kind `create` (see
@@ -705,6 +784,22 @@ type Handler interface {
 	//
 	// POST /v1/cash-snapshots/{id}/exports
 	CreateCashExport(ctx context.Context, req *CashExportCreate, params CreateCashExportParams) (CreateCashExportRes, error)
+	// CreateCatalogItem implements createCatalogItem operation.
+	//
+	// Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its
+	// item key, description, unit and price per `price_unit`, in the price's currency. The supplier must
+	// be one that can be ordered from in the company, as a purchase order's must be (422
+	// `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active
+	// items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
+	// `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
+	// contract of the company and the supplier in the item's currency (422
+	// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
+	// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+	// afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
+	// published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
+	//
+	// POST /v1/catalog-items
+	CreateCatalogItem(ctx context.Context, req *CatalogItemCreate, params CreateCatalogItemParams) (CreateCatalogItemRes, error)
 	// CreateChangeRequest implements createChangeRequest operation.
 	//
 	// Creates a change request in status `draft`.
@@ -1115,6 +1210,42 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders/{id}/changes
 	CreatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error)
+	// CreateQuotation implements createQuotation operation.
+	//
+	// Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a
+	// date. It is created `open`, dated the company's date today in its time zone, with a document number
+	// from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no
+	// document is sent to the customer. The customer is an active business partner with the customer role
+	// that is not blocked for posting in the company (422 `request.reference_not_found` naming
+	// `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is
+	// required from the sales order, not here. `valid_until` is not before the quotation's date (422
+	// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
+	// `item_key` (there is no material master; neither is white space alone, 422
+	// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
+	// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
+	// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
+	// `price_unit`, or without one the price recorded for its `item_key` that is valid on the quotation's
+	// date in the item's unit and the quotation's currency, the customer's before the general one and then
+	// the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price
+	// nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
+	// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
+	// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
+	// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
+	// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer
+	// invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half
+	// away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive`
+	// naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not
+	// give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a
+	// pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key
+	// and valid on the quotation's date, the customer's before the general one, is taken off in the
+	// procedure's order, as a percentage of the value before it rounded half away from zero; `conditions`
+	// lists the price and the discounts applied, and `net_amount` is the value less the discounts, still
+	// more than zero (ADR-0067 §11). Amounts are net: the tax is calculated when the order is billed, at
+	// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/quotations
+	CreateQuotation(ctx context.Context, req *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
 	// CreateRecommendation implements createRecommendation operation.
 	//
 	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -1138,10 +1269,29 @@ type Handler interface {
 	CreateRegressionSuite(ctx context.Context, req *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
 	// CreateRequisition implements createRequisition operation.
 	//
-	// Creates a draft requisition.
+	// Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
+	// with a quantity (ADR-0071 §6, T84b): it takes the catalog item's description, unit, price and price
+	// unit, and the requisition its supplier and, if the catalog item names one, its contract. The
+	// requisition is then submitted, approved and ordered as any other.
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, req *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
+	// CreateRfq implements createRfq operation.
+	//
+	// Creates a draft RFQ of a legal entity (ADR-0069 §1-§2): the currency quotations are given in, the
+	// date they are due, the items asked for (a quantity and unit each, no price) and the suppliers
+	// invited. Each item names what is bought by a description and a material key, once per RFQ (422
+	// `procurement.duplicate_material_key`), and the account it is bought on, one the legal entity can
+	// post to. Each supplier is named once (422 `procurement.rfq_supplier_repeated`) and must be one an
+	// order could be placed with in the legal entity: an active business partner in the supplier role, set
+	// up in the legal entity and not blocked for posting (422 `procurement.supplier_not_usable`, the field
+	// error naming `supplier_ids[i]`). The due date is not before the legal entity's date today in its
+	// company's time zone (422 `procurement.rfq_due_date_past`, naming that date and zone). The RFQ is
+	// numbered from the company's `rfq` number range for that date's fiscal year. A draft is not changed:
+	// it is published (`:publish`) as created. Audited, and published as RfqChanged.
+	//
+	// POST /v1/rfqs
+	CreateRfq(ctx context.Context, req *RfqCreate, params CreateRfqParams) (CreateRfqRes, error)
 	// CreateRole implements createRole operation.
 	//
 	// Creates a role without permissions.
@@ -1154,6 +1304,58 @@ type Handler interface {
 	//
 	// POST /v1/role-assignments
 	CreateRoleAssignment(ctx context.Context, req *RoleAssignmentCreate, params CreateRoleAssignmentParams) (CreateRoleAssignmentRes, error)
+	// CreateSalesOrder implements createSalesOrder operation.
+	//
+	// Creates a sales order (ADR-0067 §5, T78b), from an accepted quotation or directly. With
+	// `quotation_id`, the order copies the quotation's company, customer, currency and items as they were
+	// offered, prices included; the request names none of them (422 `sales.quotation_or_items` naming the
+	// field given). The quotation is one of a company the caller may act in (422
+	// `request.reference_not_found` naming `quotation_id`) that the customer accepted (409
+	// `sales.quotation_not_accepted`), and it gives one order: a second is refused (409
+	// `sales.quotation_ordered`). Without `quotation_id`, the request gives `legal_entity_id`,
+	// `customer_id`, `currency` and `items` (422 `sales.quotation_or_items` naming the one missing), and
+	// the items are checked and priced as a quotation's are (`createQuotation`), on the order's date: an
+	// item without a `unit_price` takes the price recorded for its `item_key` (422 `sales.no_price` when
+	// there is none). Either way the order needs the customer's data in the company, as a receivables
+	// document does: a customer that is not active, has no customer role, has no data in the company or is
+	// blocked for posting there is refused (422 `sales.customer_not_usable`, naming `quotation_id` or
+	// `customer_id`). The order's payment term is `payment_term_code`, a configured term (422
+	// `sales.unknown_payment_term`), else the customer's in the company. It is created `draft`, dated the
+	// company's date today in its time zone, with a document number from the company's `sales_order`
+	// number range of that date's fiscal year; each item starts with nothing delivered or billed. Amounts
+	// are net; nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same
+	// `Idempotency-Key` answers the order created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders
+	CreateSalesOrder(ctx context.Context, req *SalesOrderCreate, params CreateSalesOrderParams) (CreateSalesOrderRes, error)
+	// CreateSalesPrice implements createSalesPrice operation.
+	//
+	// Records a price for an item key in a company (ADR-0067 §10, T80a): for every customer, or with
+	// `customer_id` for one, per `price_unit` of a unit of measure, in the currency of `unit_price`, valid
+	// from a day and, with `valid_to`, until a day. A quotation or sales order item that names the item
+	// key without a `unit_price` takes the price valid on the document's date in the item's unit and the
+	// document's currency: the customer's before the general one and, among several, the one with the
+	// latest `valid_from` (of two with the same `valid_from`, the one recorded last). The company is one
+	// the caller may act in. The item key is not white space alone (422 `request.validation_failed`). A
+	// customer is an active business partner with the customer role that is not blocked for posting in the
+	// company (422 `request.reference_not_found` naming `customer_id` for an unknown one,
+	// `sales.customer_not_usable` otherwise). The unit is one of the reference data (422
+	// `sales.unknown_unit` naming `unit`), the currency a known one (422 `sales.unknown_currency` naming
+	// `unit_price.currency`) and the price more than zero (422 `sales.amount_not_positive` naming
+	// `unit_price.amount`). `valid_to` is not before `valid_from` (422 `sales.invalid_validity`). With
+	// `condition_type` the record is of that type of the active configuration (422
+	// `sales.unknown_condition_type` for one it does not have): one of kind `price` is a price as above,
+	// one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422
+	// `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422
+	// `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
+	// item key when the pricing procedure names its type, the customer's before the general one as a price
+	// is found (ADR-0067 §11). A record is never changed or deleted: a new price is recorded with a later
+	// `valid_from`, and the items priced before keep their price. Audited, and published as
+	// SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/sales-prices
+	CreateSalesPrice(ctx context.Context, req *SalesPriceCreate, params CreateSalesPriceParams) (CreateSalesPriceRes, error)
 	// CreateSegment implements createSegment operation.
 	//
 	// Creates a segment at once: a segment changes nothing until a profit center names it, which is an
@@ -1174,6 +1376,24 @@ type Handler interface {
 	//
 	// POST /v1/supplier-invoices
 	CreateSupplierInvoice(ctx context.Context, req *SupplierInvoiceCreate, params CreateSupplierInvoiceParams) (CreateSupplierInvoiceRes, error)
+	// CreateSupplierQuotation implements createSupplierQuotation operation.
+	//
+	// Records the quotation an invited supplier gave for a `published` RFQ (409
+	// `procurement.invalid_status` for a draft), read under the RFQ's row lock (ADR-0069 §7): the
+	// supplier's reference, the date the quotation is valid until, and a price per RFQ item, in the RFQ's
+	// currency (422 `procurement.currency_mismatch`), positive, per `price_unit` of the RFQ item's unit of
+	// measure. The supplier must be one the RFQ invites (422 `procurement.supplier_not_invited`) and has
+	// one quotation per RFQ: a second is refused (409 `procurement.quotation_exists`), while the same
+	// request with its `Idempotency-Key` again answers what it answered. Each item names an item of the
+	// RFQ by `rfq_item_no` (422 `procurement.unknown_rfq_item`), once (422
+	// `procurement.quotation_item_repeated`). A quotation may leave RFQ items out: it is then not
+	// `complete`, and `unquoted_item_nos` names them. Its `total` is the sum over its items of the RFQ
+	// item's quantity × unit price ÷ price unit, each rounded half away from zero to the currency's
+	// minor unit. Audited, and published as SupplierQuotationRecorded, which names the supplier by id and
+	// number.
+	//
+	// POST /v1/rfqs/{id}/quotations
+	CreateSupplierQuotation(ctx context.Context, req *SupplierQuotationCreate, params CreateSupplierQuotationParams) (CreateSupplierQuotationRes, error)
 	// CreateUpload implements createUpload operation.
 	//
 	// Starts an upload of a document too large for a request body (04 §4.11): the answer names a `url` to
@@ -1238,6 +1458,18 @@ type Handler interface {
 	//
 	// POST /v1/recommendations/{id}:decide
 	DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
+	// DeclineQuotation implements declineQuotation operation.
+	//
+	// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `rejected` once,
+	// whether or not it is still valid. One that is not open is refused (409 `sales.invalid_status`). The
+	// action is `:decline` because `:reject` is an approval decision's, made on approval requests alone
+	// (04 §4.9); a quotation has no approval. Nothing is posted. Audited, and published as
+	// QuotationChanged. A retry with the same `Idempotency-Key` answers the rejected quotation. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:decline
+	DeclineQuotation(ctx context.Context, params DeclineQuotationParams) (DeclineQuotationRes, error)
 	// DeleteWebhookSubscription implements deleteWebhookSubscription operation.
 	//
 	// Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer
@@ -1731,6 +1963,16 @@ type Handler interface {
 	//
 	// GET /v1/bank-statements/{id}/rules
 	GetBankStatementRules(ctx context.Context, params GetBankStatementRulesParams) (GetBankStatementRulesRes, error)
+	// GetBillingDocument implements getBillingDocument operation.
+	//
+	// One billing document (ADR-0067 §9, T79a) with its company's code and name, its customer's number
+	// and name, the sales order it bills by id and number with the order's payment term, its billing date,
+	// its net value and its items, each with the order item it bills, the quantity billed, the order's
+	// unit price, its amount and its revenue account's number and name. One of a company the caller may
+	// not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/billing-documents/{id}
+	GetBillingDocument(ctx context.Context, params GetBillingDocumentParams) (GetBillingDocumentRes, error)
 	// GetBusinessPartner implements getBusinessPartner operation.
 	//
 	// Returns one business partner.
@@ -1815,6 +2057,13 @@ type Handler interface {
 	//
 	// GET /v1/cash-snapshots/{id}
 	GetCashSnapshot(ctx context.Context, params GetCashSnapshotParams) (GetCashSnapshotRes, error)
+	// GetCatalogItem implements getCatalogItem operation.
+	//
+	// One catalog item (ADR-0071, T84a), active or retired, with its supplier's number and name. One of a
+	// company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/catalog-items/{id}
+	GetCatalogItem(ctx context.Context, params GetCatalogItemParams) (GetCatalogItemRes, error)
 	// GetCenterChange implements getCenterChange operation.
 	//
 	// Returns one center change.
@@ -2482,6 +2731,15 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetQuotation implements getQuotation operation.
+	//
+	// One quotation (ADR-0067 §2, T78a) with its company's code and name, its customer's number and name,
+	// its net value and its items, each with its quantity, unit price, net value and its revenue account's
+	// number and name. One of a company the caller may not act in is not found (404), as one that does not
+	// exist.
+	//
+	// GET /v1/quotations/{id}
+	GetQuotation(ctx context.Context, params GetQuotationParams) (GetQuotationRes, error)
 	// GetReceivablesAging implements getReceivablesAging operation.
 	//
 	// The AR aging (ADR-0063 §10, T75e): a company's open items on customer reconciliation accounts on a
@@ -2531,6 +2789,13 @@ type Handler interface {
 	//
 	// GET /v1/revaluation-runs/{id}
 	GetRevaluationRun(ctx context.Context, params GetRevaluationRunParams) (GetRevaluationRunRes, error)
+	// GetRfq implements getRfq operation.
+	//
+	// Returns one RFQ with its items and the suppliers invited. An RFQ of a legal entity the caller cannot
+	// act in is answered as missing (404).
+	//
+	// GET /v1/rfqs/{id}
+	GetRfq(ctx context.Context, params GetRfqParams) (GetRfqRes, error)
 	// GetRole implements getRole operation.
 	//
 	// Returns one role.
@@ -2549,6 +2814,24 @@ type Handler interface {
 	//
 	// GET /v1/roles/{id}/permissions/{permission_id}
 	GetRolePermission(ctx context.Context, params GetRolePermissionParams) (GetRolePermissionRes, error)
+	// GetSalesOrder implements getSalesOrder operation.
+	//
+	// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
+	// name, the quotation it was created from by id and number, its payment term, its net value and its
+	// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
+	// revenue account's number and name. One of a company the caller may not act in is not found (404), as
+	// one that does not exist.
+	//
+	// GET /v1/sales-orders/{id}
+	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
+	// GetSalesPrice implements getSalesPrice operation.
+	//
+	// One price record (ADR-0067 §10, §11, T80a, T80b), a price or a discount, with its company's code
+	// and name and, for a customer's record, the customer's number and name. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/sales-prices/{id}
+	GetSalesPrice(ctx context.Context, params GetSalesPriceParams) (GetSalesPriceRes, error)
 	// GetSchema implements getSchema operation.
 	//
 	// The tenant's custom field schema for the entity in the active configuration version (ADR-0046): the
@@ -2923,6 +3206,15 @@ type Handler interface {
 	//
 	// GET /v1/bank-statements
 	ListBankStatements(ctx context.Context, params ListBankStatementsParams) (ListBankStatementsRes, error)
+	// ListBillingDocuments implements listBillingDocuments operation.
+	//
+	// The billing documents of the companies the caller may act in (ADR-0067 §9, T79a), each as
+	// `getBillingDocument` gives it: with its company's code and name, its customer's number and name, the
+	// sales order it bills by id and number, its net value and its items. Filtered by company, customer,
+	// sales order, status and document number. Sortable by: `billing_date`, `document_number`.
+	//
+	// GET /v1/billing-documents
+	ListBillingDocuments(ctx context.Context, params ListBillingDocumentsParams) (ListBillingDocumentsRes, error)
 	// ListBusinessPartners implements listBusinessPartners operation.
 	//
 	// Business partners. Filter by `number` or `name_prefix` to look one up, or by `ids` to name the
@@ -2984,6 +3276,18 @@ type Handler interface {
 	//
 	// GET /v1/cash-snapshots
 	ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (ListCashSnapshotsRes, error)
+	// ListCatalogItems implements listCatalogItems operation.
+	//
+	// The catalog items of one company (ADR-0071 §3, T84a), each as `getCatalogItem` gives it: with its
+	// supplier's number and name, its item key, description, unit and price and, when it names one, the
+	// contract item that prices an order of it. `legal_entity_id` is required: a catalog is a company's,
+	// and a company the caller may not act in has no items to show. `text` finds the items whose item key
+	// or description contains it, whatever the case; `supplier_id` those of one supplier. Without `status`
+	// only `active` items are returned; `status=retired` returns the retired ones. Sortable by: `item_key`
+	// (default), `created_at`; items with the same key are in the order of their ids, so pages are stable.
+	//
+	// GET /v1/catalog-items
+	ListCatalogItems(ctx context.Context, params ListCatalogItemsParams) (ListCatalogItemsRes, error)
 	// ListCenterChanges implements listCenterChanges operation.
 	//
 	// Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal
@@ -3721,6 +4025,15 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
+	// ListQuotations implements listQuotations operation.
+	//
+	// The quotations of the companies the caller may act in (ADR-0067 §2, T78a), each as `getQuotation`
+	// gives it: with its company's code and name, its customer's number and name, its net value and its
+	// items. Filtered by company, customer, status and document number. Sortable by: `quotation_date`,
+	// `document_number`.
+	//
+	// GET /v1/quotations
+	ListQuotations(ctx context.Context, params ListQuotationsParams) (ListQuotationsRes, error)
 	// ListRecommendations implements listRecommendations operation.
 	//
 	// Agent recommendations, newest first. Sortable by: `created_at`.
@@ -3749,6 +4062,14 @@ type Handler interface {
 	//
 	// GET /v1/revaluation-runs
 	ListRevaluationRuns(ctx context.Context, params ListRevaluationRunsParams) (ListRevaluationRunsRes, error)
+	// ListRfqs implements listRfqs operation.
+	//
+	// Requests for quotation (RFQs, ADR-0069) of the legal entities the caller may act in, each with its
+	// company's code and name, its items with their accounts' numbers and names, and the suppliers invited
+	// by id, number and name. Sortable by: `due_date`, `document_number`.
+	//
+	// GET /v1/rfqs
+	ListRfqs(ctx context.Context, params ListRfqsParams) (ListRfqsRes, error)
 	// ListRoleAssignments implements listRoleAssignments operation.
 	//
 	// Effective-dated role grants, including ended ones. Sortable by: `valid_from`.
@@ -3767,6 +4088,37 @@ type Handler interface {
 	//
 	// GET /v1/roles
 	ListRoles(ctx context.Context, params ListRolesParams) (ListRolesRes, error)
+	// ListSalesDeliveries implements listSalesDeliveries operation.
+	//
+	// The delivery confirmations of a sales order (ADR-0067 §8, T78c), each as `confirmSalesDelivery`
+	// answered it: its number within the order, its date and its items, each naming the order's item by
+	// number, item key and description with the quantity delivered in the item's unit. The order's own
+	// items show the sum (`delivered_quantity`, `getSalesOrder`). An order of a company the caller may not
+	// act in is not found (404), as one that does not exist. Sortable by: `delivery_date`.
+	//
+	// GET /v1/sales-orders/{id}/deliveries
+	ListSalesDeliveries(ctx context.Context, params ListSalesDeliveriesParams) (ListSalesDeliveriesRes, error)
+	// ListSalesOrders implements listSalesOrders operation.
+	//
+	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
+	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
+	// quotation it came from, its net value and its items with their ordered, delivered and billed
+	// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
+	// `order_date`, `document_number`.
+	//
+	// GET /v1/sales-orders
+	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
+	// ListSalesPrices implements listSalesPrices operation.
+	//
+	// The price records of the companies the caller may act in (ADR-0067 §10, §11, T80a, T80b), prices
+	// and discounts, each as `getSalesPrice` gives it: with its company's code and name and, for a
+	// customer's record, the customer's number and name. Filtered by company, item key, customer (the
+	// records for that customer; general ones have none), condition type and `valid_on`, a day the record
+	// is valid on. Records are never changed: a new price is a new record with a later `valid_from`.
+	// Sortable by: `item_key`, `valid_from`.
+	//
+	// GET /v1/sales-prices
+	ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (ListSalesPricesRes, error)
 	// ListSegments implements listSegments operation.
 	//
 	// Segments of the tenant (IFRS 8 operating segments). Sortable by: `code`.
@@ -3787,6 +4139,15 @@ type Handler interface {
 	//
 	// GET /v1/supplier-invoices
 	ListSupplierInvoices(ctx context.Context, params ListSupplierInvoicesParams) (ListSupplierInvoicesRes, error)
+	// ListSupplierQuotations implements listSupplierQuotations operation.
+	//
+	// The quotations recorded against one RFQ (ADR-0069 §7), oldest first, each with its supplier by id,
+	// number and name, its items beside the RFQ items they price, its total and whether it is complete. An
+	// RFQ of a legal entity the caller cannot act in is answered as missing (404). Sortable by:
+	// `created_at`.
+	//
+	// GET /v1/rfqs/{id}/quotations
+	ListSupplierQuotations(ctx context.Context, params ListSupplierQuotationsParams) (ListSupplierQuotationsRes, error)
 	// ListTaxPeriods implements listTaxPeriods operation.
 	//
 	// The registration's filing periods (ADR-0049 §10, T61g), by start date: the first starts on its
@@ -4198,18 +4559,20 @@ type Handler interface {
 	// At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's
 	// entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account
 	// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
-	// It posts to every ledger its company keeps as linked entries of one posting group sharing the
-	// document number (`posting_group_id`), each period checked open in its ledger, and returns the
-	// leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to
-	// those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales
-	// here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its
-	// `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines'
-	// subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
-	// component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
-	// adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
-	// recorded as tax items at rate 0. People and service principals post here; an agent never does,
-	// whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is
-	// refused for its autonomy first), and proposes entries by parking them.
+	// A line on a secondary cost element (an account whose cost element is `secondary`, ADR-0064 §4) is
+	// 422 `ledger.secondary_account`: only allocations post to it (`allocation-cycles/{id}:run`). It posts
+	// to every ledger its company keeps as linked entries of one posting group sharing the document number
+	// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
+	// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
+	// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
+	// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
+	// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
+	// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
+	// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
+	// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
+	// rate 0. People and service principals post here; an agent never does, whatever its level or
+	// permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is refused for its autonomy
+	// first), and proposes entries by parking them.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
@@ -4476,6 +4839,19 @@ type Handler interface {
 	//
 	// POST /v1/variance-comment-proposals
 	ProposeVarianceComment(ctx context.Context, req *VarianceCommentProposal, params ProposeVarianceCommentParams) (ProposeVarianceCommentRes, error)
+	// PublishRfq implements publishRfq operation.
+	//
+	// Publishes a `draft` RFQ at the version the caller read (`If-Match`): the RFQ is read under a row
+	// lock and moves to `published` once (409 `procurement.invalid_status` for one already published),
+	// after which quotations are recorded against it and nothing changes it. The RFQ is checked again as
+	// it was when created: every supplier invited must still be one an order could be placed with (422
+	// `procurement.supplier_not_usable`, the field error naming `suppliers[i].supplier_id`), and the due
+	// date not before the legal entity's date today in its company's time zone (422
+	// `procurement.rfq_due_date_past`). Audited, and published as RfqPublished, which names the suppliers
+	// invited by id and number.
+	//
+	// POST /v1/rfqs/{id}:publish
+	PublishRfq(ctx context.Context, params PublishRfqParams) (PublishRfqRes, error)
 	// RealiseMemoRecord implements realiseMemoRecord operation.
 	//
 	// Marks an `active` or `expired` memo record `realised` (409 `cash.memo_record_closed`; an agent's
@@ -4821,6 +5197,15 @@ type Handler interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:resume
 	ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (ResumeWebhookSubscriptionRes, error)
+	// RetireCatalogItem implements retireCatalogItem operation.
+	//
+	// Takes an `active` item out of the catalog (status `retired`), once (409 `procurement.invalid_status`
+	// for a retired one), at the version read (`If-Match`). A retired item is still read by its id and
+	// found by a search with `status=retired`; its item key is free for a new item of the supplier.
+	// `CatalogItemChanged` is published.
+	//
+	// POST /v1/catalog-items/{id}:retire
+	RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (RetireCatalogItemRes, error)
 	// RetireEntryTemplate implements retireEntryTemplate operation.
 	//
 	// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -4950,29 +5335,38 @@ type Handler interface {
 	RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (RotateWebhookSubscriptionSecretRes, error)
 	// RunAllocationCycle implements runAllocationCycle operation.
 	//
-	// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
-	// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
-	// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
-	// local currency through the ledger (source context `controlling`, document type `SA`, dated the
-	// period's last day): per account, the sender credited with its cost and each receiver debited with
-	// its share on the same account, so the entry balances per account and every account's balance is
-	// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
-	// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
-	// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
-	// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+	// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A run reads the
+	// sender's primary costs of the period, per account, from the leading ledger (what the cost center
+	// report shows on primary cost accounts) and posts one journal entry in the legal entity's local
+	// currency through the ledger (source context `controlling`, document type `SA`, dated the period's
+	// last day). A distribution's entry has, per account, the sender credited with its cost and each
+	// receiver debited with its share on the same account, so the entry balances per account and every
+	// account's balance is unchanged; an account's cost is split by the receivers' percentages and rounded
+	// so that the shares add up to it to the minor unit (largest remainder). An assessment's entry is on
+	// the cycle's assessment account alone: the sender credited with the total of its primary costs and
+	// each receiver debited with its share of that total, split and rounded the same way, so the entry
+	// balances on the account; the sender's primary costs stay on their accounts, and the cost center
+	// report shows the sender relieved, and the receivers charged, on the assessment account. A sender
+	// without costs in the period, or for an assessment with costs that add up to nothing, posts nothing:
+	// `posted` is false and no run is kept, so the cycle may be run for the period later. One run per
+	// cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
 	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
 	// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
 	// both post, and two cycles of one sender run at once follow one another: the second moves what the
-	// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
-	// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
-	// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
-	// it); and what the ledger refuses of any entry, among them a period that is not open (409
-	// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
-	// cost posted to the sender in the period after its run stays on the sender. The run is kept
-	// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
-	// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
-	// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
-	// `identity.permission_missing` otherwise). Agents may not run a cycle.
+	// first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
+	// sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the
+	// assessment's cycle and entry): the sender's primary costs are still on their accounts, and another
+	// run would charge them a second time. Refused besides: a fiscal year not set up (422
+	// `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
+	// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
+	// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
+	// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
+	// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
+	// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
+	// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
+	// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+	// not run a cycle.
 	//
 	// POST /v1/allocation-cycles/{id}:run
 	RunAllocationCycle(ctx context.Context, req *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
@@ -5538,7 +5932,12 @@ type Handler interface {
 	// UpdateRequisition implements updateRequisition operation.
 	//
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
-	// `null` clears an optional field, arrays are replaced as a whole.
+	// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
+	// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
+	// description or price) and checked again against the catalog; while the requisition has such items
+	// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
+	// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
+	// `procurement.catalog_item_contract`).
 	//
 	// PATCH /v1/requisitions/{id}
 	UpdateRequisition(ctx context.Context, req *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error)

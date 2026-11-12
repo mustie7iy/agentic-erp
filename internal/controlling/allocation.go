@@ -25,15 +25,19 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// Allocation cycles (ADR-0064 §5, T60f): a cycle of a company has one
-// sender cost center and receiver cost centers with fixed shares adding
-// up to the whole. Its kind says how a run charges the receivers: a
-// distribution moves the sender's primary costs to them on their original
-// accounts (allocationrun.go). An assessment (T60g) is a further kind of
-// the same cycle, with its assessment account.
+// Allocation cycles (ADR-0064 §5, T60f, T60g): a cycle of a company has
+// one sender cost center and receiver cost centers with fixed shares
+// adding up to the whole. Its kind says how a run charges the receivers
+// (allocationrun.go): a distribution moves the sender's primary costs to
+// them on their original accounts; an assessment charges them in one
+// amount on the cycle's assessment account, a secondary cost element
+// (ADR-0064 §4), and leaves the sender's primary costs where they are.
 
-// CycleDistribution is the kind of a distribution cycle.
-const CycleDistribution = "distribution"
+// The kinds of a cycle.
+const (
+	CycleDistribution = "distribution"
+	CycleAssessment   = "assessment"
+)
 
 // wholeBP is the whole in basis points: the receivers' shares add up to it.
 const wholeBP = 10000
@@ -47,12 +51,15 @@ type cycleReceiver struct {
 }
 
 // cycle is an allocation cycle with its receivers in their order.
-// SenderCode is named by the ledger's port when the cycle is shown.
+// SenderCode and AssessmentNumber are named by the ledger's port when the
+// cycle is shown; an assessment cycle alone has an assessment account.
 type cycle struct {
 	ID, LegalEntityID uuid.UUID
 	Code, Name, Kind  string
 	SenderID          uuid.UUID
 	SenderCode        string
+	AssessmentID      *uuid.UUID
+	AssessmentNumber  string
 	Receivers         []cycleReceiver
 	Version           int32
 	CreatedAt         time.Time
@@ -61,11 +68,11 @@ type cycle struct {
 	UpdatedBy         uuid.UUID
 }
 
-const cycleColumns = `c.id, c.legal_entity_id, c.code, c.name, c.kind, c.sender_cost_center_id, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by`
+const cycleColumns = `c.id, c.legal_entity_id, c.code, c.name, c.kind, c.sender_cost_center_id, c.assessment_account_id, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by`
 
 func scanCycle(r pgx.Row) (cycle, error) {
 	var c cycle
-	err := r.Scan(&c.ID, &c.LegalEntityID, &c.Code, &c.Name, &c.Kind, &c.SenderID, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
+	err := r.Scan(&c.ID, &c.LegalEntityID, &c.Code, &c.Name, &c.Kind, &c.SenderID, &c.AssessmentID, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy)
 	return c, errs.Wrapf(err, "controlling: scan allocation cycle")
 }
 
@@ -115,7 +122,35 @@ func (e *Endpoints) withReceivers(ctx context.Context, tx pgx.Tx, cycles ...cycl
 			cycles[i].Receivers[j].Code = refs[cycles[i].Receivers[j].CostCenterID].Code
 		}
 	}
-	return cycles, nil
+	return cycles, e.withAssessmentAccounts(ctx, cycles)
+}
+
+// withAssessmentAccounts names the assessment cycles' accounts, read from
+// the ledger once per company.
+func (e *Endpoints) withAssessmentAccounts(ctx context.Context, cycles []cycle) error {
+	byCompany := map[uuid.UUID][]uuid.UUID{}
+	var companies []uuid.UUID
+	for _, c := range cycles {
+		if c.AssessmentID == nil {
+			continue
+		}
+		if _, seen := byCompany[c.LegalEntityID]; !seen {
+			companies = append(companies, c.LegalEntityID)
+		}
+		byCompany[c.LegalEntityID] = append(byCompany[c.LegalEntityID], *c.AssessmentID)
+	}
+	for _, le := range companies {
+		accounts, err := e.Ledger.CostAccounts(ctx, le, byCompany[le])
+		if err != nil {
+			return fmt.Errorf("controlling: assessment accounts of allocation cycles of %s: %w", le, err)
+		}
+		for i := range cycles {
+			if c := &cycles[i]; c.AssessmentID != nil && c.LegalEntityID == le {
+				c.AssessmentNumber = accounts[*c.AssessmentID].Number
+			}
+		}
+	}
+	return nil
 }
 
 // cycleInCompany reads a cycle with its receivers and its company with
@@ -151,6 +186,9 @@ func cycleToAPI(c cycle) gen.AllocationCycle {
 	for i, r := range c.Receivers {
 		out.Receivers[i] = gen.AllocationReceiver{CostCenterID: r.CostCenterID, CostCenterCode: r.Code, Percentage: percent(r.ShareBP)}
 	}
+	if c.AssessmentID != nil {
+		out.AssessmentAccountID, out.AssessmentAccountNumber = gen.NewOptUUID(*c.AssessmentID), gen.NewOptString(c.AssessmentNumber)
+	}
 	return out
 }
 
@@ -164,14 +202,20 @@ func receiversDetail(c cycle) []map[string]any {
 	return out
 }
 
-// recordCycle audits a cycle's change and publishes it.
+// recordCycle audits a cycle's change and publishes it; an assessment
+// cycle's record and event name its assessment account.
 func recordCycle(ctx context.Context, c cycle, action, change string) error {
 	detail := map[string]any{"legal_entity_id": c.LegalEntityID, "code": c.Code, "name": c.Name, "kind": c.Kind, "sender_cost_center_id": c.SenderID,
 		"sender_cost_center_code": c.SenderCode, "receivers": receiversDetail(c)}
+	payload := map[string]any{"allocation_cycle_id": c.ID, "legal_entity_id": c.LegalEntityID, "code": c.Code, "name": c.Name, "kind": c.Kind,
+		"sender_cost_center_id": c.SenderID, "sender_cost_center_code": c.SenderCode, "receivers": receiversDetail(c), "change": change}
+	if c.AssessmentID != nil {
+		for _, m := range []map[string]any{detail, payload} {
+			m["assessment_account_id"], m["assessment_account_number"] = *c.AssessmentID, c.AssessmentNumber
+		}
+	}
 	return audit.Record(ctx, "controlling.allocation_cycle."+action, "controlling.allocation_cycle", c.ID, detail,
-		outbox.Event{Context: "controlling", Name: "allocation_cycle_changed", AggregateType: "controlling.allocation_cycle", AggregateID: c.ID,
-			Payload: map[string]any{"allocation_cycle_id": c.ID, "legal_entity_id": c.LegalEntityID, "code": c.Code, "name": c.Name, "kind": c.Kind,
-				"sender_cost_center_id": c.SenderID, "sender_cost_center_code": c.SenderCode, "receivers": receiversDetail(c), "change": change}})
+		outbox.Event{Context: "controlling", Name: "allocation_cycle_changed", AggregateType: "controlling.allocation_cycle", AggregateID: c.ID, Payload: payload})
 }
 
 // centerState is why a cost center cannot be a cycle's sender or
@@ -244,12 +288,49 @@ func cycleShares(req *gen.AllocationCycleCreate) ([]int32, []problem.FieldError)
 	return shares, bad
 }
 
+// cycleKind checks a new cycle's kind and its assessment account: an
+// assessment names an active secondary cost element set up in the
+// company (ADR-0064 §4), a distribution names no account. It returns the
+// field errors and the account's number.
+func (e *Endpoints) cycleKind(ctx context.Context, le uuid.UUID, req *gen.AllocationCycleCreate) ([]problem.FieldError, string, error) {
+	refuse := func(field, code, message string) ([]problem.FieldError, string, error) {
+		return []problem.FieldError{{Field: field, Code: code, Message: message}}, "", nil
+	}
+	const field, want = "assessment_account_id", "an active account of the legal entity whose cost element is secondary"
+	id, given := req.AssessmentAccountID.Get()
+	switch {
+	case req.Kind != CycleDistribution && req.Kind != CycleAssessment:
+		return refuse("kind", "unsupported", CycleDistribution+" or "+CycleAssessment)
+	case req.Kind == CycleDistribution && given:
+		return refuse(field, "not_allowed", "no account: a distribution keeps the accounts the costs were posted on")
+	case req.Kind == CycleDistribution:
+		return nil, "", nil
+	case !given:
+		return refuse(field, "required", want)
+	}
+	accounts, err := e.Ledger.CostAccounts(ctx, le, []uuid.UUID{id})
+	if err != nil {
+		return nil, "", fmt.Errorf("controlling: assessment account %s of a new allocation cycle: %w", id, err)
+	}
+	switch a, known := accounts[id]; {
+	case !known:
+		return refuse(field, "unknown", want)
+	case !a.Secondary:
+		return refuse(field, "not_secondary", want)
+	case !a.Active:
+		return refuse(field, "not_active", want)
+	default:
+		return nil, a.Number, nil
+	}
+}
+
 // newCycle checks a create request and returns the cycle it describes,
-// its centers named; every field that cannot stand is named (422).
+// its centers and its assessment account named; every field that cannot
+// stand is named (422).
 func (e *Endpoints) newCycle(ctx context.Context, le uuid.UUID, req *gen.AllocationCycleCreate) (cycle, error) {
-	var bad []problem.FieldError
-	if req.Kind != CycleDistribution {
-		bad = append(bad, problem.FieldError{Field: "kind", Code: "unsupported", Message: CycleDistribution})
+	bad, number, err := e.cycleKind(ctx, le, req)
+	if err != nil {
+		return cycle{}, err
 	}
 	centers, refs, err := e.cycleCenters(ctx, le, req)
 	if err != nil {
@@ -260,7 +341,8 @@ func (e *Endpoints) newCycle(ctx context.Context, le uuid.UUID, req *gen.Allocat
 		return cycle{}, problem.Unprocessable("controlling.allocation_cycle_invalid", "The allocation cycle cannot be defined as given.", bad...)
 	}
 	c := cycle{LegalEntityID: le, Code: req.Code, Name: req.Name, Kind: req.Kind, SenderID: req.SenderCostCenterID,
-		SenderCode: refs[req.SenderCostCenterID].Code, Receivers: make([]cycleReceiver, len(req.Receivers))}
+		SenderCode: refs[req.SenderCostCenterID].Code, AssessmentID: apitypes.Ptr[uuid.UUID](req.AssessmentAccountID), AssessmentNumber: number,
+		Receivers: make([]cycleReceiver, len(req.Receivers))}
 	for i, r := range req.Receivers {
 		c.Receivers[i] = cycleReceiver{CostCenterID: r.CostCenterID, Code: refs[r.CostCenterID].Code, ShareBP: shares[i]}
 	}
@@ -289,12 +371,13 @@ func (e *Endpoints) CreateAllocationCycle(ctx context.Context, req *gen.Allocati
 		return nil, err
 	}
 	row, err := scanCycle(tx.QueryRow(ctx, `INSERT INTO controlling.allocation_cycle AS c (tenant_id, id, legal_entity_id, code, name, kind,
-			sender_cost_center_id, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8) RETURNING `+cycleColumns, p.TenantID, uuid.Must(uuid.NewV7()), le.ID, c.Code, c.Name, c.Kind, c.SenderID, p.ID))
+			sender_cost_center_id, assessment_account_id, created_by, updated_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9) RETURNING `+cycleColumns, p.TenantID, uuid.Must(uuid.NewV7()), le.ID, c.Code, c.Name, c.Kind, c.SenderID,
+		c.AssessmentID, p.ID))
 	if err != nil {
 		return nil, fmt.Errorf("controlling: insert allocation cycle %s of %s: %w", req.Code, le.ID, err)
 	}
-	row.SenderCode, row.Receivers = c.SenderCode, c.Receivers
+	row.SenderCode, row.AssessmentNumber, row.Receivers = c.SenderCode, c.AssessmentNumber, c.Receivers
 	centers, shares := make([]uuid.UUID, len(c.Receivers)), make([]int32, len(c.Receivers))
 	for i, r := range c.Receivers {
 		centers[i], shares[i] = r.CostCenterID, r.ShareBP

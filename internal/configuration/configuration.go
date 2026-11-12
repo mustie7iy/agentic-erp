@@ -127,6 +127,7 @@ func (d Dependencies) check(ctx context.Context, tx pgx.Tx, base, proposed *conf
 	}
 	findings = append(findings, config.RangeRepeats(base, proposed)...)
 	findings = append(findings, config.ExtensionTransitions(base, proposed)...)
+	findings = append(findings, config.PricingTransitions(base, proposed)...)
 	companies, err := rangeCompanies(ctx, d.LegalEntities, proposed)
 	if err != nil {
 		return err

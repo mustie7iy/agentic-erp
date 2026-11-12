@@ -117,7 +117,7 @@ func TestAllocationCycles(t *testing.T) {
 			body string
 			want []string
 		}{
-			"a kind that is none":   {cycleBody(p.DE, "X", "assessment", p.c.Admin, whole...), []string{"kind unsupported"}},
+			"a kind that is none":   {cycleBody(p.DE, "X", "iterative", p.c.Admin, whole...), []string{"kind unsupported"}},
 			"a sender that is none": {cycleBody(p.DE, "X", "distribution", uuid.New(), whole...), []string{"sender_cost_center_id unknown"}},
 			"a sender of another company": {cycleBody(p.US, "X", "distribution", p.c.Admin, whole...),
 				[]string{"sender_cost_center_id not_in_company", "receivers[0].cost_center_id not_in_company"}},
@@ -134,7 +134,7 @@ func TestAllocationCycles(t *testing.T) {
 				[]string{"receivers not_100"}},
 			"percentages beyond the whole": {cycleBody(p.DE, "X", "distribution", p.c.Admin, share{p.c.Sales, "60"}, share{p.c.Locked, "40.01"}),
 				[]string{"receivers not_100"}},
-			"every field that cannot stand": {cycleBody(p.DE, "X", "assessment", uuid.New(), share{p.c.Sales, "60"}, share{p.c.Sales, "30"}),
+			"every field that cannot stand": {cycleBody(p.DE, "X", "iterative", uuid.New(), share{p.c.Sales, "60"}, share{p.c.Sales, "30"}),
 				[]string{"kind unsupported", "sender_cost_center_id unknown", "receivers[1].cost_center_id duplicate", "receivers not_100"}},
 		} {
 			t.Run(name, func(t *testing.T) {

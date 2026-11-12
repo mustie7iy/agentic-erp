@@ -1419,7 +1419,11 @@ The configuration's controlling rules (T56c, ADR-0050 §4, migration 000140)
 are kept by the ledger's setup. `gl_account.cost_element` is the account's
 cost element category: `none`, `primary_cost` only on an expense, `revenue`
 only on a revenue (`gl_account_cost_element`); accounts set up before took
-their type's default. `cost_center_category` (code as a period's category,
+their type's default. Since T60g (ADR-0064 §4, migration 000284) it may be
+`secondary`, on an expense account alone: an account only the controlling
+context's entries post lines to (`journal_line_secondary_account`, in
+`ledger.check_line`), and one from its creation for good
+(`gl_account_secondary_kept`, a trigger on updates of the cost element). `cost_center_category` (code as a period's category,
 name, `revenue_allowed`, the lock defaults of a new cost center,
 `is_active`) is the tenant's categories, deactivated rather than deleted;
 a cost center period's category is one of them
@@ -1598,7 +1602,14 @@ erDiagram
   requisition |o--o| purchase_order : "ordered as"
   contract |o--o{ purchase_order : "priced by"
   goods_movement ||--|{ goods_movement_item : contains
+  contract_item |o--o{ catalog_item : "prices orders of"
+  catalog_item |o--o{ requisition_item : "taken by"
   purchase_order_item ||--o{ goods_movement_item : received_by
+  rfq ||--|{ rfq_item : "asks for"
+  rfq ||--|{ rfq_supplier : invites
+  rfq_supplier ||--o| supplier_quotation : quotes
+  supplier_quotation ||--|{ supplier_quotation_item : prices
+  rfq_item ||--o{ supplier_quotation_item : "priced by"
   requisition { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1618,7 +1629,8 @@ erDiagram
     bigint unit_price
     uuid account_id
     text account_assignment "none | cost_center (T56e)"
-    uuid cost_center_id "T56e" }
+    uuid cost_center_id "T56e"
+    uuid catalog_item_id "T84b" }
   contract { uuid id PK
     uuid supplier_id
     date valid_from
@@ -1627,6 +1639,20 @@ erDiagram
     text status
     uuid renewal_of_id
     date expiry_alerted_on }
+  catalog_item { uuid id PK
+    uuid legal_entity_id
+    uuid supplier_id
+    text item_key
+    text description
+    text uom_code
+    char currency
+    bigint unit_price
+    int price_unit
+    uuid contract_id
+    int contract_item_no
+    text status "active | retired"
+    text search_text "generated"
+    int version }
   contract_release { uuid contract_id PK
     uuid purchase_order_id PK
     bigint value }
@@ -1658,6 +1684,35 @@ erDiagram
     uuid purchase_order_id
     int po_item_no
     numeric quantity }
+  rfq { uuid id PK
+    text document_number
+    uuid legal_entity_id
+    char currency
+    date due_date
+    text status "draft | published"
+    int version }
+  rfq_item { uuid rfq_id PK
+    int item_no PK
+    text material_key
+    text description
+    numeric quantity
+    text uom_code
+    uuid account_id }
+  rfq_supplier { uuid rfq_id PK
+    uuid supplier_id PK
+    int invite_no }
+  supplier_quotation { uuid id PK
+    uuid rfq_id
+    uuid supplier_id
+    text supplier_reference
+    date valid_until
+    text status "recorded"
+    int version }
+  supplier_quotation_item { uuid supplier_quotation_id PK
+    int rfq_item_no PK
+    uuid rfq_id
+    bigint unit_price
+    int price_unit }
 ```
 
 Contract consumption is the sum of insert-only `contract_release` rows (no
@@ -1868,12 +1923,79 @@ released order's item keeps its assignment as it keeps its account
 (`purchase_order_item_identity`, 000161), and its goods movements post the
 item's account with its cost center.
 
+A request for quotation (migration 000285, T82a, ADR-0069) asks the
+suppliers invited for prices of items a company wants to buy, without a
+requisition. `rfq` is numbered per company (`rfq_number_once`, from the
+`rfq` number range), names the currency quotations are given in and the
+date they are due, starts as a draft and is published once: it keeps its
+company, number, currency and due date and stays published (trigger
+`rfq_lifecycle`). `rfq_item` names what is bought as a contract item does,
+by a description and a material key that appears once per RFQ
+(`rfq_item_material_key`), with the quantity asked for (above zero), its
+unit and the account it is bought on, and no price. `rfq_supplier` is a
+supplier invited, once per RFQ (`rfq_supplier_once`), with its place in
+the invitation (`invite_no`). Items and suppliers are written while the
+RFQ is a draft (trigger function `check_rfq_is_draft`) and are never
+changed or deleted. `supplier_id` is the partner context's and
+`account_id` the ledger's, checked through their published APIs with no
+foreign key across schemas: each supplier must be one an order could be
+placed with in the company, when the RFQ is created and when it is
+published.
+
+A supplier quotation (migration 000286, T82b, ADR-0069 §7) is what an
+invited supplier quoted for a published RFQ, as the buyer recorded it:
+`supplier_quotation` names its RFQ and one of the suppliers the RFQ
+invites (`supplier_quotation_invited`, a foreign key to `rfq_supplier`),
+once per supplier (`supplier_quotation_once`, 409
+`procurement.quotation_exists`), with the supplier's reference and the
+last day it is valid; only a published RFQ takes one (trigger
+`supplier_quotation_of_published`). `supplier_quotation_item` prices one
+item of that RFQ, once per quotation, at a price above zero in minor units
+of the RFQ's currency per `price_unit` of the RFQ item's unit; a quotation
+may leave RFQ items out. Neither table is changed or deleted. The
+quotation's total, the sum of quantity × unit price ÷ price unit over its
+items, is computed on read from its prices and the RFQ's quantities, which
+never change.
+
 An order item carries its expected delivery date (`delivery_date`, optional,
 SAP's EKET-EINDT; migration 000205, T53g, ADR-0051 §5): the one it is
 given, else, on an order created from a requisition, the requisition's
 `needed_by`; a released order's item changes it through an order change
 (`check_order_item_editable` leaves it free, as quantity and price). The
 liquidity forecast expects the item's open value invoiced on it.
+
+A company's catalog is `procurement.catalog_item` (migration 000287, T84a,
+ADR-0071): a supplier's item in a legal entity with an `item_key` (1 to 40
+characters, no white space around it, `catalog_item_item_key_check`), a
+`description` (up to 200 characters, not white space alone), a unit of the
+reference data, a known currency, a positive `unit_price` in minor units
+per `price_unit` and a status, `active` or `retired`. The key is the
+supplier's once among the company's active items
+(`catalog_item_active_key`, a partial unique index, so a retired item
+frees its key). `contract_id` and `contract_item_no` name the contract
+item that prices an order of it, both or neither
+(`catalog_item_contract_item_both`), an item the contract has
+(`catalog_item_contract_item_fkey`); that the contract is active, of the
+same company and supplier and in the item's currency and unit is checked
+when the item is loaded. `search_text` is the key and the description in
+lower case, generated, which the search matches a text in;
+`catalog_item_by_key` is the order the search's pages are read in. The
+legal entity is tenancy's and the supplier the partner context's, with no
+foreign key across schemas. The application inserts an item and
+afterwards updates its `status`, `version`, `updated_by` and `updated_at`
+alone (column privileges): what an item offers is not changed, and an
+item is never deleted.
+
+A requisition item taken from the catalog names its catalog item
+(`requisition_item.catalog_item_id`, nullable; migrations 000288-000289,
+T84b, ADR-0071 §6; `requisition_item_catalog_item_fkey`, added `NOT VALID`
+and validated by 000289) and holds a copy of the description, unit and
+price it took, so a catalog item retired later changes nothing on it.
+An update that changes the description, unit, price or price unit and
+leaves `catalog_item_id` as it was sets it to null (trigger
+`requisition_item_unlink_catalog`, 000288): the previous release's upsert
+of a draft's items does not name the column, and would otherwise leave a
+described item naming the catalog item of the row it replaced.
 
 ## 3.9 Accounts payable (`payables`)
 
@@ -3358,7 +3480,7 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
 internal orders with their budgets, settlement rules and settlements
 (ADR-0064; T60a-T60e), and allocation cycles with their runs (ADR-0064 §5;
-T60f).
+T60f, T60g).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3375,7 +3497,9 @@ migration 000282 the order's settlements, the status `closed` and the
 permission `controlling.order.settle` (000280 and 000281 let the journal
 take entries whose `source_context` is `controlling`). Migration 000283
 adds allocation cycles, their receivers and runs and the permissions
-`controlling.allocation.read`, `.write` and `.run`.
+`controlling.allocation.read`, `.write` and `.run`. Migration 000284 adds
+the cycle's kind `assessment` with its assessment account, and in the
+ledger the secondary cost element and its two rules (§3.7).
 
 ```mermaid
 erDiagram
@@ -3437,8 +3561,9 @@ erDiagram
     uuid legal_entity_id "tenancy context"
     text code "unique per company"
     text name
-    text kind "distribution"
-    uuid sender_cost_center_id "ledger context" }
+    text kind "distribution, assessment"
+    uuid sender_cost_center_id "ledger context"
+    uuid assessment_account_id "ledger context; an assessment's" }
   allocation_receiver { uuid cycle_id PK
     smallint position PK
     uuid cost_center_id "ledger context, once per cycle"
@@ -3463,7 +3588,7 @@ erDiagram
 | `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
 | `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
 | `controlling.order_settlement` | A settlement of an order (ADR-0064 §3, T60e), insert-only (no `UPDATE` or `DELETE` granted): the order (`order_settlement_order`), its company, the fiscal year and regular period settled up to, the posting date (the period's last day), the receiving cost center and the journal entry (the ledger's; no foreign key crosses the schema; an entry is one settlement's, `order_settlement_entry_once`) with its document number, the amount moved in minor units of the company's local currency (the total of the accounts' balances, negative for a credit balance) and the number of accounts. The entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the settlement as its source document: per account the order credited and the receiver debited, so each account's balance is unchanged. The order is read FOR UPDATE from before its balance is read (`ledger.AssignmentBalances.OrderAccountBalances`) until the entry is posted; with nothing unsettled no row is written. A settled order, its balance zero on every account, is closed (`controlling.internal_order.status` `closed`, from `released` alone and for good, `internal_order_lifecycle`): a closed order takes no posting, and the entries that posted to it are no longer reversed |
-| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution`; T60g adds `assessment` with its account) and its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company). It keeps its company, code, kind and sender (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
+| `controlling.allocation_cycle` | An allocation cycle (ADR-0064 §5, T60f): a company's cycle with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `allocation_cycle_code_once`), a name, a `kind` (`distribution` or, since T60g, `assessment`), its sender cost center (the ledger's; no foreign key crosses the schema: sender and receivers are checked through `ledger.AssignmentBalances.CostCenterRefs` to be active cost centers of the company) and, exactly for an assessment, its `assessment_account_id` (`allocation_cycle_assessment_account`; the ledger's, checked through `ledger.AssignmentBalances.CostAccounts` to be an active secondary cost element of the company). It keeps its company, code, kind, sender and assessment account (`allocation_cycle_identity`, a trigger); never deleted. A run holds every cycle of its sender FOR UPDATE, in id order, before it reads the sender's costs, so the runs of one sender follow one another whichever of its cycles they are |
 | `controlling.allocation_receiver` | A receiver of a cycle, insert-only: its place in the cycle's list, the cost center, once per cycle (`allocation_receiver_once`), and its share in basis points, 1 to 10,000 (a percentage with two decimals). A cycle's shares add up to 10,000 and no receiver is its sender, held when the transaction that wrote the cycle or a receiver commits (`allocation_receiver_shares_whole`, `allocation_receiver_not_sender`, raised by deferred constraint triggers on both tables) |
 | `controlling.allocation_run` | A run of a cycle for a fiscal period, insert-only: the cycle with its company (foreign key), the fiscal year and regular period, the posting date (the period's last day), the journal entry (the ledger's; once, `allocation_run_entry_once`) with its document number, the amount moved off the sender in minor units of the company's local currency and the number of accounts. One run per cycle and period (`allocation_run_once`). A distribution's entry is posted through `ledger.Postings.Post` with `source_context` `controlling` and the run as its source document: per account the sender credited with its cost of the period (the ledger's actuals of the center on primary cost accounts) and each receiver debited with its share, split by `money.Allocate` so the shares add up to the cost to the minor unit. A sender without costs in the period posts nothing and no row is written |
 | `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`, `InternalOrderSettled`, `AllocationCycleChanged`, `AllocationRunPosted`), relayed as every context's (`outbox.Contexts`) |
@@ -4357,3 +4482,249 @@ erDiagram
   (`CreditLimitChanged`).
 - Permissions `credit.limit.read` (limits and the exposure) and
   `credit.limit.write`.
+
+## 3.29 Sales (`sales`)
+
+ADR-0067, T78a-T79b. Built as receivables is: it reads the ledger, the
+partner context, tenancy and the configuration through its ports, keeps no
+foreign key out of its schema (02 §2.1) and posts nothing itself (billing
+posts through receivables, §3.26). T78a (migration 000290) builds the
+schema with its outbox and inbox and the quotation: what the company
+offers a customer, valid until a date, net of tax. T78b (migration
+000291) adds the sales order, T78c (migration 000292) the delivery
+confirmation, which moves no stock (stock is outside the required
+scope), T79a (migration 000293) the billing document, which posts
+nothing until T79b, T80a (migration 000294) the price
+records an item without a price is priced from, and T80b (migration
+000295) discounts among them and the conditions applied to an item.
+There is no material
+master (§3.16's shared `material` joins the items when it is built): an
+item names what is sold by a description and an optional free-text
+`item_key`.
+
+```mermaid
+erDiagram
+  quotation ||--|{ quotation_item : "has"
+  quotation { uuid id PK
+    text document_number "quotation range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, customer role"
+    date quotation_date "the company's date when made"
+    date valid_until "not before quotation_date"
+    char currency
+    bigint net_amount "sum of the items'"
+    text status "open, accepted, rejected"
+    int version
+  }
+  quotation_item { uuid quotation_id PK
+    int item_no PK
+    text item_key "optional, free text"
+    text description
+    numeric quantity "(20,6), above zero"
+    text uom_code "ref.unit_of_measure"
+    bigint unit_price "per price_unit, above zero"
+    int price_unit
+    text price_source "manual or price_list"
+    jsonb conditions "the price and discounts applied, in order"
+    bigint net_amount "the value less the discounts"
+    uuid account_id "ledger, revenue as a rule"
+    text tax_code "optional output tax code"
+  }
+  quotation ||--o| sales_order : "gives one"
+  sales_order ||--|{ sales_order_item : "has"
+  sales_order { uuid id PK
+    text document_number "sales_order range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, with company data"
+    uuid quotation_id "optional, unique"
+    date order_date "the company's date when created"
+    char currency
+    text payment_term_code "the order's, else the customer's"
+    bigint net_amount "sum of the items'"
+    text status "draft, confirmed"
+    int version
+  }
+  sales_order_item { uuid sales_order_id PK
+    int item_no PK
+    numeric quantity "ordered; with the quotation item's other columns"
+    numeric delivered_quantity "at most quantity"
+    numeric billed_quantity "at most delivered_quantity"
+  }
+  sales_order ||--o{ delivery : "is delivered by"
+  delivery ||--|{ delivery_item : "has"
+  sales_order_item ||--o{ delivery_item : "is delivered by"
+  delivery { uuid id PK
+    uuid sales_order_id "a confirmed order"
+    int delivery_no "unique per order"
+    date delivery_date
+  }
+  delivery_item { uuid delivery_id PK
+    int order_item_no PK
+    uuid sales_order_id "the delivery's order"
+    numeric quantity "above zero"
+  }
+  sales_order ||--o{ billing_document : "is billed by"
+  billing_document ||--|{ billing_document_item : "has"
+  sales_order_item ||--o{ billing_document_item : "is billed by"
+  billing_document { uuid id PK
+    text document_number "billing_document range, unique per company"
+    uuid legal_entity_id "the order's"
+    uuid customer_id "the order's"
+    uuid sales_order_id "a confirmed order"
+    date billing_date
+    char currency "the order's"
+    bigint net_amount "sum of the items'"
+    text status "created"
+    int version
+  }
+  billing_document_item { uuid billing_document_id PK
+    int item_no PK
+    uuid sales_order_id "the document's order"
+    int order_item_no "once per document"
+    numeric quantity "above zero"
+    bigint net_amount "above zero"
+  }
+  price { uuid id PK
+    uuid legal_entity_id "tenancy"
+    text item_key "as sales items give it"
+    uuid customer_id "optional: partner; null for every customer"
+    text condition_type "optional: configuration, pricing.condition_types"
+    text uom_code "a price's: ref.unit_of_measure"
+    char currency "a price's"
+    bigint unit_price "a price's: per price_unit, above zero"
+    int price_unit "a price's"
+    numeric percent "a discount's: (9,6), above 0 and below 100"
+    date valid_from
+    date valid_to "optional, not before valid_from"
+  }
+```
+
+- `sales.quotation`: numbered once per company
+  (`quotation_number_once`); valid until a day not before its date
+  (`quotation_validity`); a net value above zero
+  (`quotation_net_positive`), minor units of `currency`; the status is
+  `open`, `accepted` or `rejected` (`quotation_status_check`). The
+  customer's answer is its one change: an open quotation becomes accepted
+  or rejected, once (`quotation_answered_once`), and the application may
+  update `status`, `version` and `updated_by` alone and delete nothing.
+  The list reads a company's quotations by date and a customer's
+  (`quotation_by_date`, `quotation_by_customer`).
+- `sales.quotation_item`: a description, and an item key when it has
+  one, that are not white space alone
+  (`quotation_item_description_check`, `quotation_item_item_key_check`);
+  a quantity above zero
+  (`quotation_item_quantity_positive`) in a unit of the reference data, a
+  unit price above zero per a price unit above zero
+  (`quotation_item_price_positive`, `quotation_item_price_unit_positive`)
+  and a net value above zero (`quotation_item_net_positive`);
+  insert-only (`platform.forbid_mutation`). `price_source` (T80a) says
+  where the unit price came from: `manual`, entered with the item, the
+  default, or `price_list`, a price record's
+  (`quotation_item_price_source_check`; on an order item
+  `sales_order_item_price_source_check`).
+- `sales.sales_order` (T78b, migration 000291): numbered once per
+  company (`sales_order_number_once`), with a payment term and a net
+  value above zero (`sales_order_net_positive`); the status is `draft` or
+  `confirmed` (`sales_order_status_check`). `quotation_id` names the
+  quotation it was created from, null for an order created directly: an
+  accepted quotation of its company, customer and currency
+  (`sales_order_quotation_accepted`), and one order per quotation
+  (`sales_order_one_per_quotation`). Confirming is its one change, once
+  (`sales_order_confirmed_once`); the application may update `status`,
+  `version` and `updated_by` alone and delete nothing. The list reads a
+  company's orders by date and a customer's (`sales_order_by_date`,
+  `sales_order_by_customer`).
+- `sales.sales_order_item`: a quotation item's columns and rules, with
+  `delivered_quantity` and `billed_quantity`, 0 when created:
+  `0 <= billed_quantity <= delivered_quantity <= quantity`
+  (`sales_order_item_quantities`). The application may not change or
+  delete an item: `delivered_quantity` is moved by the delivery's
+  trigger alone (T78c) and `billed_quantity` by the billing document's
+  (T79a).
+- `sales.delivery` (T78c, migration 000292): a confirmation that
+  quantities of an order's items were delivered on `delivery_date`,
+  numbered within its order (`delivery_no_positive`, `delivery_no_once`).
+  Only a confirmed order takes one (`delivery_order_confirmed`, a trigger
+  that also moves the order's `version` once per delivery and sets its
+  `updated_by`, running as the table's owner: the application itself
+  still changes a confirmed order in nothing, and
+  `sales.check_sales_order_change` admits a confirmed order's version
+  moved from a trigger alone). Insert-only (`platform.forbid_mutation`);
+  the list reads an order's deliveries by date (`delivery_by_date`).
+- `sales.delivery_item`: a quantity above zero
+  (`delivery_item_quantity_positive`) of an item of the delivery's own
+  order (`delivery_item_delivery_fkey`, `delivery_item_order_item_fkey`),
+  an order item at most once per delivery (the primary key). Each insert
+  adds its quantity to the order item's `delivered_quantity`
+  (`delivery_item_delivered`, a trigger running as the table's owner),
+  so that quantity is the sum of the item's deliveries and never above
+  what was ordered (`sales_order_item_quantities`). Insert-only;
+  `delivery_item_by_order_item` serves an order item's deliveries
+  (`sales.Orders`).
+- `sales.billing_document` (T79a, migration 000293): what is billed of
+  one order, numbered once per company
+  (`billing_document_number_once`), with its billing date and a net
+  value above zero (`billing_document_net_positive`); the status is
+  `created` (`billing_document_status_check`; T79b adds `posted`). It is
+  of a confirmed order of its company, customer and currency
+  (`billing_document_order_confirmed`, a trigger running as the table's
+  owner that also moves the order's `version` once per document and sets
+  its `updated_by`). The application may neither change nor delete one
+  until T79b is granted what posting sets. The list reads a company's
+  documents by date, a customer's and an order's
+  (`billing_document_by_date`, `billing_document_by_customer`,
+  `billing_document_by_order`).
+- `sales.billing_document_item`: a quantity and an amount above zero
+  (`billing_document_item_quantity_positive`,
+  `billing_document_item_net_positive`) of an item of the document's own
+  order (`billing_document_item_document_fkey`,
+  `billing_document_item_order_item_fkey`), an order item at most once
+  per document (`billing_document_item_once`). Each insert adds its
+  quantity to the order item's `billed_quantity`
+  (`billing_document_item_billed`, a trigger running as the table's
+  owner), so that quantity is the sum of the item's billing documents
+  and never above what is delivered (`sales_order_item_quantities`); the
+  amounts billed of an order item never exceed its net value and are its
+  net value once it is billed in full (`billing_document_item_amounts`).
+  What an item names, its unit price, account and tax code are read from
+  the order's item, which nothing changes. Insert-only
+  (`platform.forbid_mutation`); `billing_document_item_by_order_item`
+  serves what earlier documents billed of an order item.
+- `sales.price` (T80a, migration 000294; ADR-0067 §10): the net price of
+  an item key (`price_item_key_check`) in a company, for every customer
+  (`customer_id` null) or for one, above zero (`price_positive`) per a
+  price unit above zero (`price_unit_positive`) of a unit of the
+  reference data, in a currency, valid from a day and, when `valid_to`
+  is set, until a day not before it (`price_validity`). Insert-only
+  (`platform.forbid_mutation`; the application may not update or delete):
+  a new price is a new record, and the same key may have several. An
+  item without a price takes the record of its key valid on the
+  document's date in its unit and the document's currency: the
+  customer's before the general one, then the latest `valid_from`, then
+  the latest `created_at` and `id`. The determination and the list read a
+  company's records of a key (`price_by_item_key`) and a customer's
+  (`price_by_customer`).
+  From T80b (migration 000295; ADR-0067 §11) a record may name a
+  `condition_type` of the configuration (`price_condition_type_check`,
+  a short code; the configuration is another context's, so there is no
+  foreign key, and a type is never removed once activated), and a record
+  is a price or a discount, never a mix (`price_or_percent`): a price
+  has its unit, currency, price and price unit and no percent; a
+  discount has a condition type and a `percent` above 0 and below 100
+  (`price_percent_range`) and none of a price's columns. The discounts
+  of a key are read by their type (`price_by_condition`).
+- `conditions` on `sales.quotation_item` and `sales.sales_order_item`
+  (T80b): a JSON array (`quotation_item_conditions_array`,
+  `sales_order_item_conditions_array`), empty by default, of the
+  conditions the pricing procedure applied when the item was created, in
+  its order. Each has `condition_type`, `name`, `kind` and `amount`
+  (minor units of the document's currency, a discount's negative); a
+  price its `unit_price` and `price_unit`, a discount its `percent`. The
+  amounts add up to the item's `net_amount`.
+- `sales.outbox`, `sales.inbox`: the context's events
+  (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
+  `BillingDocumentChanged`, `SalesPriceChanged`).
+- Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
+  `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
+  `.write` and `.post` (posting comes with T79b); `sales.price.read` and
+  `.write`.

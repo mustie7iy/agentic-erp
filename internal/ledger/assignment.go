@@ -355,7 +355,8 @@ func (e *Endpoints) nameLines(ctx context.Context, reps ...*gen.JournalEntry) er
 // and an internal order on an account that is not a primary cost account,
 // and gives a primary cost line without either the account's default
 // cost center, while cost center accounting applies; without a default
-// the line is refused.
+// the line is refused. A line on a secondary cost element names its cost
+// center itself (refuseSecondary).
 func (r assignRules) deriveCostCenters(lines []Line, found []lineCenters) error {
 	for i := range lines {
 		l, a := &lines[i], r.accounts[lines[i].AccountID]
@@ -468,7 +469,8 @@ func orderCostCenter(i int, c *assignedCostCenter, date time.Time) (CostCenterAt
 // validCostCenter returns the attributes of the cost center in force on
 // the posting date, refusing it (422 ledger.cost_center_invalid with the
 // reason) when it is unknown, of another company, not active, not valid on
-// the date or locked for the line's kind, or of a category that takes no
+// the date or locked for the line's kind (a primary or secondary cost
+// line reads the lock for actual costs), or of a category that takes no
 // revenue on a revenue line.
 func validCostCenter(i int, c *assignedCostCenter, le uuid.UUID, date time.Time, element config.CostElement, fromDefault bool,
 	revenue map[string]bool) (CostCenterAttrs, error) {
@@ -490,7 +492,9 @@ func validCostCenter(i int, c *assignedCostCenter, le uuid.UUID, date time.Time,
 		return refuse(reasonRevenueNotAllowed)
 	case element == config.CostElementRevenue && attr.LockRevenue:
 		return refuse(reasonLockedForRevenue)
-	case element == config.CostElementPrimaryCost && attr.LockCost:
+	case (element == config.CostElementPrimaryCost || element == config.CostElementSecondary) && attr.LockCost:
+		// An assessment charges or relieves the center's actual costs
+		// (ADR-0064 §4), so the lock for them refuses it too.
 		return refuse(reasonLockedForCosts)
 	}
 	return attr, nil

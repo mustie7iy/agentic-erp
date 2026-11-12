@@ -19,6 +19,14 @@ func (s *BankChangeCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *CatalogItemCreate) setDefaults() {
+	{
+		val := int32(1)
+		s.PriceUnit.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *ContractItem) setDefaults() {
 	{
 		val := int32(1)
@@ -131,6 +139,14 @@ func (s *RequisitionItem) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *SalesItemCreate) setDefaults() {
+	{
+		val := int32(1)
+		s.PriceUnit.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *SupplierInvoiceCreate) setDefaults() {
 	{
 		val := string("invoice")
@@ -139,5 +155,13 @@ func (s *SupplierInvoiceCreate) setDefaults() {
 	{
 		val := string("manual")
 		s.Source.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
+func (s *SupplierQuotationItemInput) setDefaults() {
+	{
+		val := int32(1)
+		s.PriceUnit.SetTo(val)
 	}
 }

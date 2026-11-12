@@ -21,6 +21,10 @@ type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
 
+type AcceptQuotationRes interface {
+	acceptQuotationRes()
+}
+
 type AcceptVarianceCommentRes interface {
 	acceptVarianceCommentRes()
 }
@@ -161,6 +165,14 @@ type ConfirmDunningRunRes interface {
 	confirmDunningRunRes()
 }
 
+type ConfirmSalesDeliveryRes interface {
+	confirmSalesDeliveryRes()
+}
+
+type ConfirmSalesOrderRes interface {
+	confirmSalesOrderRes()
+}
+
 type CreateAllocationCycleRes interface {
 	createAllocationCycleRes()
 }
@@ -181,12 +193,20 @@ type CreateAssetTransferRes interface {
 	createAssetTransferRes()
 }
 
+type CreateBillingDocumentRes interface {
+	createBillingDocumentRes()
+}
+
 type CreateBusinessPartnerRes interface {
 	createBusinessPartnerRes()
 }
 
 type CreateCashExportRes interface {
 	createCashExportRes()
+}
+
+type CreateCatalogItemRes interface {
+	createCatalogItemRes()
 }
 
 type CreateChangeRequestRes interface {
@@ -305,6 +325,10 @@ type CreatePurchaseOrderRes interface {
 	createPurchaseOrderRes()
 }
 
+type CreateQuotationRes interface {
+	createQuotationRes()
+}
+
 type CreateRecommendationRes interface {
 	createRecommendationRes()
 }
@@ -317,12 +341,24 @@ type CreateRequisitionRes interface {
 	createRequisitionRes()
 }
 
+type CreateRfqRes interface {
+	createRfqRes()
+}
+
 type CreateRoleAssignmentRes interface {
 	createRoleAssignmentRes()
 }
 
 type CreateRoleRes interface {
 	createRoleRes()
+}
+
+type CreateSalesOrderRes interface {
+	createSalesOrderRes()
+}
+
+type CreateSalesPriceRes interface {
+	createSalesPriceRes()
 }
 
 type CreateSegmentRes interface {
@@ -335,6 +371,10 @@ type CreateSodRuleRes interface {
 
 type CreateSupplierInvoiceRes interface {
 	createSupplierInvoiceRes()
+}
+
+type CreateSupplierQuotationRes interface {
+	createSupplierQuotationRes()
 }
 
 type CreateUploadRes interface {
@@ -355,6 +395,10 @@ type CreateYearCloseRes interface {
 
 type DecideRecommendationRes interface {
 	decideRecommendationRes()
+}
+
+type DeclineQuotationRes interface {
+	declineQuotationRes()
 }
 
 type DeleteWebhookSubscriptionRes interface {
@@ -509,6 +553,10 @@ type GetBankStatementRulesRes interface {
 	getBankStatementRulesRes()
 }
 
+type GetBillingDocumentRes interface {
+	getBillingDocumentRes()
+}
+
 type GetBusinessPartnerRes interface {
 	getBusinessPartnerRes()
 }
@@ -527,6 +575,10 @@ type GetCashPositionRes interface {
 
 type GetCashSnapshotRes interface {
 	getCashSnapshotRes()
+}
+
+type GetCatalogItemRes interface {
+	getCatalogItemRes()
 }
 
 type GetCenterChangeRes interface {
@@ -753,6 +805,10 @@ type GetPurchaseOrderRes interface {
 	getPurchaseOrderRes()
 }
 
+type GetQuotationRes interface {
+	getQuotationRes()
+}
+
 type GetReceivablesAgingRes interface {
 	getReceivablesAgingRes()
 }
@@ -773,6 +829,10 @@ type GetRevaluationRunRes interface {
 	getRevaluationRunRes()
 }
 
+type GetRfqRes interface {
+	getRfqRes()
+}
+
 type GetRoleAssignmentRes interface {
 	getRoleAssignmentRes()
 }
@@ -783,6 +843,14 @@ type GetRolePermissionRes interface {
 
 type GetRoleRes interface {
 	getRoleRes()
+}
+
+type GetSalesOrderRes interface {
+	getSalesOrderRes()
+}
+
+type GetSalesPriceRes interface {
+	getSalesPriceRes()
 }
 
 type GetSchemaRes interface {
@@ -937,6 +1005,10 @@ type ListBankStatementsRes interface {
 	listBankStatementsRes()
 }
 
+type ListBillingDocumentsRes interface {
+	listBillingDocumentsRes()
+}
+
 type ListBusinessPartnersRes interface {
 	listBusinessPartnersRes()
 }
@@ -955,6 +1027,10 @@ type ListCashSnapshotFlowsRes interface {
 
 type ListCashSnapshotsRes interface {
 	listCashSnapshotsRes()
+}
+
+type ListCatalogItemsRes interface {
+	listCatalogItemsRes()
 }
 
 type ListCenterChangesRes interface {
@@ -1241,6 +1317,10 @@ type ListPurchaseOrdersRes interface {
 	listPurchaseOrdersRes()
 }
 
+type ListQuotationsRes interface {
+	listQuotationsRes()
+}
+
 type ListRecommendationsRes interface {
 	listRecommendationsRes()
 }
@@ -1257,6 +1337,10 @@ type ListRevaluationRunsRes interface {
 	listRevaluationRunsRes()
 }
 
+type ListRfqsRes interface {
+	listRfqsRes()
+}
+
 type ListRoleAssignmentsRes interface {
 	listRoleAssignmentsRes()
 }
@@ -1269,6 +1353,18 @@ type ListRolesRes interface {
 	listRolesRes()
 }
 
+type ListSalesDeliveriesRes interface {
+	listSalesDeliveriesRes()
+}
+
+type ListSalesOrdersRes interface {
+	listSalesOrdersRes()
+}
+
+type ListSalesPricesRes interface {
+	listSalesPricesRes()
+}
+
 type ListSegmentsRes interface {
 	listSegmentsRes()
 }
@@ -1279,6 +1375,10 @@ type ListSodRulesRes interface {
 
 type ListSupplierInvoicesRes interface {
 	listSupplierInvoicesRes()
+}
+
+type ListSupplierQuotationsRes interface {
+	listSupplierQuotationsRes()
 }
 
 type ListTaxPeriodsRes interface {
@@ -1445,6 +1545,10 @@ type ProposeVarianceCommentRes interface {
 	proposeVarianceCommentRes()
 }
 
+type PublishRfqRes interface {
+	publishRfqRes()
+}
+
 type RealiseMemoRecordRes interface {
 	realiseMemoRecordRes()
 }
@@ -1555,6 +1659,10 @@ type RequestBankAccountEndRes interface {
 
 type ResumeWebhookSubscriptionRes interface {
 	resumeWebhookSubscriptionRes()
+}
+
+type RetireCatalogItemRes interface {
+	retireCatalogItemRes()
 }
 
 type RetireEntryTemplateRes interface {

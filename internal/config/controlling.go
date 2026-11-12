@@ -50,8 +50,11 @@ const (
 	// CostElementRevenue (SAP 11/12) needs a profit center; a cost center
 	// only of a category that allows revenue.
 	CostElementRevenue CostElement = "revenue"
-	// costElementSecondary is reserved for allocations (T60).
-	costElementSecondary CostElement = "secondary"
+	// CostElementSecondary is a secondary cost element (ADR-0064 §4, T60g):
+	// an expense account that only the controlling context's allocations
+	// post to, each entry balancing on it, so it nets to zero in the
+	// company; its lines carry a cost center.
+	CostElementSecondary CostElement = "secondary"
 )
 
 // CostElementOrDefault is the account's cost element, or the default of its
@@ -179,6 +182,7 @@ func (v *validator) controlling(c *Config) {
 // center (ADR-0050 §4).
 func (v *validator) companyControlling(p string, co *Company) {
 	v.costElements(p, co)
+	v.secondaryAccounts(p, co)
 	v.defaultAssignments(p, co)
 	switch {
 	case co.ProfitCenterAccounting && co.DefaultProfitCenter == "":
@@ -202,10 +206,45 @@ func (v *validator) costElements(p string, co *Company) {
 	}
 }
 
+// secondaryAccounts refuses a secondary cost element (ADR-0064 §4)
+// wherever the company names an account something other than an
+// allocation posts to: the accounts of automatic postings
+// (AutomaticAccounts) and the asset classes' depreciation and loss
+// accounts, since the ledger takes a line on it only from the controlling
+// context and every such posting would be refused; and with open items,
+// which are for balances, while a secondary cost element nets to zero
+// (revaluation is refused on every expense account, fxValuation).
+func (v *validator) secondaryAccounts(p string, co *Company) {
+	secondary := func(number string) bool {
+		a := co.Account(number)
+		return a != nil && a.CostElement == CostElementSecondary
+	}
+	const why = "account %s is a secondary cost element, posted only by allocations"
+	for _, a := range co.AutomaticAccounts() {
+		if secondary(a.Account) {
+			v.err(p+"."+a.Path, why, a.Account)
+		}
+	}
+	for _, aa := range co.AssetAccounts {
+		for _, r := range [][2]string{{"depreciation", aa.Depreciation}, {"loss", aa.Loss}} {
+			if secondary(r[1]) {
+				v.err(p+".asset_accounts["+aa.Class+"]."+r[0], why, r[1])
+			}
+		}
+	}
+	for _, a := range co.ChartOfAccounts {
+		if a.CostElement == CostElementSecondary && a.OpenItems {
+			v.err(fmt.Sprintf("%s.chart_of_accounts[%s].open_items", p, a.Number),
+				"account %s is a secondary cost element, which nets to zero and has no open items", a.Number)
+		}
+	}
+}
+
 // CostElementProblem says what is wrong with the account's cost element,
-// "" when nothing: it must be a known one, a primary cost only on an
-// expense and a revenue element only on a revenue, so a balance sheet
-// account has none. Country packs (ADR-0048) check their accounts with it.
+// "" when nothing: it must be a known one, a primary cost or a secondary
+// cost element only on an expense and a revenue element only on a
+// revenue, so a balance sheet account has none. Country packs (ADR-0048)
+// check their accounts with it.
 func (a Account) CostElementProblem() string {
 	switch a.CostElement {
 	case "", CostElementNone:
@@ -217,10 +256,12 @@ func (a Account) CostElementProblem() string {
 		if a.Type != Revenue {
 			return fmt.Sprintf("account %s is %s; only a revenue account is a revenue element", a.Number, a.Type)
 		}
-	case costElementSecondary:
-		return "secondary cost elements come with allocations (T60)"
+	case CostElementSecondary:
+		if a.Type != Expense {
+			return fmt.Sprintf("account %s is %s; only an expense account is a secondary cost element", a.Number, a.Type)
+		}
 	default:
-		return fmt.Sprintf("cost element %q must be none, primary_cost or revenue", a.CostElement)
+		return fmt.Sprintf("cost element %q must be none, primary_cost, revenue or secondary", a.CostElement)
 	}
 	return ""
 }

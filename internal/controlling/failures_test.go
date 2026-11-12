@@ -76,6 +76,8 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	// A cost posted after the first cycle's run is the second cycle's to move: two runs to list.
 	c.post(t, "2026-05-13", on(c.office, 1000, &c.c.Admin), on(c.bank, -1000, nil))
 	c.Must(200, "POST", "/v1/allocation-cycles/"+otherCycle+":run", settleBody(2026, 5), `"1"`)
+	// An assessment cycle, the first by code, so the cycles' first page names its account.
+	assessed := uuid.MustParse(c.assessment(t, "ASSESS", share{c.c.Sales, "100"}))
 	var aRun uuid.UUID
 	pgtest.Scan(t, `SELECT id FROM controlling.allocation_run WHERE tenant_id = $1 AND cycle_id = $2`, []any{c.Tenant.ID, ranCycle}, &aRun)
 	allRuns := gen.ListAllocationRunsParams{PageSize: gen.NewOptInt32(1)}
@@ -157,6 +159,16 @@ func TestPlanDatabaseFailures(t *testing.T) {
 				gen.CreateAllocationCycleParams{})
 			return err
 		},
+		"create an assessment cycle": func(ctx context.Context) error {
+			_, err := h.CreateAllocationCycle(ctx, &gen.AllocationCycleCreate{LegalEntityID: c.DE, Code: "MADE", Name: "M", Kind: "assessment",
+				SenderCostCenterID: c.c.Admin, AssessmentAccountID: gen.NewOptUUID(c.assessed),
+				Receivers: []gen.AllocationCycleCreateReceiversItem{{CostCenterID: c.c.Sales, Percentage: "100"}}}, gen.CreateAllocationCycleParams{})
+			return err
+		},
+		"get an assessment cycle": func(ctx context.Context) error {
+			_, err := h.GetAllocationCycle(ctx, gen.GetAllocationCycleParams{ID: assessed})
+			return err
+		},
 		"get an allocation cycle": func(ctx context.Context) error {
 			_, err := h.GetAllocationCycle(ctx, gen.GetAllocationCycleParams{ID: ranCycle})
 			return err
@@ -190,7 +202,7 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			return err
 		},
 		"the ledger's accounts of an allocation": func(ctx context.Context) error {
-			_, err := ledger.AssignmentBalances{}.CostAccounts(ctx, []uuid.UUID{c.office})
+			_, err := ledger.AssignmentBalances{}.CostAccounts(ctx, c.DE, []uuid.UUID{c.office})
 			return err
 		},
 		"the ledger's validity of a cost center": func(ctx context.Context) error {

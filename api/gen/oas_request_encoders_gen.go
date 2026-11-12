@@ -462,6 +462,20 @@ func encodeCompleteYearCloseTaskRequest(
 	return nil
 }
 
+func encodeConfirmSalesDeliveryRequest(
+	req *SalesDeliveryCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateAllocationCycleRequest(
 	req *AllocationCycleCreate,
 	r *http.Request,
@@ -532,6 +546,20 @@ func encodeCreateAssetTransferRequest(
 	return nil
 }
 
+func encodeCreateBillingDocumentRequest(
+	req *BillingDocumentCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateBusinessPartnerRequest(
 	req *BusinessPartnerCreate,
 	r *http.Request,
@@ -548,6 +576,20 @@ func encodeCreateBusinessPartnerRequest(
 
 func encodeCreateCashExportRequest(
 	req *CashExportCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateCatalogItemRequest(
+	req *CatalogItemCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -966,6 +1008,20 @@ func encodeCreatePurchaseOrderChangeRequest(
 	return nil
 }
 
+func encodeCreateQuotationRequest(
+	req *QuotationCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateRecommendationRequest(
 	req *RecommendationCreate,
 	r *http.Request,
@@ -1008,6 +1064,20 @@ func encodeCreateRequisitionRequest(
 	return nil
 }
 
+func encodeCreateRfqRequest(
+	req *RfqCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateRoleRequest(
 	req *RoleCreate,
 	r *http.Request,
@@ -1024,6 +1094,34 @@ func encodeCreateRoleRequest(
 
 func encodeCreateRoleAssignmentRequest(
 	req *RoleAssignmentCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateSalesOrderRequest(
+	req *SalesOrderCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateSalesPriceRequest(
+	req *SalesPriceCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1066,6 +1164,20 @@ func encodeCreateSodRuleRequest(
 
 func encodeCreateSupplierInvoiceRequest(
 	req *SupplierInvoiceCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateSupplierQuotationRequest(
+	req *SupplierQuotationCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"

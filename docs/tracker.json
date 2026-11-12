@@ -3403,9 +3403,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller runs an assessment cycle: the sender's costs of the period are charged to the receivers on the cycle's assessment account, a secondary cost element",
-        "r": "T60g · docs/design/plan-breadth-week1.md §T60g",
+        "r": "T60g · docs/design/plan-breadth-week1.md §T60g · migration 000284 · internal/controlling/allocation.go, allocationrun.go · internal/ledger/secondaryaccounts.go · internal/config/controlling.go · ADR-0064 §4, §5 · scripts/walkthrough.sh step_assessment",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -4252,21 +4252,21 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "RFQ events",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A buyer creates a request for quotation (company, currency, due date, items with quantity and unit, the suppliers invited) and publishes it; its ADR (POST /v1/rfqs, :publish)",
-        "r": "T82a · docs/design/plan-breadth-week2.md §T82a",
+        "r": "T82a · docs/design/plan-breadth-week2.md §T82a · migration 000285 · internal/procurement/rfq.go, rfq_api.go · ADR-0069 §1-§6 · scripts/walkthrough.sh step_rfq",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "The buyer records each invited supplier's quotation against the RFQ: a price per RFQ item, the supplier's reference and its validity (POST /v1/rfqs/{id}/quotations)",
-        "r": "T82b · docs/design/plan-breadth-week2.md §T82b",
+        "r": "T82b · docs/design/plan-breadth-week2.md §T82b · migration 000286 · internal/procurement/rfq_quotations.go, rfq_api.go · ADR-0069 §7 · scripts/walkthrough.sh step_rfq",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4336,14 +4336,14 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Catalog connector (punch-out)",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A catalog manager loads a supplier's catalog items in a company (item key, description, unit, price, optionally the contract item that prices it), and a requester searches the company's catalog by text and supplier; its ADR (POST /v1/catalog-items, GET /v1/catalog-items)",
-        "r": "T84a · docs/design/plan-breadth-week2.md §T84a",
+        "r": "T84a · docs/design/plan-breadth-week2.md §T84a · db/migrations/000287 · procurement.catalog_item · POST /v1/catalog-items · GET /v1/catalog-items · GET /v1/catalog-items/{id} · POST /v1/catalog-items/{id}:retire · CatalogItemChanged · procurement.catalog.read, .manage · TestCatalogSearchBudget · walkthrough step_catalog · ADR-0071 §1-§5 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4357,14 +4357,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Requisitions from catalogs",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md · not in the first pilot (PO 2026-10-21); moved from phase 1 Sourcing and procurement / Purchase requisitions and approvals",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A requester adds a catalog item to a requisition with a quantity: description, unit, price and supplier come from the catalog, and the requisition goes through approval to a purchase order as any other (catalog_item_id on the requisition item)",
-        "r": "T84b · docs/design/plan-breadth-week2.md §T84b",
+        "r": "T84b · docs/design/plan-breadth-week2.md §T84b · db/migrations/000288-000289 · procurement.requisition_item.catalog_item_id · RequisitionItemInput.catalog_item_id, RequisitionItem.catalog_item_id and item_key · POST /v1/requisitions · PATCH /v1/requisitions/{id} · walkthrough step_catalog · ADR-0071 §6 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4488,14 +4488,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Quotations",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative creates a quotation for a customer (items by description and optional item key with quantity, unit, unit price, revenue account and output tax code, valid until a date), reads it back with its net value and records that the customer accepted or rejected it; the sales context and its ADR",
-        "r": "T78a · docs/design/plan-breadth-week2.md §T78a",
+        "r": "T78a · docs/design/plan-breadth-week2.md §T78a · db/migrations/000290 · sales.quotation, quotation_item · POST /v1/quotations · GET /v1/quotations · GET /v1/quotations/{id} · POST /v1/quotations/{id}:accept, :decline · QuotationChanged · sales.quotation.read, .write · number range quotation · walkthrough step_quotation · ADR-0067 §1-§4, §6, §7 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4509,14 +4509,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Sales orders",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative creates a sales order, from an accepted quotation or directly, and confirms it; the order shows each item's ordered, delivered and billed quantities (POST /v1/sales-orders, :confirm)",
-        "r": "T78b · docs/design/plan-breadth-week2.md §T78b",
+        "r": "T78b · docs/design/plan-breadth-week2.md §T78b · db/migrations/000291 · sales.sales_order, sales_order_item · POST /v1/sales-orders · GET /v1/sales-orders · GET /v1/sales-orders/{id} · POST /v1/sales-orders/{id}:confirm · SalesOrderChanged · sales.order.read, .write, .confirm · number range sales_order · sales.Orders · walkthrough step_sales_order · ADR-0067 §5 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4530,14 +4530,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Order-to-delivery flow",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales administrator confirms that quantities of a confirmed order's items were delivered on a date; the order shows what is delivered and what is open; a delivery confirmation in the sales context, no stock and no posting (POST /v1/sales-orders/{id}/deliveries)",
-        "r": "T78c · docs/design/plan-breadth-week2.md §T78c",
+        "r": "T78c · docs/design/plan-breadth-week2.md §T78c · db/migrations/000292 · sales.delivery, delivery_item · POST /v1/sales-orders/{id}/deliveries · GET /v1/sales-orders/{id}/deliveries · SalesOrderDelivered · sales.delivery.confirm · sales.Orders (each item's deliveries) · walkthrough step_sales_order · ADR-0067 §8 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4558,14 +4558,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Condition types and pricing procedures in configuration",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A configuration administrator defines condition types (a price, a percentage discount) and the order they apply in; a pricing analyst records a customer's discount, and quotation and order items show each condition applied and the net value after it",
-        "r": "T80b · docs/design/plan-breadth-week2.md §T80b",
+        "r": "T80b · docs/design/plan-breadth-week2.md §T80b · db/migrations/000295 · configuration section pricing (condition_types, procedure) · condition_type, percent on sales.price · conditions on sales.quotation_item, sales_order_item · POST /v1/sales-prices (a discount) · walkthrough step_price_list · ADR-0067 §11 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4579,14 +4579,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Price determination",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A pricing analyst records prices for item keys, for every customer or for one, with validity dates; a quotation or order item naming an item key without a price takes the price valid on the document's date (POST /v1/sales-prices)",
-        "r": "T80a · docs/design/plan-breadth-week2.md §T80a",
+        "r": "T80a · docs/design/plan-breadth-week2.md §T80a · db/migrations/000294 · sales.price · price_source on sales.quotation_item, sales_order_item · POST /v1/sales-prices · GET /v1/sales-prices · GET /v1/sales-prices/{id} · SalesPriceChanged · sales.price.read, .write · walkthrough step_price_list · ADR-0067 §10 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -4628,14 +4628,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Billing documents",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A billing clerk creates a billing document for an order: its items are the order's delivered quantities not yet billed, at the order's prices (POST /v1/billing-documents)",
-        "r": "T79a · docs/design/plan-breadth-week2.md §T79a",
+        "r": "T79a · docs/design/plan-breadth-week2.md §T79a · db/migrations/000293 · sales.billing_document, billing_document_item · POST /v1/billing-documents · GET /v1/billing-documents · GET /v1/billing-documents/{id} · BillingDocumentChanged · sales.billing.read, .write, .post · number range billing_document · walkthrough step_billing · ADR-0067 §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

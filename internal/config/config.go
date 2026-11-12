@@ -72,6 +72,10 @@ type Config struct {
 	// group chart, its eliminations and the consolidation groups; each
 	// company's accounts map to the group chart (Account.GroupAccount).
 	Consolidation Consolidation `yaml:"consolidation,omitempty" json:"consolidation,omitzero"`
+	// Pricing is how the tenant prices sales items (ADR-0067 §11): its
+	// condition types and the procedure that applies them. None: an item
+	// takes its price alone.
+	Pricing Pricing `yaml:"pricing,omitempty" json:"pricing,omitzero"`
 }
 
 // Calendar is a company's weekend and holidays, each date once.
