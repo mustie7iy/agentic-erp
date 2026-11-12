@@ -714,6 +714,22 @@ type Handler interface {
 	//
 	// POST /v1/cash-snapshots/{id}/exports
 	CreateCashExport(ctx context.Context, req *CashExportCreate, params CreateCashExportParams) (CreateCashExportRes, error)
+	// CreateCatalogItem implements createCatalogItem operation.
+	//
+	// Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its
+	// item key, description, unit and price per `price_unit`, in the price's currency. The supplier must
+	// be one that can be ordered from in the company, as a purchase order's must be (422
+	// `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active
+	// items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
+	// `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
+	// contract of the company and the supplier in the item's currency (422
+	// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
+	// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+	// afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
+	// published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
+	//
+	// POST /v1/catalog-items
+	CreateCatalogItem(ctx context.Context, req *CatalogItemCreate, params CreateCatalogItemParams) (CreateCatalogItemRes, error)
 	// CreateChangeRequest implements createChangeRequest operation.
 	//
 	// Creates a change request in status `draft`.
@@ -1147,7 +1163,10 @@ type Handler interface {
 	CreateRegressionSuite(ctx context.Context, req *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
 	// CreateRequisition implements createRequisition operation.
 	//
-	// Creates a draft requisition.
+	// Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
+	// with a quantity (ADR-0071 §6, T84b): it takes the catalog item's description, unit, price and price
+	// unit, and the requisition its supplier and, if the catalog item names one, its contract. The
+	// requisition is then submitted, approved and ordered as any other.
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, req *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
@@ -1858,6 +1877,13 @@ type Handler interface {
 	//
 	// GET /v1/cash-snapshots/{id}
 	GetCashSnapshot(ctx context.Context, params GetCashSnapshotParams) (GetCashSnapshotRes, error)
+	// GetCatalogItem implements getCatalogItem operation.
+	//
+	// One catalog item (ADR-0071, T84a), active or retired, with its supplier's number and name. One of a
+	// company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/catalog-items/{id}
+	GetCatalogItem(ctx context.Context, params GetCatalogItemParams) (GetCatalogItemRes, error)
 	// GetCenterChange implements getCenterChange operation.
 	//
 	// Returns one center change.
@@ -3034,6 +3060,18 @@ type Handler interface {
 	//
 	// GET /v1/cash-snapshots
 	ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (ListCashSnapshotsRes, error)
+	// ListCatalogItems implements listCatalogItems operation.
+	//
+	// The catalog items of one company (ADR-0071 §3, T84a), each as `getCatalogItem` gives it: with its
+	// supplier's number and name, its item key, description, unit and price and, when it names one, the
+	// contract item that prices an order of it. `legal_entity_id` is required: a catalog is a company's,
+	// and a company the caller may not act in has no items to show. `text` finds the items whose item key
+	// or description contains it, whatever the case; `supplier_id` those of one supplier. Without `status`
+	// only `active` items are returned; `status=retired` returns the retired ones. Sortable by: `item_key`
+	// (default), `created_at`; items with the same key are in the order of their ids, so pages are stable.
+	//
+	// GET /v1/catalog-items
+	ListCatalogItems(ctx context.Context, params ListCatalogItemsParams) (ListCatalogItemsRes, error)
 	// ListCenterChanges implements listCenterChanges operation.
 	//
 	// Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal
@@ -4903,6 +4941,15 @@ type Handler interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:resume
 	ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (ResumeWebhookSubscriptionRes, error)
+	// RetireCatalogItem implements retireCatalogItem operation.
+	//
+	// Takes an `active` item out of the catalog (status `retired`), once (409 `procurement.invalid_status`
+	// for a retired one), at the version read (`If-Match`). A retired item is still read by its id and
+	// found by a search with `status=retired`; its item key is free for a new item of the supplier.
+	// `CatalogItemChanged` is published.
+	//
+	// POST /v1/catalog-items/{id}:retire
+	RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (RetireCatalogItemRes, error)
 	// RetireEntryTemplate implements retireEntryTemplate operation.
 	//
 	// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -5629,7 +5676,12 @@ type Handler interface {
 	// UpdateRequisition implements updateRequisition operation.
 	//
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
-	// `null` clears an optional field, arrays are replaced as a whole.
+	// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
+	// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
+	// description or price) and checked again against the catalog; while the requisition has such items
+	// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
+	// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
+	// `procurement.catalog_item_contract`).
 	//
 	// PATCH /v1/requisitions/{id}
 	UpdateRequisition(ctx context.Context, req *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error)

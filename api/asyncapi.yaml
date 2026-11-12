@@ -252,6 +252,7 @@ channels:
       ContractActivated: {$ref: '#/components/messages/ContractActivated'}
       ContractTerminated: {$ref: '#/components/messages/ContractTerminated'}
       ContractCancelled: {$ref: '#/components/messages/ContractCancelled'}
+      CatalogItemChanged: {$ref: '#/components/messages/CatalogItemChanged'}
       RequisitionApproved: {$ref: '#/components/messages/RequisitionApproved'}
       RequisitionRejected: {$ref: '#/components/messages/RequisitionRejected'}
       RequisitionOrdered: {$ref: '#/components/messages/RequisitionOrdered'}
@@ -561,6 +562,7 @@ operations:
       - $ref: '#/channels/procurement/messages/ContractActivated'
       - $ref: '#/channels/procurement/messages/ContractTerminated'
       - $ref: '#/channels/procurement/messages/ContractCancelled'
+      - $ref: '#/channels/procurement/messages/CatalogItemChanged'
       - $ref: '#/channels/procurement/messages/RequisitionApproved'
       - $ref: '#/channels/procurement/messages/RequisitionRejected'
       - $ref: '#/channels/procurement/messages/RequisitionOrdered'
@@ -2340,6 +2342,30 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e0000000004e", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.contract_terminated.v1", "subject": "0192a000-0000-7000-8000-000000000607", "time": "2026-10-08T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"contract_id": "0192a000-0000-7000-8000-000000000607", "document_number": "4600000077", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "supplier_id": "0192a000-0000-7000-8000-000000000301", "consumed_value": {"amount": "41000.00", "currency": "EUR"}, "previous_status": "active", "status": "terminated"}
+    CatalogItemChanged:
+      name: CatalogItemChanged
+      x-webhook: true
+      title: Catalog item changed
+      summary: A catalog item was loaded or retired.
+      description: |
+        Emitted at each change of a catalog item's status (ADR-0071 §4,
+        T84a): when it is loaded (`active`, status_before null) and when it
+        is retired (`retired`, status_before `active`). It names the
+        supplier by id and number, never by name, and carries the item's
+        key, unit and price, not its description:
+        `GET /v1/catalog-items/{id}` returns the item at `version` or
+        later. Subject is the catalog item id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.catalog_item_changed.v1}
+      payload: {$ref: '#/components/schemas/CatalogItemChangedV1'}
+      examples:
+        - name: loaded
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f84, source: /erp/eu-1/procurement, type: com.example.erp.procurement.catalog_item_changed.v1, subject: 0192a000-0000-7000-8000-000000000f85, time: '2026-11-18T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {catalog_item_id: 0192a000-0000-7000-8000-000000000f85, legal_entity_id: 0192a000-0000-7000-8000-000000000201, supplier_id: 0192a000-0000-7000-8000-000000000301, supplier_number: BP100057, item_key: CHAIR-ERGO-01, unit: EA, unit_price: {amount: '450.00', currency: CAD}, price_unit: 1, contract_id: null, contract_item_no: null, status: active, status_before: null, version: 1}
     ContractCancelled:
       name: ContractCancelled
       x-webhook: true
@@ -5853,6 +5879,23 @@ components:
         consumed_value: {"$ref": "#/components/schemas/Money", "description": "Sum of contract releases at termination."}
         previous_status: {"type": "string", "description": "Open enum; active in v1."}
         status: {"type": "string", "description": "Open enum; terminated in v1."}
+    CatalogItemChangedV1:
+      type: object
+      required: [catalog_item_id, legal_entity_id, supplier_id, supplier_number, item_key, unit, unit_price, price_unit, contract_id, contract_item_no, status, status_before, version]
+      properties:
+        catalog_item_id: {$ref: '#/components/schemas/Uuid', description: '`procurement.catalog_item.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose catalog the item is in.}
+        supplier_id: {$ref: '#/components/schemas/Uuid', description: The supplier (business partner id).}
+        supplier_number: {type: string, description: "The supplier's business partner number."}
+        item_key: {type: string, description: "The item's key, the supplier's once among the company's active items."}
+        unit: {type: string, description: Unit of measure code the item is ordered in.}
+        unit_price: {$ref: '#/components/schemas/Money', description: 'The price per `price_unit`.'}
+        price_unit: {type: integer, description: Quantity the unit price refers to.}
+        contract_id: {$ref: '#/components/schemas/NullableUuid', description: 'The contract whose item prices an order of the item; null when it names none.'}
+        contract_item_no: {type: [integer, 'null'], description: 'The item of that contract; null when it names none.'}
+        status: {type: string, description: "The item's status after the change. Open enum: active, retired."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was loaded.'}
+        version: {type: integer, description: "The item's version after the change."}
     ContractCancelledV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "previous_status", "status"]

@@ -19,6 +19,14 @@ func (s *BankChangeCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *CatalogItemCreate) setDefaults() {
+	{
+		val := int32(1)
+		s.PriceUnit.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *ContractItem) setDefaults() {
 	{
 		val := int32(1)

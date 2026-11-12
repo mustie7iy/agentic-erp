@@ -735,6 +735,22 @@ type Invoker interface {
 	//
 	// POST /v1/cash-snapshots/{id}/exports
 	CreateCashExport(ctx context.Context, request *CashExportCreate, params CreateCashExportParams) (CreateCashExportRes, error)
+	// CreateCatalogItem invokes createCatalogItem operation.
+	//
+	// Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its
+	// item key, description, unit and price per `price_unit`, in the price's currency. The supplier must
+	// be one that can be ordered from in the company, as a purchase order's must be (422
+	// `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active
+	// items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
+	// `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
+	// contract of the company and the supplier in the item's currency (422
+	// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
+	// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+	// afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
+	// published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
+	//
+	// POST /v1/catalog-items
+	CreateCatalogItem(ctx context.Context, request *CatalogItemCreate, params CreateCatalogItemParams) (CreateCatalogItemRes, error)
 	// CreateChangeRequest invokes createChangeRequest operation.
 	//
 	// Creates a change request in status `draft`.
@@ -1168,7 +1184,10 @@ type Invoker interface {
 	CreateRegressionSuite(ctx context.Context, request *RegressionSuiteCreate, params CreateRegressionSuiteParams) (CreateRegressionSuiteRes, error)
 	// CreateRequisition invokes createRequisition operation.
 	//
-	// Creates a draft requisition.
+	// Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
+	// with a quantity (ADR-0071 §6, T84b): it takes the catalog item's description, unit, price and price
+	// unit, and the requisition its supplier and, if the catalog item names one, its contract. The
+	// requisition is then submitted, approved and ordered as any other.
 	//
 	// POST /v1/requisitions
 	CreateRequisition(ctx context.Context, request *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error)
@@ -1879,6 +1898,13 @@ type Invoker interface {
 	//
 	// GET /v1/cash-snapshots/{id}
 	GetCashSnapshot(ctx context.Context, params GetCashSnapshotParams) (GetCashSnapshotRes, error)
+	// GetCatalogItem invokes getCatalogItem operation.
+	//
+	// One catalog item (ADR-0071, T84a), active or retired, with its supplier's number and name. One of a
+	// company the caller may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/catalog-items/{id}
+	GetCatalogItem(ctx context.Context, params GetCatalogItemParams) (GetCatalogItemRes, error)
 	// GetCenterChange invokes getCenterChange operation.
 	//
 	// Returns one center change.
@@ -3055,6 +3081,18 @@ type Invoker interface {
 	//
 	// GET /v1/cash-snapshots
 	ListCashSnapshots(ctx context.Context, params ListCashSnapshotsParams) (ListCashSnapshotsRes, error)
+	// ListCatalogItems invokes listCatalogItems operation.
+	//
+	// The catalog items of one company (ADR-0071 §3, T84a), each as `getCatalogItem` gives it: with its
+	// supplier's number and name, its item key, description, unit and price and, when it names one, the
+	// contract item that prices an order of it. `legal_entity_id` is required: a catalog is a company's,
+	// and a company the caller may not act in has no items to show. `text` finds the items whose item key
+	// or description contains it, whatever the case; `supplier_id` those of one supplier. Without `status`
+	// only `active` items are returned; `status=retired` returns the retired ones. Sortable by: `item_key`
+	// (default), `created_at`; items with the same key are in the order of their ids, so pages are stable.
+	//
+	// GET /v1/catalog-items
+	ListCatalogItems(ctx context.Context, params ListCatalogItemsParams) (ListCatalogItemsRes, error)
 	// ListCenterChanges invokes listCenterChanges operation.
 	//
 	// Requested changes to cost and profit centers (ADR-0050 §11). Changes of cost centers in legal
@@ -4924,6 +4962,15 @@ type Invoker interface {
 	//
 	// POST /v1/webhook-subscriptions/{id}:resume
 	ResumeWebhookSubscription(ctx context.Context, params ResumeWebhookSubscriptionParams) (ResumeWebhookSubscriptionRes, error)
+	// RetireCatalogItem invokes retireCatalogItem operation.
+	//
+	// Takes an `active` item out of the catalog (status `retired`), once (409 `procurement.invalid_status`
+	// for a retired one), at the version read (`If-Match`). A retired item is still read by its id and
+	// found by a search with `status=retired`; its item key is free for a new item of the supplier.
+	// `CatalogItemChanged` is published.
+	//
+	// POST /v1/catalog-items/{id}:retire
+	RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (RetireCatalogItemRes, error)
 	// RetireEntryTemplate invokes retireEntryTemplate operation.
 	//
 	// Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -5650,7 +5697,12 @@ type Invoker interface {
 	// UpdateRequisition invokes updateRequisition operation.
 	//
 	// Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
-	// `null` clears an optional field, arrays are replaced as a whole.
+	// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
+	// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
+	// description or price) and checked again against the catalog; while the requisition has such items
+	// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
+	// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
+	// `procurement.catalog_item_contract`).
 	//
 	// PATCH /v1/requisitions/{id}
 	UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error)
@@ -13559,6 +13611,146 @@ func (c *Client) sendCreateCashExport(ctx context.Context, request *CashExportCr
 	return result, nil
 }
 
+// CreateCatalogItem invokes createCatalogItem operation.
+//
+// Loads one item of a supplier into a company's catalog (ADR-0071 §2, T84a), `active` at once: its
+// item key, description, unit and price per `price_unit`, in the price's currency. The supplier must
+// be one that can be ordered from in the company, as a purchase order's must be (422
+// `procurement.supplier_not_usable`). An item key is the supplier's once among the company's active
+// items (409 `procurement.catalog_item_exists`); a retired item frees its key. `contract_id` with
+// `contract_item_no` names the contract item that prices an order of the item: an item of an `active`
+// contract of the company and the supplier in the item's currency (422
+// `procurement.invalid_contract`), in the item's unit (422 `procurement.invalid_contract_item`); the
+// catalog item keeps its own price, which a requisition takes. What an item offers is not changed
+// afterwards: a new price is a new item after the old one is retired. `CatalogItemChanged` is
+// published. The catalog is the tenant's own data: nothing is fetched from a supplier's system.
+//
+// POST /v1/catalog-items
+func (c *Client) CreateCatalogItem(ctx context.Context, request *CatalogItemCreate, params CreateCatalogItemParams) (CreateCatalogItemRes, error) {
+	res, err := c.sendCreateCatalogItem(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateCatalogItem(ctx context.Context, request *CatalogItemCreate, params CreateCatalogItemParams) (res CreateCatalogItemRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createCatalogItem"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/catalog-items"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateCatalogItemOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/catalog-items"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateCatalogItemRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateCatalogItemOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateCatalogItemResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateChangeRequest invokes createChangeRequest operation.
 //
 // Creates a change request in status `draft`.
@@ -17874,7 +18066,10 @@ func (c *Client) sendCreateRegressionSuite(ctx context.Context, request *Regress
 
 // CreateRequisition invokes createRequisition operation.
 //
-// Creates a draft requisition.
+// Creates a draft requisition. An item may be taken from the company's catalog by `catalog_item_id`
+// with a quantity (ADR-0071 §6, T84b): it takes the catalog item's description, unit, price and price
+// unit, and the requisition its supplier and, if the catalog item names one, its contract. The
+// requisition is then submitted, approved and ordered as any other.
 //
 // POST /v1/requisitions
 func (c *Client) CreateRequisition(ctx context.Context, request *RequisitionCreate, params CreateRequisitionParams) (CreateRequisitionRes, error) {
@@ -26379,6 +26574,138 @@ func (c *Client) sendGetCashSnapshot(ctx context.Context, params GetCashSnapshot
 
 	stage = "DecodeResponse"
 	result, err := decodeGetCashSnapshotResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetCatalogItem invokes getCatalogItem operation.
+//
+// One catalog item (ADR-0071, T84a), active or retired, with its supplier's number and name. One of a
+// company the caller may not act in is not found (404), as one that does not exist.
+//
+// GET /v1/catalog-items/{id}
+func (c *Client) GetCatalogItem(ctx context.Context, params GetCatalogItemParams) (GetCatalogItemRes, error) {
+	res, err := c.sendGetCatalogItem(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetCatalogItem(ctx context.Context, params GetCatalogItemParams) (res GetCatalogItemRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getCatalogItem"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/catalog-items/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetCatalogItemOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/catalog-items/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetCatalogItemOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetCatalogItemResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -44712,6 +45039,245 @@ func (c *Client) sendListCashSnapshots(ctx context.Context, params ListCashSnaps
 
 	stage = "DecodeResponse"
 	result, err := decodeListCashSnapshotsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListCatalogItems invokes listCatalogItems operation.
+//
+// The catalog items of one company (ADR-0071 §3, T84a), each as `getCatalogItem` gives it: with its
+// supplier's number and name, its item key, description, unit and price and, when it names one, the
+// contract item that prices an order of it. `legal_entity_id` is required: a catalog is a company's,
+// and a company the caller may not act in has no items to show. `text` finds the items whose item key
+// or description contains it, whatever the case; `supplier_id` those of one supplier. Without `status`
+// only `active` items are returned; `status=retired` returns the retired ones. Sortable by: `item_key`
+// (default), `created_at`; items with the same key are in the order of their ids, so pages are stable.
+//
+// GET /v1/catalog-items
+func (c *Client) ListCatalogItems(ctx context.Context, params ListCatalogItemsParams) (ListCatalogItemsRes, error) {
+	res, err := c.sendListCatalogItems(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListCatalogItems(ctx context.Context, params ListCatalogItemsParams) (res ListCatalogItemsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listCatalogItems"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/catalog-items"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListCatalogItemsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/catalog-items"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.UUIDToString(params.LegalEntityID))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "supplier_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "supplier_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.SupplierID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "text" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "text",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Text.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListCatalogItemsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListCatalogItemsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -76798,6 +77364,166 @@ func (c *Client) sendResumeWebhookSubscription(ctx context.Context, params Resum
 	return result, nil
 }
 
+// RetireCatalogItem invokes retireCatalogItem operation.
+//
+// Takes an `active` item out of the catalog (status `retired`), once (409 `procurement.invalid_status`
+// for a retired one), at the version read (`If-Match`). A retired item is still read by its id and
+// found by a search with `status=retired`; its item key is free for a new item of the supplier.
+// `CatalogItemChanged` is published.
+//
+// POST /v1/catalog-items/{id}:retire
+func (c *Client) RetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (RetireCatalogItemRes, error) {
+	res, err := c.sendRetireCatalogItem(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendRetireCatalogItem(ctx context.Context, params RetireCatalogItemParams) (res RetireCatalogItemRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("retireCatalogItem"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/catalog-items/{id}:retire"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, RetireCatalogItemOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/catalog-items/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":retire"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, RetireCatalogItemOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeRetireCatalogItemResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // RetireEntryTemplate invokes retireEntryTemplate operation.
 //
 // Retires an active entry template for good (status `retired`, `EntryTemplateChanged`): it changes no
@@ -84906,7 +85632,12 @@ func (c *Client) sendUpdatePurchaseOrderChange(ctx context.Context, request *Pur
 // UpdateRequisition invokes updateRequisition operation.
 //
 // Changes a requisition in status `draft`. JSON Merge Patch (RFC 7396): absent fields are unchanged,
-// `null` clears an optional field, arrays are replaced as a whole.
+// `null` clears an optional field, arrays are replaced as a whole. Items taken from the catalog are
+// sent as when the requisition is created (`catalog_item_id` with a quantity and an account, without
+// description or price) and checked again against the catalog; while the requisition has such items
+// its supplier, and its contract if a catalog item names one, stay the catalog items': clearing one
+// takes it from them again, and another is refused (422 `procurement.catalog_item_supplier`,
+// `procurement.catalog_item_contract`).
 //
 // PATCH /v1/requisitions/{id}
 func (c *Client) UpdateRequisition(ctx context.Context, request *RequisitionUpdate, params UpdateRequisitionParams) (UpdateRequisitionRes, error) {

@@ -46,6 +46,10 @@ type Item struct {
 	// DeliveryDate is an order item's expected delivery date (T53g), nil
 	// for none; requisitions' and contracts' items have none.
 	DeliveryDate *time.Time `json:"delivery_date"`
+	// CatalogItemID is the catalog item a requisition item was taken from
+	// (T84b, ADR-0071 §6), whose key is then its MaterialKey; nil for an
+	// item the requester described, and for contracts' and orders' items.
+	CatalogItemID *uuid.UUID `json:"catalog_item_id,omitempty"`
 }
 
 // assignment is the item's account assignment, none when it has none
@@ -84,6 +88,9 @@ type ItemInput struct {
 	CostCenterID      *uuid.UUID
 	// DeliveryDate is an order item's expected delivery date (T53g).
 	DeliveryDate *time.Time
+	// CatalogItemID is the catalog item a requisition item is taken from
+	// (T84b): fromCatalog fills the description, key and price from it.
+	CatalogItemID *uuid.UUID
 }
 
 // Requisition is a row of procurement.requisition with its live items.
@@ -116,7 +123,9 @@ const requisitionSelect = `SELECT r.id, r.document_number, r.legal_entity_id, r.
 		r.requisition_date, r.needed_by, r.status, r.workflow_request_id, r.extensions, r.version, r.created_at, r.created_by, r.updated_at, r.updated_by,
 		coalesce((SELECT json_agg(json_build_object('item_no', i.item_no, 'material_id', i.material_id, 'description', i.description,
 			'quantity', trim_scale(i.quantity)::text, 'unit', i.uom_code, 'unit_price', i.unit_price, 'price_unit', i.price_unit,
-			'account_id', i.account_id, 'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id) ORDER BY i.item_no)
+			'account_id', i.account_id, 'account_assignment', i.account_assignment, 'cost_center_id', i.cost_center_id,
+			'catalog_item_id', i.catalog_item_id, 'material_key', (SELECT ci.item_key FROM procurement.catalog_item ci
+				WHERE ci.tenant_id = i.tenant_id AND ci.id = i.catalog_item_id)) ORDER BY i.item_no)
 		 FROM procurement.requisition_item i WHERE i.tenant_id = r.tenant_id AND i.requisition_id = r.id AND NOT i.is_removed), '[]')
 	FROM procurement.requisition r JOIN ref.currency c ON c.code = r.currency`
 
@@ -181,8 +190,9 @@ func (e *Endpoints) requisitionItems(ctx context.Context, le uuid.UUID, currency
 		if err != nil {
 			return nil, err
 		}
-		items[i] = Item{No: int32(i + 1), MaterialID: it.MaterialID, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-			UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID, AccountAssignment: assignment, CostCenterID: center}
+		items[i] = Item{No: int32(i + 1), MaterialID: it.MaterialID, MaterialKey: it.MaterialKey, Description: it.Description, Quantity: it.Quantity,
+			Unit: it.Unit, UnitPrice: price, PriceUnit: max(it.PriceUnit, 1), AccountID: it.AccountID, AccountAssignment: assignment, CostCenterID: center,
+			CatalogItemID: it.CatalogItemID}
 	}
 	return items, checkTotal(items)
 }
@@ -192,21 +202,22 @@ func writeRequisitionItems(ctx context.Context, tx pgx.Tx, tenant, id uuid.UUID,
 	n := len(items)
 	nos, materials, descriptions, quantities, units := make([]int32, n), make([]*uuid.UUID, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, accounts := make([]money.Minor, n), make([]int32, n), make([]uuid.UUID, n)
-	assigned, centers := make([]string, n), make([]*uuid.UUID, n)
+	assigned, centers, catalog := make([]string, n), make([]*uuid.UUID, n), make([]*uuid.UUID, n)
 	for i, it := range items {
 		nos[i], materials[i], descriptions[i], quantities[i], units[i] = it.No, it.MaterialID, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], accounts[i], assigned[i], centers[i] = it.UnitPrice, it.PriceUnit, it.AccountID, it.assignment(), it.CostCenterID
+		catalog[i] = it.CatalogItemID
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.requisition_item AS i (tenant_id, requisition_id, item_no, material_id, description, quantity,
-			uom_code, unit_price, price_unit, account_id, account_assignment, cost_center_id)
-		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, aa, cc
-		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::uuid[])
-			AS x(n, m, d, q, u, p, pu, a, aa, cc)
+			uom_code, unit_price, price_unit, account_id, account_assignment, cost_center_id, catalog_item_id)
+		SELECT $1, $2, n, m, d, q::numeric, u, p, pu, a, aa, cc, ci
+		FROM unnest($3::int[], $4::uuid[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::uuid[], $11::text[], $12::uuid[], $13::uuid[])
+			AS x(n, m, d, q, u, p, pu, a, aa, cc, ci)
 		ON CONFLICT (tenant_id, requisition_id, item_no) DO UPDATE SET material_id = EXCLUDED.material_id, description = EXCLUDED.description,
 			quantity = EXCLUDED.quantity, uom_code = EXCLUDED.uom_code, unit_price = EXCLUDED.unit_price, price_unit = EXCLUDED.price_unit,
 			account_id = EXCLUDED.account_id, account_assignment = EXCLUDED.account_assignment, cost_center_id = EXCLUDED.cost_center_id,
-			is_removed = false`,
-		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, assigned, centers); err != nil {
+			catalog_item_id = EXCLUDED.catalog_item_id, is_removed = false`,
+		tenant, id, nos, materials, descriptions, quantities, units, prices, priceUnits, accounts, assigned, centers, catalog); err != nil {
 		return fmt.Errorf("procurement: write items of requisition %s: %w", id, err)
 	}
 	return removeItems(ctx, tx, "requisition_item", "requisition_id", id, n)
@@ -265,16 +276,11 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if err != nil {
 		return Requisition{}, err
 	}
-	supplier, err := checkRequisitionContract(ctx, tx, in.ContractID, le.ID, in.Currency, in.SupplierID)
+	supplier, contract, inputs, err := e.requisitionParties(ctx, tx, le.ID, in.Currency, in.SupplierID, in.ContractID, in.Items, nil)
 	if err != nil {
 		return Requisition{}, err
 	}
-	if supplier != nil {
-		if err := e.supplier(ctx, *supplier, le.ID); err != nil {
-			return Requisition{}, err
-		}
-	}
-	items, err := e.requisitionItems(ctx, le.ID, in.Currency, exp, in.Items)
+	items, err := e.requisitionItems(ctx, le.ID, in.Currency, exp, inputs)
 	if err != nil {
 		return Requisition{}, err
 	}
@@ -290,7 +296,7 @@ func (e *Endpoints) createRequisition(ctx context.Context, in NewRequisition) (R
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.requisition (tenant_id, id, document_number, legal_entity_id, requester_id, supplier_id, contract_id,
 			currency, requisition_date, needed_by, status, extensions, created_by, updated_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, $5, $5)`,
-		p.TenantID, id, number, le.ID, p.ID, supplier, in.ContractID, in.Currency, day, in.NeededBy, in.Extensions); err != nil {
+		p.TenantID, id, number, le.ID, p.ID, supplier, contract, in.Currency, day, in.NeededBy, in.Extensions); err != nil {
 		return Requisition{}, fmt.Errorf("procurement: create requisition %s: %w", number, err)
 	}
 	if err := writeRequisitionItems(ctx, tx, p.TenantID, id, items); err != nil {
@@ -351,16 +357,12 @@ func (e *Endpoints) updateRequisition(ctx context.Context, id uuid.UUID, ifMatch
 	if err != nil {
 		return Requisition{}, err
 	}
-	if supplier, err = checkRequisitionContract(ctx, tx, contract, r.LegalEntityID, currency, supplier); err != nil {
+	supplier, contract, inputs, err := e.requisitionParties(ctx, tx, r.LegalEntityID, currency, supplier, contract, ch.Items, r.Items)
+	if err != nil {
 		return Requisition{}, err
 	}
-	if supplier != nil {
-		if err := e.supplier(ctx, *supplier, r.LegalEntityID); err != nil {
-			return Requisition{}, err
-		}
-	}
 	if ch.Items != nil {
-		items, err := e.requisitionItems(ctx, r.LegalEntityID, currency, exp, ch.Items)
+		items, err := e.requisitionItems(ctx, r.LegalEntityID, currency, exp, inputs)
 		if err != nil {
 			return Requisition{}, err
 		}

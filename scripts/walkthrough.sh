@@ -6728,6 +6728,81 @@ step_rfq() {
   passed
 }
 
+# step_catalog: catalog items (ADR-0071, T84a). Priya, the purchasing
+# manager, loads items of Tyrell into Maple's catalog; Ben, a requester,
+# finds them by a word of their description. The catalog is the tenant's
+# own table: nothing is fetched from a supplier's system. Then (T84b) Ben
+# raises a requisition from the chair with a quantity: its description,
+# unit, price and supplier are the catalog's, and it is submitted and
+# approved as any other.
+step_catalog() {
+  heading "Step 54 — Catalog items: two items of a supplier loaded into the company's catalog and found by a search on a word of their description; a retired item is no longer found; a requisition from a catalog item takes its price and supplier"
+  as priya
+  local chair desk arm req request expense
+  say "Priya loads Tyrell's items into Maple's catalog, one at a time: an item key, a description, a unit and one"
+  say "price each (ADR-0071). The supplier must be one Maple can order from, as a purchase order's must be."
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"CHAIR-ERGO\", \"description\": \"Ergonomic office chair, mesh back\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"450.00\", \"currency\": \"CAD\"}}"
+  chair=$(field .id)
+  expect "the chair in the catalog" "$(field '"\(.status) \(.supplier_id) \(.unit_price.amount) \(.unit_price.currency)"')" "active $SUPPLIER 450.00 CAD"
+  api 201 '"catalog item \(.item_key) of \(.supplier_number) \(.supplier_name): \(.description), \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.unit), \(.status)"' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"DESK-OAK\", \"description\": \"Standing desk, oak, with office cable tray\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"890.00\", \"currency\": \"CAD\"}}"
+  desk=$(field .id)
+  QUIET=1 api 201 '' createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"ARM-01\", \"description\": \"Monitor arm for an office desk\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"75.00\", \"currency\": \"CAD\"}}"
+  arm=$(field .id)
+  say "An item key is the supplier's once among Maple's active items:"
+  refused 409 procurement.catalog_item_exists createCatalogItem \
+    -body "{\"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"item_key\": \"CHAIR-ERGO\", \"description\": \"Another chair\", \"unit\": \"EA\", \"unit_price\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  say "Tyrell no longer makes the monitor arm. Priya retires it, at the version she read; an item is retired once:"
+  QUIET=1 api 200 '' getCatalogItem -p "id=$arm"
+  api 200 '"catalog item \(.item_key): \(.status), version \(.version)"' retireCatalogItem -p "id=$arm" -if-match "$ETAG"
+  expect "the arm's status" "$(field .status)" retired
+  refused 409 procurement.invalid_status retireCatalogItem -p "id=$arm" -if-match "$ETAG"
+  as ben
+  say "Ben needs furniture for a new colleague. He searches Maple's catalog for a word, whatever its case; the"
+  say "search reads item keys and descriptions and returns active items, each with its supplier's number and name:"
+  api 200 '.items[] | "  \(.item_key) \(.description): \(.unit_price.amount) \(.unit_price.currency) per \(.unit), from \(.supplier_number) \(.supplier_name)"' \
+    listCatalogItems -p "legal_entity_id=$LE" -p text=Office
+  expect "the items found by a word of their description" "$(field '[.items[] | "\(.id) \(.status)"] | join(", ")')" "$chair active, $desk active"
+  expect "each with its supplier's name" "$(field '[.items[].supplier_name] | unique | length')" 1
+  api 200 '.items[] | "  \(.item_key) \(.description)"' listCatalogItems -p "legal_entity_id=$LE" -p text=chair -p "supplier_id=$SUPPLIER"
+  expect "the chair found by text and supplier" "$(field '[.items[].id] | join(" ")')" "$chair"
+  say "The retired arm is found only when retired items are asked for:"
+  api 200 '.items[] | "  \(.item_key) \(.description): \(.status)"' listCatalogItems -p "legal_entity_id=$LE" -p text=office -p status=retired
+  expect "the retired items" "$(field '[.items[].id] | join(" ")')" "$arm"
+  accounts
+  expense=$(account 6000)
+  say "Ben asks for two of the chairs. He names the catalog item, a quantity and the account to charge; the"
+  say "description, the unit, the price and the supplier are the catalog's (ADR-0071 §6, T84b):"
+  api 201 '"requisition \(.document_number): \(.status), \(.total_amount.amount) \(.total_amount.currency)", (.items[] | "  item \(.item_no): \(.quantity.value) \(.quantity.unit) of \(.item_key) \(.description) at \(.unit_price.amount) \(.unit_price.currency)")' createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$chair\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}]}"
+  req=$(field .id)
+  say "A price of his own is not his to give for a catalog item:"
+  refused 422 procurement.catalog_item_override createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$chair\", \"quantity\": {\"value\": \"2\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"400.00\", \"currency\": \"CAD\"}, \"account_id\": \"$expense\"}]}"
+  expect "the refused field" "$(field '[.errors[].field] | join(" ")')" "items[0].unit_price"
+  say "Nor is a retired item to be had:"
+  refused 422 procurement.invalid_catalog_item createRequisition \
+    -body "{\"legal_entity_id\": \"$LE\", \"currency\": \"CAD\", \"items\": [{\"catalog_item_id\": \"$arm\", \"quantity\": {\"value\": \"1\", \"unit\": \"EA\"}, \"account_id\": \"$expense\"}]}"
+  say "Read back, the requisition has the catalog's price and Tyrell as its supplier:"
+  api 200 '"requisition \(.document_number) for \(.expanded.supplier.number) \(.expanded.supplier.name): \(.items[0].item_key) at \(.items[0].unit_price.amount) \(.items[0].unit_price.currency), total \(.total_amount.amount) \(.total_amount.currency)"' \
+    getRequisition -p "id=$req" -p expand=supplier
+  expect "the requisition's item from the catalog" \
+    "$(field '.items[0] | "\(.catalog_item_id) \(.item_key) \(.description) \(.quantity.value) \(.quantity.unit) \(.unit_price.amount) \(.unit_price.currency)"')" \
+    "$chair CHAIR-ERGO Ergonomic office chair, mesh back 2 EA 450.00 CAD"
+  expect "the requisition's supplier and total" "$(field '"\(.supplier_id) \(.total_amount.amount) \(.total_amount.currency)"')" "$SUPPLIER 900.00 CAD"
+  say "Ben submits it; it goes to approval as any other requisition, and Priya approves it:"
+  api 200 '"\(.status): approval request \(.workflow_request_id)"' submitRequisition -p "id=$req" -if-match "$ETAG"
+  expect "the submitted requisition" "$(field .status)" pending_approval
+  request=$(field .workflow_request_id)
+  approve priya "$request" "Furniture for the new colleague"
+  as ben
+  api 200 '"requisition \(.document_number): \(.status)"' getRequisition -p "id=$req"
+  expect "the approved requisition" "$(field .status)" approved
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8752,7 +8827,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_close'
 
 main() {
   stop_unseen

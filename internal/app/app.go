@@ -397,7 +397,7 @@ func procurementEndpoints(cfg Config) *procurement.Endpoints {
 	return &procurement.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Suppliers: partner.Suppliers{}, Partners: partner.Payees{},
 		AccountNames: ledger.AssetReads{}, Accounts: ledger.Accounts{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
 		Settings: configuration.Settings{}, Schemas: configuration.Settings{}, Rules: configuration.Settings{}, References: partner.References{}, Approvals: opener(),
-		Invoices: payables.Invoices{}, Postings: postings(), Now: cfg.Now}
+		Invoices: payables.Invoices{}, Postings: postings(), SupplierNames: partner.Payees{}, Now: cfg.Now}
 }
 
 // payablesEndpoints is the payables context as the API wires it, capturing

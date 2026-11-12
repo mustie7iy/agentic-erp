@@ -4336,14 +4336,14 @@
     "ph": 4,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Catalog connector (punch-out)",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A catalog manager loads a supplier's catalog items in a company (item key, description, unit, price, optionally the contract item that prices it), and a requester searches the company's catalog by text and supplier; its ADR (POST /v1/catalog-items, GET /v1/catalog-items)",
-        "r": "T84a · docs/design/plan-breadth-week2.md §T84a",
+        "r": "T84a · docs/design/plan-breadth-week2.md §T84a · db/migrations/000287 · procurement.catalog_item · POST /v1/catalog-items · GET /v1/catalog-items · GET /v1/catalog-items/{id} · POST /v1/catalog-items/{id}:retire · CatalogItemChanged · procurement.catalog.read, .manage · TestCatalogSearchBudget · walkthrough step_catalog · ADR-0071 §1-§5 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4357,14 +4357,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Requisitions from catalogs",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md · not in the first pilot (PO 2026-10-21); moved from phase 1 Sourcing and procurement / Purchase requisitions and approvals",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A requester adds a catalog item to a requisition with a quantity: description, unit, price and supplier come from the catalog, and the requisition goes through approval to a purchase order as any other (catalog_item_id on the requisition item)",
-        "r": "T84b · docs/design/plan-breadth-week2.md §T84b",
+        "r": "T84b · docs/design/plan-breadth-week2.md §T84b · db/migrations/000288-000289 · procurement.requisition_item.catalog_item_id · RequisitionItemInput.catalog_item_id, RequisitionItem.catalog_item_id and item_key · POST /v1/requisitions · PATCH /v1/requisitions/{id} · walkthrough step_catalog · ADR-0071 §6 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

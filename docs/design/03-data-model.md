@@ -1602,6 +1602,8 @@ erDiagram
   requisition |o--o| purchase_order : "ordered as"
   contract |o--o{ purchase_order : "priced by"
   goods_movement ||--|{ goods_movement_item : contains
+  contract_item |o--o{ catalog_item : "prices orders of"
+  catalog_item |o--o{ requisition_item : "taken by"
   purchase_order_item ||--o{ goods_movement_item : received_by
   rfq ||--|{ rfq_item : "asks for"
   rfq ||--|{ rfq_supplier : invites
@@ -1627,7 +1629,8 @@ erDiagram
     bigint unit_price
     uuid account_id
     text account_assignment "none | cost_center (T56e)"
-    uuid cost_center_id "T56e" }
+    uuid cost_center_id "T56e"
+    uuid catalog_item_id "T84b" }
   contract { uuid id PK
     uuid supplier_id
     date valid_from
@@ -1636,6 +1639,20 @@ erDiagram
     text status
     uuid renewal_of_id
     date expiry_alerted_on }
+  catalog_item { uuid id PK
+    uuid legal_entity_id
+    uuid supplier_id
+    text item_key
+    text description
+    text uom_code
+    char currency
+    bigint unit_price
+    int price_unit
+    uuid contract_id
+    int contract_item_no
+    text status "active | retired"
+    text search_text "generated"
+    int version }
   contract_release { uuid contract_id PK
     uuid purchase_order_id PK
     bigint value }
@@ -1946,6 +1963,39 @@ given, else, on an order created from a requisition, the requisition's
 `needed_by`; a released order's item changes it through an order change
 (`check_order_item_editable` leaves it free, as quantity and price). The
 liquidity forecast expects the item's open value invoiced on it.
+
+A company's catalog is `procurement.catalog_item` (migration 000287, T84a,
+ADR-0071): a supplier's item in a legal entity with an `item_key` (1 to 40
+characters, no white space around it, `catalog_item_item_key_check`), a
+`description` (up to 200 characters, not white space alone), a unit of the
+reference data, a known currency, a positive `unit_price` in minor units
+per `price_unit` and a status, `active` or `retired`. The key is the
+supplier's once among the company's active items
+(`catalog_item_active_key`, a partial unique index, so a retired item
+frees its key). `contract_id` and `contract_item_no` name the contract
+item that prices an order of it, both or neither
+(`catalog_item_contract_item_both`), an item the contract has
+(`catalog_item_contract_item_fkey`); that the contract is active, of the
+same company and supplier and in the item's currency and unit is checked
+when the item is loaded. `search_text` is the key and the description in
+lower case, generated, which the search matches a text in;
+`catalog_item_by_key` is the order the search's pages are read in. The
+legal entity is tenancy's and the supplier the partner context's, with no
+foreign key across schemas. The application inserts an item and
+afterwards updates its `status`, `version`, `updated_by` and `updated_at`
+alone (column privileges): what an item offers is not changed, and an
+item is never deleted.
+
+A requisition item taken from the catalog names its catalog item
+(`requisition_item.catalog_item_id`, nullable; migrations 000288-000289,
+T84b, ADR-0071 §6; `requisition_item_catalog_item_fkey`, added `NOT VALID`
+and validated by 000289) and holds a copy of the description, unit and
+price it took, so a catalog item retired later changes nothing on it.
+An update that changes the description, unit, price or price unit and
+leaves `catalog_item_id` as it was sets it to null (trigger
+`requisition_item_unlink_catalog`, 000288): the previous release's upsert
+of a draft's items does not name the column, and would otherwise leave a
+described item naming the catalog item of the row it replaced.
 
 ## 3.9 Accounts payable (`payables`)
 

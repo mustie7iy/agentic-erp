@@ -18663,6 +18663,437 @@ func (s *CashSnapshotPage) SetNextPageToken(val OptString) {
 func (*CashSnapshotPage) listCashSnapshotsRes() {}
 
 // Merged schema.
+// Ref: #/components/schemas/CatalogItem
+type CatalogItem struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose catalog the item is in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The supplier (`GET /v1/business-partners/{id}`).
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's business partner number.
+	SupplierNumber string `json:"supplier_number"`
+	// The supplier's name, as it is now.
+	SupplierName string `json:"supplier_name"`
+	// The item's key, the supplier's once among the company's active items.
+	ItemKey string `json:"item_key"`
+	// What the item is.
+	Description string `json:"description"`
+	// Unit of measure code the item is ordered in.
+	Unit string `json:"unit"`
+	// The price per `price_unit`, in its own currency.
+	UnitPrice Money `json:"unit_price"`
+	// Quantity the unit price refers to.
+	PriceUnit int32 `json:"price_unit"`
+	// The contract whose item prices an order of the item (`GET /v1/contracts/{id}`); absent when it names
+	// none.
+	ContractID OptUUID `json:"contract_id"`
+	// That contract's document number; absent when the item names no contract.
+	ContractNumber OptString `json:"contract_number"`
+	// The item of that contract; absent when the item names no contract.
+	ContractItemNo OptInt32 `json:"contract_item_no"`
+	// `active`: offered and found by the search; `retired`: no longer offered. Open enumeration: clients
+	// must accept and preserve values not listed here; values may be added within /v1.
+	Status string `json:"status"`
+}
+
+// GetID returns the value of ID.
+func (s *CatalogItem) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CatalogItem) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CatalogItem) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CatalogItem) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CatalogItem) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CatalogItem) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CatalogItem) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *CatalogItem) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetSupplierNumber returns the value of SupplierNumber.
+func (s *CatalogItem) GetSupplierNumber() string {
+	return s.SupplierNumber
+}
+
+// GetSupplierName returns the value of SupplierName.
+func (s *CatalogItem) GetSupplierName() string {
+	return s.SupplierName
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *CatalogItem) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *CatalogItem) GetDescription() string {
+	return s.Description
+}
+
+// GetUnit returns the value of Unit.
+func (s *CatalogItem) GetUnit() string {
+	return s.Unit
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *CatalogItem) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *CatalogItem) GetPriceUnit() int32 {
+	return s.PriceUnit
+}
+
+// GetContractID returns the value of ContractID.
+func (s *CatalogItem) GetContractID() OptUUID {
+	return s.ContractID
+}
+
+// GetContractNumber returns the value of ContractNumber.
+func (s *CatalogItem) GetContractNumber() OptString {
+	return s.ContractNumber
+}
+
+// GetContractItemNo returns the value of ContractItemNo.
+func (s *CatalogItem) GetContractItemNo() OptInt32 {
+	return s.ContractItemNo
+}
+
+// GetStatus returns the value of Status.
+func (s *CatalogItem) GetStatus() string {
+	return s.Status
+}
+
+// SetID sets the value of ID.
+func (s *CatalogItem) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CatalogItem) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CatalogItem) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CatalogItem) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CatalogItem) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CatalogItem) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CatalogItem) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *CatalogItem) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetSupplierNumber sets the value of SupplierNumber.
+func (s *CatalogItem) SetSupplierNumber(val string) {
+	s.SupplierNumber = val
+}
+
+// SetSupplierName sets the value of SupplierName.
+func (s *CatalogItem) SetSupplierName(val string) {
+	s.SupplierName = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *CatalogItem) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CatalogItem) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *CatalogItem) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *CatalogItem) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *CatalogItem) SetPriceUnit(val int32) {
+	s.PriceUnit = val
+}
+
+// SetContractID sets the value of ContractID.
+func (s *CatalogItem) SetContractID(val OptUUID) {
+	s.ContractID = val
+}
+
+// SetContractNumber sets the value of ContractNumber.
+func (s *CatalogItem) SetContractNumber(val OptString) {
+	s.ContractNumber = val
+}
+
+// SetContractItemNo sets the value of ContractItemNo.
+func (s *CatalogItem) SetContractItemNo(val OptInt32) {
+	s.ContractItemNo = val
+}
+
+// SetStatus sets the value of Status.
+func (s *CatalogItem) SetStatus(val string) {
+	s.Status = val
+}
+
+// Load one item of a supplier into a company's catalog. It is created `active`.
+// Ref: #/components/schemas/CatalogItemCreate
+type CatalogItemCreate struct {
+	// The company whose catalog the item is loaded into: an active legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The supplier (business partner id): one that can be ordered from in the company.
+	SupplierID uuid.UUID `json:"supplier_id"`
+	// The supplier's or the company's key of the item, without leading or trailing white space; the
+	// supplier's once among the company's active items.
+	ItemKey string `json:"item_key"`
+	// What the item is; a requisition item from it takes this description.
+	Description string `json:"description"`
+	// Unit of measure code (reference data) the item is ordered in.
+	Unit string `json:"unit"`
+	// The price per `price_unit`, in its own currency; positive.
+	UnitPrice Money `json:"unit_price"`
+	// Quantity the unit price refers to.
+	PriceUnit OptInt32 `json:"price_unit"`
+	// The contract whose item `contract_item_no` prices an order of the item; given with
+	// `contract_item_no`.
+	ContractID OptUUID `json:"contract_id"`
+	// The item of `contract_id`, in the catalog item's unit; given with `contract_id`.
+	ContractItemNo OptInt32 `json:"contract_item_no"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CatalogItemCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetSupplierID returns the value of SupplierID.
+func (s *CatalogItemCreate) GetSupplierID() uuid.UUID {
+	return s.SupplierID
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *CatalogItemCreate) GetItemKey() string {
+	return s.ItemKey
+}
+
+// GetDescription returns the value of Description.
+func (s *CatalogItemCreate) GetDescription() string {
+	return s.Description
+}
+
+// GetUnit returns the value of Unit.
+func (s *CatalogItemCreate) GetUnit() string {
+	return s.Unit
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *CatalogItemCreate) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *CatalogItemCreate) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// GetContractID returns the value of ContractID.
+func (s *CatalogItemCreate) GetContractID() OptUUID {
+	return s.ContractID
+}
+
+// GetContractItemNo returns the value of ContractItemNo.
+func (s *CatalogItemCreate) GetContractItemNo() OptInt32 {
+	return s.ContractItemNo
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CatalogItemCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetSupplierID sets the value of SupplierID.
+func (s *CatalogItemCreate) SetSupplierID(val uuid.UUID) {
+	s.SupplierID = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *CatalogItemCreate) SetItemKey(val string) {
+	s.ItemKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CatalogItemCreate) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetUnit sets the value of Unit.
+func (s *CatalogItemCreate) SetUnit(val string) {
+	s.Unit = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *CatalogItemCreate) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *CatalogItemCreate) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// SetContractID sets the value of ContractID.
+func (s *CatalogItemCreate) SetContractID(val OptUUID) {
+	s.ContractID = val
+}
+
+// SetContractItemNo sets the value of ContractItemNo.
+func (s *CatalogItemCreate) SetContractItemNo(val OptInt32) {
+	s.ContractItemNo = val
+}
+
+// CatalogItemHeaders wraps CatalogItem with response headers.
+type CatalogItemHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CatalogItem
+}
+
+// GetETag returns the value of ETag.
+func (s *CatalogItemHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CatalogItemHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CatalogItemHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CatalogItemHeaders) GetResponse() CatalogItem {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CatalogItemHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CatalogItemHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CatalogItemHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CatalogItemHeaders) SetResponse(val CatalogItem) {
+	s.Response = val
+}
+
+func (*CatalogItemHeaders) createCatalogItemRes() {}
+
+// One page of catalog items.
+// Ref: #/components/schemas/CatalogItemPage
+type CatalogItemPage struct {
+	// The catalog items on this page.
+	Items []CatalogItem `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CatalogItemPage) GetItems() []CatalogItem {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CatalogItemPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CatalogItemPage) SetItems(val []CatalogItem) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CatalogItemPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CatalogItemPage) listCatalogItemsRes() {}
+
+// Merged schema.
 // Ref: #/components/schemas/CenterChange
 type CenterChange struct {
 	// Identifier (UUIDv7).
@@ -22959,6 +23390,7 @@ func (*ConflictHeaders) createAssetRetirementRes()                 {}
 func (*ConflictHeaders) createAssetTransferRes()                   {}
 func (*ConflictHeaders) createBusinessPartnerRes()                 {}
 func (*ConflictHeaders) createCashExportRes()                      {}
+func (*ConflictHeaders) createCatalogItemRes()                     {}
 func (*ConflictHeaders) createChangeRequestRes()                   {}
 func (*ConflictHeaders) createClearingRes()                        {}
 func (*ConflictHeaders) createCompanyAccessRes()                   {}
@@ -23107,6 +23539,7 @@ func (*ConflictHeaders) reportBankFileStatusRes()                  {}
 func (*ConflictHeaders) requestBankAccountChangeRes()              {}
 func (*ConflictHeaders) requestBankAccountEndRes()                 {}
 func (*ConflictHeaders) resumeWebhookSubscriptionRes()             {}
+func (*ConflictHeaders) retireCatalogItemRes()                     {}
 func (*ConflictHeaders) retireEntryTemplateRes()                   {}
 func (*ConflictHeaders) reverseAssetAcquisitionRes()               {}
 func (*ConflictHeaders) reverseAssetRetirementRes()                {}
@@ -28299,6 +28732,22 @@ func (*CreateCashExportPreconditionRequired) createCashExportRes() {}
 type CreateCashExportUnprocessableEntity Problem
 
 func (*CreateCashExportUnprocessableEntity) createCashExportRes() {}
+
+type CreateCatalogItemBadRequest Problem
+
+func (*CreateCatalogItemBadRequest) createCatalogItemRes() {}
+
+type CreateCatalogItemForbidden Problem
+
+func (*CreateCatalogItemForbidden) createCatalogItemRes() {}
+
+type CreateCatalogItemPreconditionRequired Problem
+
+func (*CreateCatalogItemPreconditionRequired) createCatalogItemRes() {}
+
+type CreateCatalogItemUnprocessableEntity Problem
+
+func (*CreateCatalogItemUnprocessableEntity) createCatalogItemRes() {}
 
 type CreateChangeRequestBadRequest Problem
 
@@ -37471,6 +37920,46 @@ func (*GetCashSnapshotForbidden) getCashSnapshotRes() {}
 type GetCashSnapshotNotFound Problem
 
 func (*GetCashSnapshotNotFound) getCashSnapshotRes() {}
+
+type GetCatalogItemBadRequest Problem
+
+func (*GetCatalogItemBadRequest) getCatalogItemRes() {}
+
+type GetCatalogItemForbidden Problem
+
+func (*GetCatalogItemForbidden) getCatalogItemRes() {}
+
+type GetCatalogItemNotFound Problem
+
+func (*GetCatalogItemNotFound) getCatalogItemRes() {}
+
+// GetCatalogItemOKHeaders wraps CatalogItem with response headers.
+type GetCatalogItemOKHeaders struct {
+	ETag     OptString
+	Response CatalogItem
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCatalogItemOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCatalogItemOKHeaders) GetResponse() CatalogItem {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCatalogItemOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCatalogItemOKHeaders) SetResponse(val CatalogItem) {
+	s.Response = val
+}
+
+func (*GetCatalogItemOKHeaders) getCatalogItemRes() {}
 
 type GetCenterChangeBadRequest Problem
 
@@ -49170,6 +49659,14 @@ func (*ListCashSnapshotsBadRequest) listCashSnapshotsRes() {}
 type ListCashSnapshotsForbidden Problem
 
 func (*ListCashSnapshotsForbidden) listCashSnapshotsRes() {}
+
+type ListCatalogItemsBadRequest Problem
+
+func (*ListCatalogItemsBadRequest) listCatalogItemsRes() {}
+
+type ListCatalogItemsForbidden Problem
+
+func (*ListCatalogItemsForbidden) listCatalogItemsRes() {}
 
 type ListCenterChangesBadRequest Problem
 
@@ -69907,8 +70404,8 @@ type RequisitionCreate struct {
 	Currency string `json:"currency"`
 	// Date needed.
 	NeededBy OptDate `json:"needed_by"`
-	// Items.
-	Items []RequisitionItem `json:"items"`
+	// Items, each described by the requester or taken from the catalog.
+	Items []RequisitionItemInput `json:"items"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
 }
@@ -69939,7 +70436,7 @@ func (s *RequisitionCreate) GetNeededBy() OptDate {
 }
 
 // GetItems returns the value of Items.
-func (s *RequisitionCreate) GetItems() []RequisitionItem {
+func (s *RequisitionCreate) GetItems() []RequisitionItemInput {
 	return s.Items
 }
 
@@ -69974,7 +70471,7 @@ func (s *RequisitionCreate) SetNeededBy(val OptDate) {
 }
 
 // SetItems sets the value of Items.
-func (s *RequisitionCreate) SetItems(val []RequisitionItem) {
+func (s *RequisitionCreate) SetItems(val []RequisitionItemInput) {
 	s.Items = val
 }
 
@@ -70062,6 +70559,11 @@ type RequisitionItem struct {
 	AccountAssignment OptString `json:"account_assignment"`
 	// Cost center the item is charged to, with `account_assignment` `cost_center`.
 	CostCenterID OptUUID `json:"cost_center_id"`
+	// The catalog item the item was taken from (`GET /v1/catalog-items/{id}`), whose description, unit and
+	// price it took (ADR-0071 §6); absent for an item the requester described.
+	CatalogItemID OptUUID `json:"catalog_item_id"`
+	// That catalog item's key; absent for an item the requester described.
+	ItemKey OptString `json:"item_key"`
 }
 
 // GetItemNo returns the value of ItemNo.
@@ -70109,6 +70611,16 @@ func (s *RequisitionItem) GetCostCenterID() OptUUID {
 	return s.CostCenterID
 }
 
+// GetCatalogItemID returns the value of CatalogItemID.
+func (s *RequisitionItem) GetCatalogItemID() OptUUID {
+	return s.CatalogItemID
+}
+
+// GetItemKey returns the value of ItemKey.
+func (s *RequisitionItem) GetItemKey() OptString {
+	return s.ItemKey
+}
+
 // SetItemNo sets the value of ItemNo.
 func (s *RequisitionItem) SetItemNo(val OptInt32) {
 	s.ItemNo = val
@@ -70151,6 +70663,157 @@ func (s *RequisitionItem) SetAccountAssignment(val OptString) {
 
 // SetCostCenterID sets the value of CostCenterID.
 func (s *RequisitionItem) SetCostCenterID(val OptUUID) {
+	s.CostCenterID = val
+}
+
+// SetCatalogItemID sets the value of CatalogItemID.
+func (s *RequisitionItem) SetCatalogItemID(val OptUUID) {
+	s.CatalogItemID = val
+}
+
+// SetItemKey sets the value of ItemKey.
+func (s *RequisitionItem) SetItemKey(val OptString) {
+	s.ItemKey = val
+}
+
+// A requisition item as it is sent: described and priced by the requester, or taken from the company's
+// catalog by `catalog_item_id` (ADR-0071 §6, T84b). An item from the catalog sends its quantity, in
+// the catalog item's unit, and its account; its description, price and price unit are the catalog
+// item's and may not be sent (422 `procurement.catalog_item_override`), so an item read back from a
+// requisition is sent again without them (and without the read-only `item_key`) when the items are
+// replaced. An item that names no catalog item sends its `description` and `unit_price` (422
+// `request.validation_failed` without).
+// Ref: #/components/schemas/RequisitionItemInput
+type RequisitionItemInput struct {
+	// Item number; assigned by the server when omitted.
+	ItemNo OptInt32 `json:"item_no"`
+	// The catalog item the item is taken from (`GET /v1/catalog-items`): an `active` one of the
+	// requisition's legal entity, priced in the requisition's currency (422
+	// `procurement.invalid_catalog_item` naming the item otherwise). The requisition's supplier is the
+	// catalog item's, and its contract the one the catalog item names, if it names one: what the
+	// requisition does not name it takes from the catalog item, and another is refused (422
+	// `procurement.catalog_item_supplier`, `procurement.catalog_item_contract`). The requester needs
+	// `procurement.catalog.read`.
+	CatalogItemID OptUUID `json:"catalog_item_id"`
+	// Material (product context, later phases).
+	MaterialID OptUUID `json:"material_id"`
+	// What is needed. Required unless the item names a catalog item, whose description it then takes.
+	Description OptString `json:"description"`
+	// Quantity; positive. For an item from the catalog, in the catalog item's unit.
+	Quantity Quantity `json:"quantity"`
+	// Estimated price per `price_unit`, in the requisition currency. Required unless the item names a
+	// catalog item, whose price it then takes.
+	UnitPrice OptMoney `json:"unit_price"`
+	// Quantity the unit price refers to; 1 when absent. Not sent for an item from the catalog, which takes
+	// the catalog item's.
+	PriceUnit OptInt32 `json:"price_unit"`
+	// General ledger account to charge.
+	AccountID uuid.UUID `json:"account_id"`
+	// Account assignment, as `RequisitionItem.account_assignment` describes it: `cost_center` with
+	// `cost_center_id`, or `none` without (422 `procurement.invalid_account_assignment`). Absent:
+	// `cost_center` when a cost center is given, else `none`.
+	AccountAssignment OptString `json:"account_assignment"`
+	// Cost center the item is charged to, with `account_assignment` `cost_center`.
+	CostCenterID OptUUID `json:"cost_center_id"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *RequisitionItemInput) GetItemNo() OptInt32 {
+	return s.ItemNo
+}
+
+// GetCatalogItemID returns the value of CatalogItemID.
+func (s *RequisitionItemInput) GetCatalogItemID() OptUUID {
+	return s.CatalogItemID
+}
+
+// GetMaterialID returns the value of MaterialID.
+func (s *RequisitionItemInput) GetMaterialID() OptUUID {
+	return s.MaterialID
+}
+
+// GetDescription returns the value of Description.
+func (s *RequisitionItemInput) GetDescription() OptString {
+	return s.Description
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *RequisitionItemInput) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *RequisitionItemInput) GetUnitPrice() OptMoney {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *RequisitionItemInput) GetPriceUnit() OptInt32 {
+	return s.PriceUnit
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *RequisitionItemInput) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountAssignment returns the value of AccountAssignment.
+func (s *RequisitionItemInput) GetAccountAssignment() OptString {
+	return s.AccountAssignment
+}
+
+// GetCostCenterID returns the value of CostCenterID.
+func (s *RequisitionItemInput) GetCostCenterID() OptUUID {
+	return s.CostCenterID
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *RequisitionItemInput) SetItemNo(val OptInt32) {
+	s.ItemNo = val
+}
+
+// SetCatalogItemID sets the value of CatalogItemID.
+func (s *RequisitionItemInput) SetCatalogItemID(val OptUUID) {
+	s.CatalogItemID = val
+}
+
+// SetMaterialID sets the value of MaterialID.
+func (s *RequisitionItemInput) SetMaterialID(val OptUUID) {
+	s.MaterialID = val
+}
+
+// SetDescription sets the value of Description.
+func (s *RequisitionItemInput) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *RequisitionItemInput) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *RequisitionItemInput) SetUnitPrice(val OptMoney) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *RequisitionItemInput) SetPriceUnit(val OptInt32) {
+	s.PriceUnit = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *RequisitionItemInput) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountAssignment sets the value of AccountAssignment.
+func (s *RequisitionItemInput) SetAccountAssignment(val OptString) {
+	s.AccountAssignment = val
+}
+
+// SetCostCenterID sets the value of CostCenterID.
+func (s *RequisitionItemInput) SetCostCenterID(val OptUUID) {
 	s.CostCenterID = val
 }
 
@@ -70209,8 +70872,8 @@ type RequisitionUpdate struct {
 	Currency OptString `json:"currency"`
 	// Date needed. Send null to clear.
 	NeededBy OptNilDate `json:"needed_by"`
-	// Complete list of items.
-	Items []RequisitionItem `json:"items"`
+	// Complete list of items, each described by the requester or taken from the catalog.
+	Items []RequisitionItemInput `json:"items"`
 	// Custom fields.
 	Extensions OptExtensions `json:"extensions"`
 }
@@ -70236,7 +70899,7 @@ func (s *RequisitionUpdate) GetNeededBy() OptNilDate {
 }
 
 // GetItems returns the value of Items.
-func (s *RequisitionUpdate) GetItems() []RequisitionItem {
+func (s *RequisitionUpdate) GetItems() []RequisitionItemInput {
 	return s.Items
 }
 
@@ -70266,7 +70929,7 @@ func (s *RequisitionUpdate) SetNeededBy(val OptNilDate) {
 }
 
 // SetItems sets the value of Items.
-func (s *RequisitionUpdate) SetItems(val []RequisitionItem) {
+func (s *RequisitionUpdate) SetItems(val []RequisitionItemInput) {
 	s.Items = val
 }
 
@@ -70298,6 +70961,69 @@ func (*ResumeWebhookSubscriptionPreconditionRequired) resumeWebhookSubscriptionR
 type ResumeWebhookSubscriptionUnprocessableEntity Problem
 
 func (*ResumeWebhookSubscriptionUnprocessableEntity) resumeWebhookSubscriptionRes() {}
+
+type RetireCatalogItemBadRequest Problem
+
+func (*RetireCatalogItemBadRequest) retireCatalogItemRes() {}
+
+type RetireCatalogItemForbidden Problem
+
+func (*RetireCatalogItemForbidden) retireCatalogItemRes() {}
+
+type RetireCatalogItemNotFound Problem
+
+func (*RetireCatalogItemNotFound) retireCatalogItemRes() {}
+
+// RetireCatalogItemOKHeaders wraps CatalogItem with response headers.
+type RetireCatalogItemOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CatalogItem
+}
+
+// GetETag returns the value of ETag.
+func (s *RetireCatalogItemOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *RetireCatalogItemOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *RetireCatalogItemOKHeaders) GetResponse() CatalogItem {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *RetireCatalogItemOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *RetireCatalogItemOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *RetireCatalogItemOKHeaders) SetResponse(val CatalogItem) {
+	s.Response = val
+}
+
+func (*RetireCatalogItemOKHeaders) retireCatalogItemRes() {}
+
+type RetireCatalogItemPreconditionFailed Problem
+
+func (*RetireCatalogItemPreconditionFailed) retireCatalogItemRes() {}
+
+type RetireCatalogItemPreconditionRequired Problem
+
+func (*RetireCatalogItemPreconditionRequired) retireCatalogItemRes() {}
+
+type RetireCatalogItemUnprocessableEntity Problem
+
+func (*RetireCatalogItemUnprocessableEntity) retireCatalogItemRes() {}
 
 type RetireEntryTemplateBadRequest Problem
 
@@ -73298,6 +74024,7 @@ func (*ServiceUnavailableHeaders) createAssetRes()                           {}
 func (*ServiceUnavailableHeaders) createAssetRetirementRes()                 {}
 func (*ServiceUnavailableHeaders) createAssetTransferRes()                   {}
 func (*ServiceUnavailableHeaders) createBusinessPartnerRes()                 {}
+func (*ServiceUnavailableHeaders) createCatalogItemRes()                     {}
 func (*ServiceUnavailableHeaders) createChangeRequestRes()                   {}
 func (*ServiceUnavailableHeaders) createClearingRes()                        {}
 func (*ServiceUnavailableHeaders) createCompanyAccessRes()                   {}
@@ -73413,6 +74140,7 @@ func (*ServiceUnavailableHeaders) reportBankFileStatusRes()                  {}
 func (*ServiceUnavailableHeaders) requestBankAccountChangeRes()              {}
 func (*ServiceUnavailableHeaders) requestBankAccountEndRes()                 {}
 func (*ServiceUnavailableHeaders) resumeWebhookSubscriptionRes()             {}
+func (*ServiceUnavailableHeaders) retireCatalogItemRes()                     {}
 func (*ServiceUnavailableHeaders) retireEntryTemplateRes()                   {}
 func (*ServiceUnavailableHeaders) reverseAssetAcquisitionRes()               {}
 func (*ServiceUnavailableHeaders) reverseAssetRetirementRes()                {}
@@ -78342,6 +79070,7 @@ func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
 func (*TooManyRequestsHeaders) createAssetTransferRes()                   {}
 func (*TooManyRequestsHeaders) createBusinessPartnerRes()                 {}
 func (*TooManyRequestsHeaders) createCashExportRes()                      {}
+func (*TooManyRequestsHeaders) createCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) createChangeRequestRes()                   {}
 func (*TooManyRequestsHeaders) createClearingRes()                        {}
 func (*TooManyRequestsHeaders) createCompanyAccessRes()                   {}
@@ -78429,6 +79158,7 @@ func (*TooManyRequestsHeaders) getCashActualsRes()                        {}
 func (*TooManyRequestsHeaders) getCashExportRes()                         {}
 func (*TooManyRequestsHeaders) getCashPositionRes()                       {}
 func (*TooManyRequestsHeaders) getCashSnapshotRes()                       {}
+func (*TooManyRequestsHeaders) getCatalogItemRes()                        {}
 func (*TooManyRequestsHeaders) getCenterChangeRes()                       {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                      {}
 func (*TooManyRequestsHeaders) getClearingRes()                           {}
@@ -78537,6 +79267,7 @@ func (*TooManyRequestsHeaders) listCashActualLinesRes()                   {}
 func (*TooManyRequestsHeaders) listCashExportsRes()                       {}
 func (*TooManyRequestsHeaders) listCashSnapshotFlowsRes()                 {}
 func (*TooManyRequestsHeaders) listCashSnapshotsRes()                     {}
+func (*TooManyRequestsHeaders) listCatalogItemsRes()                      {}
 func (*TooManyRequestsHeaders) listCenterChangesRes()                     {}
 func (*TooManyRequestsHeaders) listChangeRequestsRes()                    {}
 func (*TooManyRequestsHeaders) listClearingsRes()                         {}
@@ -78690,6 +79421,7 @@ func (*TooManyRequestsHeaders) reportBankFileStatusRes()                  {}
 func (*TooManyRequestsHeaders) requestBankAccountChangeRes()              {}
 func (*TooManyRequestsHeaders) requestBankAccountEndRes()                 {}
 func (*TooManyRequestsHeaders) resumeWebhookSubscriptionRes()             {}
+func (*TooManyRequestsHeaders) retireCatalogItemRes()                     {}
 func (*TooManyRequestsHeaders) retireEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) reverseAssetAcquisitionRes()               {}
 func (*TooManyRequestsHeaders) reverseAssetRetirementRes()                {}
@@ -79100,6 +79832,7 @@ func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
 func (*UnauthorizedHeaders) createAssetTransferRes()                   {}
 func (*UnauthorizedHeaders) createBusinessPartnerRes()                 {}
 func (*UnauthorizedHeaders) createCashExportRes()                      {}
+func (*UnauthorizedHeaders) createCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) createChangeRequestRes()                   {}
 func (*UnauthorizedHeaders) createClearingRes()                        {}
 func (*UnauthorizedHeaders) createCompanyAccessRes()                   {}
@@ -79187,6 +79920,7 @@ func (*UnauthorizedHeaders) getCashActualsRes()                        {}
 func (*UnauthorizedHeaders) getCashExportRes()                         {}
 func (*UnauthorizedHeaders) getCashPositionRes()                       {}
 func (*UnauthorizedHeaders) getCashSnapshotRes()                       {}
+func (*UnauthorizedHeaders) getCatalogItemRes()                        {}
 func (*UnauthorizedHeaders) getCenterChangeRes()                       {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                      {}
 func (*UnauthorizedHeaders) getClearingRes()                           {}
@@ -79295,6 +80029,7 @@ func (*UnauthorizedHeaders) listCashActualLinesRes()                   {}
 func (*UnauthorizedHeaders) listCashExportsRes()                       {}
 func (*UnauthorizedHeaders) listCashSnapshotFlowsRes()                 {}
 func (*UnauthorizedHeaders) listCashSnapshotsRes()                     {}
+func (*UnauthorizedHeaders) listCatalogItemsRes()                      {}
 func (*UnauthorizedHeaders) listCenterChangesRes()                     {}
 func (*UnauthorizedHeaders) listChangeRequestsRes()                    {}
 func (*UnauthorizedHeaders) listClearingsRes()                         {}
@@ -79448,6 +80183,7 @@ func (*UnauthorizedHeaders) reportBankFileStatusRes()                  {}
 func (*UnauthorizedHeaders) requestBankAccountChangeRes()              {}
 func (*UnauthorizedHeaders) requestBankAccountEndRes()                 {}
 func (*UnauthorizedHeaders) resumeWebhookSubscriptionRes()             {}
+func (*UnauthorizedHeaders) retireCatalogItemRes()                     {}
 func (*UnauthorizedHeaders) retireEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) reverseAssetAcquisitionRes()               {}
 func (*UnauthorizedHeaders) reverseAssetRetirementRes()                {}
