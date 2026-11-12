@@ -275,7 +275,7 @@ func TestApplyReceiptRefusals(t *testing.T) {
 		{"an account that is not open-item managed", onBank, "ledger.not_open_item_managed", ""},
 		{"another company", elsewhereLE, "ledger.not_open_item_managed", ""},
 		{"an unknown company", unknownLE, "request.reference_not_found", ""},
-		{"a date without a fiscal period", r.application(receipt, north, "EUR", "2025-03-21", invoice), "ledger.no_fiscal_period", ""},
+		{"a date without a fiscal period", r.application(receipt, north, "EUR", "2031-03-21", invoice), "ledger.no_fiscal_period", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			code, detail := r.refused(t, c.in)

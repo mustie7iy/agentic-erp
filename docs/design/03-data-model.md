@@ -976,6 +976,11 @@ Rules enforced in the database:
   ledger checks it first (`clearingPeriod`: 422
   `ledger.invalid_clearing_entry`, 409 `ledger.period_not_open`, 422
   `ledger.no_fiscal_period`).
+- A clearing that posts its entry is dated on or after the latest posting
+  date of the items it clears (422 `ledger.clearing_before_item`; the
+  ledger's `notBeforeItems`, in every path that posts a clearing entry).
+  The database does not enforce it: a migrated clearing keeps the source
+  system's date and a reversal its own (ADR-0006 As built).
 - A line is cleared at most once (`clearing_item` unique on the line).
 - Open items are lines on reconciliation accounts without a clearing item.
 - A reversal clears the original's open items against the matching lines of

@@ -520,8 +520,9 @@ func (UnimplementedHandler) CheckYearCloseTask(ctx context.Context, params Check
 // account, clearing each down payment, reverses the input tax its payment claimed, and debits the
 // supplier's payables account with their total, an open item with the invoice's payment terms that the
 // next run nets against the invoice, so a cash discount is taken on what remains to pay. The requests
-// move to `cleared`; the invoice is not reversed while they stand. Requires status `posted` and kind
-// `invoice`.
+// move to `cleared`; the invoice is not reversed while they stand. The transfer's posting date is on
+// or after the latest posting date of the down payments it clears (422 `ledger.clearing_before_item`
+// naming `posting_date`, its message giving that date). Requires status `posted` and kind `invoice`.
 //
 // POST /v1/supplier-invoices/{id}:clearDownPayments
 func (UnimplementedHandler) ClearSupplierInvoiceDownPayments(ctx context.Context, req *DownPaymentClearingInput, params ClearSupplierInvoiceDownPaymentsParams) (r ClearSupplierInvoiceDownPaymentsRes, _ error) {
@@ -862,9 +863,12 @@ func (UnimplementedHandler) CreateChangeRequest(ctx context.Context, req *Change
 
 // CreateClearing implements createClearing operation.
 //
-// Clears open items against each other and posts the clearing entry. A line already cleared is 409. An
-// open item a payment run holds (proposed, or releasing with its payment not posted yet) is reserved
-// for that run and is 409 `ledger.item_reserved` until the run settles or frees it.
+// Clears open items against each other and posts the clearing entry, dated `clearing_date`. The
+// clearing date is on or after the latest posting date of the items: an item is not cleared before it
+// was posted (422 `ledger.clearing_before_item` naming `clearing_date`, its message giving that date).
+// A line already cleared is 409. An open item a payment run holds (proposed, or releasing with its
+// payment not posted yet) is reserved for that run and is 409 `ledger.item_reserved` until the run
+// settles or frees it.
 //
 // POST /v1/clearings
 func (UnimplementedHandler) CreateClearing(ctx context.Context, req *ClearingCreate, params CreateClearingParams) (r CreateClearingRes, _ error) {
@@ -1168,10 +1172,12 @@ func (UnimplementedHandler) CreateHierarchy(ctx context.Context, req *HierarchyC
 // currency, receipt and items having been booked at different rates, is a realized exchange difference
 // on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The
 // posting date is the request's, else today, the company's date in its time zone; it must be in an
-// open period (409 `ledger.period_not_open`). The application is a document with a number from the
-// company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written
-// with it. A receipt that is not waiting on an incoming payments clearing account of the company is
-// refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
+// open period (409 `ledger.period_not_open`) and on or after the latest posting date of the receipt
+// and the items, since nothing is cleared before it was posted (422 `ledger.clearing_before_item`
+// naming `posting_date`, its message giving that date). The application is a document with a number
+// from the company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are
+// written with it. A receipt that is not waiting on an incoming payments clearing account of the
+// company is refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
 // `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
 // open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
 // are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
@@ -5168,7 +5174,11 @@ func (UnimplementedHandler) PlaceInHierarchy(ctx context.Context, req *Hierarchy
 // `payments.statement_gap`). A line not matched is 409 `payments.statement_line_not_matched`; one
 // posted or waiting already is 409 `payments.statement_line_posting`. A `posting_date` before the
 // booking date is refused (422): a later one takes the line out of a locked period, an earlier one
-// would book it before the bank did. A statement whose last line to decide this was becomes
+// would book it before the bank did. A posting that clears payments is dated on or after the latest
+// posting date of the payments' lines it clears (422 `ledger.clearing_before_item` naming
+// `posting_date`, its message giving that date): a line booked before the payment it settles was
+// posted is posted with a `posting_date` from that date on and a `reason`; a line waiting for approval
+// is checked when the approval posts it. A statement whose last line to decide this was becomes
 // `reconciled` once the ledger agrees (T49h). People only. Audited; the posting publishes
 // BankStatementLinePosted, and the ledger JournalEntryPosted and ItemsCleared. The response's ETag is
 // the statement's new one, the If-Match of the next decision on its lines.
@@ -5531,10 +5541,12 @@ func (UnimplementedHandler) ProposeMemoRecord(ctx context.Context, req *MemoReco
 //
 // Creates a run in status `proposing` (the Operation's `resource` points to it from the start), then
 // selects due open items, applies exclusions (blocks, missing or recently changed bank details) and
-// reserves the items; the run becomes `proposed`, or `failed`. Runs can exceed 100,000 items, so this
-// returns an Operation. A run that takes cash discount in a legal entity without a cash discount
-// account fails with 422 `payments.no_cash_discount_account` (T36d). A withholding tax deducted at
-// payment that, rounded after the cash discount, would take all an item owes fails it with 422
+// reserves the items; an open item posted after the run date is not selected and waits for a later
+// run, since its payment, posted on the run date, would clear it before it was posted; the run becomes
+// `proposed`, or `failed`. Runs can exceed 100,000 items, so this returns an Operation. A run that
+// takes cash discount in a legal entity without a cash discount account fails with 422
+// `payments.no_cash_discount_account` (T36d). A withholding tax deducted at payment that, rounded
+// after the cash discount, would take all an item owes fails it with 422
 // `payments.withholding_too_large` (T46f), whose `detail` names the item by its journal entry's
 // document number, fiscal year and line, the supplier by its number and name, and the amounts in the
 // run's currency. Open items that add up to more than an amount can hold fail it with 422

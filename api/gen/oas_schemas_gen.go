@@ -19859,7 +19859,8 @@ func (s *Clearing) SetItems(val []ClearingItemRef) {
 type ClearingCreate struct {
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// Clearing date; must fall in an open period.
+	// Clearing date, the clearing entry's posting date; must fall in an open period and be on or after the
+	// latest posting date of the items (422 `ledger.clearing_before_item`).
 	ClearingDate time.Time `json:"clearing_date"`
 	// Open items to clear; they must net to zero per partner and currency.
 	Items []ClearingItemRef `json:"items"`

@@ -148,7 +148,8 @@ func notAReceipt(why string) *problem.Problem {
 // (clearWithEntry clears item i with line i+1), then the exchange
 // differences. The receipt is an open credit line; the items are open
 // items of the customer on customer reconciliation accounts of the legal
-// entity, in the receipt's currency and ledger, and total it exactly.
+// entity, in the receipt's currency and ledger, and total it exactly; the
+// application is not dated before any of them was posted (notBeforeItems).
 func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid.UUID, items []item) ([]Line, error) {
 	customer, err := customerAccounts(ctx, tx, items[1:])
 	if err != nil {
@@ -172,6 +173,10 @@ func receiptLines(ctx context.Context, tx pgx.Tx, in ReceiptApplication, le uuid
 		return nil, problem.Unprocessable("ledger.clearing_not_balanced", fmt.Sprintf("The items applied do not total the receipt of %s %s: they differ from it by %s. "+
 			"A receipt is applied in full and exactly.", (-items[0].tc).Plain(exp), in.Currency, tc.Plain(exp)),
 			problem.FieldError{Field: "items", Code: "not_balanced", Message: "items that total the receipt"})
+	}
+	// The receipt's own line counts: it is not applied before the bank posted it.
+	if err := notBeforeItems(items, in.PostingDate, "posting_date"); err != nil {
+		return nil, err
 	}
 	// What the offsets leave in local and in group currency is the items'
 	// total there: a receipt booked at more than the receivable is a gain.

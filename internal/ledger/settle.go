@@ -33,8 +33,11 @@ type PayableItem struct {
 	AccountID    uuid.UUID
 	PartnerID    uuid.UUID
 	DocumentDate time.Time
-	Currency     string // its entry's transaction currency
-	Amount       money.Minor
+	// PostingDate is the item's: a payment that clears it is not dated
+	// before it (notBeforeItems), so a run dated earlier leaves it out.
+	PostingDate time.Time
+	Currency    string // its entry's transaction currency
+	Amount      money.Minor
 	// Terms are the payment terms the item was posted with (T36b), or nil
 	// for an item posted without (before T36, manual or migrated).
 	Terms *ItemTerms
@@ -87,8 +90,8 @@ func payable(ctx context.Context, what, filter string, args ...any) ([]PayableIt
 	if err != nil {
 		return nil, err
 	}
-	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, e.currency_tc, l.amount_tc,
-			e.document_number, `+methodColumn+`, `+termsColumns+`, `+withholdingColumn+`
+	rows, _ := tx.Query(ctx, `SELECT l.fiscal_year, l.journal_entry_id, l.line_no, l.account_id, l.partner_id, e.document_date, l.posting_date, e.currency_tc,
+			l.amount_tc, e.document_number, `+methodColumn+`, `+termsColumns+`, `+withholdingColumn+`
 		FROM ledger.journal_line l
 		LEFT JOIN ledger.open_item_terms t ON t.tenant_id = l.tenant_id AND t.fiscal_year = l.fiscal_year AND t.journal_entry_id = l.journal_entry_id
 			AND t.line_no = l.line_no
@@ -107,8 +110,8 @@ func payable(ctx context.Context, what, filter string, args ...any) ([]PayableIt
 	items, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (PayableItem, error) {
 		var p PayableItem
 		var t storedTerms
-		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.Currency, &p.Amount,
-			&p.Number, &p.PaymentMethod}, append(t.fields(), &p.Withholding)...)...), "scan payable item")
+		err := errs.Wrapf(r.Scan(append([]any{&p.FiscalYear, &p.EntryID, &p.LineNo, &p.AccountID, &p.PartnerID, &p.DocumentDate, &p.PostingDate, &p.Currency,
+			&p.Amount, &p.Number, &p.PaymentMethod}, append(t.fields(), &p.Withholding)...)...), "scan payable item")
 		p.Terms, p.Document = t.terms(), p.EntryID
 		return p, err
 	})
@@ -244,6 +247,9 @@ func (p Postings) Settle(ctx context.Context, in Settlement) (Entry, error) {
 	}
 	paid, bank, taxItems, err := e.paymentLines(ctx, tx, in, le, items, settled{tc: tc, lc: lc, gc: gc})
 	if err != nil {
+		return Entry{}, err
+	}
+	if err := notBeforeItems(items, in.PostingDate, "posting_date"); err != nil {
 		return Entry{}, err
 	}
 	lines = append(lines, paid...)

@@ -71,7 +71,7 @@
       "c": []
      },
      {
-      "s": "P",
+      "s": "D",
       "t": "Vendor open-item management",
       "r": "internal/ledger · /v1/open-items",
       "c": [
@@ -83,9 +83,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "No clearing path checks the clearing date against the cleared items' posting dates, so a receipt can be applied, and items cleared or settled, on a date before they were posted: manual clearing, settlement and applying a receipt (found in T75c's review)",
-        "r": "internal/ledger clearing.go createClearing · settle.go Postings.Settle, clearWithEntry · receipt.go Postings.ApplyReceipt",
+        "r": "product owner 2026-11-12 (the rule as recommended) · internal/ledger clearing.go notBeforeItems, called by createClearing, Postings.Settle, ApplyReceipt, PostBank and ClearDownPayments · 422 ledger.clearing_before_item naming the request's date field · a payment run's proposal leaves out items posted after its run date (internal/payments propose.go candidates) · migrated clearings and reversals exempt, no database rule · TestClearingDate, TestClearDownPayments, TestRunLeavesOutItemsPostedAfterItsDate · ADR-0006 As built, Clearing dates",
         "src": "review:T75c",
         "c": []
        },
