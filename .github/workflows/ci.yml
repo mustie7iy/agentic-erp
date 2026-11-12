@@ -4,23 +4,28 @@ on:
   push:
     branches: [main]
   pull_request:
-  # The full suite (the test job) runs only on demand, not on every push
-  # (PO 2026-10-26) nor nightly (PO 2026-10-27): it takes about three hours,
-  # some 190 billable job-minutes, on the private repository's 2-CPU runner.
-  # The coordinator starts it on main after each batch of merges, and on any
-  # branch a change to the full jobs is tried before it reaches main
-  # (2026-10-25, main's suite stopped by the runner).
+  # The full run is started by hand, not on every push (PO 2026-10-26) nor
+  # nightly (PO 2026-10-27): the coordinator starts it on main after each
+  # batch of merges, and on any branch a change to the full jobs is tried
+  # before it reaches main (2026-10-25, main's suite stopped by the runner).
+  # It runs the race, coverage and fuzz jobs a pull request runs, and the
+  # test job: the static checks, the budgets and the images.
   workflow_dispatch:
 
 # A newer run of the same event and ref makes a running one obsolete: on a
-# pull request its previous commit, on main the merges before it, or an
-# earlier dispatch, whose changes the newer run's tree contains. Cancel it,
-# so merges in quick succession pay for one run (06 §6.5).
+# pull request its previous commit, on main the merges before it, whose
+# changes the newer run's tree contains. Cancel it, so merges in quick
+# succession pay for one run (06 §6.5).
+# A manual run is the exception: it is never cancelled by a newer one. A
+# second one waits in the group until the first has finished, and a third
+# replaces the one waiting, never the one running. On 2026-11-11 a new
+# full run on main cancelled the one in progress two hours in, whose
+# result nobody then had, and its ci-ok read as failed.
 concurrency:
   # The event is in the group, so a push and a dispatch on main do not
   # cancel each other's runs.
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -67,15 +72,21 @@ jobs:
           range="${BASE:-$BEFORE}..HEAD"
           if [ -z "${BASE}${BEFORE}" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then range="HEAD~1..HEAD"; fi
           gitleaks git --redact --no-banner --log-opts="--no-merges $range" .
-      - name: The skip rules' own tests, each-module.sh's and on-exit.sh's
+      - name: The skip rules' own tests, and those of the other scripts the gates stand on
         # Seconds: the decision below is only as good as these. The second
         # holds that the static checks reach every Go module (06 §6.5); the
         # third that a script stopped by an unbound variable never exits 0
-        # (scripts/lib/on-exit.sh).
+        # (scripts/lib/on-exit.sh); then the shard plan (no package or test
+        # left out), the coverage gate over the shards' profiles, the budget
+        # tests' time limit and the merge rules.
         run: |
           ./scripts/test-ci-changes.sh
           ./scripts/test-each-module.sh
           ./scripts/test-on-exit.sh
+          ./scripts/test-ci-shards.sh
+          ./scripts/test-coverage-gate.sh
+          ./scripts/test-budget-times.sh
+          ./scripts/test-merge-pr.sh
       - name: Does the suite have to run?
         id: decide
         env:
@@ -151,14 +162,15 @@ jobs:
         run: ./scripts/test-release-scripts.sh
 
   short:
-    # The light pull-request check (06 §6.5, since 2026-10-21): the full
-    # gates ran once, on the author's machine (scripts/ci-local.sh), for
-    # exactly this tree, which scripts/merge-pr.sh requires; this job
-    # checks the cheap guards on a clean runner: format, vet, the whole
-    # tree lint, the generated code, the contract lint and breaking-change
-    # check, the build and the suite in short mode without the race
-    # detector, within ten minutes. A manual run on main after each batch
-    # of merges runs the full suite again (test).
+    # The pull request's static half (06 §6.5): the cheap guards on a clean
+    # runner: format, vet, the whole tree lint, the generated code, the
+    # contract lint and breaking-change check, the build and the suite in
+    # short mode without the race detector. The race, coverage and fuzz
+    # jobs below run beside it (PO 2026-11-10); the staticcheck, gosec and
+    # govulncheck passes, the budgets and the images ran on the author's
+    # machine (scripts/ci-local.sh), for exactly this tree, which
+    # scripts/merge-pr.sh requires. A manual run on main after each batch
+    # of merges runs the test job instead.
     needs: changes
     if: github.event_name == 'pull_request' && needs.changes.outputs.run != 'false'
     runs-on: ubuntu-latest
@@ -248,10 +260,19 @@ jobs:
             git show "FETCH_HEAD:api/asyncapi.yaml" > /tmp/base-asyncapi.yaml
             go run ./cmd/eventcompat /tmp/base-asyncapi.yaml api/asyncapi.yaml
           fi
+          # No value leaves an open enumeration (x-extensible-enum), which
+          # oasdiff does not read (ci:batch65), unless the accepted list
+          # carries the removal under its reason.
+          for spec in openapi control directory asyncapi; do
+            if [ -f "/tmp/base-$spec.yaml" ]; then
+              go run ./cmd/enumcompat api/breaking-accepted.txt "/tmp/base-$spec.yaml" "api/$spec.yaml"
+            fi
+          done
       - name: Build
         run: make build
       - name: Tests in short mode (without the race detector)
-        # Short mode leaves out the performance budgets; main runs them.
+        # Short mode leaves out the performance budgets, which the author
+        # ran (scripts/ci-local.sh) and main's manual run runs.
         run: go test -short -count=1 ./...
 
   test:
@@ -263,23 +284,20 @@ jobs:
     # merges but the fix forward (06 §6.5). A manual run never skips it
     # (scripts/ci-changes.sh), so the documentation rule is not consulted.
     if: github.event_name == 'workflow_dispatch'
-    # The full suite on main (06 §6.5), the second line after the author's
-    # local gates: the static checks, the race detector, the performance
-    # budgets, the coverage gate and the images, on the tree main really
-    # holds; the first run after a tool change also builds the pinned tools
-    # (14 minutes in run 40334507190) before the cache has them.
-    # A pull request runs the short job above instead.
+    # The full run on main (06 §6.5), the second line after the author's
+    # local gates, on the tree main really holds: here the static checks,
+    # the schema tests, the performance budgets and the images; the race
+    # suite and the coverage gate are the race and coverage jobs below, in
+    # parallel shards, as on a pull request (PO 2026-11-10). The first run
+    # after a tool change also builds the pinned tools (14 minutes in run
+    # 40334507190) before the cache has them.
     runs-on: ubuntu-latest
-    # Above the race step's -timeout 60m plus the other steps, so a hung
-    # package is reported by go test before the runner stops the job. Run
-    # 40334507190 (2026-10-26, 2 CPUs, 7938 MiB) spent 32 minutes before the
-    # race step (14 of them the tools, a cache miss, and 6 a cold vet), then
-    # 89 minutes in it, two packages at a time, with 109 of 116 packages
-    # passed and none failed when its 120-minute limit cancelled the job;
-    # the budgets, the coverage gate's second instrumented run and the
-    # images follow, about three hours in all. 240 leaves an hour's margin
-    # for a run nobody is watching.
-    timeout-minutes: 240
+    # Run 43072109681 (2026-11-11, 4 CPUs, 16 GB) took 170 minutes with the
+    # race suite (75) and the coverage gate (26) in this job; without them
+    # about 70: the static checks 17, the budgets 15, the images built
+    # twice 35 and their scan. 150 leaves room for a cold tools cache and a
+    # slow runner in a run nobody is watching.
+    timeout-minutes: 150
     services:
       postgres:
         image: postgres:17
@@ -367,56 +385,20 @@ jobs:
         run: vacuum lint -r api/vacuum-ruleset.yaml -b -q -d api/openapi.yaml api/control.yaml api/directory.yaml api/model.yaml
       - name: Schema tests (migrations and database-enforced rules)
         run: go test -count=1 -v ./db
-      - name: Functional and non-functional tests (race detector)
-        # The web workspace's end-to-end suite drives the runner's Chrome
-        # (internal/web/e2e, ADR-0052): it fails rather than skips without one.
-        env:
-          ERP_E2E_REQUIRE_BROWSER: "true"
-        # -timeout 60m as in ci-local and weekly.yml: the ledger and payments
-        # suites are slow under the race detector, and cmd/erp's walkthrough
-        # (TestWalkthrough) builds the binaries and tells the whole story.
-        # The race build shares nothing with the plain build cache above; drop
-        # it first so the runner's disk (72 GB, most of it taken by the image)
-        # holds the race build and later the instrumented coverage build.
-        # From 2026-10-21 on, main's runs were stopped by the runner (exit 143,
-        # "received a shutdown signal") about 8 minutes into this step, with
-        # no test failing. The generated API (api/gen, ~620k lines) is the
-        # package that needs the most memory to compile, here as in a local
-        # 8 GB Docker build, which it exhausted: build it alone first, then
-        # test two packages at a time. Memory and disk are logged every 30 s,
-        # so a runner stopped again shows why.
-        run: |
-          go clean -cache
-          df -h / | tail -1
-          echo "cpus $(nproc)"; free -m
-          ( while sleep 30; do
-              echo "monitor $(date -u +%T) $(free -m | awk 'NR==2{print "memory used "$3" of "$2" MiB, available "$7}'), $(df -h / | awk 'NR==2{print "disk free "$4}')"
-            done ) &
-          monitor=$!
-          trap 'kill "$monitor" 2>/dev/null || true' EXIT
-          go build -race ./api/gen
-          go test -race -count=1 -timeout 60m -p 2 ./...
       - name: Performance budgets (without the race detector)
         # The runner is about twice as slow as a laptop on these; the scaled
         # budgets still catch a regression (ERP_BUDGET_SCALE, docs/testing.md).
         env:
           ERP_BUDGET_SCALE: 2
-        # Every package's budget tests (scripts/budgets.sh finds them).
+        # Every package's budget tests (scripts/budgets.sh finds them), and
+        # each test's whole time with its seeding (scripts/budget-times.sh).
         run: ./scripts/budgets.sh -v
-      - name: Coverage gate
-        # The race build above and the instrumented build here share nothing,
-        # so the race cache is dropped first; the runner's disk ran out once.
-        run: |
-          go clean -cache
-          df -h / | tail -1
-          ./scripts/coverage.sh
-          df -h / | tail -1
       - name: Build
         run: make build
       - name: Free disk for the image builds
-        # The suite leaves about 8 GB of the 72 GB disk; two clean
-        # multi-platform builds need more (run 39031819702 died of it). The
-        # Go caches the tests filled are no longer needed either.
+        # Two clean multi-platform builds need the disk (run 39031819702
+        # died of it). The Go caches the checks and the budgets filled are
+        # no longer needed either.
         run: |
           go clean -cache
           ./scripts/free-disk.sh
@@ -456,17 +438,235 @@ jobs:
           make image-scan
           df -h / | tail -1
 
-  fuzz:
-    # On a push to main whenever code changed, and on a manual run. A pull
-    # request's tests already run every target's seed corpus, its author
-    # fuzzed 30 s per target locally (scripts/ci-local.sh), and the weekly
-    # run fuzzes 5 minutes per target.
+  shards:
+    # The shards the race suite and the coverage gate run in, computed from
+    # the packages go list names (scripts/ci-shards.sh): a pull request and
+    # a manual run split the suite over parallel jobs, since one runner
+    # needs over an hour for a single race run of it (PO 2026-11-10). The
+    # check fails when a package, or a test of a package split by test
+    # name, would land in no shard or in two.
     needs: changes
-    if: github.event_name != 'pull_request' && needs.changes.outputs.run != 'false'
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      race: ${{ steps.plan.outputs.race }}
+      coverage: ${{ steps.plan.outputs.coverage }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false # go list -find reads the module's own directories alone
+      - name: Every package and every test of a split package is in exactly one shard
+        run: ./scripts/ci-shards.sh check
+      - name: The shards
+        id: plan
+        # bash with pipefail, so a failing script fails the step rather than
+        # tee hiding it.
+        shell: bash
+        run: ./scripts/ci-shards.sh matrix | tee -a "$GITHUB_OUTPUT"
+
+  race:
+    # The suite with the race detector, three times in random order (07
+    # §7.7), one shard of it per job. Until 2026-11-10 the three runs were
+    # the author's (scripts/ci-local.sh, 58 minutes with the machine to
+    # itself) and main's manual run did one, 75 minutes in one job; a shard
+    # is planned at about 25 minutes (scripts/ci-shards.sh).
+    needs: [changes, shards]
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
+    strategy:
+      fail-fast: false # every shard's failures in one run
+      matrix:
+        shard: ${{ fromJSON(needs.shards.outputs.race) }}
+    runs-on: ubuntu-latest
+    # A shard is planned at about 25 minutes with its set-up. Each go test in it (the whole
+    # packages together, then each part of a split one) has -timeout 35m
+    # (scripts/ci-shards.sh), so a hung one is named by go test before
+    # this limit stops the runner.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
+      # The web workspace's end-to-end suite drives the runner's Chrome
+      # (internal/web/e2e, ADR-0052): it fails rather than skips without one.
+      ERP_E2E_REQUIRE_BROWSER: "true"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          # No cache: the race build shares nothing with the plain one, and
+          # some twenty jobs of a run would each try to save theirs under
+          # the key the other jobs restore.
+          cache: false
+      - name: Install the Temporal CLI
+        # The workflow engine's development server (ADR-0012): tests start it
+        # headless on a free port when the CLI is on the path.
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+      - name: Raise the database connection limit
+        # As in the test job: the suites' parallel pools exceed the default 100.
+        run: |
+          PGPASSWORD=dev psql -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300"
+          docker restart $(docker ps -q --filter ancestor=postgres:17)
+          for i in $(seq 1 60); do
+            PGPASSWORD=dev psql -h localhost -U postgres -tAc "SHOW max_connections" 2>/dev/null | grep -qx 300 && exit 0
+            sleep 1
+          done
+          echo "the database did not come back with max_connections = 300" >&2; exit 1
+      - name: Race suite of this shard, three shuffled runs
+        # The generated API (api/gen, ~620k lines) is the package that needs
+        # the most memory to compile: built alone first, then the shard's
+        # packages two at a time (scripts/ci-shards.sh), as the one job did
+        # since the runner stopped it on 2026-10-21. Memory and disk are
+        # logged every 30 s, so a runner stopped again shows why.
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          echo "cpus $(nproc)"; free -m
+          ( while sleep 30; do
+              echo "monitor $(date -u +%T) $(free -m | awk 'NR==2{print "memory used "$3" of "$2" MiB, available "$7}'), $(df -h / | awk 'NR==2{print "disk free "$4}')"
+            done ) &
+          monitor=$!
+          trap 'kill "$monitor" 2>/dev/null || true' EXIT
+          go build -race ./api/gen
+          ./scripts/ci-shards.sh run race "$SHARD"
+
+  coverage-shard:
+    # The coverage gate's tests, one shard of the packages per job, each
+    # instrumented as the whole suite is (scripts/coverage.sh run): a
+    # shard's tests cover other shards' code, so the gate is applied to
+    # the shards' profiles together, in the coverage job below.
+    needs: [changes, shards]
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.shards.outputs.coverage) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40 # the whole gate took 26 minutes in one job (run 43072109681)
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: dev
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:dev@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false # as the race job: an instrumented build of its own
+      - name: Install the Temporal CLI
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+      - name: Raise the database connection limit
+        run: |
+          PGPASSWORD=dev psql -h localhost -U postgres -c "ALTER SYSTEM SET max_connections = 300"
+          docker restart $(docker ps -q --filter ancestor=postgres:17)
+          for i in $(seq 1 60); do
+            PGPASSWORD=dev psql -h localhost -U postgres -tAc "SHOW max_connections" 2>/dev/null | grep -qx 300 && exit 0
+            sleep 1
+          done
+          echo "the database did not come back with max_connections = 300" >&2; exit 1
+      - name: Tests of this shard, instrumented
+        env:
+          SHARD: ${{ matrix.shard }}
+          COVERAGE_DIR: coverage-profile
+        run: ./scripts/ci-shards.sh run coverage "$SHARD"
+      - name: Hand the shard's profile to the gate
+        # The run's own cache entry, a few megabytes (one line per block),
+        # named by the run so that no other run restores it: the workflows
+        # pin no artifact action, and the cache action is pinned already.
+        # The attempt is in the key because a key is written once: a re-run
+        # of a failed shard saves a new entry, and the gate takes the latest.
+        uses: actions/cache/save@v5.1.0
+        with:
+          path: coverage-profile
+          key: coverage-${{ github.run_id }}-shard${{ matrix.shard }}-${{ github.run_attempt }}
+
+  coverage:
+    # The coverage gate (scripts/coverage.sh gate): 100% of production
+    # statements, counted over the shards' profiles together, with the
+    # exclusions and the report of the whole-suite run. One restore step
+    # per shard, which scripts/ci-shards.sh check holds equal to the plan;
+    # a shard whose profile is missing fails its step, and the gate names
+    # the profiles from the plan itself (ci-shards.sh gate), so it cannot
+    # count fewer shards than the plan has.
+    needs: [changes, shards, coverage-shard]
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.run != 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Profile of shard 1
+        uses: actions/cache/restore@v5.1.0
+        with:
+          path: coverage-profile
+          key: coverage-${{ github.run_id }}-shard1-${{ github.run_attempt }}
+          restore-keys: coverage-${{ github.run_id }}-shard1-
+          fail-on-cache-miss: true
+      - name: Profile of shard 2
+        uses: actions/cache/restore@v5.1.0
+        with:
+          path: coverage-profile
+          key: coverage-${{ github.run_id }}-shard2-${{ github.run_attempt }}
+          restore-keys: coverage-${{ github.run_id }}-shard2-
+          fail-on-cache-miss: true
+      - name: Profile of shard 3
+        uses: actions/cache/restore@v5.1.0
+        with:
+          path: coverage-profile
+          key: coverage-${{ github.run_id }}-shard3-${{ github.run_attempt }}
+          restore-keys: coverage-${{ github.run_id }}-shard3-
+          fail-on-cache-miss: true
+      - name: Profile of shard 4
+        uses: actions/cache/restore@v5.1.0
+        with:
+          path: coverage-profile
+          key: coverage-${{ github.run_id }}-shard4-${{ github.run_attempt }}
+          restore-keys: coverage-${{ github.run_id }}-shard4-
+          fail-on-cache-miss: true
+      - name: Coverage gate
+        env:
+          COVERAGE_DIR: coverage-profile
+        run: ./scripts/ci-shards.sh gate
+
+  fuzz:
+    # On every event whenever code changed: a pull request (since PO
+    # 2026-11-10; until then its author fuzzed locally, scripts/ci-local.sh),
+    # a push to main and a manual run. The weekly run fuzzes 5 minutes per
+    # target.
+    needs: changes
+    if: needs.changes.outputs.run != 'false'
     # No database: the fuzz targets are parsers (money, config, analytics,
     # bankfile, sap), and a package's database tests skip without one.
     runs-on: ubuntu-latest
-    timeout-minutes: 20 # 8 targets of 30 s each, run twice at most, and their builds
+    timeout-minutes: 30 # 19 targets of 30 s each and their builds took 13 minutes on a push (run 43072047720); a target is run twice at most
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -500,19 +700,38 @@ jobs:
     # `changes` (a leaked secret, a broken skip rule) skip the suite and
     # pass: this job fails unless `changes` succeeded and nothing it gates
     # failed or was cancelled.
-    # On a pull request it aggregates the light jobs (changes, tracker,
-    # short), the others skipped; on a push to main, tracker, fuzz, signing
-    # and release-scripts, test skipped (it runs on demand); on a manual
-    # run, every job but short, so a failed test turns that run red.
-    needs: [changes, tracker, short, test, fuzz, signing, release-scripts]
+    # A matrix of shards reports one result: success only when every shard
+    # succeeded. And a job that should have run and was skipped fails this
+    # one: the jobs of each event are named below, so a shard plan that
+    # came out empty, or a condition that went wrong, is not a pass. On a
+    # pull request: the shards, race, coverage and fuzz jobs and short; on
+    # a manual run: the same and test in place of short; on a push to main:
+    # fuzz (signing and release-scripts when their inputs changed, test
+    # never: it runs on demand). For documentation alone only changes and
+    # tracker run. scripts/merge-pr.sh reads the manual run's list from the
+    # workflow_dispatch line below, as it is written, to judge a full run
+    # whose ci-ok never ran: keep the line's form.
+    needs: [changes, tracker, shards, race, coverage-shard, coverage, short, test, fuzz, signing, release-scripts]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Every job passed or was rightly skipped
         env:
           RESULTS: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+          RUN: ${{ needs.changes.outputs.run }}
         run: |
           echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          echo "$RESULTS" | jq -e '.changes.result == "success" and .tracker.result == "success"
-            and ([.[] | .result] | all(. == "success" or . == "skipped"))' >/dev/null
+          case "$EVENT:$RUN" in
+            *:false) required='["changes","tracker"]' ;;
+            pull_request:*) required='["changes","tracker","shards","race","coverage-shard","coverage","fuzz","short"]' ;;
+            workflow_dispatch:*) required='["changes","tracker","shards","race","coverage-shard","coverage","fuzz","test"]' ;;
+            push:*) required='["changes","tracker","fuzz"]' ;;
+            *) echo "an event this job does not know: $EVENT" >&2; exit 1 ;;
+          esac
+          echo "must have succeeded on $EVENT (run=$RUN): $required"
+          echo "$RESULTS" | jq -e --argjson required "$required" '.changes.result == "success" and .tracker.result == "success"
+            and ([.[] | .result] | all(. == "success" or . == "skipped"))
+            and ([$required[] as $job | .[$job].result] | all(. == "success"))' >/dev/null

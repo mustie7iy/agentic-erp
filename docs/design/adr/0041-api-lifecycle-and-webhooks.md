@@ -56,6 +56,17 @@ event version breaks someone else's system.
   headers are left to review. It runs in the existing breaking-change
   step of CI and in `scripts/ci-local.sh`, not as a job of its own.
 
+### Open enumerations (as built, 2026-11-11, ci:batch65)
+- Enumerations are open (`x-extensible-enum`): values are added within
+  `/v1`, and a documented value is not withdrawn there. oasdiff does not
+  read the extension, so `cmd/enumcompat` (`api.EnumRemovals`) compares
+  every contract file with main's in the same step and fails on a value the
+  base lists and the head no longer does, printing
+  ``x-extensible-enum at `<location>` removed the value `<value>` ``. The
+  removal is accepted by listing that line in `api/breaking-accepted.txt`
+  under its `# T<n> …: <reason>` comment, as oasdiff's entries are. An
+  enumeration whose schema is gone is oasdiff's to report.
+
 ### Webhooks (T50b–g)
 - **Signing:** Standard Webhooks (`webhook-id`, `webhook-timestamp`,
   `webhook-signature` HMAC-SHA256 over `id.timestamp.body`). Each

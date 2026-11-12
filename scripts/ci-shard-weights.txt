@@ -1,0 +1,42 @@
+# Seconds one race run of a package took on a GitHub-hosted runner (4 vCPU,
+# 16 GB), two packages at a time: main's full run 43072109681 of 2026-11-11,
+# `go test -race -count=1 -p 2 ./...`. Only packages of 20 s or more are
+# listed; scripts/ci-shards.sh counts any other as 10 s. The figures only
+# balance the shards (a package without one is still tested), so they need
+# refreshing only when a shard runs long: take the package's time from the
+# shard's log, divide a three-run time by three, and raise its line. A
+# package whose three runs exceed 1200 s is split by test function.
+750 internal/web
+697 internal/integration
+599 cmd/erp
+592 internal/web/e2e
+536 internal/payments
+482 internal/ledger
+458 internal/assets
+442 internal/web/ui
+369 internal/cash
+369 internal/payables
+222 api
+215 internal/closing
+213 internal/procurement
+163 internal/workflows
+143 internal/analytics/store
+105 internal/consolidation
+94 db
+91 internal/analytics/extract
+83 internal/taxfiling
+78 internal/configuration
+65 internal/drverify
+64 internal/provisioning
+59 cmd/erp-server
+47 internal/partner
+45 internal/platform/redact
+40 internal/nfr
+37 internal/controlling
+35 internal/app
+35 internal/offboarding
+32 internal/layout
+25 internal/agents
+23 internal/approvals
+23 internal/einvoicing
+22 internal/controlplane

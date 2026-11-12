@@ -163,3 +163,42 @@ Known deviations from common CI practice:
   product owner approved it on 2026-10-28, and GitHub refused it: it needs
   GitHub Pro or a public repository. `scripts/merge-pr.sh` enforces `ci-ok` by
   convention instead.
+
+## As built
+
+**The batch's gates split between the machine and GitHub (PO decision of
+2026-11-10; 06 §6.5).** The repository has been public since 2026-11-04, so
+standard GitHub-hosted runners cost nothing and branch protection requires
+`ci-ok` on `main`; the two deviations above are to that extent history. A
+batch's local gates took about 2 h 13 min, during which every lane waited.
+The three longest moved to the pull request's GitHub run as parallel jobs:
+the race suite three times in random order, the coverage gate and fuzzing.
+Nothing is dropped and no bar is lowered: the gates are the same ones, run
+elsewhere.
+
+- `make ci-local` is unchanged. `make ci-local-light` runs everything but
+  those three, with the suite once without the race detector (short
+  mode, then the walkthrough and the browser suite) in their place, and
+  says so in its report; `scripts/merge-pr.sh` merges on a light
+  report only when the pull request's own run held the three for that
+  commit, read from the run's jobs.
+- The shards are computed from `go list` (`scripts/ci-shards.sh`), with a
+  check that fails when a package or a test would run in none. `main`'s
+  full run uses the same shards.
+- Decided by default, since the decision left them open: the coverage
+  shards hand their profiles to the gate through the run's cache entries
+  (no artifact action is pinned in the workflows, and adding one needs a
+  version nobody could check offline); a light report on a
+  documentation-only change accepts the skipped jobs, the skip decided by
+  the script itself; a manual run on any branch waits for the one before it
+  rather than cancelling it; the red-`main` rule is enforced by
+  `merge-pr.sh`, which also refuses while `main`'s full run is still going,
+  with `--fix-forward` for the repair; a full run GitHub calls failed
+  counts as green when only its `ci-ok` did not run and every job `ci-ok`
+  requires of a manual run is there and succeeded.
+- Kept local on purpose: the static checks and the performance budgets (a
+  shared runner is too noisy to time a budget on a pull request). `main`'s
+  manual run still runs the budgets at scale 2, as before.
+- Limits kept: standard runners only, no self-hosted runner, no new secret,
+  `promotion.yml` and the fork approval settings untouched, and
+  `contents: read` (or nothing) on the new jobs.

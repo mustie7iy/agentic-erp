@@ -4,9 +4,10 @@ Every Phase 1 requirement has functional tests, and the platform has
 dedicated non-functional suites. CI (`.github/workflows/ci.yml`) runs all of
 it on `main` on demand after each batch of merges: formatting, `go vet`,
 every test under the race detector, the coverage gate, fuzzing and the
-build; before a merge
-`make ci-local` runs the same locally (docs/design/06-engineering-process.md
-§6.5).
+build; a pull request runs the race suite, the coverage gate and fuzzing
+there too, in parallel shards, and before a merge `make ci-local` runs the
+same locally, or `make ci-local-light` all but those three
+(docs/design/06-engineering-process.md §6.5).
 
 ```sh
 make test        # functional + end-to-end + non-functional, race detector on
