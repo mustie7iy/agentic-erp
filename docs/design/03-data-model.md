@@ -4172,16 +4172,19 @@ no foreign key out of its schema (02 §2.1). T76a (migration 000273)
 builds the schema with its outbox and inbox and the dunning run: a
 proposal of the customer items of a company overdue on a key date, one
 notice per customer. Nothing changes on the items, which stay the
-ledger's.
+ledger's. T76b (migration 000269) confirms a run: the run's status
+changes, and each item's level and dunning date are recorded in
+`dunned_item`, which the next run reads.
 
 ```mermaid
 erDiagram
   dunning_run ||--o{ dunning_notice : "proposes"
   dunning_notice ||--|{ dunning_notice_item : "has"
+  dunning_notice_item ||--o| dunned_item : "recorded when confirmed"
   dunning_run { uuid id PK
     uuid legal_entity_id "tenancy"
     date key_date
-    text status "proposed"
+    text status "proposed, confirmed"
     char currency "the company's"
     int notice_count
     int item_count
@@ -4208,18 +4211,27 @@ erDiagram
     bigint amount "above 0"
     bigint amount_lc "in the run's currency, as booked"
     smallint previous_level "0: never dunned"
-    smallint level "1-9" }
+    smallint level "1-9"
+    int previous_dunnings "times dunned when proposed" }
+  dunned_item { smallint fiscal_year PK "ledger: the journal line"
+    uuid journal_entry_id PK
+    int line_no PK
+    uuid dunning_run_id PK "the confirmed run"
+    smallint level "1-9"
+    date dunning_date "the run's key date" }
 ```
 
-- `collections.dunning_run`: the status is `proposed` alone
-  (`dunning_run_status_check`), which T76b widens (`confirmed`); the
+- `collections.dunning_run`: the status is `proposed` or `confirmed`
+  (`dunning_run_status_check`); the
   totals are not negative and a run has at least an item per notice
   (`dunning_run_notice_count_check`, `dunning_run_item_count_check`,
   `dunning_run_overdue_amount_check`). `overdue_amount` is minor units
   of `currency`, the company's. The list reads the tenant's runs by key
-  date (`dunning_run_by_key_date`). Proposing is the only write: the
-  application may not update or delete a run (T76b grants what
-  confirming sets).
+  date (`dunning_run_by_key_date`). Confirming is the only change: a
+  proposed run moves to confirmed, once (the trigger
+  `dunning_run_confirmed_once`), and the application may set its status,
+  version and `updated_by` alone, so its company, key date and totals
+  stay; it may not delete a run.
 - `collections.dunning_notice`: one per customer in a run
   (`dunning_notice_customer_once`), at a level from 1 to 9
   (`dunning_notice_level_check`), with at least one item
@@ -4236,8 +4248,63 @@ erDiagram
   dunned) and not negative in the run's
   (`dunning_notice_item_amount_lc_check`); at a level from 1 to 9
   (`dunning_notice_item_level_check`) that is its previous level or one
-  above (`dunning_notice_item_one_level`); insert-only. T76a writes
-  `previous_level` 0: no level is recorded before T76b.
+  above (`dunning_notice_item_one_level`); insert-only. `previous_level`
+  is the highest level `dunned_item` holds for the item when the run is
+  started, 0 for one never dunned, and `previous_dunnings` (T76b) the
+  number of its rows there then, which a confirmation compares with the
+  number as it is to tell that another confirmed run dunned the item
+  since; it is at least the previous level and 0 exactly when that is
+  (`dunning_notice_item_dunnings_check`).
+- `collections.dunned_item` (T76b): an item at the level a confirmed run
+  dunned it at, on the run's key date; one of the items that run proposed
+  (`dunned_item_proposed_fkey`, into `dunning_notice_item`), once per run
+  (the primary key, which leads with the item: the next run, a
+  confirmation and the worklist read by item), at a level from 1 to 9
+  (`dunned_item_level_check`); insert-only. An item's level is the
+  highest among its rows and its last dunning date the latest; an item at
+  the highest level gets a row per confirmed run that took it.
 - `collections.outbox`, `collections.inbox`: the context's events
-  (`DunningRunChanged`).
-- Permissions `collections.dunning.read` and `.run`.
+  (`DunningRunChanged`, `DunningNoticeIssued`).
+- Permissions `collections.dunning.read` and `.run`, and
+  `collections.worklist.read` (T76c, migration 000270). The collection
+  worklist has no table: it is computed on read from the ledger's open
+  customer items and `dunned_item` (ADR-0065 §9).
+
+## 3.28 Credit management (`credit`)
+
+ADR-0066, T77a (migration 000271). A leaf: it reads the ledger's customer
+open items (§3.7, `ledger.OpenItems.Receivable`), the partner context's
+customers and names and tenancy through its ports, posts nothing and
+keeps no foreign key out of its schema (02 §2.1). It stores a customer's
+credit limit in a company and nothing else: the credit exposure, what
+the customer's open items add up to, is computed from the ledger when it
+is read (ADR-0066 §3), and the check of an amount against the limit
+writes nothing (ADR-0066 §4).
+
+```mermaid
+erDiagram
+  credit_limit { uuid id PK
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, one per company"
+    text customer_number "the partner's, fixed"
+    char currency "the company's"
+    bigint amount "in currency, 0 or more"
+    int version }
+```
+
+- `credit.credit_limit`: the most a customer may owe a company, an
+  amount of zero or more (`credit_limit_amount_check`) in a known
+  currency (`credit_limit_currency_fkey`), the company's when the limit
+  was set; one per customer and company (`credit_limit_once`, which the
+  API answers 409 `credit.limit_exists`); with the customer's business
+  partner number (`credit_limit_customer_number_check`), by which the
+  limits are listed (`credit_limit_by_customer_number`). A change sets
+  the amount with the next version (`platform.touch`, which also moves
+  `updated_at`): the application is granted the update of `amount`,
+  `version` and `updated_by` alone, so a limit's customer, company and
+  currency stay, and it is granted no delete. A customer without a row
+  has no limit and is not restricted; a limit of zero is a limit.
+- `credit.outbox`, `credit.inbox`: the context's events
+  (`CreditLimitChanged`).
+- Permissions `credit.limit.read` (limits and the exposure) and
+  `credit.limit.write`.

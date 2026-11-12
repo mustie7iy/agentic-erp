@@ -2822,14 +2822,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Credit limits",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit manager sets a customer's credit limit in a company, and any API consumer reads the customer's exposure and whether an amount is within the limit (GET /v1/credit-exposure); the credit context and its ADR",
-        "r": "T77a · docs/design/plan-breadth-week1.md §T77a",
+        "r": "T77a · docs/design/plan-breadth-week1.md §T77a · db/migrations/000271 · credit.credit_limit · POST /v1/credit-limits · PATCH /v1/credit-limits/{id} · GET /v1/credit-limits · GET /v1/credit-limits/{id} · GET /v1/credit-exposure · CreditLimitChanged · credit.limit.read, .write · walkthrough step_credit_limit · ADR-0066 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -2878,14 +2878,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Collection worklists",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week1.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A collections specialist reads a company's worklist: the customers with overdue items, the largest overdue amount first, with open and overdue totals, oldest due date, highest dunning level and last dunning date (GET /v1/collection-worklist)",
-        "r": "T76c · docs/design/plan-breadth-week1.md §T76c",
+        "r": "T76c · docs/design/plan-breadth-week1.md §T76c · db/migrations/000270 · GET /v1/collection-worklist · collections.worklist.read · TestCollectionWorklistBudget (01 §1.3) · walkthrough step_collections · ADR-0065 §9 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -2911,10 +2911,17 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A credit controller confirms a dunning run: each item's level and dunning date are recorded, one event per customer is published, and the next run proposes the next level",
-        "r": "T76b · docs/design/plan-breadth-week1.md §T76b",
+        "r": "T76b · docs/design/plan-breadth-week1.md §T76b · db/migrations/000269 · collections.dunned_item · POST /v1/dunning-runs/{id}:confirm · DunningNoticeIssued · 409 collections.proposal_stale, collections.invalid_status · walkthrough step_dunning · ADR-0065 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "A dunning run's and the collection worklist's key date is bounded (2100-12-31 at the latest, 422 collections.invalid_key_date naming key_date): ledger.ReceivableItem.DaysOverdue counts through a time.Duration, so a key date about 292 years past a due date gave a wrong day count",
+        "r": "T76b · internal/collections (LastKeyDate) · ADR-0065 As built, Key date limit · the worklist applies it with T76c",
+        "src": "review:T76a",
         "c": []
        },
        {

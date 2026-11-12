@@ -21085,6 +21085,239 @@ func (s *CodeTax) SetTax(val Money) {
 	s.Tax = val
 }
 
+// A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers
+// with overdue items, the largest overdue amount first, with the totals of every customer listed.
+// Ref: #/components/schemas/CollectionWorklist
+type CollectionWorklist struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items are overdue on.
+	KeyDate time.Time `json:"key_date"`
+	// The company's currency (ISO 4217), the currency of every amount.
+	Currency string `json:"currency"`
+	// The customers on the worklist, on every page together.
+	CustomerCount int32 `json:"customer_count"`
+	// The sum of `open_amount` of every customer on the worklist.
+	OpenAmount Money `json:"open_amount"`
+	// The sum of `overdue_amount` of every customer on the worklist.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The customers on this page, the largest overdue amount first.
+	Items []CollectionWorklistCustomer `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CollectionWorklist) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CollectionWorklist) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CollectionWorklist) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *CollectionWorklist) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CollectionWorklist) GetCurrency() string {
+	return s.Currency
+}
+
+// GetCustomerCount returns the value of CustomerCount.
+func (s *CollectionWorklist) GetCustomerCount() int32 {
+	return s.CustomerCount
+}
+
+// GetOpenAmount returns the value of OpenAmount.
+func (s *CollectionWorklist) GetOpenAmount() Money {
+	return s.OpenAmount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *CollectionWorklist) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetItems returns the value of Items.
+func (s *CollectionWorklist) GetItems() []CollectionWorklistCustomer {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CollectionWorklist) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CollectionWorklist) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CollectionWorklist) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CollectionWorklist) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *CollectionWorklist) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CollectionWorklist) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetCustomerCount sets the value of CustomerCount.
+func (s *CollectionWorklist) SetCustomerCount(val int32) {
+	s.CustomerCount = val
+}
+
+// SetOpenAmount sets the value of OpenAmount.
+func (s *CollectionWorklist) SetOpenAmount(val Money) {
+	s.OpenAmount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *CollectionWorklist) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *CollectionWorklist) SetItems(val []CollectionWorklistCustomer) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CollectionWorklist) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CollectionWorklist) getCollectionWorklistRes() {}
+
+// A customer on a collection worklist: one with items overdue on the key date. Amounts are in the
+// company's currency, as the items were booked.
+// Ref: #/components/schemas/CollectionWorklistCustomer
+type CollectionWorklistCustomer struct {
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// What the customer's open items add up to, overdue or not, credit items included; negative when its
+	// credits exceed what it owes.
+	OpenAmount Money `json:"open_amount"`
+	// What the customer's items overdue on the key date add up to; credit items do not reduce it.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The earliest net due date among the customer's overdue items.
+	OldestDueDate time.Time `json:"oldest_due_date"`
+	// The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0
+	// when none was dunned.
+	DunningLevel int32 `json:"dunning_level"`
+	// The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items;
+	// absent when none was dunned.
+	LastDunningDate OptDate `json:"last_dunning_date"`
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CollectionWorklistCustomer) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CollectionWorklistCustomer) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CollectionWorklistCustomer) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetOpenAmount returns the value of OpenAmount.
+func (s *CollectionWorklistCustomer) GetOpenAmount() Money {
+	return s.OpenAmount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *CollectionWorklistCustomer) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetOldestDueDate returns the value of OldestDueDate.
+func (s *CollectionWorklistCustomer) GetOldestDueDate() time.Time {
+	return s.OldestDueDate
+}
+
+// GetDunningLevel returns the value of DunningLevel.
+func (s *CollectionWorklistCustomer) GetDunningLevel() int32 {
+	return s.DunningLevel
+}
+
+// GetLastDunningDate returns the value of LastDunningDate.
+func (s *CollectionWorklistCustomer) GetLastDunningDate() OptDate {
+	return s.LastDunningDate
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CollectionWorklistCustomer) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CollectionWorklistCustomer) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CollectionWorklistCustomer) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetOpenAmount sets the value of OpenAmount.
+func (s *CollectionWorklistCustomer) SetOpenAmount(val Money) {
+	s.OpenAmount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *CollectionWorklistCustomer) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetOldestDueDate sets the value of OldestDueDate.
+func (s *CollectionWorklistCustomer) SetOldestDueDate(val time.Time) {
+	s.OldestDueDate = val
+}
+
+// SetDunningLevel sets the value of DunningLevel.
+func (s *CollectionWorklistCustomer) SetDunningLevel(val int32) {
+	s.DunningLevel = val
+}
+
+// SetLastDunningDate sets the value of LastDunningDate.
+func (s *CollectionWorklistCustomer) SetLastDunningDate(val OptDate) {
+	s.LastDunningDate = val
+}
+
 // Body of a rejection or cancellation decision.
 // Ref: #/components/schemas/CommentRequiredInput
 type CommentRequiredInput struct {
@@ -21665,6 +21898,69 @@ func (s *ConfigVersionPage) SetTotalEstimate(val OptInt64) {
 
 func (*ConfigVersionPage) listConfigVersionsRes() {}
 
+type ConfirmDunningRunBadRequest Problem
+
+func (*ConfirmDunningRunBadRequest) confirmDunningRunRes() {}
+
+type ConfirmDunningRunForbidden Problem
+
+func (*ConfirmDunningRunForbidden) confirmDunningRunRes() {}
+
+type ConfirmDunningRunNotFound Problem
+
+func (*ConfirmDunningRunNotFound) confirmDunningRunRes() {}
+
+// ConfirmDunningRunOKHeaders wraps DunningRun with response headers.
+type ConfirmDunningRunOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *ConfirmDunningRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ConfirmDunningRunOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *ConfirmDunningRunOKHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ConfirmDunningRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ConfirmDunningRunOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ConfirmDunningRunOKHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*ConfirmDunningRunOKHeaders) confirmDunningRunRes() {}
+
+type ConfirmDunningRunPreconditionFailed Problem
+
+func (*ConfirmDunningRunPreconditionFailed) confirmDunningRunRes() {}
+
+type ConfirmDunningRunPreconditionRequired Problem
+
+func (*ConfirmDunningRunPreconditionRequired) confirmDunningRunRes() {}
+
+type ConfirmDunningRunUnprocessableEntity Problem
+
+func (*ConfirmDunningRunUnprocessableEntity) confirmDunningRunRes() {}
+
 // ConflictHeaders wraps Problem with response headers.
 type ConflictHeaders struct {
 	RetryAfter OptInt32
@@ -21729,6 +22025,7 @@ func (*ConflictHeaders) closeFiscalPeriodRes()                     {}
 func (*ConflictHeaders) closePurchaseOrderRes()                    {}
 func (*ConflictHeaders) completeCloseTaskRes()                     {}
 func (*ConflictHeaders) completeYearCloseTaskRes()                 {}
+func (*ConflictHeaders) confirmDunningRunRes()                     {}
 func (*ConflictHeaders) createAssetAcquisitionRes()                {}
 func (*ConflictHeaders) createAssetRes()                           {}
 func (*ConflictHeaders) createAssetRetirementRes()                 {}
@@ -21742,6 +22039,7 @@ func (*ConflictHeaders) createConnectorRes()                       {}
 func (*ConflictHeaders) createConsolidationRunRes()                {}
 func (*ConflictHeaders) createContractRes()                        {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
+func (*ConflictHeaders) createCreditLimitRes()                     {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
 func (*ConflictHeaders) createDunningRunRes()                      {}
@@ -21914,6 +22212,7 @@ func (*ConflictHeaders) updateCloseTaskRes()                       {}
 func (*ConflictHeaders) updateConnectorRes()                       {}
 func (*ConflictHeaders) updateContractRes()                        {}
 func (*ConflictHeaders) updateCostCenterRes()                      {}
+func (*ConflictHeaders) updateCreditLimitRes()                     {}
 func (*ConflictHeaders) updateEntryTemplateRes()                   {}
 func (*ConflictHeaders) updateLegalEntityRes()                     {}
 func (*ConflictHeaders) updateMemoRecordRes()                      {}
@@ -27169,6 +27468,22 @@ type CreateCostCenterUnprocessableEntity Problem
 
 func (*CreateCostCenterUnprocessableEntity) createCostCenterRes() {}
 
+type CreateCreditLimitBadRequest Problem
+
+func (*CreateCreditLimitBadRequest) createCreditLimitRes() {}
+
+type CreateCreditLimitForbidden Problem
+
+func (*CreateCreditLimitForbidden) createCreditLimitRes() {}
+
+type CreateCreditLimitPreconditionRequired Problem
+
+func (*CreateCreditLimitPreconditionRequired) createCreditLimitRes() {}
+
+type CreateCreditLimitUnprocessableEntity Problem
+
+func (*CreateCreditLimitUnprocessableEntity) createCreditLimitRes() {}
+
 type CreateCustomerInvoiceBadRequest Problem
 
 func (*CreateCustomerInvoiceBadRequest) createCustomerInvoiceRes() {}
@@ -27856,6 +28171,199 @@ type CreateYearCloseUnprocessableEntity Problem
 
 func (*CreateYearCloseUnprocessableEntity) createYearCloseRes() {}
 
+// A customer's credit exposure in a company and the check of an amount against its credit limit
+// (credit, ADR-0066 §3-§4). Every amount is in the company's currency.
+// Ref: #/components/schemas/CreditExposure
+type CreditExposure struct {
+	// The company.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The company's currency (ISO 4217), the currency of every amount.
+	Currency string `json:"currency"`
+	// The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which
+	// the exposure adds up.
+	OpenItemCount int32 `json:"open_item_count"`
+	// What the customer's open items add up to, as they were booked, credit items netted; negative when
+	// its credits exceed what it owes.
+	Exposure Money `json:"exposure"`
+	// Whether a credit limit is set for the customer in the company. False: no limit is set, and the
+	// customer is not restricted.
+	HasLimit bool `json:"has_limit"`
+	// The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.
+	CreditLimitID OptUUID `json:"credit_limit_id"`
+	// The credit limit; absent when none is set.
+	Limit OptMoney `json:"limit"`
+	// The limit less the exposure: what the customer may still come to owe; negative when the exposure
+	// exceeds the limit. Absent when no limit is set.
+	Available OptMoney `json:"available"`
+	// The amount checked, as the request gave it; absent when it gave none.
+	Amount OptMoney `json:"amount"`
+	// Whether the exposure and the amount checked together are no more than the limit; the exposure alone
+	// when no amount was given. Always true when no limit is set.
+	IsWithinLimit bool `json:"is_within_limit"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CreditExposure) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CreditExposure) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CreditExposure) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CreditExposure) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CreditExposure) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CreditExposure) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetCurrency returns the value of Currency.
+func (s *CreditExposure) GetCurrency() string {
+	return s.Currency
+}
+
+// GetOpenItemCount returns the value of OpenItemCount.
+func (s *CreditExposure) GetOpenItemCount() int32 {
+	return s.OpenItemCount
+}
+
+// GetExposure returns the value of Exposure.
+func (s *CreditExposure) GetExposure() Money {
+	return s.Exposure
+}
+
+// GetHasLimit returns the value of HasLimit.
+func (s *CreditExposure) GetHasLimit() bool {
+	return s.HasLimit
+}
+
+// GetCreditLimitID returns the value of CreditLimitID.
+func (s *CreditExposure) GetCreditLimitID() OptUUID {
+	return s.CreditLimitID
+}
+
+// GetLimit returns the value of Limit.
+func (s *CreditExposure) GetLimit() OptMoney {
+	return s.Limit
+}
+
+// GetAvailable returns the value of Available.
+func (s *CreditExposure) GetAvailable() OptMoney {
+	return s.Available
+}
+
+// GetAmount returns the value of Amount.
+func (s *CreditExposure) GetAmount() OptMoney {
+	return s.Amount
+}
+
+// GetIsWithinLimit returns the value of IsWithinLimit.
+func (s *CreditExposure) GetIsWithinLimit() bool {
+	return s.IsWithinLimit
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CreditExposure) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CreditExposure) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CreditExposure) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CreditExposure) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CreditExposure) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CreditExposure) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *CreditExposure) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetOpenItemCount sets the value of OpenItemCount.
+func (s *CreditExposure) SetOpenItemCount(val int32) {
+	s.OpenItemCount = val
+}
+
+// SetExposure sets the value of Exposure.
+func (s *CreditExposure) SetExposure(val Money) {
+	s.Exposure = val
+}
+
+// SetHasLimit sets the value of HasLimit.
+func (s *CreditExposure) SetHasLimit(val bool) {
+	s.HasLimit = val
+}
+
+// SetCreditLimitID sets the value of CreditLimitID.
+func (s *CreditExposure) SetCreditLimitID(val OptUUID) {
+	s.CreditLimitID = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CreditExposure) SetLimit(val OptMoney) {
+	s.Limit = val
+}
+
+// SetAvailable sets the value of Available.
+func (s *CreditExposure) SetAvailable(val OptMoney) {
+	s.Available = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *CreditExposure) SetAmount(val OptMoney) {
+	s.Amount = val
+}
+
+// SetIsWithinLimit sets the value of IsWithinLimit.
+func (s *CreditExposure) SetIsWithinLimit(val bool) {
+	s.IsWithinLimit = val
+}
+
+func (*CreditExposure) getCreditExposureRes() {}
+
 // The figures of a credit memo or subsequent credit refused at `:post` because the posted credits
 // naming its invoice, with it, would exceed that invoice's gross amount (422
 // `payables.credit_exceeds_invoice` for a supplier's, `receivables.credit_exceeds_invoice` for a
@@ -28284,6 +28792,306 @@ func (s *CustomerCompanyInput) SetPaymentTermCode(val string) {
 // SetIsPostingBlocked sets the value of IsPostingBlocked.
 func (s *CustomerCompanyInput) SetIsPostingBlocked(val OptBool) {
 	s.IsPostingBlocked = val
+}
+
+// Merged schema.
+// Ref: #/components/schemas/CustomerCreditLimit
+type CustomerCreditLimit struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company the limit holds in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The limit, in the company's currency.
+	Limit Money `json:"limit"`
+}
+
+// GetID returns the value of ID.
+func (s *CustomerCreditLimit) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *CustomerCreditLimit) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *CustomerCreditLimit) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *CustomerCreditLimit) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *CustomerCreditLimit) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *CustomerCreditLimit) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerCreditLimit) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *CustomerCreditLimit) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *CustomerCreditLimit) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerCreditLimit) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *CustomerCreditLimit) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *CustomerCreditLimit) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetLimit returns the value of Limit.
+func (s *CustomerCreditLimit) GetLimit() Money {
+	return s.Limit
+}
+
+// SetID sets the value of ID.
+func (s *CustomerCreditLimit) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *CustomerCreditLimit) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *CustomerCreditLimit) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *CustomerCreditLimit) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *CustomerCreditLimit) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *CustomerCreditLimit) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerCreditLimit) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *CustomerCreditLimit) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *CustomerCreditLimit) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerCreditLimit) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *CustomerCreditLimit) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *CustomerCreditLimit) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CustomerCreditLimit) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// Set a customer's credit limit in a company.
+// Ref: #/components/schemas/CustomerCreditLimitCreate
+type CustomerCreditLimitCreate struct {
+	// The company the limit holds in: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer: a business partner with the customer role and customer data in the company.
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The most the customer may owe the company, in the company's currency; zero or more.
+	Limit Money `json:"limit"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *CustomerCreditLimitCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *CustomerCreditLimitCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetLimit returns the value of Limit.
+func (s *CustomerCreditLimitCreate) GetLimit() Money {
+	return s.Limit
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *CustomerCreditLimitCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *CustomerCreditLimitCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetLimit sets the value of Limit.
+func (s *CustomerCreditLimitCreate) SetLimit(val Money) {
+	s.Limit = val
+}
+
+// CustomerCreditLimitHeaders wraps CustomerCreditLimit with response headers.
+type CustomerCreditLimitHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           CustomerCreditLimit
+}
+
+// GetETag returns the value of ETag.
+func (s *CustomerCreditLimitHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *CustomerCreditLimitHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *CustomerCreditLimitHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *CustomerCreditLimitHeaders) GetResponse() CustomerCreditLimit {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *CustomerCreditLimitHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *CustomerCreditLimitHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *CustomerCreditLimitHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *CustomerCreditLimitHeaders) SetResponse(val CustomerCreditLimit) {
+	s.Response = val
+}
+
+func (*CustomerCreditLimitHeaders) createCreditLimitRes() {}
+
+// One page of credit limits.
+// Ref: #/components/schemas/CustomerCreditLimitPage
+type CustomerCreditLimitPage struct {
+	// The credit limits on this page.
+	Items []CustomerCreditLimit `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *CustomerCreditLimitPage) GetItems() []CustomerCreditLimit {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *CustomerCreditLimitPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *CustomerCreditLimitPage) SetItems(val []CustomerCreditLimit) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *CustomerCreditLimitPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*CustomerCreditLimitPage) listCreditLimitsRes() {}
+
+// Merge patch of a credit limit: its amount.
+// Ref: #/components/schemas/CustomerCreditLimitUpdate
+type CustomerCreditLimitUpdate struct {
+	// The new limit, in the limit's currency; zero or more.
+	Limit Money `json:"limit"`
+}
+
+// GetLimit returns the value of Limit.
+func (s *CustomerCreditLimitUpdate) GetLimit() Money {
+	return s.Limit
+}
+
+// SetLimit sets the value of Limit.
+func (s *CustomerCreditLimitUpdate) SetLimit(val Money) {
+	s.Limit = val
 }
 
 // Merged schema.
@@ -31263,7 +32071,8 @@ type DunningNoticeItem struct {
 	Amount Money `json:"amount"`
 	// The same in the company's currency, as it was booked.
 	LocalAmount Money `json:"local_amount"`
-	// The dunning level the item was last dunned at; 0 for an item never dunned.
+	// The dunning level the item was last dunned at when the run was started, the highest a confirmed run
+	// recorded for it; 0 for an item never dunned.
 	PreviousLevel int32 `json:"previous_level"`
 	// The dunning level the item would reach: the last level whose days overdue it has reached, one above
 	// `previous_level` at most.
@@ -31454,7 +32263,9 @@ type DunningRun struct {
 	CompanyName string `json:"company_name"`
 	// The date the items' days overdue were counted on.
 	KeyDate time.Time `json:"key_date"`
-	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open
+	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent.
+	// `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date,
+	// the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open
 	// enumeration: clients must accept and preserve values not listed here; values may be added within
 	// /v1.
 	Status string `json:"status"`
@@ -31626,7 +32437,8 @@ type DunningRunCreate struct {
 	// The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in
 	// the configuration.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
-	// The date the items' days overdue are counted on. An item due on this date is not overdue.
+	// The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31
+	// at the latest.
 	KeyDate time.Time `json:"key_date"`
 }
 
@@ -35724,6 +36536,22 @@ type GetCloseCalendarForbidden Problem
 
 func (*GetCloseCalendarForbidden) getCloseCalendarRes() {}
 
+type GetCollectionWorklistBadRequest Problem
+
+func (*GetCollectionWorklistBadRequest) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistForbidden Problem
+
+func (*GetCollectionWorklistForbidden) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistNotFound Problem
+
+func (*GetCollectionWorklistNotFound) getCollectionWorklistRes() {}
+
+type GetCollectionWorklistUnprocessableEntity Problem
+
+func (*GetCollectionWorklistUnprocessableEntity) getCollectionWorklistRes() {}
+
 type GetCompanyAccessBadRequest Problem
 
 func (*GetCompanyAccessBadRequest) getCompanyAccessRes() {}
@@ -35931,6 +36759,62 @@ func (s *GetCostCenterOKHeaders) SetResponse(val CostCenter) {
 }
 
 func (*GetCostCenterOKHeaders) getCostCenterRes() {}
+
+type GetCreditExposureBadRequest Problem
+
+func (*GetCreditExposureBadRequest) getCreditExposureRes() {}
+
+type GetCreditExposureForbidden Problem
+
+func (*GetCreditExposureForbidden) getCreditExposureRes() {}
+
+type GetCreditExposureNotFound Problem
+
+func (*GetCreditExposureNotFound) getCreditExposureRes() {}
+
+type GetCreditExposureUnprocessableEntity Problem
+
+func (*GetCreditExposureUnprocessableEntity) getCreditExposureRes() {}
+
+type GetCreditLimitBadRequest Problem
+
+func (*GetCreditLimitBadRequest) getCreditLimitRes() {}
+
+type GetCreditLimitForbidden Problem
+
+func (*GetCreditLimitForbidden) getCreditLimitRes() {}
+
+type GetCreditLimitNotFound Problem
+
+func (*GetCreditLimitNotFound) getCreditLimitRes() {}
+
+// GetCreditLimitOKHeaders wraps CustomerCreditLimit with response headers.
+type GetCreditLimitOKHeaders struct {
+	ETag     OptString
+	Response CustomerCreditLimit
+}
+
+// GetETag returns the value of ETag.
+func (s *GetCreditLimitOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetCreditLimitOKHeaders) GetResponse() CustomerCreditLimit {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetCreditLimitOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetCreditLimitOKHeaders) SetResponse(val CustomerCreditLimit) {
+	s.Response = val
+}
+
+func (*GetCreditLimitOKHeaders) getCreditLimitRes() {}
 
 type GetCurrentPrincipalBadRequest Problem
 
@@ -46971,6 +47855,14 @@ func (*ListCountryPacksBadRequest) listCountryPacksRes() {}
 type ListCountryPacksForbidden Problem
 
 func (*ListCountryPacksForbidden) listCountryPacksRes() {}
+
+type ListCreditLimitsBadRequest Problem
+
+func (*ListCreditLimitsBadRequest) listCreditLimitsRes() {}
+
+type ListCreditLimitsForbidden Problem
+
+func (*ListCreditLimitsForbidden) listCreditLimitsRes() {}
 
 type ListCustomerInvoicesBadRequest Problem
 
@@ -74733,6 +75625,7 @@ func (*TooManyRequestsHeaders) closeFiscalPeriodRes()                     {}
 func (*TooManyRequestsHeaders) closePurchaseOrderRes()                    {}
 func (*TooManyRequestsHeaders) completeCloseTaskRes()                     {}
 func (*TooManyRequestsHeaders) completeYearCloseTaskRes()                 {}
+func (*TooManyRequestsHeaders) confirmDunningRunRes()                     {}
 func (*TooManyRequestsHeaders) createAssetAcquisitionRes()                {}
 func (*TooManyRequestsHeaders) createAssetRes()                           {}
 func (*TooManyRequestsHeaders) createAssetRetirementRes()                 {}
@@ -74746,6 +75639,7 @@ func (*TooManyRequestsHeaders) createConnectorRes()                       {}
 func (*TooManyRequestsHeaders) createConsolidationRunRes()                {}
 func (*TooManyRequestsHeaders) createContractRes()                        {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
+func (*TooManyRequestsHeaders) createCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
 func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
@@ -74825,6 +75719,7 @@ func (*TooManyRequestsHeaders) getCenterChangeRes()                       {}
 func (*TooManyRequestsHeaders) getChangeRequestRes()                      {}
 func (*TooManyRequestsHeaders) getClearingRes()                           {}
 func (*TooManyRequestsHeaders) getCloseCalendarRes()                      {}
+func (*TooManyRequestsHeaders) getCollectionWorklistRes()                 {}
 func (*TooManyRequestsHeaders) getCompanyAccessRes()                      {}
 func (*TooManyRequestsHeaders) getConfigVersionRes()                      {}
 func (*TooManyRequestsHeaders) getConnectorRes()                          {}
@@ -74833,6 +75728,8 @@ func (*TooManyRequestsHeaders) getConsolidationGroupRes()                 {}
 func (*TooManyRequestsHeaders) getConsolidationRunRes()                   {}
 func (*TooManyRequestsHeaders) getContractRes()                           {}
 func (*TooManyRequestsHeaders) getCostCenterRes()                         {}
+func (*TooManyRequestsHeaders) getCreditExposureRes()                     {}
+func (*TooManyRequestsHeaders) getCreditLimitRes()                        {}
 func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
@@ -74940,6 +75837,7 @@ func (*TooManyRequestsHeaders) listCostCenterPathsRes()                   {}
 func (*TooManyRequestsHeaders) listCostCenterPlanActualRes()              {}
 func (*TooManyRequestsHeaders) listCostCentersRes()                       {}
 func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
+func (*TooManyRequestsHeaders) listCreditLimitsRes()                      {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
@@ -75106,6 +76004,7 @@ func (*TooManyRequestsHeaders) updateCloseTaskRes()                       {}
 func (*TooManyRequestsHeaders) updateConnectorRes()                       {}
 func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
+func (*TooManyRequestsHeaders) updateCreditLimitRes()                     {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
 func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -75469,6 +76368,7 @@ func (*UnauthorizedHeaders) closeFiscalPeriodRes()                     {}
 func (*UnauthorizedHeaders) closePurchaseOrderRes()                    {}
 func (*UnauthorizedHeaders) completeCloseTaskRes()                     {}
 func (*UnauthorizedHeaders) completeYearCloseTaskRes()                 {}
+func (*UnauthorizedHeaders) confirmDunningRunRes()                     {}
 func (*UnauthorizedHeaders) createAssetAcquisitionRes()                {}
 func (*UnauthorizedHeaders) createAssetRes()                           {}
 func (*UnauthorizedHeaders) createAssetRetirementRes()                 {}
@@ -75482,6 +76382,7 @@ func (*UnauthorizedHeaders) createConnectorRes()                       {}
 func (*UnauthorizedHeaders) createConsolidationRunRes()                {}
 func (*UnauthorizedHeaders) createContractRes()                        {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
+func (*UnauthorizedHeaders) createCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
 func (*UnauthorizedHeaders) createDunningRunRes()                      {}
@@ -75561,6 +76462,7 @@ func (*UnauthorizedHeaders) getCenterChangeRes()                       {}
 func (*UnauthorizedHeaders) getChangeRequestRes()                      {}
 func (*UnauthorizedHeaders) getClearingRes()                           {}
 func (*UnauthorizedHeaders) getCloseCalendarRes()                      {}
+func (*UnauthorizedHeaders) getCollectionWorklistRes()                 {}
 func (*UnauthorizedHeaders) getCompanyAccessRes()                      {}
 func (*UnauthorizedHeaders) getConfigVersionRes()                      {}
 func (*UnauthorizedHeaders) getConnectorRes()                          {}
@@ -75569,6 +76471,8 @@ func (*UnauthorizedHeaders) getConsolidationGroupRes()                 {}
 func (*UnauthorizedHeaders) getConsolidationRunRes()                   {}
 func (*UnauthorizedHeaders) getContractRes()                           {}
 func (*UnauthorizedHeaders) getCostCenterRes()                         {}
+func (*UnauthorizedHeaders) getCreditExposureRes()                     {}
+func (*UnauthorizedHeaders) getCreditLimitRes()                        {}
 func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
@@ -75676,6 +76580,7 @@ func (*UnauthorizedHeaders) listCostCenterPathsRes()                   {}
 func (*UnauthorizedHeaders) listCostCenterPlanActualRes()              {}
 func (*UnauthorizedHeaders) listCostCentersRes()                       {}
 func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
+func (*UnauthorizedHeaders) listCreditLimitsRes()                      {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
@@ -75842,6 +76747,7 @@ func (*UnauthorizedHeaders) updateCloseTaskRes()                       {}
 func (*UnauthorizedHeaders) updateConnectorRes()                       {}
 func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
+func (*UnauthorizedHeaders) updateCreditLimitRes()                     {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
 func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
@@ -76386,6 +77292,69 @@ func (*UpdateCostCenterPreconditionRequired) updateCostCenterRes() {}
 type UpdateCostCenterUnprocessableEntity Problem
 
 func (*UpdateCostCenterUnprocessableEntity) updateCostCenterRes() {}
+
+type UpdateCreditLimitBadRequest Problem
+
+func (*UpdateCreditLimitBadRequest) updateCreditLimitRes() {}
+
+type UpdateCreditLimitForbidden Problem
+
+func (*UpdateCreditLimitForbidden) updateCreditLimitRes() {}
+
+type UpdateCreditLimitNotFound Problem
+
+func (*UpdateCreditLimitNotFound) updateCreditLimitRes() {}
+
+// UpdateCreditLimitOKHeaders wraps CustomerCreditLimit with response headers.
+type UpdateCreditLimitOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CustomerCreditLimit
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateCreditLimitOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateCreditLimitOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateCreditLimitOKHeaders) GetResponse() CustomerCreditLimit {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateCreditLimitOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateCreditLimitOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateCreditLimitOKHeaders) SetResponse(val CustomerCreditLimit) {
+	s.Response = val
+}
+
+func (*UpdateCreditLimitOKHeaders) updateCreditLimitRes() {}
+
+type UpdateCreditLimitPreconditionFailed Problem
+
+func (*UpdateCreditLimitPreconditionFailed) updateCreditLimitRes() {}
+
+type UpdateCreditLimitPreconditionRequired Problem
+
+func (*UpdateCreditLimitPreconditionRequired) updateCreditLimitRes() {}
+
+type UpdateCreditLimitUnprocessableEntity Problem
+
+func (*UpdateCreditLimitUnprocessableEntity) updateCreditLimitRes() {}
 
 type UpdateEntryTemplateBadRequest Problem
 

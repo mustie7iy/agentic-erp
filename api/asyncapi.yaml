@@ -93,6 +93,7 @@ info:
     - name: payables
     - name: receivables
     - name: collections
+    - name: credit
     - name: payments
     - name: workflow
     - name: integration
@@ -421,11 +422,20 @@ channels:
   collections:
     address: 'erp.{cell}.collections.{tenant}.{event}'
     title: Dunning and collections events
-    description: Dunning runs (ADR-0065 §6).
+    description: Dunning runs and the notices of confirmed runs (ADR-0065 §6).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
+      DunningNoticeIssued: {$ref: '#/components/messages/DunningNoticeIssued'}
+  credit:
+    address: 'erp.{cell}.credit.{tenant}.{event}'
+    title: Credit management events
+    description: Customers' credit limits (ADR-0066 §5).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      CreditLimitChanged: {$ref: '#/components/messages/CreditLimitChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -694,6 +704,13 @@ operations:
     channel: {$ref: '#/channels/collections'}
     messages:
       - $ref: '#/channels/collections/messages/DunningRunChanged'
+      - $ref: '#/channels/collections/messages/DunningNoticeIssued'
+  publishCreditEvents:
+    action: send
+    title: Credit management publishes
+    channel: {$ref: '#/channels/credit'}
+    messages:
+      - $ref: '#/channels/credit/messages/CreditLimitChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3697,12 +3714,13 @@ components:
       name: DunningRunChanged
       x-webhook: true
       title: Dunning run changed
-      summary: A dunning run was proposed.
+      summary: A dunning run was proposed or confirmed.
       description: |
         Emitted at each change of a dunning run's status (ADR-0065 §6,
-        T76a): when it is started (`proposed`, status_before null). The
-        slice that confirms a run adds its confirmation. It carries the
-        run's totals, not its notices, and names no customer:
+        T76a, T76b): when it is started (`proposed`, status_before null)
+        and when it is confirmed (`confirmed`, status_before `proposed`),
+        then followed by one DunningNoticeIssued per customer of the run.
+        It carries the run's totals, not its notices, and names no customer:
         `GET /v1/dunning-runs/{id}/notices` returns the notices, and
         `GET /v1/dunning-runs/{id}` the run at `version` or later. Subject
         is the dunning run id.
@@ -3717,6 +3735,61 @@ components:
         - name: proposed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, status: proposed, status_before: null, version: 1}
+    DunningNoticeIssued:
+      name: DunningNoticeIssued
+      x-webhook: true
+      title: Dunning notice issued
+      summary: A confirmed dunning run dunned a customer.
+      description: |
+        Emitted once per customer of a dunning run when the run is
+        confirmed (ADR-0065 §6 and §8, T76b), after the run's
+        DunningRunChanged and in the same transaction: the customer's
+        items in the run are recorded as dunned on `dunning_date` and the
+        notice stands at `level`. It names the customer by id and number,
+        never by name, and carries the notice's totals, not its items:
+        `GET /v1/dunning-runs/{id}/notices?customer_id=` returns the
+        notice with its items. Nothing was sent to the customer: a
+        subscriber that writes to customers does so from this event.
+        Subject is the dunning notice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.collections.dunning_notice_issued.v1}
+      payload: {$ref: '#/components/schemas/DunningNoticeIssuedV1'}
+      examples:
+        - name: issued
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f04, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_notice_issued.v1, subject: 0192a000-0000-7000-8000-000000000f32, time: '2026-12-31T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {dunning_notice_id: 0192a000-0000-7000-8000-000000000f32, dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, dunning_date: '2026-12-31', level: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}}
+    CreditLimitChanged:
+      name: CreditLimitChanged
+      x-webhook: true
+      title: Credit limit changed
+      summary: A customer's credit limit in a company was set or changed.
+      description: |
+        Emitted when a customer's credit limit in a company is set
+        (`limit_before` null) and at each change of its amount (ADR-0066
+        §5, T77a), with the limit after the change and the one before. It
+        names the customer by id and number, never by name. It does not
+        carry what the customer owes: `GET /v1/credit-exposure` returns
+        the exposure and the check against the limit, and
+        `GET /v1/credit-limits/{id}` the limit at `version` or later.
+        Subject is the credit limit id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.credit.credit_limit_changed.v1}
+      payload: {$ref: '#/components/schemas/CreditLimitChangedV1'}
+      examples:
+        - name: set
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f05, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '5000.00', currency: CAD}, limit_before: null, version: 1}
+        - name: changed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f06, source: /erp/eu-1/credit, type: com.example.erp.credit.credit_limit_changed.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {credit_limit_id: 0192a000-0000-7000-8000-000000000f41, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, limit: {amount: '7500.00', currency: CAD}, limit_before: {amount: '5000.00', currency: CAD}, version: 2}
     IncomingPaymentApplied:
       name: IncomingPaymentApplied
       x-webhook: true
@@ -4415,9 +4488,35 @@ components:
         notice_count: {type: integer, description: 'The notices the run proposed, one per customer.'}
         item_count: {type: integer, description: 'The overdue items in those notices.'}
         overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
-        status: {type: string, description: "The run's status after the change. Open enum: proposed."}
-        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started.'}
+        status: {type: string, description: "The run's status after the change. Open enum: proposed, confirmed."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started, proposed when it was confirmed.'}
         version: {type: integer, description: "The run's version after the change."}
+    DunningNoticeIssuedV1:
+      type: object
+      required: [dunning_notice_id, dunning_run_id, legal_entity_id, legal_entity_code, customer_id, customer_number, dunning_date, level, item_count, overdue_amount]
+      properties:
+        dunning_notice_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dunning_notice.id`.'}
+        dunning_run_id: {$ref: '#/components/schemas/Uuid', description: 'The confirmed run the notice is of: `collections.dunning_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that duns the customer.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number, as it was when the run was started."}
+        dunning_date: {$ref: '#/components/schemas/Date', description: "The date the customer's items are recorded as dunned on: the run's key date."}
+        level: {type: integer, description: "The notice's dunning level, 1 to 9: the highest among its items."}
+        item_count: {type: integer, description: "The customer's overdue items in the notice."}
+        overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+    CreditLimitChangedV1:
+      type: object
+      required: [credit_limit_id, legal_entity_id, legal_entity_code, customer_id, customer_number, limit, limit_before, version]
+      properties:
+        credit_limit_id: {$ref: '#/components/schemas/Uuid', description: '`credit.credit_limit.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company the limit holds in.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        limit: {$ref: '#/components/schemas/Money', description: "The limit after the change, in the company's currency."}
+        limit_before: {oneOf: [{$ref: '#/components/schemas/Money'}, {type: 'null'}], description: 'The limit before the change; null when the limit was set for the first time.'}
+        version: {type: integer, description: "The limit's version after the change."}
     IncomingPaymentAppliedV1:
       type: object
       required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, posting_date, amount, receipt_journal_entry_id, journal_entry_id, journal_entry_year, journal_entry_number, item_count]

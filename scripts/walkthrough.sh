@@ -6214,20 +6214,24 @@ rbc_incoming() {
   } >"$WORK/camt053-incoming.xml"
 }
 
-# step_dunning is T76a (ADR-0065 §2-§5): Ruth posts a second invoice to
-# Northwind; Ada gives Maple its dunning levels
+# step_dunning is T76a and T76b (ADR-0065 §2-§5, §8): Ruth posts a second
+# invoice to Northwind; Ada gives Maple its dunning levels
 # through a tier 2 change, a run before them refused; Ruth starts a
 # dunning run at a key date ten days past the invoice's due date and reads
 # its proposal, one notice for Northwind with the invoice's open item at
 # level 1; a run at the due date itself proposes nothing; the customer's
-# open items are unchanged. The key dates are the requests': nothing here
-# depends on today's date. The step duns its own invoice, so it holds
-# whether or not the invoice of step 48 is still open.
+# open items are unchanged. She confirms the run, once: a second
+# confirmation is refused, and so is a second proposal of the same key
+# date, stale now that the first recorded the items' levels. A run twenty
+# days later proposes the invoice's item at level 2. The key dates are the
+# requests': nothing here depends on today's date. The step duns its own
+# invoice, so it holds whether or not the invoice of step 48 is still open.
 step_dunning() {
-  heading "Step 53 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items"
-  local customer=$CUSTOMER entry due key base cr request run before
+  heading "Step 49 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items; the run is confirmed once, a stale proposal is refused, and the next run proposes level 2"
+  local customer=$CUSTOMER entry due key later base cr request run before twin twin_tag
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
+  later=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 60 * 86400 | strftime("%Y-%m-%d")')
   as ruth
   say "Ruth enters and posts another invoice to Northwind Traders, for a spare part, on Northwind's terms, NT30:"
   QUIET=1 api 201 '' createCustomerInvoice -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\",
@@ -6290,6 +6294,134 @@ step_dunning() {
   api 200 '.items[] | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), due \(.payment_terms.net_due_date)"' \
     listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.net_due_date)"] | join(", ")')" "$before"
+  say "A colleague had started a proposal of her own at the same key date. Ruth confirms hers (T76b, ADR-0065 §8):"
+  say "each item's level and its dunning date, the key date, are recorded, and one event per customer is published,"
+  say "naming the customer by id and number. Nothing is posted, and no letter is sent:"
+  QUIET=1 api 201 '' createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$key\"}"
+  twin=$(field .id) twin_tag=$ETAG
+  QUIET=1 api 200 '' getDunningRun -p "id=$run"
+  api 200 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice, \(.item_count) item(s), version \(.version)"' \
+    confirmDunningRun -p "id=$run" -if-match "$ETAG"
+  expect "the confirmed run" "$(field '"\(.id) \(.status) \(.version)"')" "$run confirmed 2"
+  # What step_collections reads back: the customer dunned, when, and for how much.
+  DUNNED_CUSTOMER=$customer DUNNING_KEY=$key DUNNING_DUE=$due DUNNED_AMOUNT=$(field '"\(.overdue_amount.amount) \(.overdue_amount.currency)"')
+  say "A run is confirmed once: confirming it again records and publishes nothing."
+  refused 409 collections.invalid_status confirmDunningRun -p "id=$run" -if-match "$ETAG"
+  say "The colleague's proposal still says Northwind's items were never dunned. It is stale, and a new run is started instead:"
+  refused 409 collections.proposal_stale confirmDunningRun -p "id=$twin" -if-match "$twin_tag"
+  QUIET=1 api 200 '' getDunningRun -p "id=$twin"
+  expect "the stale run" "$(field .status)" proposed
+  say "Twenty days later, on $later, the invoice is 30 days overdue: past the second level's 20 days. The next run"
+  say "reads the level recorded for each item and proposes the next one, a level per confirmed run at most:"
+  api 201 '"dunning run at \(.key_date): \(.status), \(.notice_count) notice, \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
+    createDunningRun -body "{\"legal_entity_id\": \"$LE\", \"key_date\": \"$later\"}"
+  api 200 '.items[] | "notice for \(.customer_number) \(.customer_name): level \(.level)", (.items[] | "  item \(.item_no): entry \(.document_number) (\(.reference)), \(.days_overdue) days overdue, level \(.previous_level) -> \(.level)")' \
+    listDunningNotices -p "id=$(field .id)" -p "customer_id=$customer"
+  expect "Northwind's notice in the second run" "$(field '[.items[] | "\(.customer_id) \(.level)"] | join(", ")')" "$customer 2"
+  expect "the invoice's item in the second run" \
+    "$(field "[.items[].items[] | select(.journal_entry_id == \"$entry\") | \"\(.days_overdue) \(.previous_level) \(.level)\"] | join(\", \")")" "30 1 2"
+  passed
+}
+
+# step_collections is T76c (ADR-0065 §9): Ruth reads Maple's collection
+# worklist at the key date of the dunning run she confirmed in
+# step_dunning: Northwind, the customer dunned, leads it with the overdue
+# amount of its notice, the due date of its items, dunning level 1 and
+# the run's key date as its last dunning date; the worklist's totals
+# count every customer listed. On the due date itself nothing of
+# Northwind's is overdue, so it is not listed. The key dates are the
+# requests'.
+step_collections() {
+  heading "Step 50 — The collection worklist: the company's customers with overdue items on a key date, the largest overdue amount first, each with its open and overdue amounts, oldest due date, dunning level and last dunning date"
+  local customer=$DUNNED_CUSTOMER key=$DUNNING_KEY
+  as ruth
+  say "Ruth reads whom to chase: Maple's customers with items overdue on $key, the largest overdue amount first."
+  say "The worklist is computed from the ledger's open items and the dunning levels recorded; it stores nothing:"
+  api 200 '"worklist of \(.company_code) \(.company_name) at \(.key_date): \(.customer_count) customer(s), \(.open_amount.amount) \(.open_amount.currency) open, \(.overdue_amount.amount) \(.overdue_amount.currency) overdue", (.items[] | "  \(.customer_number) \(.customer_name): \(.overdue_amount.amount) \(.overdue_amount.currency) overdue of \(.open_amount.amount) open, oldest due \(.oldest_due_date), dunning level \(.dunning_level), last dunned \(.last_dunning_date // "never")")' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$key"
+  expect "the customer leading the worklist" "$(field '.items[0] | "\(.customer_id) \(.customer_name)"')" "$customer Northwind Traders"
+  expect "its overdue amount, the confirmed notice's" "$(field '.items[0] | "\(.overdue_amount.amount) \(.overdue_amount.currency)"')" "$DUNNED_AMOUNT"
+  expect "its oldest due date, dunning level and last dunning date" \
+    "$(field '.items[0] | "\(.oldest_due_date) \(.dunning_level) \(.last_dunning_date)"')" "$DUNNING_DUE 1 $key"
+  expect "the largest overdue amount first" "$(field '[.items[].overdue_amount.amount | tonumber] | . == (sort | reverse)')" true
+  expect "the totals count every customer" "$(field '.customer_count == (.items | length) and .currency == "CAD"')" true
+  say "Northwind owes nothing but these items, so what is open is what is overdue. On the due date itself, $DUNNING_DUE,"
+  say "nothing of Northwind's is overdue yet, and a customer with nothing overdue is not on the worklist:"
+  api 200 '"worklist at \(.key_date): \(.customer_count) customer(s), \(.overdue_amount.amount) \(.overdue_amount.currency) overdue"' \
+    getCollectionWorklist -p "legal_entity_id=$LE" -p "key_date=$DUNNING_DUE"
+  expect "Northwind on the worklist at the due date" "$(field "[.items[] | select(.customer_id == \"$customer\")] | length")" 0
+  passed
+}
+
+# step_credit_limit is T77a (ADR-0066): Ruth reads what Northwind owes
+# Maple, its credit exposure, which is what its open items add up to;
+# without a limit the customer is not restricted, and the answer says none
+# is set. She sets a limit 500.00 above the exposure, once: a second limit
+# for the customer is refused. An amount of 400.00 is then within the
+# limit and 600.00 is not; the check changes nothing, the open items and
+# the limit are as before. She raises the limit with her version of it,
+# and the larger amount is within it. The amounts follow from the exposure
+# read, so the step holds whatever earlier steps left open.
+step_credit_limit() {
+  heading "Step 51 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
+  local customer=$CUSTOMER exposure limit raised id tag before
+  as ruth
+  say "Ruth looks after Maple's credit as well. Before more is sold to Northwind Traders on account she reads what"
+  say "it owes: its credit exposure, the customer's open items in Maple's currency, credits netted (ADR-0066 §3)."
+  say "No limit is set for it yet, so it is not restricted, and the answer says so:"
+  api 200 '"\(.customer_number) \(.customer_name) in \(.company_code) \(.company_name): exposure \(.exposure.amount) \(.exposure.currency) from \(.open_item_count) open item(s); limit set: \(.has_limit); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "no limit set, and so within it" "$(field '"\(.has_limit) \(.is_within_limit) \(has("limit")) \(has("available")) \(.currency)"')" "false true false false CAD"
+  exposure=$(field .exposure.amount)
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  before=$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')
+  expect "the exposure, the customer's open items added up" "$(field '[.items[].amount_lc.amount | tonumber] | add * 100 | round')" \
+    "$(jq -rn --arg x "$exposure" '$x | tonumber * 100 | round')"
+  expect "an exposure above zero" "$(jq -rn --arg x "$exposure" '($x | tonumber) > 0')" true
+  limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 500 }')
+  raised=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
+  say "She sets Northwind's limit in Maple at $limit CAD, 500.00 above what it owes. A limit is one amount per"
+  say "customer and company in the company's currency; it holds at once, and nothing is posted or blocked:"
+  api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"$limit\", \"currency\": \"CAD\"}}"
+  id=$(field .id) tag=$ETAG
+  expect "the limit" "$(field '"\(.customer_id) \(.customer_name) \(.limit.amount) \(.limit.currency) \(.version)"')" "$customer Northwind Traders $limit CAD 1"
+  say "A customer has one limit in a company; a second is refused, and a limit in another currency too:"
+  refused 409 credit.limit_exists createCreditLimit -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"limit\": {\"amount\": \"1.00\", \"currency\": \"CAD\"}}"
+  refused 422 credit.currency_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "USD"}}'
+  QUIET=1 api 200 '' listCreditLimits -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the customer's limits in Maple" "$(field '[.items[].id] | join(" ")')" "$id"
+  say "Now the exposure is read against the limit: what is available is the limit less the exposure."
+  api 200 '"exposure \(.exposure.amount) \(.exposure.currency), limit \(.limit.amount), available \(.available.amount); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the exposure against the limit" "$(field '"\(.exposure.amount) \(.has_limit) \(.credit_limit_id) \(.limit.amount) \(.available.amount) \(.available.currency) \(.is_within_limit)"')" \
+    "$exposure true $id $limit 500.00 CAD true"
+  say "Any API consumer, an order entry screen or an agent, asks whether an amount is within the limit: the"
+  say "exposure and the amount together may be no more than it. An order of 400.00 CAD is within Northwind's limit:"
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=400.00
+  expect "400.00 within the limit" "$(field '"\(.amount.amount) \(.amount.currency) \(.is_within_limit)"')" "400.00 CAD true"
+  say "One of 600.00 CAD is not. The check only answers: it blocks nothing and changes nothing."
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
+  expect "600.00 not within the limit" "$(field '"\(.amount.amount) \(.is_within_limit) \(.exposure.amount) \(.available.amount)"')" "600.00 false $exposure 500.00"
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items after the checks" "$(field '[.items[] | "\(.journal_entry_id) \(.amount_lc.amount)"] | join(", ")')" "$before"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  expect "the limit after the checks" "$(field '"\(.limit.amount) \(.version)"') $ETAG" "$limit 1 $tag"
+  say "Ruth agrees a higher limit with sales and changes it, with her version of the limit: $raised CAD. The audit"
+  say "trail and the event CreditLimitChanged carry the limit before and after; the event names the customer by"
+  say "id and number, never by name:"
+  api 200 '"credit limit of \(.customer_number): \(.limit.amount) \(.limit.currency), version \(.version)"' \
+    updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$raised\", \"currency\": \"CAD\"}}"
+  expect "the raised limit" "$(field '"\(.limit.amount) \(.version)"')" "$raised 2"
+  say "Her earlier version of it is stale now, and a change with it is refused:"
+  refused 412 request.version_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
+  api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
+  expect "600.00 within the raised limit" "$(field '"\(.limit.amount) \(.available.amount) \(.is_within_limit)"')" "$raised 1000.00 true"
+  QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
+  expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.create"
   passed
 }
 
@@ -8317,7 +8449,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_customer_credit step_ar_aging step_dunning step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_close'
 
 main() {
   stop_unseen

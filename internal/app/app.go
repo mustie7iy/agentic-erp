@@ -38,6 +38,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/consolidation"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
 	"github.com/mustie7iy/agentic-erp/internal/countrypack"
+	"github.com/mustie7iy/agentic-erp/internal/credit"
 	"github.com/mustie7iy/agentic-erp/internal/einvoicing"
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
@@ -83,6 +84,7 @@ type (
 	payablesAPI    = payables.Endpoints
 	receivablesAPI = receivables.Endpoints
 	collectionsAPI = collections.Endpoints
+	creditAPI      = credit.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -111,6 +113,7 @@ type handler struct {
 	*payablesAPI
 	*receivablesAPI
 	*collectionsAPI
+	*creditAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -236,6 +239,7 @@ func New(cfg Config) (http.Handler, error) {
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		receivablesAPI: Receivables(cfg),
 		collectionsAPI: Collections(cfg),
+		creditAPI:      Credit(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -438,6 +442,14 @@ func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef
 func Collections(cfg Config) *collections.Endpoints {
 	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
 		Settings: configuration.Settings{}}
+}
+
+// Credit is the credit management context as the API wires it (ADR-0066
+// §1): a leaf that reads the ledger's customer open items, the partner
+// context's customers and names and tenancy through its ports.
+func Credit(cfg Config) *credit.Endpoints {
+	return &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
+		Partners: partner.Payees{}}
 }
 
 // uploads is the API's direct-upload service (ADR-0020).

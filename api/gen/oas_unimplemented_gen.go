@@ -583,6 +583,29 @@ func (UnimplementedHandler) CompleteYearCloseTask(ctx context.Context, req OptCl
 	return r, ht.ErrNotImplemented
 }
 
+// ConfirmDunningRun implements confirmDunningRun operation.
+//
+// Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned
+// at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`;
+// an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written
+// with it. From then on a run started for the company reads the recorded level as the item's
+// `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing
+// is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is
+// confirmed, the proposal is compared with the open items again: when an item of it was cleared since
+// the run was started, or was dunned since by another confirmed run of the company (its recorded level
+// is no longer the run's `previous_level`), the proposal is stale and refused (409
+// `collections.proposal_stale`), nothing of it is recorded, and a new run is started with
+// `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409
+// `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with
+// the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and
+// records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is
+// not found (404). Human-only (`x-agent: false`).
+//
+// POST /v1/dunning-runs/{id}:confirm
+func (UnimplementedHandler) ConfirmDunningRun(ctx context.Context, params ConfirmDunningRunParams) (r ConfirmDunningRunRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateAsset implements createAsset operation.
 //
 // Creates a `planned` asset (ADR-0057 §5, §7, §8, T57b; SAP's asset master record) of a class the
@@ -901,6 +924,26 @@ func (UnimplementedHandler) CreateCostCenter(ctx context.Context, req *CostCente
 	return r, ht.ErrNotImplemented
 }
 
+// CreateCreditLimit implements createCreditLimit operation.
+//
+// Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it,
+// one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit
+// holds at once: there is no approval of it and no validity period. The customer is a business partner
+// with the customer role and customer data in the company (422 `request.reference_not_found` naming
+// `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit
+// per company: a second is refused (409 `credit.limit_exists`), and the first is found with
+// `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An
+// amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming
+// `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`).
+// Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount
+// against. An audit record and CreditLimitChanged are written with it. A retry with the same
+// `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`).
+//
+// POST /v1/credit-limits
+func (UnimplementedHandler) CreateCreditLimit(ctx context.Context, req *CustomerCreditLimitCreate, params CreateCreditLimitParams) (r CreateCreditLimitRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CreateCustomerInvoice implements createCustomerInvoice operation.
 //
 // Enters a customer invoice without a sales order (ADR-0063 §2-§4, T75a): the accounting record of
@@ -958,13 +1001,16 @@ func (UnimplementedHandler) CreateDownPaymentRequest(ctx context.Context, req *D
 // net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
 // of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
 // payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
-// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
-// notice's level is the highest among its items. A company without dunning levels is refused (422
-// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
-// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
-// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
-// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
-// Human-only (`x-agent: false`).
+// and is left out. An item rises one level per confirmed run at most, from the level the confirmed
+// runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1,
+// one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the
+// highest level stays there. A notice's level is the highest among its items. A key date after
+// 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without
+// dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000
+// overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose
+// amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at
+// which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key`
+// answers the run started. Human-only (`x-agent: false`).
 //
 // POST /v1/dunning-runs
 func (UnimplementedHandler) CreateDunningRun(ctx context.Context, req *DunningRunCreate, params CreateDunningRunParams) (r CreateDunningRunRes, _ error) {
@@ -2156,6 +2202,35 @@ func (UnimplementedHandler) GetCloseCalendar(ctx context.Context, params GetClos
 	return r, ht.ErrNotImplemented
 }
 
+// GetCollectionWorklist implements getCollectionWorklist operation.
+//
+// The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue
+// items, the largest overdue amount first (customers with the same amount by `customer_id`), each with
+// its number and name, what its open items add up to (`open_amount`, credits included), what its
+// overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest
+// dunning level and the latest dunning date the confirmed dunning runs recorded for its open items
+// (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a
+// dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key
+// date is past its net due date; an item due on the key date is not overdue, credit items reduce no
+// overdue amount, and an item without payment terms has no due date. A customer with nothing overdue
+// is not listed, whatever it owes. The worklist is computed at the read from one database state (a
+// repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's
+// customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only
+// counts what is overdue. Amounts are in the company's currency, as the items were booked.
+// `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer
+// listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the
+// company and key date. Each page is computed anew and continues after the last customer's overdue
+// amount and id: a customer whose overdue amount fell between two pages can be listed again with its
+// new amount, and one whose amount rose is not read again, so a consumer that pages while items are
+// posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company
+// without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`,
+// naming `key_date`). A legal entity the caller cannot act in is 404.
+//
+// GET /v1/collection-worklist
+func (UnimplementedHandler) GetCollectionWorklist(ctx context.Context, params GetCollectionWorklistParams) (r GetCollectionWorklistRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCompanyAccess implements getCompanyAccess operation.
 //
 // Returns one company access grant.
@@ -2275,6 +2350,44 @@ func (UnimplementedHandler) GetContract(ctx context.Context, params GetContractP
 //
 // GET /v1/cost-centers/{id}
 func (UnimplementedHandler) GetCostCenter(ctx context.Context, params GetCostCenterParams) (r GetCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCreditExposure implements getCreditExposure operation.
+//
+// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
+// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
+// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
+// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
+// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
+// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
+// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
+// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
+// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
+// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
+// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
+// what a consumer does with the answer is its own. It is computed at the read from one database state
+// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
+// without open items in the company has an exposure of zero. An amount below zero is refused (422
+// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
+// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
+// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
+// cannot act in is 404, as a business partner that does not exist.
+//
+// GET /v1/credit-exposure
+func (UnimplementedHandler) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (r GetCreditExposureRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetCreditLimit implements getCreditLimit operation.
+//
+// One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and
+// name, and the limit in the company's currency. What the customer owes is read with
+// `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does
+// not exist.
+//
+// GET /v1/credit-limits/{id}
+func (UnimplementedHandler) GetCreditLimit(ctx context.Context, params GetCreditLimitParams) (r GetCreditLimitRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3737,6 +3850,18 @@ func (UnimplementedHandler) ListCostCenters(ctx context.Context, params ListCost
 //
 // GET /v1/country-packs
 func (UnimplementedHandler) ListCountryPacks(ctx context.Context, params ListCountryPacksParams) (r ListCountryPacksRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListCreditLimits implements listCreditLimits operation.
+//
+// The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as
+// `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the
+// limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number`
+// (default).
+//
+// GET /v1/credit-limits
+func (UnimplementedHandler) ListCreditLimits(ctx context.Context, params ListCreditLimitsParams) (r ListCreditLimitsRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -6394,6 +6519,22 @@ func (UnimplementedHandler) UpdateContract(ctx context.Context, req *ContractUpd
 //
 // PATCH /v1/cost-centers/{id}
 func (UnimplementedHandler) UpdateCostCenter(ctx context.Context, req *CenterTextsUpdate, params UpdateCostCenterParams) (r UpdateCostCenterRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// UpdateCreditLimit implements updateCreditLimit operation.
+//
+// Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another
+// change came first): the new limit holds at once, in the limit's currency, zero or more (422
+// `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`).
+// The customer, the company and the currency of a limit do not change. A change to the amount the
+// limit already has is refused (422 `credit.nothing_to_change`). The audit record and
+// CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field
+// that changes. A limit of a company the caller may not act in is not found (404). Human-only
+// (`x-agent: false`).
+//
+// PATCH /v1/credit-limits/{id}
+func (UnimplementedHandler) UpdateCreditLimit(ctx context.Context, req *CustomerCreditLimitUpdate, params UpdateCreditLimitParams) (r UpdateCreditLimitRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

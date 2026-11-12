@@ -19,14 +19,9 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
-// neverDunned is the level of an item no confirmed run has dunned. T76a
-// records no levels, so every item a run reads is at it; T76b reads each
-// item's from the levels its confirmed runs recorded (ADR-0065 §8).
-const neverDunned = 0
-
-// errTooLarge refuses a run whose amounts are out of range.
+// errTooLarge refuses a run or a worklist whose amounts are out of range.
 func errTooLarge() *problem.Problem {
-	return problem.Unprocessable("collections.amount_too_large", "The overdue items add up to more than an amount can hold.")
+	return problem.Unprocessable("collections.amount_too_large", "The items add up to more than an amount can hold.")
 }
 
 // reach is the dunning level an item days overdue would reach in a run
@@ -63,6 +58,9 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in RunInput) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
+	if err := checkKeyDate(in.KeyDate); err != nil {
+		return Run{}, err
+	}
 	access, err := authz.Companies(ctx)
 	if err != nil {
 		return Run{}, fmt.Errorf("collections: company access: %w", err)
@@ -79,7 +77,12 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in RunInput) (Run, error) {
 	if err != nil {
 		return Run{}, fmt.Errorf("collections: open customer items of company %s: %w", le.Code, err)
 	}
-	notices := propose(open, levels, in.KeyDate)
+	due := overdue(open, in.KeyDate)
+	previous, err := recorded(ctx, tx, refsOf(due))
+	if err != nil {
+		return Run{}, err
+	}
+	notices := propose(due, levels, previous)
 	run := Run{ID: uuid.Must(uuid.NewV7()), LegalEntityID: le.ID, KeyDate: in.KeyDate}
 	if err := e.total(ctx, &run, notices); err != nil {
 		return Run{}, err
@@ -91,7 +94,7 @@ func (e *Endpoints) ProposeRun(ctx context.Context, in RunInput) (Run, error) {
 	if err != nil {
 		return Run{}, err
 	}
-	return stored, recordProposed(ctx, stored, le)
+	return stored, record(ctx, "collections.dunning_run.propose", stored, le, nil)
 }
 
 // levels are the company's dunning levels in the active configuration; a
@@ -109,18 +112,51 @@ func (e *Endpoints) levels(ctx context.Context, le tenancy.Entity) ([]config.Dun
 	return co.Dunning.Levels, nil
 }
 
-// propose is the proposal of a run: of the open items, in the ledger's
-// order of customer and item, those the customer owes (a debit: credit
-// items are not dunned and reduce nothing), that were posted with payment
-// terms (an item without has no due date) and that reach a dunning level
-// on the key date, one notice per customer in that order, its items
-// numbered from 1. The notices' ids, numbers and totals are total's.
-func propose(open []ledger.ReceivableItem, levels []config.DunningLevel, keyDate time.Time) []Notice {
-	var notices []Notice
+// overdueItem is an open item its customer owes that is past its net due
+// date on a key date, by days.
+type overdueItem struct {
+	ledger.ReceivableItem
+	days int
+}
+
+// overdue are, of the open items, in their order, those overdue on the
+// key date: the ones the customer owes (a debit: credit items are not
+// dunned and reduce nothing) that were posted with payment terms (an item
+// without has no due date) and are past their net due date by a day at
+// least.
+func overdue(open []ledger.ReceivableItem, keyDate time.Time) []overdueItem {
+	var out []overdueItem
 	for _, it := range open {
-		days, ok := it.DaysOverdue(keyDate)
-		level := reach(levels, days, neverDunned)
-		if !ok || it.Amount <= 0 || level == 0 {
+		if days, ok := it.DaysOverdue(keyDate); ok && days > 0 && it.Amount > 0 {
+			out = append(out, overdueItem{ReceivableItem: it, days: days})
+		}
+	}
+	return out
+}
+
+// refsOf names the items by their journal lines.
+func refsOf(items []overdueItem) []ledger.ItemRef {
+	refs := make([]ledger.ItemRef, len(items))
+	for i, it := range items {
+		refs[i] = it.ItemRef
+	}
+	return refs
+}
+
+// propose is the proposal of a run: of the overdue items, in the ledger's
+// order of customer and item, those that reach a dunning level, each from
+// the level the confirmed runs recorded for it (previous; none: never
+// dunned, level 0), one notice per customer in that order, its items
+// numbered from 1. An item dunned before is proposed at its level again
+// even when its days no longer reach it at an earlier key date, as long
+// as it is overdue then: a level never falls. The notices' ids, numbers
+// and totals are total's.
+func propose(due []overdueItem, levels []config.DunningLevel, previous map[ledger.ItemRef]dunned) []Notice {
+	var notices []Notice
+	for _, it := range due {
+		before := previous[it.ItemRef]
+		level := reach(levels, it.days, int(before.Level))
+		if level == 0 {
 			continue
 		}
 		if n := len(notices); n == 0 || notices[n-1].CustomerID != it.PartnerID {
@@ -128,8 +164,8 @@ func propose(open []ledger.ReceivableItem, levels []config.DunningLevel, keyDate
 		}
 		n := &notices[len(notices)-1]
 		n.Items = append(n.Items, Item{ItemNo: int32(len(n.Items) + 1), ItemRef: it.ItemRef, DocumentNumber: it.Number, Reference: it.Reference,
-			DocumentDate: it.DocumentDate, NetDueDate: it.Terms.NetDueDate(), DaysOverdue: int32(days), Currency: it.Currency, Amount: it.Amount,
-			AmountLC: it.AmountLC, PreviousLevel: neverDunned, Level: int32(level)})
+			DocumentDate: it.DocumentDate, NetDueDate: it.Terms.NetDueDate(), DaysOverdue: int32(it.days), Currency: it.Currency, Amount: it.Amount,
+			AmountLC: it.AmountLC, PreviousLevel: before.Level, Level: int32(level), PreviousDunnings: before.Times})
 	}
 	return notices
 }
@@ -215,41 +251,42 @@ func insertItems(ctx context.Context, tx pgx.Tx, tenant, run uuid.UUID, of []uui
 	nos, years, entries, lines := make([]int32, n), make([]int16, n), make([]uuid.UUID, n), make([]int32, n)
 	numbers, references, dates, dues := make([]string, n), make([]*string, n), make([]time.Time, n), make([]time.Time, n)
 	days, currencies, amounts, local := make([]int32, n), make([]string, n), make([]money.Minor, n), make([]money.Minor, n)
-	previous, levels := make([]int32, n), make([]int32, n)
+	previous, levels, dunnings := make([]int32, n), make([]int32, n), make([]int32, n)
 	for i, it := range items {
 		nos[i], years[i], entries[i], lines[i] = it.ItemNo, it.FiscalYear, it.EntryID, it.LineNo
 		numbers[i], references[i], dates[i], dues[i] = it.DocumentNumber, it.Reference, it.DocumentDate, it.NetDueDate
 		days[i], currencies[i], amounts[i], local[i] = it.DaysOverdue, it.Currency, it.Amount, it.AmountLC
-		previous[i], levels[i] = it.PreviousLevel, it.Level
+		previous[i], levels[i], dunnings[i] = it.PreviousLevel, it.Level, it.PreviousDunnings
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO collections.dunning_notice_item (tenant_id, dunning_run_id, dunning_notice_id, item_no, fiscal_year,
 			journal_entry_id, line_no, document_number, reference, document_date, net_due_date, days_overdue, currency, amount, amount_lc,
-			previous_level, level)
-		SELECT $1, $2, nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv
+			previous_level, level, previous_dunnings)
+		SELECT $1, $2, nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv, pd
 		FROM unnest($3::uuid[], $4::int[], $5::smallint[], $6::uuid[], $7::int[], $8::text[], $9::text[], $10::date[], $11::date[], $12::int[],
-			$13::text[], $14::bigint[], $15::bigint[], $16::int[], $17::int[])
-			AS x(nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv)`,
-		tenant, run, of, nos, years, entries, lines, numbers, references, dates, dues, days, currencies, amounts, local, previous, levels); err != nil {
+			$13::text[], $14::bigint[], $15::bigint[], $16::int[], $17::int[], $18::int[])
+			AS x(nt, no, fy, je, ln, dn, rf, dd, du, dy, cu, am, lc, pl, lv, pd)`,
+		tenant, run, of, nos, years, entries, lines, numbers, references, dates, dues, days, currencies, amounts, local, previous, levels, dunnings); err != nil {
 		return fmt.Errorf("collections: write the items of dunning run %s: %w", run, err)
 	}
 	return nil
 }
 
-// recordProposed adds the audit record of a run's proposal and publishes
-// DunningRunChanged in the same transaction (ADR-0007, ADR-0011): its
-// status before is null, as it had none. The event carries the run's
-// totals, not its notices, and so names no customer.
-func recordProposed(ctx context.Context, r Run, le tenancy.Entity) error {
-	const action = "collections.dunning_run.propose"
+// record adds the audit record of a change of a run's status and
+// publishes DunningRunChanged in the same transaction (ADR-0007,
+// ADR-0011), followed by the events the change issues. before is the
+// run's status before, nil for a run just started, which had none. The
+// event carries the run's totals, not its notices, and so names no
+// customer.
+func record(ctx context.Context, action string, r Run, le tenancy.Entity, before any, issued ...outbox.Event) error {
 	overdue := money.EventAmount(r.OverdueAmount, r.Currency, r.Exponent)
 	payload := map[string]any{"dunning_run_id": r.ID, "legal_entity_id": r.LegalEntityID, "legal_entity_code": le.Code,
 		"key_date": r.KeyDate.Format(time.DateOnly), "notice_count": r.NoticeCount, "item_count": r.ItemCount, "overdue_amount": overdue,
-		"status": r.Status, "status_before": nil, "version": r.Version}
+		"status": r.Status, "status_before": before, "version": r.Version}
 	detail := map[string]any{"legal_entity_id": r.LegalEntityID, "key_date": r.KeyDate.Format(time.DateOnly), "status": r.Status,
-		"notice_count": r.NoticeCount, "item_count": r.ItemCount, "overdue_amount": overdue}
-	if err := audit.Record(ctx, action, "collections.dunning_run", r.ID, detail,
-		outbox.Event{Context: "collections", Name: "dunning_run_changed", AggregateType: "collections.dunning_run", AggregateID: r.ID,
-			Payload: payload}); err != nil {
+		"status_before": before, "notice_count": r.NoticeCount, "item_count": r.ItemCount, "overdue_amount": overdue}
+	events := append([]outbox.Event{{Context: "collections", Name: "dunning_run_changed", AggregateType: "collections.dunning_run",
+		AggregateID: r.ID, Payload: payload}}, issued...)
+	if err := audit.Record(ctx, action, "collections.dunning_run", r.ID, detail, events...); err != nil {
 		return fmt.Errorf("collections: record %s of dunning run %s: %w", action, r.ID, err)
 	}
 	return nil

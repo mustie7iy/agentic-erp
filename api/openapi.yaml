@@ -58,7 +58,9 @@ tags:
   - name: receivables
     description: "Accounts receivable (ADR-0063): customer invoices."
   - name: collections
-    description: "Dunning and collections (ADR-0065): dunning runs and their notices."
+    description: "Dunning and collections (ADR-0065): dunning runs and their notices, and the collection worklist."
+  - name: credit
+    description: "Credit management (ADR-0066): customers' credit limits, their credit exposure and the check of an amount against the limit."
   - name: payments
     description: Payment runs, payments and bank files.
   - name: cash
@@ -15401,6 +15403,57 @@ paths:
           $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  /v1/collection-worklist:
+    get:
+      operationId: getCollectionWorklist
+      tags:
+        - collections
+      summary: Get a company's collection worklist
+      description: "The collection worklist of a company on a key date (ADR-0065 §9, T76c): its customers with overdue items, the largest overdue amount first (customers with the same amount by `customer_id`), each with its number and name, what its open items add up to (`open_amount`, credits included), what its overdue items add up to (`overdue_amount`), the earliest net due date among them, the highest dunning level and the latest dunning date the confirmed dunning runs recorded for its open items (`confirmDunningRun`; level 0 and no date for a customer never dunned). An item is overdue as a dunning run counts it: the customer owes it (a debit), it was posted with payment terms and the key date is past its net due date; an item due on the key date is not overdue, credit items reduce no overdue amount, and an item without payment terms has no due date. A customer with nothing overdue is not listed, whatever it owes. The worklist is computed at the read from one database state (a repeatable-read snapshot) and stores nothing: the items are the ones open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, and the key date only counts what is overdue. Amounts are in the company's currency, as the items were booked. `customer_count`, `open_amount` and `overdue_amount` at the top are the totals of every customer listed, not of the page. Paged by cursor in the worklist's order; a page token is bound to the company and key date. Each page is computed anew and continues after the last customer's overdue amount and id: a customer whose overdue amount fell between two pages can be listed again with its new amount, and one whose amount rose is not read again, so a consumer that pages while items are posted or cleared keys its rows by `customer_id`. The worklist needs no dunning levels: a company without any has one too. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A legal entity the caller cannot act in is 404."
+      x-permission: collections.worklist.read
+      x-slo-class: report
+      x-snapshot: true
+      x-problem-codes:
+        - collections.amount_too_large
+        - collections.invalid_key_date
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: key_date
+          in: query
+          required: true
+          description: "The date the items are overdue on (required): an item due on this date is not overdue. 2100-12-31 at the latest."
+          schema:
+            type: string
+            format: date
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+      responses:
+        "200":
+          description: One page of the worklist with its totals.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectionWorklist"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /v1/dunning-runs:
     get:
       operationId: listDunningRuns
@@ -15424,6 +15477,7 @@ paths:
             description: "Dunning run status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - proposed
+              - confirmed
         - name: key_date_from
           in: query
           required: false
@@ -15461,11 +15515,12 @@ paths:
       tags:
         - collections
       summary: Start a dunning run
-      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per run at most: one never dunned would reach level 1. A notice's level is the highest among its items. A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
+      description: "Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a): per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on the items, and nothing is sent to a customer. The items are the open items on the company's customer reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its net due date by at least the days of the company's first dunning level (`companies[].dunning.levels` of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a payment on account) are not dunned and reduce nothing; an item without payment terms has no due date and is left out. An item rises one level per confirmed run at most, from the level the confirmed runs recorded for it (`previous_level`; `confirmDunningRun`): one never dunned would reach level 1, one dunned at level 1 reaches level 2 once it is overdue by the second level's days, and one at the highest level stays there. A notice's level is the highest among its items. A key date after 2100-12-31 is refused (422 `collections.invalid_key_date`, naming `key_date`). A company without dunning levels is refused (422 `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422 `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue gives a run without notices. A retry with the same `Idempotency-Key` answers the run started. Human-only (`x-agent: false`)."
       x-permission: collections.dunning.run
       x-agent: false
       x-problem-codes:
         - collections.amount_too_large
+        - collections.invalid_key_date
         - collections.no_dunning_levels
         - collections.run_too_large
         - config.not_bootstrapped
@@ -15543,6 +15598,53 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+  "/v1/dunning-runs/{id}:confirm":
+    post:
+      operationId: confirmDunningRun
+      tags:
+        - collections
+      summary: Confirm a dunning run
+      description: "Confirms a proposed dunning run, once (ADR-0065 §8, T76b): each of its items is recorded as dunned at the level the run proposed, on the run's key date, its dunning date. The run becomes `confirmed`; an audit record, DunningRunChanged and one DunningNoticeIssued per customer of the run are written with it. From then on a run started for the company reads the recorded level as the item's `previous_level` and proposes the next level, one above it at most; the highest level stays. Nothing is posted and nothing changes on the ledger's open items; no letter or e-mail is sent. Before it is confirmed, the proposal is compared with the open items again: when an item of it was cleared since the run was started, or was dunned since by another confirmed run of the company (its recorded level is no longer the run's `previous_level`), the proposal is stale and refused (409 `collections.proposal_stale`), nothing of it is recorded, and a new run is started with `createDunningRun`; the stale run stays `proposed`. A run that is not `proposed` is refused (409 `collections.invalid_status`), so a second confirmation records and publishes nothing; a retry with the same `Idempotency-Key` answers the confirmed run. A run without notices is confirmed too, and records nothing. A confirmed run is not cancelled. A run of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: collections.dunning.run
+      x-agent: false
+      x-problem-codes:
+        - collections.invalid_status
+        - collections.proposal_stale
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The confirmed run."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DunningRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   "/v1/dunning-runs/{id}/notices":
     get:
       operationId: listDunningNotices
@@ -15591,6 +15693,245 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/credit-exposure:
+    get:
+      operationId: getCreditExposure
+      tags:
+        - credit
+      summary: Get a customer's credit exposure and check an amount against its limit
+      description: "A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066 §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, in the company's currency as they were booked; credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and billing do not count yet. With a credit limit set for the customer in the company (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it nothing is added. `is_within_limit` says whether the exposure and the amount together are no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing: what a consumer does with the answer is its own. It is computed at the read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one without open items in the company has an exposure of zero. An amount below zero is refused (422 `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner that does not exist."
+      x-permission: credit.limit.read
+      x-snapshot: true
+      x-problem-codes:
+        - credit.amount_too_large
+        - credit.invalid_amount
+        - request.invalid_amount
+      parameters:
+        - name: legal_entity_id
+          in: query
+          required: true
+          description: Legal entity (required).
+          schema:
+            type: string
+            format: uuid
+        - name: customer_id
+          in: query
+          required: true
+          description: "The customer (required): a business partner."
+          schema:
+            type: string
+            format: uuid
+        - name: amount
+          in: query
+          required: false
+          description: "An amount to check against the limit, in the company's currency: a decimal string with exactly the currency's minor-unit digits, zero or more."
+          schema:
+            type: string
+            pattern: "^-?(0|[1-9][0-9]{0,17})(\\.[0-9]{1,4})?$"
+            example: "500.00"
+      responses:
+        "200":
+          description: The customer's exposure, its limit and the check.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreditExposure"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /v1/credit-limits:
+    get:
+      operationId: listCreditLimits
+      tags:
+        - credit
+      summary: List credit limits
+      description: "The credit limits of the companies the caller may act in (ADR-0066 §2, T77a), each as `getCreditLimit` gives it: with its company's code and name, its customer's number and name, and the limit in the company's currency. Filtered by company and customer. Sortable by: `customer_number` (default)."
+      x-permission: credit.limit.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/LegalEntityId"
+        - name: customer_id
+          in: query
+          required: false
+          description: Only the limits of this customer.
+          schema:
+            type: string
+            format: uuid
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+      responses:
+        "200":
+          description: One page of credit limits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimitPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createCreditLimit
+      tags:
+        - credit
+      summary: Set a customer's credit limit
+      description: "Sets a customer's credit limit in a company (ADR-0066 §2, T77a): the most the customer may owe it, one amount in the company's currency, zero or more; zero is a limit of nothing on credit. The limit holds at once: there is no approval of it and no validity period. The customer is a business partner with the customer role and customer data in the company (422 `request.reference_not_found` naming `customer_id` for an unknown one, `credit.customer_not_set_up` otherwise). A customer has one limit per company: a second is refused (409 `credit.limit_exists`), and the first is found with `GET /v1/credit-limits?legal_entity_id=&customer_id=` and changed with `updateCreditLimit`. An amount in another currency than the company's is refused (422 `credit.currency_mismatch`, naming `limit.currency`), as is one below zero (422 `credit.invalid_amount`, naming `limit.amount`). Nothing is posted and nothing is blocked: the limit is what `getCreditExposure` checks an amount against. An audit record and CreditLimitChanged are written with it. A retry with the same `Idempotency-Key` answers the limit set. Human-only (`x-agent: false`)."
+      x-permission: credit.limit.write
+      x-agent: false
+      x-problem-codes:
+        - credit.currency_mismatch
+        - credit.customer_not_set_up
+        - credit.invalid_amount
+        - credit.limit_exists
+        - request.invalid_amount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The credit limit to set.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerCreditLimitCreate"
+            examples:
+              first_limit:
+                summary: A customer's first limit in a company
+                value:
+                  legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+                  customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+                  limit: {amount: "5000.00", currency: CAD}
+      responses:
+        "201":
+          description: "Created; the credit limit."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/credit-limits/{id}":
+    get:
+      operationId: getCreditLimit
+      tags:
+        - credit
+      summary: Get a credit limit
+      description: "One credit limit (ADR-0066 §2, T77a) with its company's code and name, its customer's number and name, and the limit in the company's currency. What the customer owes is read with `getCreditExposure`. One of a company the caller may not act in is not found (404), as one that does not exist."
+      x-permission: credit.limit.read
+      x-problem-codes: []
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      responses:
+        "200":
+          description: The credit limit.
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    patch:
+      operationId: updateCreditLimit
+      tags:
+        - credit
+      summary: Change a credit limit
+      description: "Changes the amount of a credit limit, with the caller's version of it (`If-Match`; 412 when another change came first): the new limit holds at once, in the limit's currency, zero or more (422 `credit.currency_mismatch` naming `limit.currency`, `credit.invalid_amount` naming `limit.amount`). The customer, the company and the currency of a limit do not change. A change to the amount the limit already has is refused (422 `credit.nothing_to_change`). The audit record and CreditLimitChanged carry the limit before and after. JSON Merge Patch (RFC 7396) of the one field that changes. A limit of a company the caller may not act in is not found (404). Human-only (`x-agent: false`)."
+      x-permission: credit.limit.write
+      x-agent: false
+      x-problem-codes:
+        - credit.currency_mismatch
+        - credit.invalid_amount
+        - credit.limit_exists
+        - credit.nothing_to_change
+        - request.invalid_amount
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: Merge patch for the credit limit.
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              $ref: "#/components/schemas/CustomerCreditLimitUpdate"
+      responses:
+        "200":
+          description: "Updated; the credit limit after the change."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerCreditLimit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
         "429":
           $ref: "#/components/responses/TooManyRequests"
   /v1/incoming-payments:
@@ -43954,6 +44295,56 @@ components:
           items: {$ref: "#/components/schemas/CustomerInvoice"}
           description: The customer invoices on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CollectionWorklistCustomer:
+      type: object
+      description: "A customer on a collection worklist: one with items overdue on the key date. Amounts are in the company's currency, as the items were booked."
+      required: [customer_id, customer_number, customer_name, open_amount, overdue_amount, oldest_due_date, dunning_level]
+      properties:
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        open_amount: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, overdue or not, credit items included; negative when its credits exceed what it owes."}
+        overdue_amount: {$ref: "#/components/schemas/Money", description: "What the customer's items overdue on the key date add up to; credit items do not reduce it."}
+        oldest_due_date: {type: string, format: date, description: "The earliest net due date among the customer's overdue items.", readOnly: true}
+        dunning_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The highest dunning level a confirmed dunning run recorded for one of the customer's open items; 0 when none was dunned.", readOnly: true}
+        last_dunning_date: {type: string, format: date, description: "The latest dunning date (a confirmed run's key date) recorded for one of the customer's open items; absent when none was dunned.", readOnly: true}
+    CollectionWorklist:
+      type: object
+      description: "A company's collection worklist on a key date (collections, ADR-0065 §9): one page of its customers with overdue items, the largest overdue amount first, with the totals of every customer listed."
+      required: [legal_entity_id, company_code, company_name, key_date, currency, customer_count, open_amount, overdue_amount, items]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        key_date: {type: string, format: date, description: "The date the items are overdue on.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of every amount.", readOnly: true}
+        customer_count: {type: integer, format: int32, minimum: 0, description: "The customers on the worklist, on every page together.", readOnly: true}
+        open_amount: {$ref: "#/components/schemas/Money", description: "The sum of `open_amount` of every customer on the worklist."}
+        overdue_amount: {$ref: "#/components/schemas/Money", description: "The sum of `overdue_amount` of every customer on the worklist."}
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CollectionWorklistCustomer"}
+          description: "The customers on this page, the largest overdue amount first."
+          readOnly: true
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          key_date: "2026-12-31"
+          currency: CAD
+          customer_count: 1
+          open_amount: {amount: "1050.00", currency: CAD}
+          overdue_amount: {amount: "1050.00", currency: CAD}
+          items:
+            - customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+              customer_number: BP100042
+              customer_name: Northwind Traders
+              open_amount: {amount: "1050.00", currency: CAD}
+              overdue_amount: {amount: "1050.00", currency: CAD}
+              oldest_due_date: "2026-12-11"
+              dunning_level: 1
+              last_dunning_date: "2026-12-31"
     DunningRunCreate:
       type: object
       description: "Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue on the key date."
@@ -43961,7 +44352,7 @@ components:
       additionalProperties: false
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in the configuration."}
-        key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue."}
+        key_date: {type: string, format: date, description: "The date the items' days overdue are counted on. An item due on this date is not overdue. 2100-12-31 at the latest."}
     DunningRun:
       description: "A dunning run (collections, ADR-0065 §3): a company's customer items overdue on a key date, proposed for dunning."
       allOf:
@@ -43975,8 +44366,8 @@ components:
             key_date: {type: string, format: date, description: "The date the items' days overdue were counted on.", readOnly: true}
             status:
               type: string
-              x-extensible-enum: [proposed]
-              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum: [proposed, confirmed]
+              description: "`proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. `confirmed`: the proposal was confirmed (`confirmDunningRun`): each item's level and dunning date, the key date, are recorded, and `updated_at` and `updated_by` say when and by whom. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
             currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of `overdue_amount`.", readOnly: true}
             notice_count: {type: integer, format: int32, minimum: 0, description: "The notices the run proposed, one per customer; 0 when nothing was overdue.", readOnly: true}
@@ -44024,7 +44415,7 @@ components:
         days_overdue: {type: integer, format: int32, minimum: 1, description: "The days from the net due date to the run's key date.", readOnly: true}
         amount: {$ref: "#/components/schemas/Money", description: "What the customer owes on the item, in the item's currency."}
         local_amount: {$ref: "#/components/schemas/Money", description: "The same in the company's currency, as it was booked."}
-        previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at; 0 for an item never dunned.", readOnly: true}
+        previous_level: {type: integer, format: int32, minimum: 0, maximum: 9, description: "The dunning level the item was last dunned at when the run was started, the highest a confirmed run recorded for it; 0 for an item never dunned.", readOnly: true}
         level: {type: integer, format: int32, minimum: 1, maximum: 9, description: "The dunning level the item would reach: the last level whose days overdue it has reached, one above `previous_level` at most.", readOnly: true}
     DunningNotice:
       type: object
@@ -44077,6 +44468,98 @@ components:
           items: {$ref: "#/components/schemas/DunningNotice"}
           description: The notices on this page.
         next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CustomerCreditLimitCreate:
+      type: object
+      description: "Set a customer's credit limit in a company."
+      required: [legal_entity_id, customer_id, limit]
+      additionalProperties: false
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company the limit holds in: a legal entity the caller may act in."}
+        customer_id: {type: string, format: uuid, description: "The customer: a business partner with the customer role and customer data in the company."}
+        limit: {$ref: "#/components/schemas/Money", description: "The most the customer may owe the company, in the company's currency; zero or more."}
+    CustomerCreditLimitUpdate:
+      type: object
+      description: "Merge patch of a credit limit: its amount."
+      required: [limit]
+      additionalProperties: false
+      properties:
+        limit: {$ref: "#/components/schemas/Money", description: "The new limit, in the limit's currency; zero or more."}
+      examples:
+        - limit: {amount: "7500.00", currency: CAD}
+    CustomerCreditLimit:
+      description: "A customer's credit limit in a company (credit, ADR-0066 §2): the most the customer may owe it."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, limit]
+          properties:
+            legal_entity_id: {type: string, format: uuid, description: "The company the limit holds in.", readOnly: true}
+            company_code: {type: string, description: "The company's code.", readOnly: true}
+            company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+            customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+            customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+            customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+            limit: {$ref: "#/components/schemas/Money", description: "The limit, in the company's currency."}
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          version: 1
+          created_at: "2026-11-12T14:03:11Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          updated_at: "2026-11-12T14:03:11Z"
+          updated_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d08"
+          legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          limit: {amount: "5000.00", currency: CAD}
+    CustomerCreditLimitPage:
+      type: object
+      description: One page of credit limits.
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/CustomerCreditLimit"}
+          description: The credit limits on this page.
+        next_page_token: {type: string, maxLength: 2048, description: "Opaque cursor for the next page; absent on the last page."}
+    CreditExposure:
+      type: object
+      description: "A customer's credit exposure in a company and the check of an amount against its credit limit (credit, ADR-0066 §3-§4). Every amount is in the company's currency."
+      required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, currency, open_item_count, exposure, has_limit, is_within_limit]
+      properties:
+        legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
+        company_code: {type: string, description: "The company's code.", readOnly: true}
+        company_name: {type: string, description: "The company's name, as it is now.", readOnly: true}
+        customer_id: {type: string, format: uuid, description: "The customer (`GET /v1/business-partners/{id}`).", readOnly: true}
+        customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
+        customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
+        currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of every amount.", readOnly: true}
+        open_item_count: {type: integer, format: int32, minimum: 0, description: "The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which the exposure adds up.", readOnly: true}
+        exposure: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, as they were booked, credit items netted; negative when its credits exceed what it owes."}
+        has_limit: {type: boolean, description: "Whether a credit limit is set for the customer in the company. False: no limit is set, and the customer is not restricted.", readOnly: true}
+        credit_limit_id: {type: string, format: uuid, description: "The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.", readOnly: true}
+        limit: {$ref: "#/components/schemas/Money", description: "The credit limit; absent when none is set."}
+        available: {$ref: "#/components/schemas/Money", description: "The limit less the exposure: what the customer may still come to owe; negative when the exposure exceeds the limit. Absent when no limit is set."}
+        amount: {$ref: "#/components/schemas/Money", description: "The amount checked, as the request gave it; absent when it gave none."}
+        is_within_limit: {type: boolean, description: "Whether the exposure and the amount checked together are no more than the limit; the exposure alone when no amount was given. Always true when no limit is set.", readOnly: true}
+      examples:
+        - legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d01"
+          company_code: "3000"
+          company_name: Maple Industries Canada
+          customer_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d42"
+          customer_number: BP100042
+          customer_name: Northwind Traders
+          currency: CAD
+          open_item_count: 2
+          exposure: {amount: "1470.00", currency: CAD}
+          has_limit: true
+          credit_limit_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
+          limit: {amount: "5000.00", currency: CAD}
+          available: {amount: "3530.00", currency: CAD}
+          amount: {amount: "500.00", currency: CAD}
+          is_within_limit: true
     IncomingPaymentCreate:
       type: object
       description: "Apply an incoming payment to a customer's open items, in full and exactly."

@@ -48,6 +48,10 @@ func TestDatabaseFailures(t *testing.T) {
 			_, err := h.CreateDunningRun(ctx, &gen.DunningRunCreate{LegalEntityID: e.DE, KeyDate: date(t, keyDate)}, gen.CreateDunningRunParams{})
 			return err
 		},
+		"confirm": func(ctx context.Context) error {
+			_, err := h.ConfirmDunningRun(ctx, gen.ConfirmDunningRunParams{ID: id, IfMatch: `"1"`})
+			return err
+		},
 		"get": func(ctx context.Context) error {
 			_, err := h.GetDunningRun(ctx, gen.GetDunningRunParams{ID: id})
 			return err
@@ -58,6 +62,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"notices": func(ctx context.Context) error {
 			_, err := h.ListDunningNotices(ctx, gen.ListDunningNoticesParams{ID: id})
+			return err
+		},
+		"worklist": func(ctx context.Context) error {
+			_, err := h.GetCollectionWorklist(ctx, gen.GetCollectionWorklistParams{LegalEntityID: e.DE, KeyDate: date(t, keyDate)})
 			return err
 		},
 	}
@@ -76,6 +84,10 @@ func TestDatabaseFailures(t *testing.T) {
 		},
 		"notices page size": func(ctx context.Context) error {
 			_, err := h.ListDunningNotices(ctx, gen.ListDunningNoticesParams{ID: id, PageSize: gen.NewOptInt32(0)})
+			return err
+		},
+		"worklist page size": func(ctx context.Context) error {
+			_, err := h.GetCollectionWorklist(ctx, gen.GetCollectionWorklistParams{LegalEntityID: e.DE, KeyDate: date(t, keyDate), PageSize: gen.NewOptInt32(0)})
 			return err
 		},
 	} {
@@ -166,6 +178,18 @@ func TestRunsThroughThePort(t *testing.T) {
 		h.MaxItems = 3
 		if err := propose(t, h); err != nil {
 			t.Errorf("a run of 3 items at a limit of 3: got %v, want it proposed", err)
+		}
+	})
+	t.Run("a worklist customer that is no business partner", func(t *testing.T) {
+		h := endpoints(t)
+		h.Partners = strangers{}
+		err := e.inRequest(t, func(ctx context.Context) error {
+			_, err := h.GetCollectionWorklist(ctx, gen.GetCollectionWorklistParams{LegalEntityID: e.DE, KeyDate: date(t, keyDate)})
+			return err
+		})
+		var p *problem.Problem
+		if err == nil || errors.As(err, &p) || !strings.Contains(err.Error(), "is no business partner") {
+			t.Errorf("got %v, want an error that is no refusal, naming the customer", err)
 		}
 	})
 	t.Run("a customer that is no business partner", func(t *testing.T) {
