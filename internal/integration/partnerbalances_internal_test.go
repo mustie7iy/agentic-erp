@@ -34,8 +34,7 @@ func (r partnerBalances) BalancesByTradingPartner(context.Context, uuid.UUID, in
 // lines share, else none; vendor lines and lines whose amount does not
 // parse are left out. The platform's side is keyed by the same account
 // and company code, or by the id of a legal entity the extract does not
-// name. A balances run does not take a line's own. A failed read fails
-// the reconciliation.
+// name. A failed read fails the reconciliation.
 func TestPartnerBalancesReconciliation(t *testing.T) {
 	// other sorts after "trading partner 1000" whatever the ids drawn: the
 	// differences come in key order.
@@ -98,22 +97,6 @@ func TestPartnerBalancesReconciliation(t *testing.T) {
 	rc = reconcilerOf(nil, nil)
 	if err := rc.partnerBalances(context.Background(), s); err != nil || len(rc.rec.Checks) != 0 {
 		t.Errorf("neither side with any: got %v and %v, want no check", err, rc.rec.Checks)
-	}
-}
-
-// TestPartnerBalancesOfABalancesRun: a balances run does not take a
-// line's own trading partner: SAP's side holds only what a document's
-// vendor lines give its other lines.
-func TestPartnerBalancesOfABalancesRun(t *testing.T) {
-	tg := dpTarget()
-	tg.balances = true
-	tg.partners = map[string]groupCompany{"1000": {code: "1000", id: uuid.New()}, "3000": {code: "3000", id: uuid.New()}}
-	rc := &reconciler{ext: &sap.Extract{ACDOCA: []sap.ACDOCA{
-		tpLine("0100000050", "000001", "0000100000", "6.00", "", "003000"), tpLine("0100000051", "000001", "0000170000", "-7.00", "", "001000")}},
-		t: tg, derived: map[string]string{"2000/2026/0100000050": "1000"}}
-	s := companyScope{cc: "2000", cur: "EUR"}
-	if got, want := balanceTerms(rc.sapPartnerBalances(s)), "account 100000 trading partner 1000=600"; got != want {
-		t.Errorf("SAP's balances by trading partner of a balances run: got %s, want %s", got, want)
 	}
 }
 

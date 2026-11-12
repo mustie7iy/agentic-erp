@@ -2444,8 +2444,8 @@ posting port gains one option, `Posting.Collective` (below).
   vendor line (loans, recharges between G/L accounts) and, in balances
   mode, the balances of intercompany G/L accounts load without a trading
   partner; a run that links a supplier loaded earlier; the OData mapping.
-  The first was approved on 2026-11-10 and is built (next paragraph); the
-  second is approved and open.
+  The first two were approved on 2026-11-10 and are built (the next two
+  paragraphs).
 
 **A migrated line's own trading partner, documents mode (po:2026-11-10;
 step a2b).** The product owner approved the first case the migration leaf
@@ -2494,8 +2494,7 @@ no migration, and the ledger's posting port is unchanged (the load fills
   projected entries only. It also proves, for the first time, the
   expense and tax lines the vendor's documents gave their trading
   partner.
-- **Balances mode** is unchanged in this step: the opening entry's
-  balances take none and the gate reports its lines as before.
+- **Balances mode** follows in the next paragraph.
 - **Mock and walkthrough.** The revenue line of company 3000's sales
   document of January names 002000 (a sale to the German company posted
   between G/L accounts); no row or amount was added. Step 3 shows SAP's
@@ -2506,6 +2505,40 @@ no migration, and the ledger's posting port is unchanged (the load fills
   `TestPartnerBalancesReconciliation`, `TestPartnerBalancesOfABalancesRun`,
   the gate's cases in `TestTradingPartnersReported`, and
   `TestBalancesByTradingPartner` in the ledger.
+
+**Balances by trading partner in balances mode (po:2026-11-10; step
+a2b).** The second case: an intercompany G/L balance arrives with its
+partner instead of without one.
+- **What changes.** The opening entry's account balances are grouped by
+  account and by the trading partner their SAP lines name themselves
+  (ACDOCA-RASSC, resolved as above): one line per account and trading
+  partner, the account's balance without one first, then by the partner's
+  company code; a balance of zero is left out. A document that posts on
+  its own in balances mode takes its lines' own as in documents mode.
+- **What stays.** The entry is still collective (above): a balance takes
+  only the trading partner its own lines name, never its documents'
+  vendor items', so the expense and tax lines SAP left without RASSC load
+  without one in balances mode. Decided by default: deriving them would
+  mean splitting every balance by document, which is documents mode.
+  The open vendor items keep their supplier's.
+- **Gate and reconciliation.** The gate's warning of a RASSC the load
+  cannot give is the same in both modes and says what the run's mode
+  loads the lines with; the two warnings of a balances run's lines that
+  the migration leaf had (lines in documents without a vendor line, lines
+  carrying another than their document's) are gone with their cause. The
+  control `Account balances by trading partner` covers the opening
+  entry: SAP's lines by account and own trading partner against the
+  platform's.
+- **An extract without RASSC** loads as before: no balance carries a
+  trading partner and the control is not shown.
+- **Walkthrough.** Step 3 rehearses the scope in balances mode before
+  the load: the control shows Maple's revenue from company 2000 as a
+  balance by trading partner, equal to SAP's.
+- **Tests.** `TestBalancesByTradingPartnerInBalancesMode` (with RASSC and
+  without), `TestTradingPartnerInBalancesMode` and
+  `TestTradingPartnerInAnOpeningEntryOfIntercompanyItemsAlone` unchanged.
+- **Not built.** A run that links a supplier loaded earlier; the OData
+  mapping; anything in consolidation.
 
 **The budgets' seeding and guard (fix forward, main's run 43007697247,
 ci:batch64).** `TestConsolidatedStatementBudget` failed on main with its

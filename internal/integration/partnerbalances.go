@@ -18,14 +18,15 @@ import (
 // partner the load gives each line, its own (ACDOCA-RASSC, the SAP
 // specialist's A2 [H]; target.ownPartner) or else its document's vendor
 // lines' (derivedPartners), against the platform's journal lines as they
-// carry one, which a consolidation run reads.
+// carry one, which a consolidation run reads. In balances mode it proves
+// the opening entry's balances by trading partner.
 
 // givenPartner is the key of the trading partner the load gives a line it
 // posts without a supplier, and whether it gives one: the one the line
-// names itself, when the run takes it, or else the one its document's
-// vendor lines share.
+// names itself, or else the one its document's vendor lines share (none
+// in a balances run's opening entry, derivedPartners).
 func (rc *reconciler) givenPartner(l sap.ACDOCA) (string, bool) {
-	if gc, ok := rc.t.ownPartner(l); ok && rc.t.takesOwn() {
+	if gc, ok := rc.t.ownPartner(l); ok {
 		return "trading partner " + gc.code, true
 	}
 	if id := rc.derived[documentKey(l)]; id != "" {

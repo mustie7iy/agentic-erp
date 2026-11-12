@@ -9824,9 +9824,9 @@
       "c": []
      },
      {
-      "s": "T",
-      "t": "Balances by trading partner in balances mode (po:2026-11-10; the second case the trading partner leaf left): an opening entry's account balances are loaded grouped by the trading partner their SAP lines name (ACDOCA-RASSC), so an intercompany G/L balance arrives with its partner instead of without one, and the reconciliation's balances per account and trading partner cover it",
-      "r": "ADR-0059 As built (not built, for the product owner: approved and open) · internal/integration load.go (openingLines), tradingpartner.go (otherLinesOfBalances) · step a2b",
+      "s": "D",
+      "t": "Balances by trading partner in balances mode (po:2026-11-10; the second case the trading partner leaf left): an opening entry's account balances are loaded grouped by the trading partner their SAP lines name (ACDOCA-RASSC), so an intercompany G/L balance arrives with its partner instead of without one, and the reconciliation's balances per account and trading partner cover it; a balance takes only the trading partner its own lines name, never its documents' vendor items' (the entry is collective), and an extract without RASSC loads as before",
+      "r": "ADR-0059 As built (balances by trading partner in balances mode) · internal/integration load.go (openingLines, openingBalances), tradingpartner.go (otherLines), partnerbalances.go · TestBalancesByTradingPartnerInBalancesMode · docs/migration.md · walkthrough step 3 (balances_by_partner_rehearsed) · step a2b",
       "src": "po:2026-11-10",
       "c": []
      },

@@ -65,7 +65,7 @@ func (e *Endpoints) reconcile(ctx context.Context, ext *sap.Extract, t target, r
 		rc.partnerOf[v.LIFNR] = sap.CompanyID(v.VBUND)
 	}
 	foreign, _ := foreignDocuments(ext, t) // the conflicts are the quality gate's
-	rc.derived, _ = derivedPartners(ext, t, foreign)
+	rc.derived = derivedPartners(ext, t, foreign)
 	for key, id := range r {
 		if lifnr, ok := strings.CutPrefix(key, "LFA1/"); ok {
 			rc.vendorOf[id] = sap.Alpha(lifnr)

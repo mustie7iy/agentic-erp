@@ -127,17 +127,23 @@ So the load takes it in two ways:
   the ledger gives every line naming the supplier that trading partner
   and, when a document's vendor lines all name the same one, its other
   lines that name none too, as it does for every posting on the platform.
-- **From the line itself, in `documents` mode.** A line the load posts
-  without a supplier (any line that is not on a vendor reconciliation
-  account) is posted with the trading partner it names itself, RASSC,
-  when that is a legal entity of the tenant other than the line's own
-  company. So an intercompany document without a vendor line, a loan or
-  a recharge posted between G/L accounts, carries its partner on the
+- **From the line itself.** A line the load posts without a supplier
+  (any line that is not on a vendor reconciliation account) is posted
+  with the trading partner it names itself, RASSC, when that is a legal
+  entity of the tenant other than the line's own company. In `documents`
+  mode an intercompany document without a vendor line, a loan or a
+  recharge posted between G/L accounts, so carries its partner on the
   lines that name it; in a document with a vendor line, a line naming
   another company than the vendor's keeps its own, and a line SAP left
   without one still takes its vendor line's. A vendor line always takes
   its supplier's: the platform derives a partner line's trading partner
-  from its business partner and refuses another.
+  from its business partner and refuses another. In `balances` mode the
+  opening entry groups each account's balance by the trading partner its
+  lines name: an account whose lines name company 2000 on some and none
+  on others loads as two lines, its balance without a trading partner
+  and its balance with company 2000, so an intercompany G/L balance (a
+  loan, a clearing account, intercompany revenue) arrives with its
+  partner.
 
 A company ID is no company code: the load takes the company code SAP
 assigns to it (T001-RCOMP, read from every company code of the extract
@@ -148,10 +154,14 @@ A VBUND and a RASSC name a legal entity the same way. In `documents` mode
 an intercompany invoice's expense and tax lines carry the trading partner
 with its vendor line, its payment's lines keep it, and a document without
 a vendor line carries the one its lines name; in `balances` mode the open
-vendor items carry it and the account balances none, whatever the open
-items or SAP's lines name: an opening entry gathers lines that belong to
-no one document. A run on an extract whose lines carry no RASSC loads as
-it did before the line's own was taken. The quality gate warns and never
+vendor items carry their supplier's and each account balance the one its
+own lines name, never the one its documents' vendor items name: an
+opening entry gathers lines that belong to no one document, so the
+expense and tax lines SAP left without RASSC load without a trading
+partner there. A document that posts on its own in `balances` mode (a
+down payment's, an item in a foreign currency) loads as in `documents`
+mode. A run on an extract whose lines carry no RASSC loads as it did
+before the line's own was taken. The quality gate warns and never
 refuses, a group having companies that are not on the platform:
 
 - a vendor whose trading partner names no legal entity, keyed by the
@@ -165,20 +175,12 @@ refuses, a group having companies that are not on the platform:
   master's, keyed `<BUKRS>/<LIFNR>` with how many lines carry which: they
   load with the master's (a vendor linked, relinked or unlinked since the
   posting).
-- in `documents` mode, lines posted without a supplier that name a
-  trading partner the load cannot give them, keyed `<BUKRS>/<RASSC>` with
-  their number and why: the company ID names no legal entity (as for a
-  vendor's), or it is the line's own company. They load without a trading
-  partner of their own: with the one their document's vendor lines share,
-  or with none.
-- in `balances` mode, lines carrying a trading partner in documents
-  without a vendor line, keyed by the company code with their number
-  (they load without one), and other lines of a document with vendor
-  lines that carry another trading partner than the load gives them,
-  keyed by the company code with their number: none in the opening entry,
-  and in a document that posts on its own the one its vendors share, or
-  none where those name different ones, none or a company that is no
-  legal entity.
+- lines posted without a supplier that name a trading partner the load
+  cannot give them, keyed `<BUKRS>/<RASSC>` with their number and why:
+  the company ID names no legal entity (as for a vendor's), or it is the
+  line's own company. They load without a trading partner of their own:
+  in a document's entry with the one its vendor lines share, or with
+  none; in an opening entry's balances with none.
 - once, keyed `VBUND`, an extract that cannot carry trading partners: the
   OData mapping reads neither field, so an OData run links no supplier
   and gives no line a trading partner of its own.
@@ -578,13 +580,15 @@ ACDOCA, so no plan filter is needed.
   trading partner, where either side has any: the lines posted without a
   supplier (every account that is no vendor reconciliation account), SAP's
   under the trading partner the load gives each line, the one it names
-  itself (ACDOCA-RASSC, in `documents` mode, when it is a legal entity
-  other than the company) or else the one its document's vendor lines
-  share, against the platform's journal lines as they carry a trading
-  partner (differences listed by `account <number> trading partner
-  <company code>`, or `... trading partner <id>`). It proves that an
-  intercompany document without a vendor line arrived with its partner,
-  and that the lines SAP left without one took their document's
+  itself (ACDOCA-RASSC, when it is a legal entity other than the
+  company) or else the one its document's vendor lines share (none in an
+  opening entry), against the platform's journal lines as they carry a
+  trading partner (differences listed by `account <number> trading
+  partner <company code>`, or `... trading partner <id>`). It proves
+  that an intercompany document without a vendor line arrived with its
+  partner, that the lines SAP left without one took their document's,
+  and in `balances` mode that each account's balance by trading partner
+  is SAP's
 - Vendor count per company code
 - Cost centers and profit centers per company code, where either side has
   any: SAP's of the company code against the platform's active ones that

@@ -864,6 +864,7 @@ step_migrate() {
   parallel_run_extract
   small_item_refused "$connector"
   yen_item_rehearsed "$connector"
+  balances_by_partner_rehearsed "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -1014,6 +1015,33 @@ migrated_trading_partner() {
   grep -E 'Open payables by trading partner' "$WORK/migrate.out" | sed 's/^/     /'
   migrated_line_partner
   as ada
+}
+
+# balances_by_partner_rehearsed CONNECTOR rehearses the scope in balances
+# mode before the load (po:2026-11-10): the opening entry groups each
+# account's balance by the trading partner its SAP lines name
+# (ACDOCA-RASSC), so the revenue of the mock's intercompany sale, a
+# document without a vendor line, arrives as a balance with company 2000,
+# and the reconciliation's balances by account and trading partner show
+# it equal to SAP's. The rehearsal is rolled back; the load that follows
+# is in documents mode.
+balances_by_partner_rehearsed() {
+  local balance
+  balance=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "") | .HSL] | join(" ")' "$WORK/data/extract.json")
+  say "A cutover that takes over balances instead of documents loads one opening entry. An intercompany G/L balance"
+  say "then arrives with its trading partner too. SAP's lines without a vendor that name one (ACDOCA-RASSC):"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.XBLNR): account \(.RACCT), \(.HSL) CAD, trading partner \(.RASSC)"' "$WORK/data/extract.json"
+  say "A rehearsal in balances mode groups each account's balance by the trading partner its lines name, and the"
+  say "reconciliation compares the balances per account and trading partner with SAP's:"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -mode balances -rehearsal
+  "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -mode balances -rehearsal >"$WORK/balances.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/balances.out"; fail "the rehearsal in balances mode did not reconcile"; }
+  grep -E '^Migration run|by trading partner' "$WORK/balances.out" | sed 's/^/     /'
+  grep -E "Account balances by trading partner total +$balance CAD +$balance CAD +PASS$" "$WORK/balances.out" >/dev/null ||
+    { sed 's/^/     /' "$WORK/balances.out"; fail "the balance by trading partner did not reconcile as $balance CAD"; }
+  grep -E 'Account balances by trading partner: balances with differences +0 +0 +PASS$' "$WORK/balances.out" >/dev/null ||
+    fail "the balances by trading partner differ"
 }
 
 # migrated_line_partner shows the trading partner a migrated line names
