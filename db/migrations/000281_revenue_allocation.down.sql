@@ -4,6 +4,7 @@
 -- silently (an over-time obligation would lose its service period). The
 -- restored status check refuses an active contract; the timing has no
 -- check that would refuse over time, so it is looked for here.
+SET LOCAL row_security = off; -- the guard reads every tenant's rows: a role held to row-level security fails here, not on zero rows (06 §6.4)
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM revenue.performance_obligation WHERE timing = 'over_time') THEN
