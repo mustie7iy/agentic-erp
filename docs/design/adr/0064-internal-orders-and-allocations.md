@@ -515,7 +515,9 @@ adding up to 100, all active and of one company.
   9. An order is settled up to the period of its last settlement or a
      later one, never an earlier one (SAP's settlement likewise does not
      go back before the last settlement period; stated from memory, for
-     the specialist to confirm).
+     the specialist to confirm). Once that period is closed in the
+     ledger, a cost posted later is settled up to a later, open period,
+     the next fiscal year's if need be.
 - **Known limits, for a specialist** (question 2 below): the entry is in
   local currency and its group amount is converted at the settlement
   date's rate, so an order's balance in group currency need not be zero

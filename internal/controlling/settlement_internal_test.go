@@ -1,15 +1,37 @@
 package controlling
 
 import (
+	"context"
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
+	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
+	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
+
+// validCenters is the ledger's port finding every cost center valid.
+type validCenters struct{ Ledger }
+
+func (validCenters) CostCenterValidOn(context.Context, uuid.UUID, time.Time) (bool, error) {
+	return true, nil
+}
+
+// TestSettlementBeyondAnAmount: a settlement whose total does not fit in
+// an amount ends before anything is posted.
+func TestSettlementBeyondAnAmount(t *testing.T) {
+	e := &Endpoints{Ledger: validCenters{}}
+	_, err := e.settle(context.Background(), nil, reqctx.Principal{}, Order{ID: uuid.New()}, tenancy.Entity{}, settlementRule{ReceiverID: uuid.New()},
+		ledger.FiscalPeriod{}, []ledger.OrderAccountBalance{{AccountID: uuid.New(), Balance: math.MaxInt64}, {AccountID: uuid.New(), Balance: 1}})
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("got %v, want an overflow and nothing posted", err)
+	}
+}
 
 // TestSettlementLines: an account's balance is credited on the order and
 // debited on the receiver, in the order the balances came in, and a total
