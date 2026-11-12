@@ -4681,18 +4681,19 @@ type Invoker interface {
 	// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
 	// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
 	// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
-	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. The cycle is held
-	// under a row lock, so two runs of one period never both post. Refused besides: a fiscal year not set
-	// up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
-	// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
-	// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
-	// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
-	// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
-	// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
-	// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
-	// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
-	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
-	// not run a cycle.
+	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
+	// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
+	// both post, and two cycles of one sender run at once follow one another: the second moves what the
+	// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
+	// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
+	// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
+	// it); and what the ledger refuses of any entry, among them a period that is not open (409
+	// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
+	// cost posted to the sender in the period after its run stays on the sender. The run is kept
+	// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
+	// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
+	// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+	// `identity.permission_missing` otherwise). Agents may not run a cycle.
 	//
 	// POST /v1/allocation-cycles/{id}:run
 	RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)
@@ -73608,18 +73609,19 @@ func (c *Client) sendRotateWebhookSubscriptionSecret(ctx context.Context, params
 // add up to it to the minor unit (largest remainder). A sender without costs in the period posts
 // nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
 // per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
-// entry); a run is not reversed in this version. `If-Match` is the cycle's version. The cycle is held
-// under a row lock, so two runs of one period never both post. Refused besides: a fiscal year not set
-// up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
-// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
-// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
-// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
-// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
-// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
-// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
-// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
-// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
-// not run a cycle.
+// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
+// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
+// both post, and two cycles of one sender run at once follow one another: the second moves what the
+// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
+// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
+// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
+// it); and what the ledger refuses of any entry, among them a period that is not open (409
+// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
+// cost posted to the sender in the period after its run stays on the sender. The run is kept
+// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
+// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
+// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
+// `identity.permission_missing` otherwise). Agents may not run a cycle.
 //
 // POST /v1/allocation-cycles/{id}:run
 func (c *Client) RunAllocationCycle(ctx context.Context, request *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error) {

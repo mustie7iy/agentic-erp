@@ -33,9 +33,11 @@ import (
 // account and posts one entry through the ledger's port: per account the
 // sender credited with its cost and each receiver debited with its share
 // on the same account, the shares split with money.Allocate so they add
-// up to the cost to the minor unit. The cycle is held FOR UPDATE from
-// before the run is looked for until it is kept, so there is one run per
-// cycle and period; the database holds that too.
+// up to the cost to the minor unit. Every cycle of the sender is held FOR
+// UPDATE from before the run is looked for and the costs are read until
+// the run is kept (heldCycle), so there is one run per cycle and period,
+// which the database holds too, and two cycles of one sender never move
+// the same cost.
 
 func init() {
 	// A code is checked by its constraint alone. A second run is refused by
@@ -208,6 +210,28 @@ func runOf(ctx context.Context, tx pgx.Tx, cycle uuid.UUID, period ledger.Fiscal
 	return r, true, nil
 }
 
+// heldCycle reads the cycle a run is for with every cycle of its sender
+// held FOR UPDATE, the cycle itself among them, until the transaction
+// ends. A run reads the sender's costs and then moves them, so the runs
+// of one sender must follow one another, whichever of its cycles they
+// are: two cycles of a sender run at once would otherwise both read the
+// cost and both move it. The cycles are locked in id order, the same for
+// every run, after a first read without a lock that names the sender (a
+// cycle keeps its sender, allocation_cycle_identity), so runs never wait
+// for each other in a circle; the cycle is then read again under the
+// lock.
+func (e *Endpoints) heldCycle(ctx context.Context, tx pgx.Tx, id uuid.UUID) (cycle, tenancy.Entity, int, error) {
+	c, _, _, err := e.cycleInCompany(ctx, tx, id)
+	if err != nil {
+		return cycle{}, tenancy.Entity{}, 0, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT FROM controlling.allocation_cycle WHERE legal_entity_id = $1 AND sender_cost_center_id = $2 ORDER BY id FOR UPDATE`,
+		c.LegalEntityID, c.SenderID); err != nil {
+		return cycle{}, tenancy.Entity{}, 0, fmt.Errorf("controlling: hold the cycles of cost center %s for a run: %w", c.SenderID, err)
+	}
+	return e.cycleInCompany(ctx, tx, id)
+}
+
 // RunAllocationCycle implements POST /v1/allocation-cycles/{id}:run, at
 // the cycle's version the caller read.
 func (e *Endpoints) RunAllocationCycle(ctx context.Context, req *gen.AllocationCycleRun, params gen.RunAllocationCycleParams) (gen.RunAllocationCycleRes, error) {
@@ -215,7 +239,7 @@ func (e *Endpoints) RunAllocationCycle(ctx context.Context, req *gen.AllocationC
 	if err != nil {
 		return nil, err
 	}
-	c, le, exp, err := e.cycleInCompany(ctx, tx, params.ID, true)
+	c, le, exp, err := e.heldCycle(ctx, tx, params.ID)
 	if err != nil {
 		return nil, err
 	}

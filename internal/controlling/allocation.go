@@ -119,15 +119,11 @@ func (e *Endpoints) withReceivers(ctx context.Context, tx pgx.Tx, cycles ...cycl
 }
 
 // cycleInCompany reads a cycle with its receivers and its company with
-// the digits of the company's currency, FOR UPDATE when it is to be run.
-// A cycle that does not exist, or of a company the caller may not act in,
-// is answered as missing (04 §4.9).
-func (e *Endpoints) cycleInCompany(ctx context.Context, tx pgx.Tx, id uuid.UUID, forUpdate bool) (cycle, tenancy.Entity, int, error) {
-	lock := ``
-	if forUpdate {
-		lock = ` FOR UPDATE`
-	}
-	c, err := scanCycle(tx.QueryRow(ctx, `SELECT `+cycleColumns+` FROM controlling.allocation_cycle c WHERE c.id = $1`+lock, id))
+// the digits of the company's currency. A cycle that does not exist, or
+// of a company the caller may not act in, is answered as missing (04
+// §4.9). A run holds the cycle before it reads it for good (heldCycle).
+func (e *Endpoints) cycleInCompany(ctx context.Context, tx pgx.Tx, id uuid.UUID) (cycle, tenancy.Entity, int, error) {
+	c, err := scanCycle(tx.QueryRow(ctx, `SELECT `+cycleColumns+` FROM controlling.allocation_cycle c WHERE c.id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return cycle{}, tenancy.Entity{}, 0, problem.NotFoundOf("allocation cycle")
 	}
@@ -320,7 +316,7 @@ func (e *Endpoints) GetAllocationCycle(ctx context.Context, params gen.GetAlloca
 	if err != nil {
 		return nil, err
 	}
-	c, _, _, err := e.cycleInCompany(ctx, tx, params.ID, false)
+	c, _, _, err := e.cycleInCompany(ctx, tx, params.ID)
 	if err != nil {
 		return nil, err
 	}

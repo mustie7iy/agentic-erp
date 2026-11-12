@@ -5926,14 +5926,16 @@ step_order_budget() {
 }
 
 # center_costs CENTER ACCOUNT is what the cost center's report shows on the
-# account this year, in whole cents of the local currency (integers, never
-# floating point): the debits less the credits.
+# account this year, the debits less the credits, in whole cents of the
+# local currency: jq reads each two-decimal amount as a number and rounds
+# it to whole cents before adding, as the reports' other checks do.
 center_costs() {
   QUIET=1 api 200 '' listCostCenterBalances -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "cost_center_id=$1" -p page_size=100
   field "[.items[] | select(.account_id == \"$2\") | ((.debit_lc.amount | tonumber) - (.credit_lc.amount | tonumber)) * 100 | round] | add // 0"
 }
 
-# cents_plain CENTS is whole cents as an amount with two decimals.
+# cents_plain CENTS is whole cents, zero or more, as an amount with two
+# decimals.
 cents_plain() { printf '%d.%02d' $(($1 / 100)) $(($1 % 100)); }
 
 # step_order_settlement: an order's settlement rule and its settlement

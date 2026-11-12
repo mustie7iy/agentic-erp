@@ -421,8 +421,42 @@ func TestDistributionRunCenters(t *testing.T) {
 	want(t, "run once the receiver is valid", ranLine(june), "LATER distribution 2026/6 on 2026-06-30 from 1000: 5.00 EUR on 1 account(s)")
 }
 
+// TestDistributionRunsOfOneSender: two cycles of one sender run for one
+// period at once follow one another on the sender's cycles' row locks:
+// the second waits, finds the cost gone and posts nothing, so the cost is
+// moved once.
+func TestDistributionRunsOfOneSender(t *testing.T) {
+	p := setup(t)
+	h := endpoints(t)
+	fourth := p.center(t, "4000", "2026-01-01")
+	first := uuid.MustParse(p.cycle(t, "FIRST", share{p.c.Sales, "100"}))
+	second := uuid.MustParse(p.cycle(t, "SECOND", share{fourth, "100"}))
+	p.post(t, "2026-05-10", on(p.office, 99999, &p.c.Admin), on(p.bank, -99999, nil))
+	var posted []bool
+	run := func(id uuid.UUID) func(ctx context.Context) error {
+		return func(ctx context.Context) error {
+			res, err := h.RunAllocationCycle(ctx, &gen.AllocationCycleRun{FiscalYear: 2026, FiscalPeriod: 5}, gen.RunAllocationCycleParams{ID: id, IfMatch: `"1"`})
+			if err == nil {
+				posted = append(posted, res.(*gen.AllocationRunResultHeaders).Response.Posted)
+			}
+			return err
+		}
+	}
+	// The second cycle has the lower lock neither run holds first: each
+	// run locks both cycles in id order, whichever it is for.
+	a, b := apitest.Serialized(t, p.Tenant, p.Tenant.Human, run(second), run(first))
+	if a != nil || b != nil {
+		t.Fatalf("runs: got %v and %v, want both answered", a, b)
+	}
+	want(t, "first and second posted", fmt.Sprint(posted), "[true false]")
+	wantList(t, "runs kept", runs(t, p.Client, ""), []string{"SECOND distribution 2026/5 on 2026-05-31 from 1000: 999.99 EUR on 1 account(s)"})
+	wantList(t, "the sender's costs", p.centerCosts(t, p.c.Admin), nil)
+	wantList(t, "the receiver of the cycle run first", p.centerCosts(t, fourth), []string{"520000 99999"})
+	wantList(t, "the receiver of the cycle run second", p.centerCosts(t, p.c.Sales), nil)
+}
+
 // TestDistributionRunOnce: two runs of a cycle for one period at once
-// serialize on the cycle's row lock; the second finds the first's run and
+// serialize on the row locks of the sender's cycles; the second finds the first's run and
 // is refused, and one entry is posted.
 func TestDistributionRunOnce(t *testing.T) {
 	p := setup(t)

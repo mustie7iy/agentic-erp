@@ -570,8 +570,14 @@ adding up to 100, all active and of one company.
   `posting_date`), `GET /v1/allocation-runs/{id}`. Cycles and runs show
   their centers' codes and the run its cycle's code, name and kind, its
   amount with its currency and its entry's id and number.
-- **A run** reads the cycle `FOR UPDATE`, so two runs of a cycle
-  serialize; a period the cycle was already run for is refused (409
+- **A run** holds every cycle of its sender `FOR UPDATE` (the cycle
+  itself among them, locked in id order after a first read without a
+  lock that names the sender, which a cycle keeps) before it looks for a
+  run and reads the costs, so the runs of one sender follow one another:
+  two runs of a cycle serialize, and two cycles of one sender never both
+  read a cost and both move it (review round 1; proved by
+  `TestDistributionRunsOfOneSender`). A period the cycle was already run
+  for is refused (409
   `controlling.allocation_run_exists`, naming the run's entry), and the
   database holds it. The sender's costs of the period are the ledger's
   actuals of the center (`ledger.AssignmentBalances.CostCenterActuals`,
@@ -620,8 +626,12 @@ adding up to 100, all active and of one company.
   8. A cost posted to the sender in a period after the cycle's run of
      that period stays on the sender (no second run, no reversal in the
      first version); it is not picked up by a later period's run.
-  9. Two cycles may name the same sender; the second run of a period
-     finds what the first left (nothing, unless costs were posted since).
+  9. Two cycles may name the same sender; their runs follow one another
+     (the lock above), and the second run of a period finds what the
+     first left (nothing, unless costs were posted since). A receiver of
+     one cycle that is the sender of another running at the same moment
+     keeps the share it receives after its own run, as any cost posted
+     after a run does (8).
   10. Each receiver's line takes the receiver's profit center and
       segment, the sender's line the sender's, as a settlement's do.
 - **Known limits, for a specialist** (question 2): as for a settlement,

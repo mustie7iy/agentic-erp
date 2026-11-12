@@ -154,8 +154,17 @@ func TestSenderCostsReadsEveryPage(t *testing.T) {
 	if len(costs) != costsPage+1 {
 		t.Fatalf("costs: got %d, want %d (every account but the one without a cost and the one that is no cost account)", len(costs), costsPage+1)
 	}
-	if len(l.asked) != 2 || l.asked[0] != nil || l.asked[1] == nil || *l.asked[1] != l.rows[costsPage-1].CenterAccount {
-		t.Errorf("reads: got %d starting after %v, want two, the second after the first page's last row", len(l.asked), l.asked)
+	if len(l.asked) != 2 {
+		t.Fatalf("reads: got %d, want 2", len(l.asked))
+	}
+	if l.asked[0] != nil {
+		t.Errorf("the first read: got it starting after %v, want it from the first row", *l.asked[0])
+	}
+	if l.asked[1] == nil {
+		t.Fatal("the second read: got it from the first row, want it after the first page's last")
+	}
+	if got, want := *l.asked[1], l.rows[costsPage-1].CenterAccount; got != want {
+		t.Errorf("the second read: got it starting after %v, want %v", got, want)
 	}
 	for i := 1; i < len(costs); i++ {
 		if costs[i-1].Number >= costs[i].Number {
