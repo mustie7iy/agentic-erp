@@ -3,6 +3,7 @@ package ledger_test
 import (
 	"context"
 	"maps"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -53,6 +54,40 @@ func TestOpenPayablesByTradingPartner(t *testing.T) {
 	}
 	if len(other) != 0 {
 		t.Errorf("open payables by trading partner of another year: got %v, want none", other)
+	}
+}
+
+// TestBalancesByTradingPartner: a migration run's reconciliation reads
+// the journal lines that carry a trading partner on accounts that are no
+// supplier reconciliation accounts, summed per account and trading
+// partner in that order (ADR-0059 As built, the migration leaf;
+// po:2026-11-10): the lines of company 2000 naming company 1000 on the
+// expense and bank accounts count, each account once; a supplier line
+// naming it, a line naming no trading partner and another year's do not.
+func TestBalancesByTradingPartner(t *testing.T) {
+	e := setup(t)
+	expense, ap, bank := settleAccount(t, e, "2000", "520000"), settleAccount(t, e, "2000", "211000"), settleAccount(t, e, "2000", "100000")
+	revaluationPost(t, e, e.de, "2026-03-02", "EUR", ledger.PostingLine{AccountID: expense, Amount: 4000, TradingPartner: &e.us},
+		ledger.PostingLine{AccountID: ap, Amount: -4000, PartnerID: &e.supplier, TradingPartner: &e.us})
+	revaluationPost(t, e, e.de, "2026-03-03", "EUR", ledger.PostingLine{AccountID: expense, Amount: 600, TradingPartner: &e.us},
+		ledger.PostingLine{AccountID: bank, Amount: -600, TradingPartner: &e.us})
+	revaluationPost(t, e, e.de, "2026-03-04", "EUR", ledger.PostingLine{AccountID: expense, Amount: 700},
+		ledger.PostingLine{AccountID: bank, Amount: -700})
+	var got, other []ledger.PartnerBalance
+	if err := apitest.Committed(t, e.ten, e.ten.Human, func(ctx context.Context) (err error) {
+		if got, err = (ledger.Reports{}).BalancesByTradingPartner(ctx, e.de, 2026); err != nil {
+			return err
+		}
+		other, err = ledger.Reports{}.BalancesByTradingPartner(ctx, e.de, 2025)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []ledger.PartnerBalance{{Account: "100000", TradingPartner: e.us, Amount: -600}, {Account: "520000", TradingPartner: e.us, Amount: 4600}}; !slices.Equal(got, want) {
+		t.Errorf("balances by trading partner: got %v, want %v", got, want)
+	}
+	if len(other) != 0 {
+		t.Errorf("balances by trading partner of another year: got %v, want none", other)
 	}
 }
 

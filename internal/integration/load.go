@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -594,8 +595,10 @@ func (l *loader) journalDocument(ctx context.Context, key string, lines []sap.AC
 // code amount are left out (they have no document amount either, which
 // the quality gate checks: foreignLine, documentCurrencies, leftOutLines),
 // so it also maps each SAP line to its platform line number, the same in
-// every run. Each line carries its centers (assignCenters); unloaded
-// names one the load did not load, which refuses the document.
+// every run. A line without a supplier carries the trading partner it
+// names itself (target.ownPartner), in either mode, and each line its
+// centers (assignCenters); unloaded names one the load did not load,
+// which refuses the document.
 func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) (in ledger.Posting, posted loadedEntry, unloaded string) {
 	slices.SortFunc(lines, func(a, b sap.ACDOCA) int { return cmp.Compare(a.DOCLN, b.DOCLN) })
 	first := lines[0]
@@ -625,6 +628,10 @@ func (l *loader) journalPosting(lines []sap.ACDOCA, currency map[string]string) 
 		if l.reconciliation(line.RBUKRS, line.RACCT) {
 			partnerID := l.vendors[line.LIFNR]
 			pl.PartnerID = &partnerID
+		} else if gc, ok := l.t.ownPartner(line); ok {
+			// The line's own trading partner (ACDOCA-RASSC); a vendor line
+			// takes its supplier's in the ledger (tradingpartner.go).
+			pl.TradingPartner = &gc.id
 		}
 		downPaymentPosting(&pl, line, dp)
 		l.fixMethod(&pl, line)
@@ -665,8 +672,8 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 	date, _ := sapDate(last) // the latest of the lines' dates, each checked by the quality gate
 	text := "Opening balances from SAP " + strconv.Itoa(int(l.t.year))
 	// Collective: the account balances are no part of the open vendor
-	// items' documents, so they take no trading partner from them
-	// (ADR-0059 As built).
+	// items' documents, so they take no trading partner from them, only
+	// the one their own lines name (openingBalances; ADR-0059 As built).
 	in := ledger.Posting{LegalEntityID: l.t.entities[c.BUKRS].ID, DocumentType: "OB", DocumentDate: date, PostingDate: date, Currency: c.WAERS,
 		HeaderText: &text, SourceContext: "integration", SourceDocumentID: l.run.ID, Lines: lines, Collective: true}
 	done, err := l.step(ctx, "ACDOCA", key, func() error {
@@ -686,12 +693,13 @@ func (l *loader) openingEntry(ctx context.Context, c sap.T001, key string) error
 }
 
 // openingLines are a company's opening entry lines: account balances in
-// account order, then the open vendor items; the documents that post on
-// their own (ownEntry) are left out. It also returns the latest posting
-// date, the entry's date, and the sum of the cleared vendor items, which
-// must be zero.
+// account order, each account's by the trading partner its lines name
+// (openingBalances), then the open vendor items; the documents that post
+// on their own (ownEntry) are left out. It also returns the latest
+// posting date, the entry's date, and the sum of the cleared vendor
+// items, which must be zero.
 func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.Minor) {
-	balances := map[string]money.Minor{}
+	balances := map[partnerAccount]money.Minor{}
 	var open []ledger.PostingLine
 	var cleared money.Minor
 	var last string
@@ -707,7 +715,11 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 		account := sap.Alpha(line.RACCT)
 		switch {
 		case !l.reconciliation(c.BUKRS, line.RACCT):
-			balances[account] += amt
+			key := partnerAccount{account: account}
+			if gc, ok := l.t.ownPartner(line); ok {
+				key.partner, key.id = gc.code, gc.id
+			}
+			balances[key] += amt
 		case line.AUGBL != "":
 			cleared += amt
 		case amt != 0: // an open item of a document amount alone is refused by the quality gate (documentCurrencies)
@@ -718,13 +730,40 @@ func (l *loader) openingLines(c sap.T001) ([]ledger.PostingLine, string, money.M
 			open = append(open, pl)
 		}
 	}
+	return append(l.openingBalances(c.BUKRS, balances), open...), last, cleared
+}
+
+// partnerAccount is an account of an opening entry and the trading
+// partner its balance is with: the company code SAP assigns to the
+// company ID and its legal entity, or none of either for the balance of
+// the lines that name no trading partner the load takes (ownPartner).
+type partnerAccount struct {
+	account, partner string
+	id               uuid.UUID
+}
+
+// openingBalances are an opening entry's account balances (po:2026-11-10):
+// one line per account and trading partner, in account order, an
+// account's balance without a trading partner first and then its
+// balances by the partner's company code, so an intercompany G/L balance
+// arrives with its partner (ACDOCA-RASSC). A balance of zero is left
+// out.
+func (l *loader) openingBalances(company string, balances map[partnerAccount]money.Minor) []ledger.PostingLine {
+	keys := slices.SortedFunc(maps.Keys(balances), func(a, b partnerAccount) int {
+		return cmp.Or(cmp.Compare(a.account, b.account), cmp.Compare(a.partner, b.partner))
+	})
 	var lines []ledger.PostingLine
-	for _, account := range sortedKeys(balances) {
-		if balances[account] != 0 {
-			lines = append(lines, ledger.PostingLine{AccountID: l.t.charts[c.BUKRS][account].ID, Amount: balances[account]})
+	for _, k := range keys {
+		if balances[k] == 0 {
+			continue
 		}
+		pl := ledger.PostingLine{AccountID: l.t.charts[company][k.account].ID, Amount: balances[k]}
+		if k.partner != "" {
+			pl.TradingPartner = &k.id
+		}
+		lines = append(lines, pl)
 	}
-	return append(lines, open...), last, cleared
+	return lines
 }
 
 // clearings clears the vendor items SAP cleared, by the migrated clearing

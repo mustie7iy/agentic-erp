@@ -11,6 +11,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
 	"github.com/mustie7iy/agentic-erp/internal/config"
+	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 	"github.com/mustie7iy/agentic-erp/internal/sap"
@@ -98,8 +99,8 @@ func intercompany() *sap.Extract {
 	}
 }
 
-// partnerChecks are a report's checks of the open payables by trading
-// partner, with both sides' figures.
+// partnerChecks are a report's checks by trading partner (the open
+// payables and the account balances), with both sides' figures.
 func partnerChecks(report map[string]any) string {
 	var out []string
 	for _, c := range report["checks"].([]any) {
@@ -217,7 +218,9 @@ func TestTradingPartnerMigrated(t *testing.T) {
 		t.Errorf("quality findings: got %v, want none", report["quality"])
 	}
 	if got, want := partnerChecks(report), "2000 Open payables by trading partner total: -90.00 EUR / -90.00 EUR true; "+
-		"2000 Open payables by trading partner: trading partners with differences: 0 / 0 true"; got != want {
+		"2000 Open payables by trading partner: trading partners with differences: 0 / 0 true; "+
+		"2000 Account balances by trading partner total: 90.00 EUR / 90.00 EUR true; "+
+		"2000 Account balances by trading partner: balances with differences: 0 / 0 true"; got != want {
 		t.Errorf("the reconciliation's checks by trading partner:\ngot  %s\nwant %s", got, want)
 	}
 	var linked string
@@ -261,10 +264,10 @@ func TestTradingPartnerMigrated(t *testing.T) {
 
 // TestTradingPartnerInBalancesMode: an opening entry keeps each open
 // vendor item with its supplier, so the intercompany vendor's item carries
-// its trading partner and reconciles by it, while the account balances
-// and the ordinary vendor's item carry none: an opening entry's vendors
-// name different trading partners, so nothing is given to its other lines
-// (ADR-0059 §4).
+// its trading partner and reconciles by it, while the account balances,
+// whose SAP lines name none themselves, and the ordinary vendor's item
+// carry none: an opening entry gives its balances nothing of its vendor
+// items' (ADR-0059 §4 and As built).
 func TestTradingPartnerInBalancesMode(t *testing.T) {
 	e := intercompanySetup(t)
 	write(t, e.dir, "ic.json", intercompany())
@@ -388,7 +391,8 @@ func TestTradingPartnerNotOnThePlatform(t *testing.T) {
 // through a partner change with its approval. So when SAP's vendor master
 // names a trading partner only after the first run, the next run's
 // documents load without one, and its reconciliation says so: SAP's open
-// payables under the trading partner against none on the platform.
+// payables and its documents' other lines under the trading partner
+// against none on the platform.
 func TestTradingPartnerOfAnEarlierRunsSupplier(t *testing.T) {
 	e := intercompanySetup(t)
 	first := intercompany()
@@ -412,7 +416,9 @@ func TestTradingPartnerOfAnEarlierRunsSupplier(t *testing.T) {
 	}
 	report := got["report"].(map[string]any)
 	if got, want := partnerChecks(report), "2000 Open payables by trading partner total: -90.00 EUR / 0.00 EUR false; "+
-		"2000 Open payables by trading partner: trading partners with differences: 0 / 1 false"; got != want {
+		"2000 Open payables by trading partner: trading partners with differences: 0 / 1 false; "+
+		"2000 Account balances by trading partner total: 90.00 EUR / 0.00 EUR false; "+
+		"2000 Account balances by trading partner: balances with differences: 0 / 3 false"; got != want {
 		t.Errorf("the checks by trading partner:\ngot  %s\nwant %s", got, want)
 	}
 	var diffs []string
@@ -420,7 +426,208 @@ func TestTradingPartnerOfAnEarlierRunsSupplier(t *testing.T) {
 		m := d.(map[string]any)
 		diffs = append(diffs, fmt.Sprintf("%s %s: %s / %s", m["company_code"], m["key"], m["sap"], m["platform"]))
 	}
-	if got, want := strings.Join(diffs, "; "), "2000 trading partner 1000: -90.00 EUR / 0.00 EUR"; got != want {
+	if got, want := strings.Join(diffs, "; "), "2000 trading partner 1000: -90.00 EUR / 0.00 EUR; "+
+		"2000 account 100000 trading partner 1000: -40.00 EUR / 0.00 EUR; 2000 account 140000 trading partner 1000: 15.00 EUR / 0.00 EUR; "+
+		"2000 account 520000 trading partner 1000: 115.00 EUR / 0.00 EUR"; got != want {
 		t.Errorf("the differences:\ngot  %s\nwant %s", got, want)
 	}
+}
+
+// withoutVendorLine is intercompany with two documents that have no
+// vendor line (po:2026-11-10): a recharge from company 1000 posted
+// between G/L accounts, 60.00, whose expense line names the trading
+// partner itself (ACDOCA-RASSC 001000) and whose bank line names none;
+// and one of 20.00 whose expense line names company ID 009000, which no
+// company code of the extract is assigned to.
+func withoutVendorLine() *sap.Extract {
+	x := intercompany()
+	line := func(belnr, docln, account, hsl, rassc string) sap.ACDOCA {
+		return sap.ACDOCA{RLDNR: "0L", RBUKRS: "2000", RWCUR: "EUR", GJAHR: "2026", BELNR: belnr, DOCLN: docln, RACCT: account, HSL: hsl, WSL: hsl,
+			BUDAT: "20261106", BLART: "SA", RASSC: rassc}
+	}
+	x.ACDOCA = append(x.ACDOCA, line("0100000005", "000001", "0000520000", "60.00", "001000"), line("0100000005", "000002", "0000100000", "-60.00", ""),
+		line("0100000006", "000001", "0000520000", "20.00", "009000"), line("0100000006", "000002", "0000100000", "-20.00", ""))
+	return x
+}
+
+// TestTradingPartnerFromTheLine: in documents mode a line the load posts
+// without a supplier carries the trading partner it names itself
+// (ACDOCA-RASSC; po:2026-11-10), so an intercompany document without a
+// vendor line arrives with its partner, on the line that names it alone;
+// a line naming a company that is no legal entity loads without one and
+// is warned of, per company and trading partner; the documents with a
+// vendor line keep theirs as before. The reconciliation proves the
+// balances per account and trading partner, and the same extract again
+// loads nothing. The same extract without RASSC loads as it did before:
+// the vendor's documents carry the trading partner of its master, the
+// documents without a vendor line none, and nothing is warned of.
+func TestTradingPartnerFromTheLine(t *testing.T) {
+	const tp = "1000 Acme Corp US"
+	vendors := "RE 520000 75.00 " + tp + "; RE 140000 15.00 " + tp + "; RE 225000 -90.00 " + tp + "; RE 520000 40.00 " + tp + "; RE 225000 -40.00 " + tp +
+		"; KZ 225000 40.00 " + tp + "; KZ 100000 -40.00 " + tp
+	for _, c := range []struct {
+		name            string
+		change          func(x *sap.Extract)
+		warnings        []string
+		lines, balances string
+	}{
+		{"with RASSC", func(*sap.Extract) {}, []string{"warning ACDOCA 2000/009000: journal lines of company 2000 name trading partner 009000 " +
+			"(ACDOCA-RASSC), which is the company ID of no company code in the extract (T001-RCOMP): lines 1, documents 1. They load without a trading " +
+			"partner of their own: with the one their document's vendor lines share, or without one where it has none or those name different ones, " +
+			"and a consolidation run lists a balance without one as no_trading_partner"},
+			vendors + "; SA 520000 60.00 " + tp + "; SA 100000 -60.00 -", "150.00"},
+		{"without RASSC", func(x *sap.Extract) {
+			for i := range x.ACDOCA {
+				x.ACDOCA[i].RASSC = ""
+			}
+		}, nil, vendors, "90.00"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := intercompanySetup(t)
+			x := withoutVendorLine()
+			c.change(x)
+			write(t, e.dir, "ic.json", x)
+			conn := e.connector(t, "ic.json")
+			_, got := e.act(t, e.run(t, conn, "documents", false, e.DE.String()), "start")
+			if got["status"] != "loaded" {
+				t.Fatalf("status: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			var findings []string
+			for _, i := range got["report"].(map[string]any)["quality"].([]any) {
+				m := i.(map[string]any)
+				findings = append(findings, fmt.Sprintf("%s %s %s: %s", m["severity"], m["table"], m["key"], m["message"]))
+			}
+			if got, want := strings.Join(findings, "\n"), strings.Join(c.warnings, "\n"); got != want {
+				t.Errorf("quality findings:\ngot  %s\nwant %s", got, want)
+			}
+			if got := e.tradingPartnerLines(t); got != c.lines {
+				t.Errorf("company 2000's entries naming company 1000:\ngot  %s\nwant %s", got, c.lines)
+			}
+			_, got = e.act(t, got, "reconcile")
+			if got["status"] != "reconciled" {
+				t.Fatalf("reconciliation: got %v, want reconciled: %v", got["status"], got["report"])
+			}
+			if got, want := partnerChecks(got["report"].(map[string]any)), "2000 Open payables by trading partner total: -90.00 EUR / -90.00 EUR true; "+
+				"2000 Open payables by trading partner: trading partners with differences: 0 / 0 true; "+
+				"2000 Account balances by trading partner total: "+c.balances+" EUR / "+c.balances+" EUR true; "+
+				"2000 Account balances by trading partner: balances with differences: 0 / 0 true"; got != want {
+				t.Errorf("the reconciliation's checks by trading partner:\ngot  %s\nwant %s", got, want)
+			}
+			entriesBefore := e.entries(t)
+			_, again := e.act(t, e.run(t, conn, "documents", false, e.DE.String()), "start")
+			if again["status"] != "loaded" {
+				t.Fatalf("the same extract again: got %v, want loaded: %v", again["status"], again["report"])
+			}
+			if n := e.entries(t); n != entriesBefore {
+				t.Errorf("journal entries after the same extract again: got %d, want %d", n, entriesBefore)
+			}
+			if got := e.tradingPartnerLines(t); got != c.lines {
+				t.Errorf("the entries naming company 1000 after the same extract again:\ngot  %s\nwant %s", got, c.lines)
+			}
+		})
+	}
+}
+
+// TestBalancesByTradingPartnerInBalancesMode: an opening entry's account
+// balances are grouped by the trading partner their SAP lines name
+// (ACDOCA-RASSC; po:2026-11-10), so an intercompany G/L balance arrives
+// with its partner: the expense account's balance comes as one line
+// without a trading partner and one of 60.00 with company 1000, the
+// recharge posted without a vendor line. Balances whose lines name none,
+// and the line naming a company that is no legal entity, which the gate
+// warns of, arrive without one, and so do the expense and tax lines of
+// the intercompany vendor's invoices: an opening entry gives its balances
+// nothing of its vendor items'. The reconciliation proves the balances by
+// account and trading partner, in the rehearsal and in the load, and the
+// ledger reports the balance with its partner. The same extract
+// without RASSC loads as it did before: no balance with a trading
+// partner and no check of them.
+func TestBalancesByTradingPartnerInBalancesMode(t *testing.T) {
+	const payables = "2000 Open payables by trading partner total: -90.00 EUR / -90.00 EUR true; " +
+		"2000 Open payables by trading partner: trading partners with differences: 0 / 0 true"
+	for _, c := range []struct {
+		name                   string
+		change                 func(x *sap.Extract)
+		warnings               int
+		checks, lines, balance string
+	}{
+		{"with RASSC", func(*sap.Extract) {}, 1, payables + "; 2000 Account balances by trading partner total: 60.00 EUR / 60.00 EUR true; " +
+			"2000 Account balances by trading partner: balances with differences: 0 / 0 true",
+			"100000 -12000 -, 140000 1500 -, 520000 16500 -, 520000 6000 1000, 225000 -9000 1000, 211000 -3000 -", "520000 1000 6000"},
+		{"without RASSC", func(x *sap.Extract) {
+			for i := range x.ACDOCA {
+				x.ACDOCA[i].RASSC = ""
+			}
+		}, 0, payables, "100000 -12000 -, 140000 1500 -, 520000 22500 -, 225000 -9000 1000, 211000 -3000 -", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := intercompanySetup(t)
+			x := withoutVendorLine()
+			c.change(x)
+			write(t, e.dir, "ic.json", x)
+			conn := e.connector(t, "ic.json")
+			_, got := e.act(t, e.run(t, conn, "balances", true, e.DE.String()), "start")
+			if got["status"] != "reconciled" {
+				t.Fatalf("rehearsal: got %v, want reconciled: %v", got["status"], got["report"])
+			}
+			report := got["report"].(map[string]any)
+			if n := len(report["quality"].([]any)); n != c.warnings {
+				t.Errorf("quality findings: got %v, want %d", report["quality"], c.warnings)
+			}
+			if c.warnings == 1 {
+				m := report["quality"].([]any)[0].(map[string]any)
+				if want := "journal lines of company 2000 name trading partner 009000 (ACDOCA-RASSC), which is the company ID of no company code in the " +
+					"extract (T001-RCOMP): lines 1, documents 1. They load without a trading partner of their own: without one in the opening entry's " +
+					"balances"; m["severity"] != "warning" || m["key"] != "2000/009000" || !strings.HasPrefix(m["message"].(string), want) {
+					t.Errorf("the warning: got %v, want a warning keyed 2000/009000 starting %q", m, want)
+				}
+			}
+			if got := partnerChecks(report); got != c.checks {
+				t.Errorf("the rehearsal's checks by trading partner:\ngot  %s\nwant %s", got, c.checks)
+			}
+			if _, got = e.act(t, e.run(t, conn, "balances", false, e.DE.String()), "start"); got["status"] != "loaded" {
+				t.Fatalf("load: got %v, want loaded: %v", got["status"], got["report"])
+			}
+			var lines string
+			pgtest.Scan(t, `SELECT string_agg(a.number || ' ' || l.amount_lc || ' ' || coalesce(le.code, '-'), ', ' ORDER BY l.line_no)
+				FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+				LEFT JOIN tenancy.legal_entity le ON le.tenant_id = l.tenant_id AND le.id = l.trading_partner_id
+				WHERE l.tenant_id = $1`, []any{e.Tenant.ID}, &lines)
+			if lines != c.lines {
+				t.Errorf("the opening entry's lines:\ngot  %s\nwant %s", lines, c.lines)
+			}
+			_, got = e.act(t, got, "reconcile")
+			if got["status"] != "reconciled" {
+				t.Fatalf("reconciliation: got %v, want reconciled: %v", got["status"], got["report"])
+			}
+			if got := partnerChecks(got["report"].(map[string]any)); got != c.checks {
+				t.Errorf("the load's checks by trading partner:\ngot  %s\nwant %s", got, c.checks)
+			}
+			if got := e.partnerBalance(t); got != c.balance {
+				t.Errorf("company 2000's balances with a trading partner on accounts without a supplier: got %q, want %q", got, c.balance)
+			}
+		})
+	}
+}
+
+// partnerBalance is what the ledger reports of company 2000's balances
+// by trading partner on the accounts that are no supplier reconciliation
+// accounts, as "account company amount", which a migration reconciles.
+func (e env) partnerBalance(t *testing.T) string {
+	t.Helper()
+	var out []string
+	if err := apitest.Committed(t, e.Tenant, e.Tenant.Human, func(ctx context.Context) error {
+		balances, err := ledger.Reports{}.BalancesByTradingPartner(ctx, e.DE, 2026)
+		for _, b := range balances {
+			code := "-"
+			if b.TradingPartner == e.US {
+				code = "1000"
+			}
+			out = append(out, fmt.Sprintf("%s %s %d", b.Account, code, b.Amount))
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return strings.Join(out, "; ")
 }

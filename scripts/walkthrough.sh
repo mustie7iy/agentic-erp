@@ -864,6 +864,7 @@ step_migrate() {
   parallel_run_extract
   small_item_refused "$connector"
   yen_item_rehearsed "$connector"
+  balances_by_partner_rehearsed "$connector"
   say "A rehearsal first: load, reconcile and roll back."
   show erp migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal
   "$ERP" migrate -connector "$connector" -legal-entities "$LE" -year "$YEAR" -rehearsal >"$WORK/rehearsal.out" 2>&1 ||
@@ -881,6 +882,7 @@ step_migrate() {
     'Open down payments total' 'Open down payments: vendors with differences' 'Open items in USD total' 'Open items in USD: vendors with differences' \
     'Open items fixing payment method T' 'Open items fixing payment method T total' 'Open items fixing payment method T: vendors with differences' \
     'Open payables by trading partner total' 'Open payables by trading partner: trading partners with differences' \
+    'Account balances by trading partner total' 'Account balances by trading partner: balances with differences' \
     'Open GR/IR total' 'Open GR/IR in USD total' 'Open GR/IR: order items with differences' \
     'Cost centers' 'Cost centers: centers with differences' 'Profit centers' 'Profit centers: centers with differences' \
     'Cost center totals: centers with differences' 'Profit center totals: centers with differences' 'Segment totals: segments with differences'; do
@@ -978,7 +980,8 @@ migration_group_company() {
 # which SAP's lines name it on (ACDOCA-RASSC), and the other lines of its
 # invoices, which SAP left without one; the credit memo Alex just posted
 # through payables carries it too; and the reconciliation compared the
-# open payables per trading partner with SAP's.
+# open payables per trading partner with SAP's. Then the line's own
+# (migrated_line_partner).
 migrated_trading_partner() {
   local lifnr documents with without
   as carla
@@ -997,16 +1000,77 @@ migrated_trading_partner() {
   if [ "$without" -eq 0 ]; then fail "the extract's intercompany documents have no line without a trading partner"; fi
   say "The load does not copy SAP's lines: the ledger derives each line's trading partner from the supplier and gives"
   say "the document's other lines the same, as for every posting on the platform. The journal lists Maple's entries"
-  say "naming company 2000, and every line of them carries it:"
+  say "naming company 2000, and every line of the vendor's documents carries it (the entry with a line naming none"
+  say "is the sale without a vendor line, below):"
   api 200 '.items[] | "  entry \(.document_number) of \(.posting_date), \(.header_text): \(.lines | length) lines, trading partner \([.lines[] | .trading_partner.code // "none"] | unique | join(", "))"' \
     listJournalEntries -p "legal_entity_id=$LE" -p "trading_partner_id=$IC_COMPANY" -p page_size=100
-  expect "the migrated documents among the entries naming company 2000" "$(field '[.items[] | select((.header_text // "") | startswith("SAP document"))] | length')" "$documents"
-  expect "the trading partners of those entries' lines" "$(field '[.items[].lines[] | .trading_partner.code // "none"] | unique | join(" ")')" 2000
+  cp "$WORK/last.json" "$WORK/partner_entries.json"
+  expect "the vendor's migrated documents among the entries naming company 2000" \
+    "$(field '[.items[] | select(((.header_text // "") | startswith("SAP document")) and ([.lines[] | select(.partner_id)] | length) > 0)] | length')" "$documents"
+  expect "the trading partners of the lines of the entries with a supplier line" \
+    "$(field '[.items[] | select([.lines[] | select(.partner_id)] | length > 0) | .lines[] | .trading_partner.code // "none"] | unique | join(" ")')" 2000
   expect "the lines SAP left without a trading partner, now carrying it" \
-    "$(field '[.items[] | select((.header_text // "") | startswith("SAP document")) | .lines | length] | add')" "$((with + without))"
+    "$(field '[.items[] | select(((.header_text // "") | startswith("SAP document")) and ([.lines[] | select(.partner_id)] | length) > 0) | .lines | length] | add')" "$((with + without))"
   say "The reconciliation compared the open payables per trading partner, SAP's as the vendor masters give them:"
   grep -E 'Open payables by trading partner' "$WORK/migrate.out" | sed 's/^/     /'
+  migrated_line_partner
   as ada
+}
+
+# balances_by_partner_rehearsed CONNECTOR rehearses the scope in balances
+# mode before the load (po:2026-11-10): the opening entry groups each
+# account's balance by the trading partner its SAP lines name
+# (ACDOCA-RASSC), so the revenue of the mock's intercompany sale, a
+# document without a vendor line, arrives as a balance with company 2000,
+# and the reconciliation's balances by account and trading partner show
+# it equal to SAP's. The rehearsal is rolled back; the load that follows
+# is in documents mode.
+balances_by_partner_rehearsed() {
+  local balance
+  balance=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "") | .HSL] | join(" ")' "$WORK/data/extract.json")
+  say "A cutover that takes over balances instead of documents loads one opening entry. An intercompany G/L balance"
+  say "then arrives with its trading partner too. SAP's lines without a vendor that name one (ACDOCA-RASSC):"
+  jq -r --arg cc "$CC" '.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "")
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.XBLNR): account \(.RACCT), \(.HSL) CAD, trading partner \(.RASSC)"' "$WORK/data/extract.json"
+  say "A rehearsal in balances mode groups each account's balance by the trading partner its lines name, and the"
+  say "reconciliation compares the balances per account and trading partner with SAP's:"
+  show erp migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -mode balances -rehearsal
+  "$ERP" migrate -connector "$1" -legal-entities "$LE" -year "$YEAR" -mode balances -rehearsal >"$WORK/balances.out" 2>&1 ||
+    { sed 's/^/     /' "$WORK/balances.out"; fail "the rehearsal in balances mode did not reconcile"; }
+  grep -E '^Migration run|by trading partner' "$WORK/balances.out" | sed 's/^/     /'
+  grep -E "Account balances by trading partner total +$balance CAD +$balance CAD +PASS$" "$WORK/balances.out" >/dev/null ||
+    { sed 's/^/     /' "$WORK/balances.out"; fail "the balance by trading partner did not reconcile as $balance CAD"; }
+  grep -E 'Account balances by trading partner: balances with differences +0 +0 +PASS$' "$WORK/balances.out" >/dev/null ||
+    fail "the balances by trading partner differ"
+}
+
+# migrated_line_partner shows the trading partner a migrated line names
+# itself (ACDOCA-RASSC; po:2026-11-10): the mock's sale of January is an
+# intercompany document without a vendor line, whose revenue line names
+# company 2000's company ID and whose bank line names none. The load posted
+# the revenue line with that trading partner and the bank line without
+# one, and the reconciliation compared the balances per account and
+# trading partner with SAP's, the lines the vendor's documents gave their
+# trading partner included. It reads the entries naming company 2000 that
+# migrated_trading_partner listed.
+migrated_line_partner() {
+  local belnr sale
+  belnr=$(jq -r --arg cc "$CC" '[.ACDOCA[] | select(.RBUKRS == $cc and (.LIFNR // "") == "" and (.RASSC // "") != "") | .BELNR] | unique | join(" ")' "$WORK/data/extract.json")
+  say "An intercompany document without a vendor line carries its trading partner too. In SAP a sale to the group's"
+  say "German company was posted between G/L accounts; its revenue line names the trading partner itself (RASSC):"
+  jq -r --arg cc "$CC" --arg d "$belnr" '.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == $d)
+    | "     ACDOCA \(.BELNR)/\(.DOCLN) \(.XBLNR): account \(.RACCT), \(.HSL) CAD, trading partner \(if (.RASSC // "") == "" then "none" else .RASSC end)"' "$WORK/data/extract.json"
+  expect "the vendor lines of SAP's document" "$(jq -r --arg cc "$CC" --arg d "$belnr" '[.ACDOCA[] | select(.RBUKRS == $cc and .BELNR == $d and (.LIFNR // "") != "")] | length' "$WORK/data/extract.json")" 0
+  say "The load takes a line's own trading partner where it posts the line without a supplier, so the migrated"
+  say "entry's revenue line names company 2000 and its bank line none:"
+  jq -r --arg h "SAP document $belnr" '.items[] | select(.header_text == $h) | "  entry \(.document_number) of \(.posting_date), \(.header_text) (\(.reference)):",
+    (.lines[] | "    line \(.line_no): \(.amount_lc.amount) \(.amount_lc.currency), trading partner \(if .trading_partner then "\(.trading_partner.code) \(.trading_partner.name)" else "none" end)")' \
+    "$WORK/partner_entries.json" | sed 's/^/   /'
+  sale=$(jq -r --arg h "SAP document $belnr" '[.items[] | select(.header_text == $h) | .lines[] | .trading_partner.code // "none"] | join(" ")' "$WORK/partner_entries.json")
+  expect "the trading partners of the migrated sale's lines" "$sale" "none 2000"
+  say "The reconciliation compared the balances per account and trading partner: SAP's lines under the trading"
+  say "partner they name, or else their document's vendor line's, against the platform's journal lines:"
+  grep -E 'Account balances by trading partner' "$WORK/migrate.out" | sed 's/^/     /'
 }
 
 # migrated_centers shows SAP's controlling master data as the load brought

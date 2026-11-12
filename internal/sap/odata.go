@@ -56,8 +56,10 @@ var DefaultEntities = []EntityMapping{
 	// ID it names, are not mapped: the SAP specialist named the tables'
 	// fields (po:2026-11-09, A2) and no property of A_Supplier or
 	// A_CompanyCode for them, and of the journal item only PartnerCompany
-	// for ACDOCA-RASSC at low confidence (A7 [L]), which the load does not
-	// post. So an OData extract links no supplier to a group company; the
+	// for ACDOCA-RASSC at low confidence (A7 [L]), which stays unmapped
+	// until the pilot's $metadata confirms it: without RCOMP it would name
+	// no legal entity anyway. So an OData extract links no supplier to a
+	// group company and gives no line a trading partner of its own; the
 	// extract says so (NoTradingPartners) and the quality gate reports it
 	// (ADR-0059 As built; docs/migration.md, "What to check").
 	{Table: "LFA1", Service: "API_BUSINESS_PARTNER", Entity: "A_Supplier",

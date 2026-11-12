@@ -2444,6 +2444,101 @@ posting port gains one option, `Posting.Collective` (below).
   vendor line (loans, recharges between G/L accounts) and, in balances
   mode, the balances of intercompany G/L accounts load without a trading
   partner; a run that links a supplier loaded earlier; the OData mapping.
+  The first two were approved on 2026-11-10 and are built (the next two
+  paragraphs).
+
+**A migrated line's own trading partner, documents mode (po:2026-11-10;
+step a2b).** The product owner approved the first case the migration leaf
+left: an intercompany document without a vendor line carries its
+partner. Built in `internal/integration` (`tradingpartner.go`,
+`partnerbalances.go`, `load.go`) and `ledger.Reports.BalancesByTradingPartner`;
+no migration, and the ledger's posting port is unchanged (the load fills
+`PostingLine.TradingPartner`, T68b's field).
+- **What changes.** In documents mode a line the load posts without a
+  supplier (any line not on a supplier reconciliation account) is posted
+  with the trading partner it names itself, ACDOCA-RASSC [H] (A2(b)),
+  when its company ID names a legal entity of the tenant other than the
+  line's own company. It supersedes "RASSC is not posted" and "lines
+  carrying RASSC in documents without a vendor line load without a
+  trading partner" above, for documents mode.
+- **What stays, decided by default.** A2's recommendation holds where
+  SAP's lines are silent: a line SAP left without RASSC still takes its
+  document's vendor lines' through §4's propagation, which fills only
+  lines naming none, so a line's own wins over its document's. A vendor
+  line keeps its supplier's group company, whatever its RASSC: §4
+  derives a partner line's trading partner from its business partner
+  and refuses another (`ledger.trading_partner_conflict`), and the gate
+  warns of the difference as before. The partner is given only to the
+  lines that name it, not to the rest of a document without a vendor
+  line: nothing says which of them are balances with the other company
+  (the bank line of an intercompany sale is not).
+- **How a RASSC names a legal entity.** As a VBUND does, through the
+  company code T001-RCOMP assigns to the company ID. RCOMP is still
+  stated from memory and unconfirmed; this step resolves a second field
+  through it and builds no further on it.
+- **A RASSC the load cannot give, decided by default: a warning.** One
+  that names no legal entity, or the line's own company (the ledger
+  refuses a line naming its own company, `ledger.trading_partner_invalid`):
+  the line loads without a trading partner of its own, and the gate warns
+  per company code and trading partner (`<BUKRS>/<RASSC>`) with the
+  reason, lines and documents.
+- **Reconciliation.** A second control beside the open payables, shown
+  where either side has any: the balances per account and trading
+  partner of the lines posted without a supplier (`Account balances by
+  trading partner total`, `...: balances with differences`; differences
+  keyed `account <number> trading partner <company code>` or `...
+  <id>`). SAP's side takes each line under the trading partner the load
+  gives it, its own or else the one its document's vendor masters give
+  it; the platform's side is its journal lines of the fiscal year, read
+  from the lines, not from `ledger.trading_partner_balance`, which holds
+  projected entries only. It also proves, for the first time, the
+  expense and tax lines the vendor's documents gave their trading
+  partner.
+- **Balances mode** follows in the next paragraph.
+- **Mock and walkthrough.** The revenue line of company 3000's sales
+  document of January names 002000 (a sale to the German company posted
+  between G/L accounts); no row or amount was added. Step 3 shows SAP's
+  two lines, the migrated entry's revenue line with trading partner 2000
+  and its bank line with none, and the new checks.
+- **Tests.** `TestTradingPartnerFromTheLine` (with RASSC, and the same
+  extract without it loading as before), `TestOwnPartner`,
+  `TestPartnerBalancesReconciliation`, `TestDerivedPartners`,
+  the gate's cases in `TestTradingPartnersReported`, and
+  `TestBalancesByTradingPartner` in the ledger.
+
+**Balances by trading partner in balances mode (po:2026-11-10; step
+a2b).** The second case: an intercompany G/L balance arrives with its
+partner instead of without one.
+- **What changes.** The opening entry's account balances are grouped by
+  account and by the trading partner their SAP lines name themselves
+  (ACDOCA-RASSC, resolved as above): one line per account and trading
+  partner, the account's balance without one first, then by the partner's
+  company code; a balance of zero is left out. A document that posts on
+  its own in balances mode takes its lines' own as in documents mode.
+- **What stays.** The entry is still collective (above): a balance takes
+  only the trading partner its own lines name, never its documents'
+  vendor items', so the expense and tax lines SAP left without RASSC load
+  without one in balances mode. Decided by default: deriving them would
+  mean splitting every balance by document, which is documents mode.
+  The open vendor items keep their supplier's.
+- **Gate and reconciliation.** The gate's warning of a RASSC the load
+  cannot give is the same in both modes and says what the run's mode
+  loads the lines with; the two warnings of a balances run's lines that
+  the migration leaf had (lines in documents without a vendor line, lines
+  carrying another than their document's) are gone with their cause. The
+  control `Account balances by trading partner` covers the opening
+  entry: SAP's lines by account and own trading partner against the
+  platform's.
+- **An extract without RASSC** loads as before: no balance carries a
+  trading partner and the control is not shown.
+- **Walkthrough.** Step 3 rehearses the scope in balances mode before
+  the load: the control shows Maple's revenue from company 2000 as a
+  balance by trading partner, equal to SAP's.
+- **Tests.** `TestBalancesByTradingPartnerInBalancesMode` (with RASSC and
+  without), `TestTradingPartnerInBalancesMode` and
+  `TestTradingPartnerInAnOpeningEntryOfIntercompanyItemsAlone` unchanged.
+- **Not built.** A run that links a supplier loaded earlier; the OData
+  mapping; anything in consolidation.
 
 **The budgets' seeding and guard (fix forward, main's run 43007697247,
 ci:batch64).** `TestConsolidatedStatementBudget` failed on main with its

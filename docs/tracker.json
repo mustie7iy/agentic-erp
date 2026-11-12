@@ -9818,6 +9818,20 @@
      },
      {
       "s": "D",
+      "t": "A migrated line's own trading partner in documents mode (po:2026-11-10; the first case the trading partner leaf left): a line the load posts without a supplier carries the trading partner it names itself (ACDOCA-RASSC [H], the SAP specialist's A2), mapped to the tenant's legal entity as a vendor's VBUND is (the company code T001-RCOMP assigns to the company ID; RCOMP still from memory), so an intercompany document without a vendor line arrives with its partner; a vendor line keeps its supplier's and a line SAP left without one its document's vendor lines'; a RASSC that names no legal entity or the line's own company is a warning per company code and trading partner; the reconciliation compares the balances per account and trading partner of the lines posted without a supplier; an extract without RASSC loads as before",
+      "r": "ADR-0059 As built (a migrated line's own trading partner, documents mode) · internal/integration tradingpartner.go (target.ownPartner, groupCompanies, otherLines), partnerbalances.go (the control), load.go (journalPosting) · ledger Reports.BalancesByTradingPartner · internal/sap mock.go (intercompanySale) · api/openapi.yaml (MigrationDiff.key) · TestTradingPartnerFromTheLine · TestOwnPartner · TestPartnerBalancesReconciliation · TestBalancesByTradingPartner · docs/migration.md · walkthrough step 3 (migrated_line_partner) · step a2b",
+      "src": "po:2026-11-10",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "Balances by trading partner in balances mode (po:2026-11-10; the second case the trading partner leaf left): an opening entry's account balances are loaded grouped by the trading partner their SAP lines name (ACDOCA-RASSC), so an intercompany G/L balance arrives with its partner instead of without one, and the reconciliation's balances per account and trading partner cover it; a balance takes only the trading partner its own lines name, never its documents' vendor items' (the entry is collective), and an extract without RASSC loads as before",
+      "r": "ADR-0059 As built (balances by trading partner in balances mode) · internal/integration load.go (openingLines, openingBalances), tradingpartner.go (otherLines), partnerbalances.go · TestBalancesByTradingPartnerInBalancesMode · docs/migration.md · walkthrough step 3 (balances_by_partner_rehearsed) · step a2b",
+      "src": "po:2026-11-10",
+      "c": []
+     },
+     {
+      "s": "D",
       "t": "SAP's noted items are not posted or counted (ACDOCA-BSTAT S, such as down payment requests, special G/L F): they post nothing to the G/L in SAP (SAP specialist, po:2026-11-09, A14 [H], A15 [M]), but the load read them as journal lines, so a one-sided request stopped the run as unbalanced and a noted document that balanced was posted with an open payable; the scope sets them aside, in both modes nothing posts, sums or counts one, and the quality gate reports them as warnings, per company and each open one",
       "r": "internal/sap FilterScope, Extract.Noted, StatusNoted · internal/integration noted.go (qualityCheck.noted), recaccounts.go · TestNotedItemsAreNotMigrated (mock extract, both modes), TestNotedItemsReported, TestFilterScopeKeepsTheLeadingLedger · ADR-0037 As built (SAP's noted items are not migrated, bstat) · ADR-0060 §9 · docs/migration.md (noted items; what to check: BSTAT's other values, whether ACDOCA holds noted items)",
       "src": "review:batch63",
