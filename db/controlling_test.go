@@ -33,8 +33,9 @@ func TestControllingRules(t *testing.T) {
 			[]any{f.bank}, "gl_account_cost_element"},
 		"a revenue element on an expense": {`UPDATE ledger.gl_account SET cost_element = 'revenue', version = version + 1 WHERE id = $1`,
 			[]any{f.expense}, "gl_account_cost_element"},
-		"a secondary cost element": {`UPDATE ledger.gl_account SET cost_element = 'secondary', version = version + 1 WHERE id = $1`,
-			[]any{f.expense}, "gl_account_cost_element"},
+		// Since T60g an expense account may be a secondary cost element, but only from its creation (migration 000277).
+		"an account turned into a secondary cost element": {`UPDATE ledger.gl_account SET cost_element = 'secondary', version = version + 1 WHERE id = $1`,
+			[]any{f.expense}, "a secondary cost element is one from its creation and stays one"},
 		"a category code SAP cannot hold": {`INSERT INTO ledger.cost_center_category (tenant_id, code, name, created_by, updated_by) VALUES ($1, 'sales', 'S', $2, $2)`,
 			[]any{f.tenant, f.actor}, "cost_center_category_code_check"},
 		"a category without a name": {`INSERT INTO ledger.cost_center_category (tenant_id, code, name, created_by, updated_by) VALUES ($1, 'SALES', '', $2, $2)`,

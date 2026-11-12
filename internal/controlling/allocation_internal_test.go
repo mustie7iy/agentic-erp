@@ -12,8 +12,6 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
 	"github.com/mustie7iy/agentic-erp/internal/money"
-	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
-	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 )
 
 // TestBasisPoints: a percentage is read exactly, above 0 and at most 100
@@ -96,13 +94,78 @@ func TestDistributionLines(t *testing.T) {
 	}
 }
 
-// TestDistributionBeyondAnAmount: a run whose total does not fit in an
-// amount ends before anything is posted.
-func TestDistributionBeyondAnAmount(t *testing.T) {
-	e := &Endpoints{Ledger: validCenters{}}
-	c := cycle{ID: uuid.New(), SenderID: uuid.New(), Receivers: []cycleReceiver{{CostCenterID: uuid.New(), ShareBP: wholeBP}}}
-	_, err := e.distribute(context.Background(), nil, reqctx.Principal{}, c, tenancy.Entity{}, ledger.FiscalPeriod{},
-		[]accountCost{{AccountID: uuid.New(), Amount: math.MaxInt64}, {AccountID: uuid.New(), Amount: 1}})
+// TestAssessmentLines: the sender is credited with the total of its costs
+// and the receivers are debited with shares that add up to it to the
+// minor unit, all on the assessment account; a share that rounds to
+// nothing has no line; a credit total is charged as one; costs that add
+// up to nothing have no lines; a total beyond an amount is an error.
+func TestAssessmentLines(t *testing.T) {
+	s, a, b, c := uuid.New(), uuid.New(), uuid.New(), uuid.New()
+	x, y, z := uuid.New(), uuid.New(), uuid.New()
+	names := map[uuid.UUID]string{s: "S", a: "A", b: "B", c: "C", z: "z"}
+	thirds := cycle{Kind: CycleAssessment, SenderID: s, AssessmentID: &z,
+		Receivers: []cycleReceiver{{CostCenterID: a, ShareBP: 3333}, {CostCenterID: b, ShareBP: 3333}, {CostCenterID: c, ShareBP: 3334}}}
+	sixty := cycle{Kind: CycleAssessment, SenderID: s, AssessmentID: &z, Receivers: []cycleReceiver{{CostCenterID: a, ShareBP: 6000}, {CostCenterID: b, ShareBP: 4000}}}
+	for name, tc := range map[string]struct {
+		cycle cycle
+		costs []accountCost
+		want  string
+		total money.Minor
+	}{
+		"sixty and forty of two accounts' odd cent": {sixty, []accountCost{{AccountID: x, Amount: 10001}, {AccountID: y, Amount: 5000}}, "z -15001 S; z 9001 A; z 6000 B", 15001},
+		"thirds of a hundred and one":               {thirds, []accountCost{{AccountID: x, Amount: 10001}}, "z -10001 S; z 3333 A; z 3333 B; z 3335 C", 10001},
+		"one cent goes to one receiver":             {sixty, []accountCost{{AccountID: x, Amount: 1}}, "z -1 S; z 1 A", 1},
+		"a credit total is charged as one":          {sixty, []accountCost{{AccountID: x, Amount: 500}, {AccountID: y, Amount: -10501}}, "z 10001 S; z -6001 A; z -4000 B", -10001},
+		"costs that add up to nothing":              {sixty, []accountCost{{AccountID: x, Amount: 500}, {AccountID: y, Amount: -500}}, "", 0},
+		"no costs":                                  {sixty, nil, "", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lines, total, err := runLines(tc.cycle, tc.costs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := make([]string, len(lines))
+			var balance money.Minor
+			for i, l := range lines {
+				got[i] = lineOf(l, names)
+				balance += l.Amount
+			}
+			if s := strings.Join(got, "; "); s != tc.want {
+				t.Errorf("lines: got %s, want %s", s, tc.want)
+			}
+			if total != tc.total {
+				t.Errorf("total: got %d, want %d", total, tc.total)
+			}
+			if balance != 0 {
+				t.Errorf("the assessment account: got a balance of %d, want 0", balance)
+			}
+		})
+	}
+	_, _, err := runLines(sixty, []accountCost{{AccountID: x, Amount: math.MaxInt64}, {AccountID: y, Amount: 1}})
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("a total beyond an amount: got %v, want an overflow", err)
+	}
+	// The most negative amount has no magnitude an amount can hold.
+	_, _, err = runLines(sixty, []accountCost{{AccountID: x, Amount: math.MinInt64}})
+	if !errors.Is(err, money.ErrOverflow) {
+		t.Errorf("shares of a total beyond an amount: got %v, want an overflow", err)
+	}
+}
+
+// TestRunLinesOfADistribution: a cycle that is no assessment is charged
+// account by account, and a total that does not fit in an amount ends the
+// run before anything is posted.
+func TestRunLinesOfADistribution(t *testing.T) {
+	c := cycle{ID: uuid.New(), Kind: CycleDistribution, SenderID: uuid.New(), Receivers: []cycleReceiver{{CostCenterID: uuid.New(), ShareBP: wholeBP}}}
+	x := uuid.New()
+	lines, total, err := runLines(c, []accountCost{{AccountID: x, Amount: 700}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 2 || lines[0].AccountID != x || lines[1].AccountID != x || total != 700 {
+		t.Errorf("a distribution's lines: got %v and a total of %d, want two lines on the cost's account and 700", lines, total)
+	}
+	_, _, err = runLines(c, []accountCost{{AccountID: uuid.New(), Amount: math.MaxInt64}, {AccountID: uuid.New(), Amount: 1}})
 	if !errors.Is(err, money.ErrOverflow) {
 		t.Errorf("got %v, want an overflow and nothing posted", err)
 	}
@@ -131,7 +194,7 @@ func (l *pagedLedger) CostCenterActuals(_ context.Context, q ledger.ActualsQuery
 	return rows[:min(len(rows), q.Limit)], nil
 }
 
-func (l *pagedLedger) CostAccounts(_ context.Context, ids []uuid.UUID) (map[uuid.UUID]ledger.CostAccount, error) {
+func (l *pagedLedger) CostAccounts(_ context.Context, _ uuid.UUID, ids []uuid.UUID) (map[uuid.UUID]ledger.CostAccount, error) {
 	out := map[uuid.UUID]ledger.CostAccount{}
 	for i, id := range ids {
 		out[id] = ledger.CostAccount{Number: fmt.Sprintf("%06d", len(ids)-i), PrimaryCost: !l.other[id]}

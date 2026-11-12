@@ -112,7 +112,10 @@ type Handler interface {
 	// `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every
 	// replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that
 	// the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new
-	// account becomes an asset reconciliation account.
+	// account becomes an asset reconciliation account. An existing account whose cost element becomes
+	// `secondary`, or a secondary cost element given another cost element, is refused (409
+	// `ledger.secondary_account_not_new`, ADR-0064 §4): an account is a secondary cost element from its
+	// creation and stays one.
 	//
 	// POST /v1/change-requests/{id}:activate
 	ActivateChangeRequest(ctx context.Context, params ActivateChangeRequestParams) (ActivateChangeRequestRes, error)
@@ -485,12 +488,18 @@ type Handler interface {
 	//
 	// Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver
 	// cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to.
-	// The kind is `distribution`: a run moves the sender's primary costs to the receivers on their
-	// original accounts. The code is unique in the legal entity (409
-	// `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose
-	// field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a
-	// sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or
-	// `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
+	// The kind is `distribution`, whose run moves the sender's primary costs to the receivers on their
+	// original accounts, or `assessment`, whose run charges them to the receivers in one amount on the
+	// cycle's assessment account and leaves them on the sender's accounts. An assessment cycle names its
+	// assessment account, `assessment_account_id`: an active account of the legal entity whose cost
+	// element is `secondary` (ADR-0064 §4), which only allocations post to; a distribution names none.
+	// The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422
+	// `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind that is
+	// neither (`kind`, `unsupported`); an assessment without its account (`assessment_account_id`,
+	// `required`), with one that is no account of the legal entity (`unknown`), not a secondary cost
+	// element (`not_secondary`) or not active (`not_active`), and a distribution with one (`not_allowed`);
+	// a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id`
+	// or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the
 	// sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100
 	// with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to
 	// 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422
@@ -3898,18 +3907,20 @@ type Handler interface {
 	// At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's
 	// entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account
 	// determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it.
-	// It posts to every ledger its company keeps as linked entries of one posting group sharing the
-	// document number (`posting_group_id`), each period checked open in its ledger, and returns the
-	// leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to
-	// those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales
-	// here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its
-	// `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines'
-	// subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per
-	// component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an
-	// adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are
-	// recorded as tax items at rate 0. People and service principals post here; an agent never does,
-	// whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is
-	// refused for its autonomy first), and proposes entries by parking them.
+	// A line on a secondary cost element (an account whose cost element is `secondary`, ADR-0064 §4) is
+	// 422 `ledger.secondary_account`: only allocations post to it (`allocation-cycles/{id}:run`). It posts
+	// to every ledger its company keeps as linked entries of one posting group sharing the document number
+	// (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's;
+	// `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers
+	// only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry
+	// per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each
+	// output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the
+	// tax its base lines give at the rates of the tax date, within one minor unit per component, or 422
+	// `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone.
+	// Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at
+	// rate 0. People and service principals post here; an agent never does, whatever its level or
+	// permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is refused for its autonomy
+	// first), and proposes entries by parking them.
 	//
 	// POST /v1/journal-entries
 	PostJournalEntry(ctx context.Context, req *JournalEntryCreate, params PostJournalEntryParams) (PostJournalEntryRes, error)
@@ -4650,29 +4661,38 @@ type Handler interface {
 	RotateWebhookSubscriptionSecret(ctx context.Context, params RotateWebhookSubscriptionSecretParams) (RotateWebhookSubscriptionSecretRes, error)
 	// RunAllocationCycle implements runAllocationCycle operation.
 	//
-	// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution
-	// reads the sender's primary costs of the period, per account, from the leading ledger (what the cost
-	// center report shows on primary cost accounts) and posts one journal entry in the legal entity's
-	// local currency through the ledger (source context `controlling`, document type `SA`, dated the
-	// period's last day): per account, the sender credited with its cost and each receiver debited with
-	// its share on the same account, so the entry balances per account and every account's balance is
-	// unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares
-	// add up to it to the minor unit (largest remainder). A sender without costs in the period posts
-	// nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run
-	// per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
+	// Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A run reads the
+	// sender's primary costs of the period, per account, from the leading ledger (what the cost center
+	// report shows on primary cost accounts) and posts one journal entry in the legal entity's local
+	// currency through the ledger (source context `controlling`, document type `SA`, dated the period's
+	// last day). A distribution's entry has, per account, the sender credited with its cost and each
+	// receiver debited with its share on the same account, so the entry balances per account and every
+	// account's balance is unchanged; an account's cost is split by the receivers' percentages and rounded
+	// so that the shares add up to it to the minor unit (largest remainder). An assessment's entry is on
+	// the cycle's assessment account alone: the sender credited with the total of its primary costs and
+	// each receiver debited with its share of that total, split and rounded the same way, so the entry
+	// balances on the account; the sender's primary costs stay on their accounts, and the cost center
+	// report shows the sender relieved, and the receivers charged, on the assessment account. A sender
+	// without costs in the period, or for an assessment with costs that add up to nothing, posts nothing:
+	// `posted` is false and no run is kept, so the cycle may be run for the period later. One run per
+	// cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's
 	// entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the
 	// sender is held under a row lock while one of them runs, so two runs of a cycle for one period never
 	// both post, and two cycles of one sender run at once follow one another: the second moves what the
-	// first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period
-	// that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver
-	// that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming
-	// it); and what the ledger refuses of any entry, among them a period that is not open (409
-	// `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A
-	// cost posted to the sender in the period after its run stays on the sender. The run is kept
-	// (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal
-	// entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so
-	// besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403
-	// `identity.permission_missing` otherwise). Agents may not run a cycle.
+	// first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that
+	// sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the
+	// assessment's cycle and entry): the sender's primary costs are still on their accounts, and another
+	// run would charge them a second time. Refused besides: a fiscal year not set up (422
+	// `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422
+	// `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day
+	// (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any
+	// entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for
+	// actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its
+	// run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as
+	// AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing
+	// (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs
+	// `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may
+	// not run a cycle.
 	//
 	// POST /v1/allocation-cycles/{id}:run
 	RunAllocationCycle(ctx context.Context, req *AllocationCycleRun, params RunAllocationCycleParams) (RunAllocationCycleRes, error)

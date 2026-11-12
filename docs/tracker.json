@@ -3326,9 +3326,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "A controller runs an assessment cycle: the sender's costs of the period are charged to the receivers on the cycle's assessment account, a secondary cost element",
-        "r": "T60g · docs/design/plan-breadth-week1.md §T60g",
+        "r": "T60g · docs/design/plan-breadth-week1.md §T60g · migration 000277 · internal/controlling/allocation.go, allocationrun.go · internal/ledger/secondaryaccounts.go · internal/config/controlling.go · ADR-0064 §4, §5 · scripts/walkthrough.sh step_assessment",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },

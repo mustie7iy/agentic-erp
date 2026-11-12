@@ -6091,6 +6091,104 @@ step_distribution() {
   passed
 }
 
+# step_assessment: an assessment cycle and its run (ADR-0064 §4-§5, T60g):
+# Ada adds a secondary cost element to Maple's chart through a governed
+# change, an account only allocations post to; Sam sets up a cost center
+# for the facilities, Alex posts its rent, and a manual entry on the new
+# account is refused. Carla defines an assessment cycle that charges the
+# facilities' costs to the finance office and the sales office at 70 and
+# 30 percent and runs it for this period: one entry on the assessment
+# account relieves the sender and charges the receivers, in one amount
+# each, the shares adding up to the cost to the cent; the rent stays on
+# its account. The centers' reports show the assessment account's lines,
+# and a sender assessed for a period is not run for it again.
+step_assessment() {
+  heading "Step 53 — An assessment cycle: a cost center's costs of the period are charged to two others in one amount each on a secondary cost element, and stay on their accounts"
+  local base first second sender expense bank secondary cycle tag period entry before_first before_second other
+  as ada
+  say "An assessment is posted on a secondary cost element (ADR-0064 §4): an account of the chart that only"
+  say "allocations post to. Maple's chart has none, so Ada proposes account 6990, a change of the chart, tier 4, with"
+  say "its evidence and two approvers:"
+  api 200 '"active configuration version \(.items[0].number)"' listConfigVersions -p is_active=true
+  base=$(field '.items[0].number')
+  jq "{title: \"Assessment account\", rationale: \"Assessment cycles of the pilot company (T60g)\", base_version: $base,
+    proposed: (.items[0].document | (.companies[] | select(.code == \"$CC\")) |= (.chart_of_accounts += [{\"number\": \"6990\", \"name\": \"Assessed facility costs\", \"type\": \"expense\", \"cost_element\": \"secondary\"}
+      + if any(.chart_of_accounts[]; .group_account) then {group_account: \"G5000\"} else {} end]))}" "$WORK/last.json" >"$WORK/assessment.json"
+  api 201 '"change request \(.number), \(.status): \(.title)"' createChangeRequest -body @assessment.json
+  governed "$(field .id)" "the assessment account"
+  as sam
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1100
+  first=$(field '.items[0].id')
+  QUIET=1 api 200 '' listCostCenters -p "legal_entity_id=$LE" -p code=CC-1300
+  second=$(field '.items[0].id')
+  say "Sam sets up cost center CC-1400 for the facilities, whose costs the offices bear; Carla approves it."
+  api 201 '"cost center \(.code) \(.name): \(.status)"' createCostCenter \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"CC-1400\", \"name\": \"Facilities\", \"responsible\": \"Carla Controller\", \"category\": \"ADMIN\", \"valid_from\": \"$YEAR-01-01\", \"reason\": \"The offices' premises\"}"
+  sender=$(field .id)
+  center_approved sam
+  as alex
+  accounts
+  expense=$(account 510000)
+  bank=$(account 100000)
+  secondary=$(account 6990)
+  say "Alex posts this month's rent, CAD 1,000.01, to the facilities' cost center. A manual entry on the assessment"
+  say "account is refused: only allocations post to it."
+  api 201 '"journal entry \(.document_number): \([.lines[] | "\(.account_id | acct) \(.amount.amount) \(.amount.currency)\(if .cost_center_code then " on cost center \(.cost_center_code)" else "" end)"] | join(" / "))"' postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"header_text\": \"Rent\", \"lines\": [{\"account_id\": \"$expense\", \"amount\": {\"amount\": \"1000.01\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$sender\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-1000.01\", \"currency\": \"CAD\"}}]}"
+  refused 422 ledger.secondary_account postJournalEntry \
+    -body "{\"legal_entity_id\": \"$LE\", \"document_date\": \"$TODAY\", \"posting_date\": \"$TODAY\", \"currency\": \"CAD\", \"lines\": [{\"account_id\": \"$secondary\", \"amount\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"cost_center_id\": \"$first\"}, {\"account_id\": \"$bank\", \"amount\": {\"amount\": \"-10.00\", \"currency\": \"CAD\"}}]}"
+  expect "the refused line" "$(field '.errors[0] | "\(.field) \(.code)"')" "lines[0].account_id secondary_cost_element"
+  as carla
+  say "Carla defines an assessment cycle: as a distribution's, one sender and receivers with percentages, and besides"
+  say "the assessment account, which a cycle of this kind must name:"
+  refused 422 controlling.allocation_cycle_invalid createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FACILITIES\", \"name\": \"Facilities to the offices\", \"kind\": \"assessment\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"70\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"30\"}]}"
+  expect "why the cycle is refused" "$(field '.errors[0] | "\(.field) \(.code)"')" "assessment_account_id required"
+  api 201 '"cycle \(.code) \(.name) (\(.kind) on account \(.assessment_account_number)): from \(.sender_cost_center_code) to \([.receivers[] | "\(.cost_center_code) \(.percentage) %"] | join(", "))"' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FACILITIES\", \"name\": \"Facilities to the offices\", \"kind\": \"assessment\", \"assessment_account_id\": \"$secondary\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"70\"}, {\"cost_center_id\": \"$second\", \"percentage\": \"30\"}]}"
+  cycle=$(field .id)
+  tag=$ETAG
+  expect "the cycle's kind, account, sender and receivers" \
+    "$(field '"\(.kind) \(.assessment_account_id) \(.assessment_account_number) \(.sender_cost_center_code) \([.receivers[] | "\(.cost_center_code) \(.percentage)"] | join(" "))"')" \
+    "assessment $secondary 6990 CC-1400 CC-1100 70.00 CC-1300 30.00"
+  QUIET=1 api 200 '' listFiscalPeriods -p "legal_entity_id=$LE" -p "fiscal_year=$YEAR" -p "ledger_id=$LEADING" -p page_size=100
+  period=$(field "[.items[] | select(.is_special | not) | select(.start_date <= \"$TODAY\" and .end_date >= \"$TODAY\") | .period][0]")
+  before_first=$(center_costs "$first" "$secondary")
+  before_second=$(center_costs "$second" "$secondary")
+  say "She runs the cycle for this period, $YEAR/$period. One journal entry, dated the period's last day and all on the"
+  say "assessment account, credits the sender with the total of its costs and debits each receiver with its share."
+  say "70 percent of CAD 1,000.01 is 700.007 and 30 percent is 300.003: the shares are rounded so that they add up to"
+  say "the total to the cent."
+  api 200 '"cycle \(.allocation_cycle_code) run for \(.fiscal_year)/\(.fiscal_period): \(.run.amount.amount) \(.run.amount.currency) from \(.run.sender_cost_center_code), the costs of \(.run.account_count) account, entry \(.run.journal_entry_number) dated \(.run.posting_date)"' \
+    runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  expect "what the run charged" "$(field '"\(.posted) \(.run.amount.amount) \(.run.amount.currency) \(.run.sender_cost_center_code) \(.run.account_count) \(.run.kind)"')" \
+    "true 1000.01 CAD CC-1400 1 assessment"
+  entry=$(field .run.journal_entry_id)
+  api 200 '"entry \(.document_number) (\(.source_context)) on \(.posting_date): \([.lines[] | "\(.account_id | acct) \(.amount.amount) on cost center \(.cost_center_code)"] | join(" / "))"' \
+    getJournalEntry -p "id=$entry"
+  expect "the run's entry: the sender credited, the receivers debited with their shares, on the assessment account" \
+    "$(field '[.lines[] | "\(.account_id) \(.amount.amount) \(.cost_center_code)"] | join("; ")')" \
+    "$secondary -1000.01 CC-1400; $secondary 700.01 CC-1100; $secondary 300.00 CC-1300"
+  say "The centers' reports show the assessment account's lines; the rent stays on its account, on the sender:"
+  say "  CC-1400: account 510000 $(cents_plain "$(center_costs "$sender" "$expense")") CAD, account 6990 a credit of $(cents_plain $((-$(center_costs "$sender" "$secondary")))) CAD"
+  say "  CC-1100: account 6990 $(cents_plain $(($(center_costs "$first" "$secondary") - before_first))) CAD; CC-1300: account 6990 $(cents_plain $(($(center_costs "$second" "$secondary") - before_second))) CAD"
+  expect "the sender's rent left on its account, in cents" "$(center_costs "$sender" "$expense")" 100001
+  expect "the sender relieved on the assessment account, in cents" "$(center_costs "$sender" "$secondary")" -100001
+  expect "the first receiver charged on the assessment account, in cents" "$(($(center_costs "$first" "$secondary") - before_first))" 70001
+  expect "the second receiver charged on the assessment account, in cents" "$(($(center_costs "$second" "$secondary") - before_second))" 30000
+  say "The rent is still on the sender's account, so no cycle of the sender is run for the period again: a second"
+  say "run, of this cycle or of a distribution of the same sender, would charge it twice."
+  refused 409 controlling.allocation_run_exists runAllocationCycle -p "id=$cycle" -if-match "$tag" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  QUIET=1 api 201 '' createAllocationCycle \
+    -body "{\"legal_entity_id\": \"$LE\", \"code\": \"FAC-MOVE\", \"name\": \"Facilities moved to the finance office\", \"kind\": \"distribution\", \"sender_cost_center_id\": \"$sender\", \"receivers\": [{\"cost_center_id\": \"$first\", \"percentage\": \"100\"}]}"
+  other=$(field .id)
+  refused 409 controlling.allocation_sender_assessed runAllocationCycle -p "id=$other" -if-match "$ETAG" -body "{\"fiscal_year\": $YEAR, \"fiscal_period\": $period}"
+  api 200 '.items[] | "  run of \(.allocation_cycle_code) (\(.kind)) for \(.fiscal_year)/\(.fiscal_period): \(.amount.amount) \(.amount.currency) from \(.sender_cost_center_code), entry \(.journal_entry_number)"' \
+    listAllocationRuns -p "allocation_cycle_id=$cycle"
+  expect "the cycle's runs" "$(field '.items | length')" 1
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8115,7 +8213,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_close'
 
 main() {
   stop_unseen

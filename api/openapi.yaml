@@ -2467,7 +2467,7 @@ paths:
       tags:
         - configuration
       summary: Activate a change request
-      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10). While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running replica's version does not know, which it would ignore (a company's `release_dual_limit`), is refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g. `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new account becomes an asset reconciliation account."
+      description: "Creates and activates a new configuration version from an approved change request; each context applies its part. Human-only. Requires status `approved`; a change of validation rules also needs a passed simulation of this exact proposal (409 `config.rules_not_simulated`). The ledger checks the controlling rules again against its data, which may have changed since submission (a default cost or profit center no longer usable, postings in the year a center accounting switch turns on, a removed cost center category in use): 409 `ledger.controlling_invalid`, naming each finding (ADR-0050 §4). A tax registration whose company, group, authority, number, return type, frequency or first period changed under its code since submission is refused: 409 `tax.registration_fixed` (ADR-0049 §10). While replicas of several versions run (a rolling upgrade), a proposal setting a key that a running replica's version does not know, which it would ignore (a company's `release_dual_limit`), is refused: 409 `config.replica_lacks_key`, each such key in `errors` (`field` the key's path, e.g. `companies[].release_dual_limit`, and the versions lacking it in `message`); activate it once every replica runs a version that knows the key (ADR-0038). An account flagged `asset_reconciliation` that the chart already has is refused (409 `ledger.asset_reconciliation_not_new`, ADR-0057): only a new account becomes an asset reconciliation account. An existing account whose cost element becomes `secondary`, or a secondary cost element given another cost element, is refused (409 `ledger.secondary_account_not_new`, ADR-0064 §4): an account is a secondary cost element from its creation and stays one."
       x-permission: config.change.activate
       x-agent: false
       x-problem-codes:
@@ -2484,6 +2484,7 @@ paths:
         - ledger.down_payment_account_fixed
         - ledger.gr_ir_account_fixed
         - ledger.open_items_account_posted
+        - ledger.secondary_account_not_new
         - ledger.tax_code_fixed
         - ledger.tax_rate_in_use
         - partner.payment_method_in_use
@@ -5926,7 +5927,7 @@ paths:
       tags:
         - ledger
       summary: Post a journal entry
-      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A service principal (an integration such as the pilot's billing system) is held to its company's `service_posting_limit` instead, measured the same way (the `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22, T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`, `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`, taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is. At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. It posts to every ledger its company keeps as linked entries of one posting group sharing the document number (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at rate 0. People and service principals post here; an agent never does, whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is refused for its autonomy first), and proposes entries by parking them."
+      description: "Posts a manual journal entry at once: the request is validated (balance in every currency, open period, postable accounts, partner on reconciliation lines) and either fully posted or rejected. Journal entries are insert-only; an entry that should wait, for a person to post it or for approval, is parked (`parked-journal-entries`). An entry whose debits, converted exactly into the legal entity's currency at the average rate of its posting date, exceed the company's `manual_entry_approval_limit` is 409 `ledger.approval_required` (after the period is found open: a closed one is 409 `ledger.period_not_open` first): park it and post it with `:post`, which asks someone else's approval (T35). A service principal (an integration such as the pilot's billing system) is held to its company's `service_posting_limit` instead, measured the same way (the `manual_entry_approval_limit` for a company without one; 0 when it has neither), and an entry of its above that limit is not refused but parked for a person (ADR-0049 §7, product owner 2026-10-22, T61n): the answer is 200 with the parked entry (`status` `parked`, `created_by_kind` `service`, `limit_exceeded` naming the limit and the debits, each with its currency), its `Location` the parked entry, and nothing is posted and no number drawn; a person posts it with `postParkedJournalEntry`, taking it on, and that is measured against the `manual_entry_approval_limit` as any manual entry is. At or below the limit the entry posts (201) as a person's does. A closed period refuses a service's entry before it is measured, as a person's. A line on the legal entity's GR/IR account (account determination `gr_ir`) is 422 `ledger.automatic_account`: only goods receipts and invoices post it. A line on a secondary cost element (an account whose cost element is `secondary`, ADR-0064 §4) is 422 `ledger.secondary_account`: only allocations post to it (`allocation-cycles/{id}:run`). It posts to every ledger its company keeps as linked entries of one posting group sharing the document number (`posting_group_id`), each period checked open in its ledger, and returns the leading ledger's; `ledger_id` names one ledger and `ledger_group` a ledger group instead, posting to those ledgers only (ADR-0045). Output tax (ADR-0049 §7, T61f): a billing system posts its sales here, one entry per sales invoice or a summary per code and jurisdiction, idempotent by its `Idempotency-Key`; each output code's tax lines (in a jurisdiction, where the code levies its lines' subdivision) are the tax its base lines give at the rates of the tax date, within one minor unit per component, or 422 `ledger.output_tax_mismatch`; a code with tax lines and no base line is an adjustment of tax alone. Zero-rated and exempt bases carry their codes without tax lines and are recorded as tax items at rate 0. People and service principals post here; an agent never does, whatever its level or permissions (403 `identity.agent_not_allowed`; below autonomy level 2 it is refused for its autonomy first), and proposes entries by parking them."
       x-permission: ledger.entry.post
       x-problem-codes:
         - config.no_number_range
@@ -5963,6 +5964,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -6178,6 +6180,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -6392,6 +6395,7 @@ paths:
         - ledger.partner_required
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -6541,6 +6545,7 @@ paths:
         - ledger.partner_required
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -6705,6 +6710,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -6843,6 +6849,7 @@ paths:
         - ledger.partner_required
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -6967,6 +6974,7 @@ paths:
         - ledger.partner_required
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -7112,6 +7120,7 @@ paths:
         - ledger.partner_required
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -7327,6 +7336,7 @@ paths:
         - ledger.rate_stale
         - ledger.revaluation_account_missing
         - ledger.revaluation_exists
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -7448,6 +7458,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.revaluation_not_posted
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -8482,6 +8493,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -8662,6 +8674,7 @@ paths:
             description: "Allocation cycle kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
             x-extensible-enum:
               - distribution
+              - assessment
         - name: sender_cost_center_id
           in: query
           required: false
@@ -8693,7 +8706,7 @@ paths:
       tags:
         - controlling
       summary: Create an allocation cycle
-      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`: a run moves the sender's primary costs to the receivers on their original accounts. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind other than `distribution` (`kind`, `unsupported`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
+      description: "Defines an allocation cycle of a legal entity (ADR-0064 §5): one sender cost center and receiver cost centers with fixed percentages, which a run (`:run`) charges the sender's costs of a period to. The kind is `distribution`, whose run moves the sender's primary costs to the receivers on their original accounts, or `assessment`, whose run charges them to the receivers in one amount on the cycle's assessment account and leaves them on the sender's accounts. An assessment cycle names its assessment account, `assessment_account_id`: an active account of the legal entity whose cost element is `secondary` (ADR-0064 §4), which only allocations post to; a distribution names none. The code is unique in the legal entity (409 `controlling.allocation_cycle_exists`). Refused (422 `controlling.allocation_cycle_invalid`, whose field errors name each field and why): a kind that is neither (`kind`, `unsupported`); an assessment without its account (`assessment_account_id`, `required`), with one that is no account of the legal entity (`unknown`), not a secondary cost element (`not_secondary`) or not active (`not_active`), and a distribution with one (`not_allowed`); a sender or receiver that is not an active cost center of the legal entity (`sender_cost_center_id` or `receivers[i].cost_center_id`: `unknown`, `not_in_company`, `not_active`); a receiver that is the sender (`is_sender`) or named twice (`duplicate`); a percentage that is not above 0 and at most 100 with up to two decimals (`receivers[i].percentage`, `invalid`); percentages that do not add up to 100 (`receivers`, `not_100`). A legal entity the caller cannot act in is answered as missing (422 `request.reference_not_found`). A cycle is not changed in this version. Created directly by permission, with no approval request. Audited, and published as AllocationCycleChanged. Agents may not create one."
       x-permission: controlling.allocation.write
       x-agent: false
       x-problem-codes:
@@ -8776,7 +8789,7 @@ paths:
       tags:
         - controlling
       summary: Run an allocation cycle for a period
-      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A distribution reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day): per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged. An account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). A sender without costs in the period posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
+      description: "Runs an allocation cycle for a regular fiscal period (ADR-0064 §5), synchronously. A run reads the sender's primary costs of the period, per account, from the leading ledger (what the cost center report shows on primary cost accounts) and posts one journal entry in the legal entity's local currency through the ledger (source context `controlling`, document type `SA`, dated the period's last day). A distribution's entry has, per account, the sender credited with its cost and each receiver debited with its share on the same account, so the entry balances per account and every account's balance is unchanged; an account's cost is split by the receivers' percentages and rounded so that the shares add up to it to the minor unit (largest remainder). An assessment's entry is on the cycle's assessment account alone: the sender credited with the total of its primary costs and each receiver debited with its share of that total, split and rounded the same way, so the entry balances on the account; the sender's primary costs stay on their accounts, and the cost center report shows the sender relieved, and the receivers charged, on the assessment account. A sender without costs in the period, or for an assessment with costs that add up to nothing, posts nothing: `posted` is false and no run is kept, so the cycle may be run for the period later. One run per cycle and period: a second is refused (409 `controlling.allocation_run_exists`, naming the run's entry); a run is not reversed in this version. `If-Match` is the cycle's version. Every cycle of the sender is held under a row lock while one of them runs, so two runs of a cycle for one period never both post, and two cycles of one sender run at once follow one another: the second moves what the first left. Once a cycle of the sender was run as an assessment for a period, no cycle of that sender is run for the period again (409 `controlling.allocation_sender_assessed`, naming the assessment's cycle and entry): the sender's primary costs are still on their accounts, and another run would charge them a second time. Refused besides: a fiscal year not set up (422 `ledger.no_fiscal_period`) or a period that is no regular posting period of it (422 `controlling.period_not_regular`); a sender or receiver that is not valid on the period's last day (409 `controlling.allocation_center_not_valid`, naming it); and what the ledger refuses of any entry, among them a period that is not open (409 `ledger.period_not_open`) and a center locked for actual costs (422 `ledger.cost_center_invalid`). A cost posted to the sender in the period after its run stays on the sender. The run is kept (`GET /v1/allocation-runs/{id}`), audited and published as AllocationRunPosted. A cycle of a legal entity the caller cannot act in is answered as missing (404). The amounts are ledger amounts, so besides `controlling.allocation.run` the caller needs `ledger.entry.read` (`x-also-permissions`; 403 `identity.permission_missing` otherwise). Agents may not run a cycle."
       x-permission: controlling.allocation.run
       x-also-permissions:
         - ledger.entry.read
@@ -8787,6 +8800,7 @@ paths:
         - config.number_range_exhausted
         - controlling.allocation_center_not_valid
         - controlling.allocation_run_exists
+        - controlling.allocation_sender_assessed
         - controlling.period_not_regular
         - ledger.account_not_postable
         - ledger.amount_too_large
@@ -8818,6 +8832,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -9934,6 +9949,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
@@ -11798,6 +11814,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -11943,6 +11960,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -12676,6 +12694,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -12960,6 +12979,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_item
@@ -13114,6 +13134,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -13999,6 +14020,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -14162,6 +14184,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -14564,6 +14587,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -17126,6 +17150,7 @@ paths:
         - ledger.partner_required
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -18450,6 +18475,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -18588,6 +18614,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -18761,6 +18788,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -18897,6 +18925,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -19075,6 +19104,7 @@ paths:
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -19211,6 +19241,7 @@ paths:
         - ledger.period_not_open
         - ledger.profit_center_invalid
         - ledger.profit_center_mismatch
+        - ledger.secondary_account
         - ledger.segment_mismatch
         - ledger.special_gl_account
         - ledger.special_gl_required
@@ -22282,6 +22313,7 @@ paths:
         - ledger.profit_center_period_in_use
         - ledger.profit_center_posted_after
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_in_use
         - ledger.segment_mismatch
         - ledger.special_gl_account
@@ -23901,6 +23933,7 @@ paths:
         - ledger.profit_center_period_in_use
         - ledger.profit_center_posted_after
         - ledger.rate_not_recordable
+        - ledger.secondary_account
         - ledger.segment_exists
         - ledger.segment_in_use
         - ledger.segment_mismatch
@@ -34887,9 +34920,19 @@ components:
               readOnly: true
             kind:
               type: string
-              description: "`distribution`: a run moves the sender's primary costs to the receivers on their original accounts. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              description: "`distribution`: a run moves the sender's primary costs to the receivers on their original accounts. `assessment`: a run charges them to the receivers in one amount on the assessment account and leaves them on the sender's accounts. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               x-extensible-enum:
                 - distribution
+                - assessment
+              readOnly: true
+            assessment_account_id:
+              type: string
+              format: uuid
+              description: "The account an assessment's runs post on, a secondary cost element (`GET /v1/accounts/{id}`); present exactly on a cycle of kind `assessment`. Immutable."
+              readOnly: true
+            assessment_account_number:
+              type: string
+              description: "The assessment account's number; present with `assessment_account_id`."
               readOnly: true
             sender_cost_center_id:
               type: string
@@ -34979,9 +35022,14 @@ components:
           description: Name.
         kind:
           type: string
-          description: "`distribution`. Open enumeration; a kind not listed is refused (422)."
+          description: "`distribution` or `assessment`. Open enumeration; a kind not listed is refused (422)."
           x-extensible-enum:
             - distribution
+            - assessment
+        assessment_account_id:
+          type: string
+          format: uuid
+          description: "Required with kind `assessment`, refused with `distribution`: an active account of the legal entity whose cost element is `secondary`, on which the cycle's runs credit the sender and debit the receivers."
         sender_cost_center_id:
           type: string
           format: uuid
@@ -35103,9 +35151,10 @@ components:
           readOnly: true
         kind:
           type: string
-          description: "The cycle's kind: `distribution`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+          description: "The cycle's kind: `distribution` or `assessment`. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
           x-extensible-enum:
             - distribution
+            - assessment
           readOnly: true
         legal_entity_id:
           type: string
@@ -35142,18 +35191,18 @@ components:
           readOnly: true
         amount:
           $ref: "#/components/schemas/Money"
-          description: "What the run moved off the sender to the receivers, in the legal entity's local currency: the total of the sender's costs of the period on the accounts charged."
+          description: "What the run charged the receivers, in the legal entity's local currency: the total of the sender's primary costs of the period. A distribution moves it off the sender's accounts; an assessment credits it to the sender on the assessment account."
           readOnly: true
         account_count:
           type: integer
           format: int32
           minimum: 1
-          description: How many accounts the run charged.
+          description: How many of the sender's accounts the run charged the costs of.
           readOnly: true
         journal_entry_id:
           type: string
           format: uuid
-          description: "The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show each account's credit on the sender and each receiver's share."
+          description: "The run's journal entry in the leading ledger (`GET /v1/journal-entries/{id}`), whose lines show the sender's credit and each receiver's share: per account for a distribution, on the assessment account for an assessment."
           readOnly: true
         journal_entry_number:
           type: string
