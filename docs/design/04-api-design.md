@@ -340,6 +340,34 @@ period, with the order's code and name and the whole selection's totals on
 every page; an order that does not exist or of a company the caller may
 not act in is 422 `request.reference_not_found`.
 
+An order's budget (ADR-0064 §3, T60c) is a part of the order of its own:
+`PATCH /v1/internal-orders/{id}/budget` (`controlling.order.budget` and
+`ledger.entry.read`, `x-agent: false`) sets or replaces it, one overall
+amount of zero or more in the company's currency (422
+`controlling.order_budget_invalid` on `budget.currency` or
+`budget.amount`), with `If-Match` naming the budget's version, `"0"` for an
+order whose budget was never set (412 otherwise); audited with the amounts
+before and after and published as `InternalOrderBudgetChanged`. `GET
+/v1/internal-orders/{id}/budget` (`controlling.order.read` and
+`ledger.entry.read`, `x-slo-class: report`) gives the budget, the actual
+(the order's balance in the leading ledger over every fiscal year, exact
+at the read), what remains (the budget less the actual, negative once
+exceeded) and `exceeded`, with the order's code and name and the budget's
+version as `ETag`. Exceeding a budget refuses no posting.
+
+An order's settlement rule (ADR-0064 §3, T60d) is likewise a part of the
+order: `PATCH /v1/internal-orders/{id}/settlement-rule`
+(`controlling.order.write`, `x-agent: false`) sets or replaces its one
+receiver, an active cost center of the order's company valid today, the
+company's date in its time zone (422
+`controlling.settlement_rule_receiver_invalid`, the field error's code
+`unknown`, `not_in_company`, `not_active` or `not_valid_today`), with
+`If-Match` naming the order's version, which moves with the rule (412
+otherwise); audited with the receivers before and after. `GET
+/v1/internal-orders/{id}/settlement-rule` (`controlling.order.read`) gives
+the receiver's id and code with the order's code and name and the order's
+version as `ETag`; an order without a rule is answered without a receiver.
+
 Plan values (ADR-0050 §8, T56g) are the controlling context's.
 `/v1/plan-categories` (`controlling.plan.read`, `.write`) are open or
 locked by a person (`:lock`, `:unlock`: `controlling.plan.lock`, an
@@ -806,12 +834,13 @@ with the month's total against the tenant's cap.
 | ledger | `accounts`, `fiscal-periods`, `journal-entries`, `parked-journal-entries`, `clearings`, `open-items`, `balances`, `exchange-rates` | `:reverse`, `:open`, `:close`, `:lock`, `:post`, `:cancel`, `:unlock` |
 | procurement | `requisitions`, `purchase-orders` (with `{id}/document`, the order's plain-text document for the supplier, ADR-0054; an item's optional `delivery_date`, which the liquidity forecast expects its invoice on, T53g, and the document prints, ADR-0054 As built; the document also prints the buyer's configured postal address, `companies[].postal_address`, as the buyer's and the delivery address, ADR-0054 As built), `contracts`, `goods-receipts` | `:submit`, `:release`, `:close`, `:cancel`, `:terminate`, `:reverse` |
 | payables | `supplier-invoices`, `match-results`, `uploads` | `:capture`, `:match`, `:post`, `:hold`, `:release`, `:cancel`, `:reverse` |
-| receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, status, document number and invoice date, ADR-0063 §2-§4, T75a) | none yet (`:post` with T75b) |
+| receivables | `customer-invoices` (entered without a sales order as drafts, their tax calculated per item at the invoice date; the companies the caller may act in, filtered by company, customer, status, document number and invoice date, ADR-0063 §2-§4, T75a); `incoming-payments` (a receipt from a house bank's incoming payments clearing account applied to a customer's open items in full and exactly, written once; filtered by company, customer, document number and posting date) and `unapplied-receipts` (a company's receipts not yet applied, read-only), ADR-0063 §6, T75c | `customer-invoices/{id}:post` (T75b) |
+| collections | `dunning-runs` (started for a company at a key date, `proposed` with their totals; the companies the caller may act in, filtered by company, status and key date, the latest first) and their `notices` (one per customer with its overdue items and the level each would reach, by customer number, filtered by customer and level; ADR-0065 §3-§4, T76a) | none yet (`:confirm` with T76b) |
 | payments | `payment-runs`, `bank-files` | `:propose` (202), `:submit`, `:release` (202, ADR-0012), `:reject`, `:transmit` (202), `:report` |
 | cash | `cash-position`, `liquidity-forecast` (computed on read, ADR-0051; its sources include the released purchase orders' open values, `purchase_order`, T53g), `group-liquidity-forecast` (the companies the caller may act in, summed in group currency, T53e5), `memo-records`, `memo-record-proposals`, `memo-record-uploads` (CSV by batch key), `cash-snapshots` and their `exports` to treasury systems (`cash-exports`, the cash export schema v1 over a `treasury_export` connector's SFTP directory, T53h), `liquidity-forecast-variance` (computed on read) and its `comments` (a person's, T53f4) | `:cancel`, `:realise` (201 for a series' occurrence's override), `:acceptProposal`, `:rejectProposal` |
 | einvoicing | `e-invoices` (received from the tenant's accredited provider through an `einvoice_provider` connector, ADR-0061 §15, T65a: the companies the caller may act in, filtered by company, connector, status, fetch and when received, newest first); `/{id}/content` (the bytes as received, compared with their hash, human-only, T65b) | `:fetch` (202 with its `Operation`, carried out as the workflow `FetchEInvoices`, T65a; the same fetch scheduled once per period, T65b) |
 | consolidation | `consolidation-groups` (by code) and `group-accounts` (from the configuration, ADR-0059 §3, T68a; a group only to a caller who may act in its parent and every member, §12); `consolidation-runs` (a run of a group and regular period, 202 with its `Operation`, carried out as the workflow `ConsolidationRun`; `/{id}/balances`, its translated balances with totals, ADR-0059 §6, §7, T68d; `/{id}/statements/{statement}`, its consolidated balance sheet or profit and loss by group account with reported, eliminations and consolidated figures and totals, §11, T68e, the profit and loss with other comprehensive income (the year's translation differences), total comprehensive income with its attribution and the translation reserve per company, As built: other comprehensive income, and what the run moved out of the profit as the translation part of group-currency revaluations, `revaluation_translation`, As built: the group-currency revaluation's translation part, and as the exchange differences on the group's designated net investments (`net_investments` on the group, from the configuration; `net_investment` per company and in the totals), As built: a net investment's exchange differences; `/{id}/differences` and `/{id}/entries`, its intercompany differences per elimination and pair and its elimination entries with their lines, each with totals, §8, T68f; each member's investment entry against the member's share capital and acquisition, frozen by the first final run, and the profit's attribution to owners and non-controlling interests, §9, T68h, T68h2; a run only to a caller who may act in every company of its group) | `:discard` (T68d); `:finalize` and `/{id}/differences/{difference_id}:accept` (people only, T68g) |
-| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8); `internal-orders` (ADR-0064 §1), `internal-order-balances` (computed on read, ADR-0064 §2) | `:lock`, `:unlock`; `:release` |
+| controlling | `plan-categories`, `plan-batches` (by batch key), `plan-lines`, `cost-center-plan-actual`, `profit-center-plan-actual` (computed on read, ADR-0050 §8); `internal-orders` (ADR-0064 §1), `internal-order-balances` (computed on read, ADR-0064 §2), `internal-orders/{id}/budget`, `internal-orders/{id}/settlement-rule` (ADR-0064 §3) | `:lock`, `:unlock`; `:release` |
 | tax | `tax-registrations` (from the configuration), `tax-registrations/{id}/periods`, `tax-registrations/{id}/draft-return` and its `items` (computed on read, ADR-0049 §10-§11), `tax-registrations/{id}/returns`, `tax-returns/{id}` | `:file`, `:withdraw` (T61i) |
 | workflow | `approval-requests` | `:approve`, `:reject`, `:cancel` |
 | audit | `audit-events` | `:verify` |

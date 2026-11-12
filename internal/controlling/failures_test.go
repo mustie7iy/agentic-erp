@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -47,6 +48,10 @@ func TestPlanDatabaseFailures(t *testing.T) {
 	charged := uuid.MustParse(c.releasedOrder(t, "CHARGED"))
 	c.charge(t, charged.String(), "2026-05-10", c.office, "10.00")
 	c.charge(t, charged.String(), "2026-06-10", c.office, "20.00")
+	budgeted := uuid.MustParse(c.order(t, "BUDGETED"))
+	c.Must(200, "PATCH", "/v1/internal-orders/"+budgeted.String()+"/budget", budgetBody("5.00", "EUR"), `"0"`)
+	ruled := uuid.MustParse(c.order(t, "RULED"))
+	c.Must(200, "PATCH", "/v1/internal-orders/"+ruled.String()+"/settlement-rule", ruleBody(c.c.Sales), `"1"`)
 	balances := gen.ListInternalOrderBalancesParams{InternalOrderID: charged, FiscalYear: 2026, PageSize: gen.NewOptInt32(1)}
 	calls := map[string]func(ctx context.Context) error{
 		"create an order": func(ctx context.Context) error {
@@ -74,6 +79,31 @@ func TestPlanDatabaseFailures(t *testing.T) {
 			next := balances
 			next.PageToken = gen.NewOptString(res.(*gen.InternalOrderBalancePage).NextPageToken.Or("none"))
 			_, err = h.ListInternalOrderBalances(ctx, next)
+			return err
+		},
+		"get an order's budget": func(ctx context.Context) error {
+			_, err := h.GetInternalOrderBudget(ctx, gen.GetInternalOrderBudgetParams{ID: budgeted})
+			return err
+		},
+		"set an order's budget": func(ctx context.Context) error {
+			_, err := h.UpdateInternalOrderBudget(ctx, &gen.InternalOrderBudgetUpdate{Budget: amount}, gen.UpdateInternalOrderBudgetParams{ID: budgeted, IfMatch: `"1"`})
+			return err
+		},
+		"the ledger's balance of an order": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.OrderBalance(ctx, c.DE, charged)
+			return err
+		},
+		"get an order's settlement rule": func(ctx context.Context) error {
+			_, err := h.GetInternalOrderSettlementRule(ctx, gen.GetInternalOrderSettlementRuleParams{ID: ruled})
+			return err
+		},
+		"replace an order's settlement rule": func(ctx context.Context) error {
+			_, err := h.UpdateInternalOrderSettlementRule(ctx, &gen.InternalOrderSettlementRuleUpdate{ReceiverCostCenterID: c.c.Admin},
+				gen.UpdateInternalOrderSettlementRuleParams{ID: ruled, IfMatch: `"2"`})
+			return err
+		},
+		"the ledger's validity of a cost center": func(ctx context.Context) error {
+			_, err := ledger.AssignmentBalances{}.CostCenterValidOn(ctx, c.c.Admin, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC))
 			return err
 		},
 		"the orders a posting names": func(ctx context.Context) error {

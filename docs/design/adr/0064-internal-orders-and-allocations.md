@@ -282,3 +282,107 @@ adding up to 100, all active and of one company.
 - **Walkthrough**: `step_internal_order` extended: Alex posts CAD 1,500.00
   to the order, a line with an order and a cost center is refused, and
   Carla reads the order's actuals.
+
+### T60c: an order's budget against its actual costs (migration 000274)
+- **Table** `controlling.order_budget`: at most one row per order (the
+  primary key; `order_budget_order`, a foreign key to the order), `amount`
+  in minor units of the company's currency (`order_budget_not_negative`),
+  `version` and the audit columns; row-level security; never deleted. An
+  order without a row has no budget. Schema test:
+  `db/internal_order_test.go` (`TestOrderBudgetRules`).
+- **API**: `PATCH /v1/internal-orders/{id}/budget` sets or replaces the
+  budget (200 with the budget against the actual; 412
+  `request.version_mismatch`; 422 `controlling.order_budget_invalid` on
+  `budget.currency` or `budget.amount`; 404 for an order unknown or of a
+  company outside the caller's access). `GET
+  /v1/internal-orders/{id}/budget` gives `budget`, `actual`, `remaining`
+  (the budget less the actual, negative once exceeded) and `exceeded`
+  (the actual is above the budget), each amount with its currency, with
+  the order's code and name.
+- **`PATCH`, not the plan's `PUT`.** The plan names `PUT` for the budget
+  and the settlement rule; the API has no `PUT` (04 §4.2: `GET`, `POST`
+  and `PATCH` alone, held by `api` `TestOperations`), and a part of a
+  resource changed with `If-Match` is a JSON Merge Patch elsewhere (the
+  tenant's auth policy). The paths are the plan's; the body's one field,
+  `budget`, is required and replaced whole.
+- **The caller's version** is the budget's own, not the order's: `GET`
+  answers it as `ETag` and in `version`, 0 for an order whose budget was
+  never set, so the first `PATCH` sends `If-Match: "0"`. The order is read
+  `FOR UPDATE` for the change, so two changes at one version serialize
+  and the second is refused; the order's own version does not move, and a
+  budget change does not disturb a release.
+- **The actual** is the order's balance in the leading ledger over every
+  fiscal year, since the budget is one overall amount: a new method of
+  the ledger's port, `ledger.AssignmentBalances.OrderBalance`, read from
+  the lines through the order's index (000270); it is the total of `GET
+  /v1/internal-order-balances` over the years. Budget:
+  `TestInternalOrderBudgetReadBudget` (p95 1 s; 20,001 lines of an order
+  among 400,002).
+- **Nothing is refused** (plan default 10): a posting beyond the budget
+  is accepted, and a budget may be set below the actual.
+- **Event** `InternalOrderBudgetChanged` (`budget`, `previous_budget`
+  when there was one, `version`); audit action
+  `controlling.internal_order.set_budget` on the order, with
+  `budget_before` (when there was one), `budget_after` and `currency`.
+- **Permission** `controlling.order.budget` (not an approval permission).
+- **Decided by default:** setting a budget is a person's (`x-agent:
+  false`), as creating and releasing an order are (§1); agents read it.
+  Both operations also need `ledger.entry.read`, as the order's balances
+  do, because the answer carries the actual, a ledger amount. A budget
+  is zero or more, zero included; it may be set on an order in any
+  status; it is replaced, never removed; a `PATCH` of the amount already
+  set is a change like any other (a new version, audited and published).
+- **Walkthrough**: `step_order_budget`, Carla gives `FAIR-<year>` a
+  budget below its costs (shown as exceeded, CAD -500.00 remaining),
+  corrects it to CAD 5,000.00 and reads CAD 3,500.00 remaining after the
+  CAD 1,500.00 posted in `step_internal_order`.
+
+### T60d: an order's settlement rule (migration 000275)
+- **Table** `controlling.settlement_rule`: at most one row per order (the
+  primary key; `settlement_rule_order`, a foreign key to the order),
+  `receiver_cost_center_id` (the ledger's, no foreign key), the audit
+  columns and a `version` that only counts the row's replacements (an
+  updatable table has one, `platform.touch`); row-level security; never
+  deleted. Schema test: `db/internal_order_test.go`
+  (`TestSettlementRuleRules`).
+- **API**: `PATCH /v1/internal-orders/{id}/settlement-rule` (the plan's
+  `PUT`, as for the budget) sets or replaces the receiver (200 with the
+  rule; 412 `request.version_mismatch`; 422
+  `controlling.settlement_rule_receiver_invalid` on
+  `receiver_cost_center_id` with the reason `unknown`, `not_in_company`,
+  `not_active` or `not_valid_today`; 404 for an order unknown or of a
+  company outside the caller's access). `GET
+  /v1/internal-orders/{id}/settlement-rule` gives the receiver's id and
+  code with the order's code and name; an order without a rule is
+  answered 200 without a receiver, so the read always carries the `ETag`
+  the `PATCH` takes.
+- **The order's version** is the caller's (the plan: "replaced with the
+  order's version"): `If-Match` names it, the order is read `FOR UPDATE`,
+  and its version moves with the rule, so of two changes at one version
+  the second is refused, and a release and a rule change at one version
+  do not both pass.
+- **The receiver** is checked when the rule is set: known, of the
+  order's company, active (`ledger.AssignmentBalances.CostCenterRefs`)
+  and with a period in force today (a new method of the port,
+  `CostCenterValidOn`). Today is the company's date in its time zone
+  (`config.DocumentDay` over `controlling.Settings` and the endpoints'
+  clock, wired in `internal/app`), as center changes are judged
+  (T72n4). The check holds no lock: a center change may end the period
+  later, and the settlement (T60e) posts to the receiver on its own
+  date, where the ledger checks it again.
+- **Audit** action `controlling.internal_order.set_settlement_rule` on
+  the order, with the receiver's id and code before (when there was one)
+  and after. **No event**: the plan adds none for the rule; T60e
+  publishes the settlement.
+- **Decided by default:** setting the rule needs
+  `controlling.order.write` (the plan adds no permission for it) and is
+  a person's (`x-agent: false`), as creating an order is (§1); agents
+  read it. The receiver may be the order's responsible cost center. The
+  rule may be set on an order in any status; it is replaced, never
+  removed. A `PATCH` naming the receiver the rule already has is a change
+  like any other: both versions move and it is audited, as for the
+  budget. The rule shows the receiver's code beside its id, as the order
+  shows its responsible cost center (§1, default 4).
+- **Walkthrough**: `step_order_settlement`, Carla names CC-1100 as the
+  receiver of `FAIR-<year>`; a cost center that is none and a change at
+  the replaced version are refused.

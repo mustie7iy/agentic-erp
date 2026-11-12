@@ -213,6 +213,10 @@ type CreateDownPaymentRequestRes interface {
 	createDownPaymentRequestRes()
 }
 
+type CreateDunningRunRes interface {
+	createDunningRunRes()
+}
+
 type CreateEntryTemplateRes interface {
 	createEntryTemplateRes()
 }
@@ -231,6 +235,10 @@ type CreateGrIrClearingRes interface {
 
 type CreateHierarchyRes interface {
 	createHierarchyRes()
+}
+
+type CreateIncomingPaymentRes interface {
+	createIncomingPaymentRes()
 }
 
 type CreateInternalOrderRes interface {
@@ -561,6 +569,10 @@ type GetDownPaymentRequestRes interface {
 	getDownPaymentRequestRes()
 }
 
+type GetDunningRunRes interface {
+	getDunningRunRes()
+}
+
 type GetEInvoiceContentRes interface {
 	getEInvoiceContentRes()
 }
@@ -605,8 +617,20 @@ type GetHierarchyRes interface {
 	getHierarchyRes()
 }
 
+type GetIncomingPaymentRes interface {
+	getIncomingPaymentRes()
+}
+
+type GetInternalOrderBudgetRes interface {
+	getInternalOrderBudgetRes()
+}
+
 type GetInternalOrderRes interface {
 	getInternalOrderRes()
+}
+
+type GetInternalOrderSettlementRuleRes interface {
+	getInternalOrderSettlementRuleRes()
 }
 
 type GetJournalEntryRes interface {
@@ -965,6 +989,14 @@ type ListDownPaymentRequestsRes interface {
 	listDownPaymentRequestsRes()
 }
 
+type ListDunningNoticesRes interface {
+	listDunningNoticesRes()
+}
+
+type ListDunningRunsRes interface {
+	listDunningRunsRes()
+}
+
 type ListEInvoicesRes interface {
 	listEInvoicesRes()
 }
@@ -1011,6 +1043,10 @@ type ListHierarchiesRes interface {
 
 type ListHouseBanksRes interface {
 	listHouseBanksRes()
+}
+
+type ListIncomingPaymentsRes interface {
+	listIncomingPaymentsRes()
 }
 
 type ListIntercompanyDifferencesRes interface {
@@ -1205,6 +1241,10 @@ type ListTaxReturnsRes interface {
 	listTaxReturnsRes()
 }
 
+type ListUnappliedReceiptsRes interface {
+	listUnappliedReceiptsRes()
+}
+
 type ListVarianceCommentsRes interface {
 	listVarianceCommentsRes()
 }
@@ -1287,6 +1327,10 @@ type PlaceInHierarchyRes interface {
 
 type PostBankStatementLineRes interface {
 	postBankStatementLineRes()
+}
+
+type PostCustomerInvoiceRes interface {
+	postCustomerInvoiceRes()
 }
 
 type PostGoodsReceiptRes interface {
@@ -1599,6 +1643,14 @@ type UpdateCostCenterRes interface {
 
 type UpdateEntryTemplateRes interface {
 	updateEntryTemplateRes()
+}
+
+type UpdateInternalOrderBudgetRes interface {
+	updateInternalOrderBudgetRes()
+}
+
+type UpdateInternalOrderSettlementRuleRes interface {
+	updateInternalOrderSettlementRuleRes()
 }
 
 type UpdateLegalEntityRes interface {

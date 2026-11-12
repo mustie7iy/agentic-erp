@@ -403,7 +403,10 @@ Canadian bank may only offer BAI2.
   posting debits the main bank account and credits the incoming account,
   where it stays an open item until accounts receivable clears it (409
   `payments.statement_incoming_gone` when the bank dropped the account
-  since the match). Posted, approved and reconciled as any match. The
+  since the match). Accounts receivable clears it since T75c: an AR
+  accountant applies it to a customer's open items in full
+  (`POST /v1/incoming-payments`, ADR-0063 §6); until then it is listed by
+  `GET /v1/unapplied-receipts`. Posted, approved and reconciled as any match. The
   rules still read debits only, and the agent proposes no incoming match:
   credits that a posting rule takes (interest) are matched by the
   `transaction_code` rule and posted as charges are; matching a credit to

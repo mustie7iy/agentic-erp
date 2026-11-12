@@ -178,6 +178,10 @@ var tierRules = []struct {
 	// Where a year's result is carried decides what the next carry-forward
 	// run carries (ADR-0060 §4): posting-relevant, applied from the next run.
 	{rx(`^companies\[\*\]\.year_end(\.|$)`), TierPostingRelated},
+	// Dunning levels post nothing: they decide which overdue items a
+	// dunning run proposes and at which level (ADR-0065 §2), as payment
+	// terms' days decide what is due.
+	{rx(`^companies\[\*\]\.dunning(\.|$)`), TierOperational},
 }
 
 func rx(s string) *regexp.Regexp { return regexp.MustCompile(s) }
@@ -231,6 +235,8 @@ var listKeys = map[string]string{
 	"eliminations": "code", "groups": "code", "members": "company",
 	// A group's net investment designations by what they designate.
 	"net_investments": "company,account,partner",
+	// A company's dunning levels by their number (ADR-0065 §2).
+	"levels": "level",
 }
 
 // pathKeys override listKeys for a list at one path, where its name is

@@ -672,6 +672,20 @@ func encodeCreateDownPaymentRequestRequest(
 	return nil
 }
 
+func encodeCreateDunningRunRequest(
+	req *DunningRunCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeCreateEntryTemplateRequest(
 	req *EntryTemplateCreate,
 	r *http.Request,
@@ -730,6 +744,20 @@ func encodeCreateGrIrClearingRequest(
 
 func encodeCreateHierarchyRequest(
 	req *HierarchyCreate,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateIncomingPaymentRequest(
+	req *IncomingPaymentCreate,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -1431,6 +1459,26 @@ func encodePlaceInHierarchyRequest(
 
 func encodePostBankStatementLineRequest(
 	req OptStatementLinePostInput,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	if !req.Set {
+		// Keep request with empty body if value is not set.
+		return nil
+	}
+	e := new(jx.Encoder)
+	{
+		if req.Set {
+			req.Encode(e)
+		}
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodePostCustomerInvoiceRequest(
+	req OptCustomerInvoicePost,
 	r *http.Request,
 ) error {
 	const contentType = "application/json"
@@ -2311,6 +2359,34 @@ func encodeUpdateCostCenterRequest(
 
 func encodeUpdateEntryTemplateRequest(
 	req *EntryTemplateUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateInternalOrderBudgetRequest(
+	req *InternalOrderBudgetUpdate,
+	r *http.Request,
+) error {
+	const contentType = "application/merge-patch+json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeUpdateInternalOrderSettlementRuleRequest(
+	req *InternalOrderSettlementRuleUpdate,
 	r *http.Request,
 ) error {
 	const contentType = "application/merge-patch+json"

@@ -22,20 +22,25 @@ import (
 
 // references are what invoices name by id, as their consumer reads them
 // (REVIEW.md, API-consumer classes): the companies, the customers, the
-// items' accounts and centers.
+// items' accounts and centers, and a posted invoice's journal entry by
+// its document number.
 type references struct {
 	companies map[uuid.UUID]tenancy.Entity
 	partners  map[uuid.UUID]partner.Named
 	accounts  map[uuid.UUID]ledger.AccountRef
 	centers   map[uuid.UUID]ledger.CenterName
+	entries   map[uuid.UUID]string
 }
 
 // references reads what the invoices name by id, once for all of them.
 func (e *Endpoints) references(ctx context.Context, invoices []Invoice) (references, error) {
 	refs := references{companies: map[uuid.UUID]tenancy.Entity{}}
-	var partners, accounts, centers []uuid.UUID
+	var partners, accounts, centers, entries []uuid.UUID
 	for _, v := range invoices {
 		partners = append(partners, v.CustomerID)
+		if v.EntryID != nil {
+			entries = append(entries, *v.EntryID)
+		}
 		for _, it := range v.Items {
 			accounts = append(accounts, it.AccountID)
 			for _, c := range []*uuid.UUID{it.CostCenterID, it.ProfitCenterID} {
@@ -63,6 +68,9 @@ func (e *Endpoints) references(ctx context.Context, invoices []Invoice) (referen
 	if refs.centers, err = e.References.CenterNames(ctx, centers); err != nil {
 		return references{}, fmt.Errorf("receivables: centers of %d invoices: %w", len(invoices), err)
 	}
+	if refs.entries, err = e.Entries.Numbers(ctx, entries); err != nil {
+		return references{}, fmt.Errorf("receivables: journal entries of %d invoices: %w", len(invoices), err)
+	}
 	return refs, nil
 }
 
@@ -74,7 +82,13 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 		UpdatedBy: gen.NewOptUUID(v.UpdatedBy), DocumentNumber: v.DocumentNumber, LegalEntityID: v.LegalEntityID, CompanyCode: le.Code,
 		CompanyName: le.Name, CustomerID: v.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name, Kind: v.Kind,
 		InvoiceDate: v.InvoiceDate, PostingDate: apitypes.OptDate(v.PostingDate), Currency: v.Currency, NetAmount: m(v.Net),
-		TaxAmount: m(v.Tax), GrossAmount: m(v.Gross), Status: v.Status, Items: make([]gen.CustomerInvoiceItem, len(v.Items))}
+		TaxAmount: m(v.Tax), GrossAmount: m(v.Gross), Status: v.Status, PaymentTermCode: apitypes.OptString(v.PaymentTermCode),
+		NetDueDate: apitypes.OptDate(v.NetDueDate), JournalEntryID: apitypes.OptUUID(v.EntryID),
+		Items: make([]gen.CustomerInvoiceItem, len(v.Items))}
+	if v.EntryID != nil { // posted: its entry's year and number are known with it
+		out.JournalEntryYear.SetTo(int32(*v.EntryYear))
+		out.JournalEntryNumber.SetTo(refs.entries[*v.EntryID])
+	}
 	for i, it := range v.Items {
 		account := refs.accounts[it.AccountID]
 		item := gen.CustomerInvoiceItem{ItemNo: it.ItemNo, Description: apitypes.OptString(it.Description), AccountID: it.AccountID,
@@ -95,7 +109,8 @@ func toAPI(v Invoice, refs references) gen.CustomerInvoice {
 // CreateCustomerInvoice implements POST /v1/customer-invoices.
 func (e *Endpoints) CreateCustomerInvoice(ctx context.Context, req *gen.CustomerInvoiceCreate, _ gen.CreateCustomerInvoiceParams) (gen.CreateCustomerInvoiceRes, error) {
 	in := Input{LegalEntityID: req.LegalEntityID, CustomerID: req.CustomerID, InvoiceDate: req.InvoiceDate,
-		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Currency: req.Currency, Items: make([]ItemInput, len(req.Items))}
+		PostingDate: apitypes.Ptr[time.Time](req.PostingDate), Currency: req.Currency, PaymentTermCode: apitypes.Ptr[string](req.PaymentTermCode),
+		Items: make([]ItemInput, len(req.Items))}
 	for i, it := range req.Items {
 		in.Items[i] = ItemInput{Description: apitypes.Ptr[string](it.Description), AccountID: it.AccountID,
 			Net: Amount{Value: it.NetAmount.Amount, Currency: it.NetAmount.Currency}, TaxCode: apitypes.Ptr[string](it.TaxCode),
@@ -111,6 +126,19 @@ func (e *Endpoints) CreateCustomerInvoice(ctx context.Context, req *gen.Customer
 	}
 	return &gen.CustomerInvoiceHeaders{ETag: gen.NewOptString(etag.Format(v.Version)), Location: gen.NewOptString("/v1/customer-invoices/" + v.ID.String()),
 		Response: toAPI(v, refs)}, nil
+}
+
+// PostCustomerInvoice implements POST /v1/customer-invoices/{id}:post.
+func (e *Endpoints) PostCustomerInvoice(ctx context.Context, req gen.OptCustomerInvoicePost, params gen.PostCustomerInvoiceParams) (gen.PostCustomerInvoiceRes, error) {
+	v, err := e.PostInvoice(ctx, params.ID, etag.IfMatch(params.IfMatch), apitypes.Ptr[time.Time](req.Value.PostingDate))
+	if err != nil {
+		return nil, err
+	}
+	refs, err := e.references(ctx, []Invoice{v})
+	if err != nil {
+		return nil, err
+	}
+	return &gen.PostCustomerInvoiceOKHeaders{ETag: gen.NewOptString(etag.Format(v.Version)), Response: toAPI(v, refs)}, nil
 }
 
 // GetCustomerInvoice implements GET /v1/customer-invoices/{id}.

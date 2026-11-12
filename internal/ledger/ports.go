@@ -127,8 +127,9 @@ type Posting struct {
 	// entry's other lines, which would make every balance intercompany
 	// when its vendors happen to name one company (ADR-0059 As built).
 	Collective bool
-	// Terms are the payment terms of the entry's supplier open items, kept
-	// with them (ledger.open_item_terms, T36b); nil for none.
+	// Terms are the payment terms of the entry's supplier and customer open
+	// items, kept with them (ledger.open_item_terms, T36b; a customer
+	// invoice's from T75b, ADR-0063 §5); nil for none.
 	Terms *ItemTerms
 	// Withholding are the withholding taxes of the entry's supplier open
 	// item (T46f), kept with it (ledger.open_item_withholding): what was
@@ -227,10 +228,11 @@ func (s storedTerms) terms() *ItemTerms {
 	return t
 }
 
-// keepTerms keeps the terms with the entry's supplier open items: each
-// line on a supplier reconciliation account but special G/L items, which
-// no run pays (ADR-0037). Terms for an entry without
-// one are refused, rather than kept for nothing.
+// keepTerms keeps the terms with the entry's supplier and customer open
+// items (a customer's as a supplier's, T75b): each line on a supplier or
+// customer reconciliation account but special G/L items, which no run pays
+// (ADR-0037). Terms for an entry without one are refused, rather than kept
+// for nothing.
 func keepTerms(ctx context.Context, tx pgx.Tx, entry Entry, terms *ItemTerms) error {
 	if terms == nil {
 		return nil
@@ -246,14 +248,15 @@ func keepTerms(ctx context.Context, tx pgx.Tx, entry Entry, terms *ItemTerms) er
 	tag, err := tx.Exec(ctx, `INSERT INTO ledger.open_item_terms (tenant_id, fiscal_year, journal_entry_id, line_no, payment_term_code, baseline_date,
 			net_days, discount_days, discount_pct, discount2_days, discount2_pct)
 		SELECT l.tenant_id, l.fiscal_year, l.journal_entry_id, l.line_no, $3, $4, $5, $6, $7::numeric, $8, $9::numeric
-		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id AND a.reconciliation_kind = 'supplier'
+		FROM ledger.journal_line l JOIN ledger.gl_account a ON a.tenant_id = l.tenant_id AND a.id = l.account_id
+			AND a.reconciliation_kind IN ('supplier', 'customer')
 		WHERE l.fiscal_year = $1 AND l.journal_entry_id = $2 AND l.special_gl IS NULL`,
 		entry.FiscalYear, entry.ID, terms.PaymentTermCode, terms.BaselineDate, terms.NetDays, days[0], pct[0], days[1], pct[1])
 	if err != nil {
 		return fmt.Errorf("ledger: keep the terms of entry %s: %w", entry.ID, err)
 	}
 	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("ledger: terms of entry %s, which has no supplier open item", entry.ID)
+		return fmt.Errorf("ledger: terms of entry %s, which has no supplier or customer open item", entry.ID)
 	}
 	return nil
 }

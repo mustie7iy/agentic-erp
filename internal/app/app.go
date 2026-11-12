@@ -33,6 +33,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/capture"
 	"github.com/mustie7iy/agentic-erp/internal/cash"
 	"github.com/mustie7iy/agentic-erp/internal/closing"
+	"github.com/mustie7iy/agentic-erp/internal/collections"
 	"github.com/mustie7iy/agentic-erp/internal/configuration"
 	"github.com/mustie7iy/agentic-erp/internal/consolidation"
 	"github.com/mustie7iy/agentic-erp/internal/controlling"
@@ -81,6 +82,7 @@ type (
 	procurementAPI = procurement.Endpoints
 	payablesAPI    = payables.Endpoints
 	receivablesAPI = receivables.Endpoints
+	collectionsAPI = collections.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
 	integrationAPI = integration.Endpoints
@@ -108,6 +110,7 @@ type handler struct {
 	*procurementAPI
 	*payablesAPI
 	*receivablesAPI
+	*collectionsAPI
 	*paymentsAPI
 	*auditAPI
 	*integrationAPI
@@ -232,6 +235,7 @@ func New(cfg Config) (http.Handler, error) {
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		receivablesAPI: Receivables(cfg),
+		collectionsAPI: Collections(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -242,7 +246,8 @@ func New(cfg Config) (http.Handler, error) {
 		closingAPI:     Closing(cfg),
 		consolAPI:      Consolidation(cfg),
 		einvoicingAPI:  EInvoicing(cfg),
-		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{}},
+		controllingAPI: &controlling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Ledger: ledger.AssignmentBalances{},
+			Settings: configuration.Settings{}, Now: cfg.Now},
 		taxfilingAPI: &taxfiling.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Settings: configuration.Settings{}, Now: cfg.Now,
 			Items: ledger.TaxItems{}, Packs: library, Approvals: opener(), Periods: ledger.ReturnPeriods{}},
 	}
@@ -403,10 +408,35 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 
 // Receivables is the receivables context as the API wires it (ADR-0063
 // §1): the ledger, the partner context, tenancy and the configuration
-// through its ports, as payables reads them.
+// through its ports, as payables reads them. The payment terms are the
+// tenant's, for customers as for suppliers: partner.Suppliers is their one
+// reader.
 func Receivables(cfg Config) *receivables.Endpoints {
-	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, Partners: partner.Payees{},
-		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
+	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
+		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
+		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, Statements: receivablesStatements{},
+		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+}
+
+// receivablesStatements gives receivables the statement lines behind its
+// receipts' entries from the payments context, which it does not import
+// (ADR-0063 §1, As built T75c).
+type receivablesStatements struct{}
+
+func (receivablesStatements) Lines(ctx context.Context, entries []ledger.ItemRef) (map[uuid.UUID]receivables.StatementLine, error) {
+	lines, err := payments.StatementPostings{}.Lines(ctx, entries)
+	out := make(map[uuid.UUID]receivables.StatementLine, len(lines))
+	for entry, l := range lines {
+		out[entry] = receivables.StatementLine{StatementID: l.StatementID, StatementRef: l.StatementRef, LineNo: l.LineNo}
+	}
+	return out, err
+}
+
+// Collections is the collections context as the API wires it (ADR-0065
+// §1): a leaf that reads the ledger's customer open items, the partner
+// context's names, tenancy and the configuration through its ports.
+func Collections(cfg Config) *collections.Endpoints {
+	return &collections.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Partners: partner.Payees{},
 		Settings: configuration.Settings{}}
 }
 

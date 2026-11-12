@@ -92,6 +92,7 @@ info:
     - name: procurement
     - name: payables
     - name: receivables
+    - name: collections
     - name: payments
     - name: workflow
     - name: integration
@@ -360,6 +361,7 @@ channels:
       PlanCategoryChanged: {$ref: '#/components/messages/PlanCategoryChanged'}
       PlanBatchApplied: {$ref: '#/components/messages/PlanBatchApplied'}
       InternalOrderChanged: {$ref: '#/components/messages/InternalOrderChanged'}
+      InternalOrderBudgetChanged: {$ref: '#/components/messages/InternalOrderBudgetChanged'}
   assets:
     address: 'erp.{cell}.assets.{tenant}.{event}'
     title: Asset accounting events
@@ -409,11 +411,21 @@ channels:
   receivables:
     address: 'erp.{cell}.receivables.{tenant}.{event}'
     title: Accounts receivable events
-    description: Customer invoices (ADR-0063 §9).
+    description: Customer invoices and incoming payments applied (ADR-0063 §9).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
+      CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
+      IncomingPaymentApplied: {$ref: '#/components/messages/IncomingPaymentApplied'}
+  collections:
+    address: 'erp.{cell}.collections.{tenant}.{event}'
+    title: Dunning and collections events
+    description: Dunning runs (ADR-0065 §6).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -629,6 +641,7 @@ operations:
       - $ref: '#/channels/controlling/messages/PlanCategoryChanged'
       - $ref: '#/channels/controlling/messages/PlanBatchApplied'
       - $ref: '#/channels/controlling/messages/InternalOrderChanged'
+      - $ref: '#/channels/controlling/messages/InternalOrderBudgetChanged'
   publishAssetsEvents:
     action: send
     title: Asset accounting publishes
@@ -673,6 +686,14 @@ operations:
     channel: {$ref: '#/channels/receivables'}
     messages:
       - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
+      - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
+      - $ref: '#/channels/receivables/messages/IncomingPaymentApplied'
+  publishCollectionsEvents:
+    action: send
+    title: Collections publishes
+    channel: {$ref: '#/channels/collections'}
+    messages:
+      - $ref: '#/channels/collections/messages/DunningRunChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3259,6 +3280,27 @@ components:
         - name: released
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000603, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
           payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, responsible_cost_center_id: 0192a000-0000-7000-8000-000000000201, responsible_cost_center_code: CC-1100, status: released, change: released}
+    InternalOrderBudgetChanged:
+      name: InternalOrderBudgetChanged
+      title: Internal order budget changed
+      summary: An internal order's budget was set or replaced.
+      description: |
+        Emitted by `internal-orders/{id}/budget` (PATCH), ADR-0064 §3: the
+        order's budget, one overall amount in its legal entity's local
+        currency, with the amount it replaced. Nothing is refused for a
+        budget; `GET /v1/internal-orders/{id}/budget` compares it with the
+        order's actual costs. Subject is the internal order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.controlling.internal_order_budget_changed.v1}
+      payload: {$ref: '#/components/schemas/InternalOrderBudgetChangedV1'}
+      examples:
+        - name: replaced
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000604, source: /erp/eu-1/controlling, type: com.example.erp.controlling.internal_order_budget_changed.v1, subject: 0192a000-0000-7000-8000-000000000c01, time: '2026-11-12T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {internal_order_id: 0192a000-0000-7000-8000-000000000c01, legal_entity_id: 0192a000-0000-7000-8000-000000000011, code: TRADEFAIR-26, name: Trade fair 2026, budget: {amount: '20000.00', currency: EUR}, previous_budget: {amount: '15000.00', currency: EUR}, version: 2}
     TaxReturnPrepared:
       name: TaxReturnPrepared
       x-webhook: true
@@ -3607,9 +3649,9 @@ components:
       title: Customer invoice changed
       summary: A customer invoice was entered.
       description: |
-        Emitted at each change of a customer invoice's status (ADR-0063 §9,
-        T75a): when it is entered (`draft`, status_before null). The slices
-        that post it add its posting. It carries the document's totals, not
+        Emitted when a customer invoice is entered (ADR-0063 §9, T75a):
+        `draft`, status_before null. Its posting is CustomerInvoicePosted,
+        which is emitted alone. It carries the document's totals, not
         its items, and names the customer by id and number, never by name.
         `GET /v1/customer-invoices/{id}` returns the document at `version`
         or later. Subject is the customer invoice id.
@@ -3624,6 +3666,78 @@ components:
         - name: entered
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f01, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, status: draft, status_before: null, version: 1}
+    CustomerInvoicePosted:
+      name: CustomerInvoicePosted
+      x-webhook: true
+      title: Customer invoice posted
+      summary: A customer invoice was posted to the ledger.
+      description: |
+        Emitted when a draft customer invoice is posted (ADR-0063 §5, §9,
+        T75b): its journal entry debits the customer's reconciliation
+        account, and that line is the customer's open item with the payment
+        term and net due date given here. It carries the document's totals,
+        not its items, and names the customer by id and number, never by
+        name. `GET /v1/customer-invoices/{id}` returns the document at
+        `version` or later. Subject is the customer invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.customer_invoice_posted.v1}
+      payload: {$ref: '#/components/schemas/CustomerInvoicePostedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_posted.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', posting_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, payment_term_code: NT30, net_due_date: '2026-12-11', journal_entry_id: 0192a000-0000-7000-8000-000000000f31, journal_entry_year: 2026, journal_entry_number: '1800000001', status: posted, status_before: draft, version: 2}
+    DunningRunChanged:
+      name: DunningRunChanged
+      x-webhook: true
+      title: Dunning run changed
+      summary: A dunning run was proposed.
+      description: |
+        Emitted at each change of a dunning run's status (ADR-0065 §6,
+        T76a): when it is started (`proposed`, status_before null). The
+        slice that confirms a run adds its confirmation. It carries the
+        run's totals, not its notices, and names no customer:
+        `GET /v1/dunning-runs/{id}/notices` returns the notices, and
+        `GET /v1/dunning-runs/{id}` the run at `version` or later. Subject
+        is the dunning run id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.collections.dunning_run_changed.v1}
+      payload: {$ref: '#/components/schemas/DunningRunChangedV1'}
+      examples:
+        - name: proposed
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/collections, type: com.example.erp.collections.dunning_run_changed.v1, subject: 0192a000-0000-7000-8000-000000000f31, time: '2026-12-31T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {dunning_run_id: 0192a000-0000-7000-8000-000000000f31, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', key_date: '2026-12-31', notice_count: 1, item_count: 1, overdue_amount: {amount: '1050.00', currency: CAD}, status: proposed, status_before: null, version: 1}
+    IncomingPaymentApplied:
+      name: IncomingPaymentApplied
+      x-webhook: true
+      title: Incoming payment applied
+      summary: An incoming payment was applied to a customer's open items.
+      description: |
+        Emitted when an incoming payment waiting on a house bank's incoming
+        payments clearing account is applied to a customer's open items
+        (ADR-0063 §6, §9, T75c): one clearing entry cleared the receipt and
+        the items, which equal it exactly. It carries the amount and the
+        number of items, not the items, and names the customer by id and
+        number, never by name. `GET /v1/incoming-payments/{id}` returns the
+        document, which never changes. Subject is the incoming payment id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.incoming_payment_applied.v1}
+      payload: {$ref: '#/components/schemas/IncomingPaymentAppliedV1'}
+      examples:
+        - name: applied
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_applied.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, posting_date: '2026-11-12', amount: {amount: '1050.00', currency: CAD}, receipt_journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_year: 2026, journal_entry_number: '1400000001', item_count: 1}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4259,6 +4373,61 @@ components:
         status: {type: string, description: "The document's status after the change. Open enum: draft."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was entered.'}
         version: {type: integer, description: "The document's version after the change."}
+    CustomerInvoicePostedV1:
+      type: object
+      required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, invoice_date, posting_date, net_amount, tax_amount, gross_amount, payment_term_code, net_due_date, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]
+      properties:
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.customer_invoice.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issued it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        kind: {type: string, description: 'Open enum: invoice.'}
+        invoice_date: {$ref: '#/components/schemas/Date'}
+        posting_date: {$ref: '#/components/schemas/Date', description: The date it posted on.}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "What the customer owes: net and tax, the open item's amount."}
+        payment_term_code: {type: string, description: "The payment term the open item keeps: the invoice's, else the customer's in the company."}
+        net_due_date: {$ref: '#/components/schemas/Date', description: "When the open item is due: the invoice date plus the term's net days."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the entry it posted.'}
+        journal_entry_year: {type: integer, description: "The entry's fiscal year."}
+        journal_entry_number: {type: string, description: "The entry's document number."}
+        status: {type: string, description: "The document's status after the change: posted."}
+        status_before: {type: string, description: 'Its status before: draft.'}
+        version: {type: integer, description: "The document's version after the change."}
+    DunningRunChangedV1:
+      type: object
+      required: [dunning_run_id, legal_entity_id, legal_entity_code, key_date, notice_count, item_count, overdue_amount, status, status_before, version]
+      properties:
+        dunning_run_id: {$ref: '#/components/schemas/Uuid', description: '`collections.dunning_run.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose customers the run duns.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        key_date: {$ref: '#/components/schemas/Date', description: "The date the items' days overdue were counted on."}
+        notice_count: {type: integer, description: 'The notices the run proposed, one per customer.'}
+        item_count: {type: integer, description: 'The overdue items in those notices.'}
+        overdue_amount: {$ref: '#/components/schemas/Money', description: "The items' amounts in the company's currency, as they were booked."}
+        status: {type: string, description: "The run's status after the change. Open enum: proposed."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was started.'}
+        version: {type: integer, description: "The run's version after the change."}
+    IncomingPaymentAppliedV1:
+      type: object
+      required: [incoming_payment_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, posting_date, amount, receipt_journal_entry_id, journal_entry_id, journal_entry_year, journal_entry_number, item_count]
+      properties:
+        incoming_payment_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.incoming_payment.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that received the payment.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        posting_date: {$ref: '#/components/schemas/Date', description: The posting date of the clearing entry.}
+        amount: {$ref: '#/components/schemas/Money', description: "What was received and applied: the receipt's amount, the sum of the items'."}
+        receipt_journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the receipt, the entry the bank statement line posted.'}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the clearing entry.'}
+        journal_entry_year: {type: integer, description: "The clearing entry's fiscal year."}
+        journal_entry_number: {type: string, description: "The clearing entry's document number."}
+        item_count: {type: integer, description: "How many open items of the customer the payment was applied to."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]
@@ -4612,6 +4781,17 @@ components:
         responsible_cost_center_code: {type: string}
         status: {type: string, description: 'The status after the change. Open enum: created, released.'}
         change: {type: string, description: 'Open enum: created, released.'}
+    InternalOrderBudgetChangedV1:
+      type: object
+      required: [internal_order_id, legal_entity_id, code, name, budget, version]
+      properties:
+        internal_order_id: {$ref: '#/components/schemas/Uuid', description: '`controlling.internal_order.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid'}
+        code: {type: string, description: The order's code, unique in its legal entity.}
+        name: {type: string}
+        budget: {$ref: '#/components/schemas/Money', description: The budget after the change, in the legal entity's local currency.}
+        previous_budget: {$ref: '#/components/schemas/Money', description: The budget before the change. Absent when the order had none.}
+        version: {type: integer, description: 'The budget''s version after the change: 1 when first set.'}
     SegmentChangedV1:
       type: object
       required: [segment_id, code, name, change]

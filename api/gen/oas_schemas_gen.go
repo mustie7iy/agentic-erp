@@ -21744,11 +21744,13 @@ func (*ConflictHeaders) createContractRes()                        {}
 func (*ConflictHeaders) createCostCenterRes()                      {}
 func (*ConflictHeaders) createCustomerInvoiceRes()                 {}
 func (*ConflictHeaders) createDownPaymentRequestRes()              {}
+func (*ConflictHeaders) createDunningRunRes()                      {}
 func (*ConflictHeaders) createEntryTemplateRes()                   {}
 func (*ConflictHeaders) createExchangeRateRes()                    {}
 func (*ConflictHeaders) createForecastVarianceCommentRes()         {}
 func (*ConflictHeaders) createGrIrClearingRes()                    {}
 func (*ConflictHeaders) createHierarchyRes()                       {}
+func (*ConflictHeaders) createIncomingPaymentRes()                 {}
 func (*ConflictHeaders) createInternalOrderRes()                   {}
 func (*ConflictHeaders) createLegalEntityRes()                     {}
 func (*ConflictHeaders) createMemoRecordRes()                      {}
@@ -21834,6 +21836,7 @@ func (*ConflictHeaders) pauseWebhookSubscriptionRes()              {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()               {}
 func (*ConflictHeaders) placeInHierarchyRes()                      {}
 func (*ConflictHeaders) postBankStatementLineRes()                 {}
+func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
@@ -27194,6 +27197,22 @@ type CreateDownPaymentRequestUnprocessableEntity Problem
 
 func (*CreateDownPaymentRequestUnprocessableEntity) createDownPaymentRequestRes() {}
 
+type CreateDunningRunBadRequest Problem
+
+func (*CreateDunningRunBadRequest) createDunningRunRes() {}
+
+type CreateDunningRunForbidden Problem
+
+func (*CreateDunningRunForbidden) createDunningRunRes() {}
+
+type CreateDunningRunPreconditionRequired Problem
+
+func (*CreateDunningRunPreconditionRequired) createDunningRunRes() {}
+
+type CreateDunningRunUnprocessableEntity Problem
+
+func (*CreateDunningRunUnprocessableEntity) createDunningRunRes() {}
+
 type CreateEntryTemplateBadRequest Problem
 
 func (*CreateEntryTemplateBadRequest) createEntryTemplateRes() {}
@@ -27370,6 +27389,22 @@ func (*CreateHierarchyPreconditionRequired) createHierarchyRes() {}
 type CreateHierarchyUnprocessableEntity Problem
 
 func (*CreateHierarchyUnprocessableEntity) createHierarchyRes() {}
+
+type CreateIncomingPaymentBadRequest Problem
+
+func (*CreateIncomingPaymentBadRequest) createIncomingPaymentRes() {}
+
+type CreateIncomingPaymentForbidden Problem
+
+func (*CreateIncomingPaymentForbidden) createIncomingPaymentRes() {}
+
+type CreateIncomingPaymentPreconditionRequired Problem
+
+func (*CreateIncomingPaymentPreconditionRequired) createIncomingPaymentRes() {}
+
+type CreateIncomingPaymentUnprocessableEntity Problem
+
+func (*CreateIncomingPaymentUnprocessableEntity) createIncomingPaymentRes() {}
 
 type CreateInternalOrderBadRequest Problem
 
@@ -28285,7 +28320,8 @@ type CustomerInvoice struct {
 	Kind string `json:"kind"`
 	// The invoice date, its tax date.
 	InvoiceDate time.Time `json:"invoice_date"`
-	// The posting date entered; absent when none was.
+	// The posting date entered; once posted, the date the invoice posted on. Absent on a draft entered
+	// without one.
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217).
 	Currency string `json:"currency"`
@@ -28295,9 +28331,22 @@ type CustomerInvoice struct {
 	TaxAmount Money `json:"tax_amount"`
 	// What the customer owes: `net_amount` and `tax_amount`.
 	GrossAmount Money `json:"gross_amount"`
-	// `draft`: entered, not posted. Open enumeration: clients must accept and preserve values not listed
+	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its debit line
+	// is the customer's open item. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1.
 	Status string `json:"status"`
+	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
+	// company when none was entered). Absent on a draft entered without one.
+	PaymentTermCode OptString `json:"payment_term_code"`
+	// When the invoice's open item is due: the invoice date plus its payment term's net days, as the
+	// ledger keeps it with the item. Absent until posted.
+	NetDueDate OptDate `json:"net_due_date"`
+	// The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year. Absent until posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number. Absent until posted.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The items, by item number.
 	Items []CustomerInvoiceItem `json:"items"`
 }
@@ -28405,6 +28454,31 @@ func (s *CustomerInvoice) GetGrossAmount() Money {
 // GetStatus returns the value of Status.
 func (s *CustomerInvoice) GetStatus() string {
 	return s.Status
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerInvoice) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *CustomerInvoice) GetNetDueDate() OptDate {
+	return s.NetDueDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *CustomerInvoice) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *CustomerInvoice) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *CustomerInvoice) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
 }
 
 // GetItems returns the value of Items.
@@ -28517,6 +28591,31 @@ func (s *CustomerInvoice) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerInvoice) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *CustomerInvoice) SetNetDueDate(val OptDate) {
+	s.NetDueDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *CustomerInvoice) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *CustomerInvoice) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *CustomerInvoice) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
 // SetItems sets the value of Items.
 func (s *CustomerInvoice) SetItems(val []CustomerInvoiceItem) {
 	s.Items = val
@@ -28535,6 +28634,9 @@ type CustomerInvoiceCreate struct {
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217), every item's.
 	Currency string `json:"currency"`
+	// The payment term the invoice posts with: a configured term (`payment_terms` of the configuration);
+	// absent: the customer's in the company when the invoice posts.
+	PaymentTermCode OptString `json:"payment_term_code"`
 	// The items, numbered in this order from 1.
 	Items []CustomerInvoiceItemCreate `json:"items"`
 }
@@ -28562,6 +28664,11 @@ func (s *CustomerInvoiceCreate) GetPostingDate() OptDate {
 // GetCurrency returns the value of Currency.
 func (s *CustomerInvoiceCreate) GetCurrency() string {
 	return s.Currency
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerInvoiceCreate) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
 }
 
 // GetItems returns the value of Items.
@@ -28592,6 +28699,11 @@ func (s *CustomerInvoiceCreate) SetPostingDate(val OptDate) {
 // SetCurrency sets the value of Currency.
 func (s *CustomerInvoiceCreate) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerInvoiceCreate) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
 }
 
 // SetItems sets the value of Items.
@@ -28920,6 +29032,24 @@ func (s *CustomerInvoicePage) SetNextPageToken(val OptString) {
 }
 
 func (*CustomerInvoicePage) listCustomerInvoicesRes() {}
+
+// Options for posting a customer invoice.
+// Ref: #/components/schemas/CustomerInvoicePost
+type CustomerInvoicePost struct {
+	// The posting date; absent: the one entered with the invoice, else today, the company's date in its
+	// time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CustomerInvoicePost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CustomerInvoicePost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
 
 type DecideRecommendationBadRequest Problem
 
@@ -30930,6 +31060,614 @@ func (s *DownPaymentRequestPage) SetNextPageToken(val OptString) {
 }
 
 func (*DownPaymentRequestPage) listDownPaymentRequestsRes() {}
+
+// A dunning notice (collections, ADR-0065 §3): what a dunning run proposes for one customer.
+// Ref: #/components/schemas/DunningNotice
+type DunningNotice struct {
+	// The notice's id.
+	ID uuid.UUID `json:"id"`
+	// The run that proposed it (`GET /v1/dunning-runs/{id}`).
+	DunningRunID uuid.UUID `json:"dunning_run_id"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The notice's dunning level: the highest among its items.
+	Level int32 `json:"level"`
+	// The notice's items.
+	ItemCount int32 `json:"item_count"`
+	// The sum of the items' `local_amount`, in the company's currency.
+	OverdueAmount Money `json:"overdue_amount"`
+	// The customer's overdue items, by item number.
+	Items []DunningNoticeItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *DunningNotice) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetDunningRunID returns the value of DunningRunID.
+func (s *DunningNotice) GetDunningRunID() uuid.UUID {
+	return s.DunningRunID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *DunningNotice) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *DunningNotice) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *DunningNotice) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetLevel returns the value of Level.
+func (s *DunningNotice) GetLevel() int32 {
+	return s.Level
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *DunningNotice) GetItemCount() int32 {
+	return s.ItemCount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *DunningNotice) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// GetItems returns the value of Items.
+func (s *DunningNotice) GetItems() []DunningNoticeItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *DunningNotice) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetDunningRunID sets the value of DunningRunID.
+func (s *DunningNotice) SetDunningRunID(val uuid.UUID) {
+	s.DunningRunID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *DunningNotice) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *DunningNotice) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *DunningNotice) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetLevel sets the value of Level.
+func (s *DunningNotice) SetLevel(val int32) {
+	s.Level = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *DunningNotice) SetItemCount(val int32) {
+	s.ItemCount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *DunningNotice) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// SetItems sets the value of Items.
+func (s *DunningNotice) SetItems(val []DunningNoticeItem) {
+	s.Items = val
+}
+
+// An item of a dunning notice: a customer's open item overdue on the run's key date, as the run read
+// it.
+// Ref: #/components/schemas/DunningNoticeItem
+type DunningNoticeItem struct {
+	// The item's number in the notice.
+	ItemNo int32 `json:"item_no"`
+	// The fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The journal entry whose line is the open item (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The line of the journal entry that is the open item.
+	LineNo int32 `json:"line_no"`
+	// The journal entry's document number.
+	DocumentNumber string `json:"document_number"`
+	// The journal entry's reference, a customer invoice's document number for one; absent when it has
+	// none.
+	Reference OptString `json:"reference"`
+	// The journal entry's document date.
+	DocumentDate time.Time `json:"document_date"`
+	// The item's net due date by the payment terms it was posted with.
+	NetDueDate time.Time `json:"net_due_date"`
+	// The days from the net due date to the run's key date.
+	DaysOverdue int32 `json:"days_overdue"`
+	// What the customer owes on the item, in the item's currency.
+	Amount Money `json:"amount"`
+	// The same in the company's currency, as it was booked.
+	LocalAmount Money `json:"local_amount"`
+	// The dunning level the item was last dunned at; 0 for an item never dunned.
+	PreviousLevel int32 `json:"previous_level"`
+	// The dunning level the item would reach: the last level whose days overdue it has reached, one above
+	// `previous_level` at most.
+	Level int32 `json:"level"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *DunningNoticeItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *DunningNoticeItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *DunningNoticeItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *DunningNoticeItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *DunningNoticeItem) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *DunningNoticeItem) GetReference() OptString {
+	return s.Reference
+}
+
+// GetDocumentDate returns the value of DocumentDate.
+func (s *DunningNoticeItem) GetDocumentDate() time.Time {
+	return s.DocumentDate
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *DunningNoticeItem) GetNetDueDate() time.Time {
+	return s.NetDueDate
+}
+
+// GetDaysOverdue returns the value of DaysOverdue.
+func (s *DunningNoticeItem) GetDaysOverdue() int32 {
+	return s.DaysOverdue
+}
+
+// GetAmount returns the value of Amount.
+func (s *DunningNoticeItem) GetAmount() Money {
+	return s.Amount
+}
+
+// GetLocalAmount returns the value of LocalAmount.
+func (s *DunningNoticeItem) GetLocalAmount() Money {
+	return s.LocalAmount
+}
+
+// GetPreviousLevel returns the value of PreviousLevel.
+func (s *DunningNoticeItem) GetPreviousLevel() int32 {
+	return s.PreviousLevel
+}
+
+// GetLevel returns the value of Level.
+func (s *DunningNoticeItem) GetLevel() int32 {
+	return s.Level
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *DunningNoticeItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *DunningNoticeItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *DunningNoticeItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *DunningNoticeItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *DunningNoticeItem) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *DunningNoticeItem) SetReference(val OptString) {
+	s.Reference = val
+}
+
+// SetDocumentDate sets the value of DocumentDate.
+func (s *DunningNoticeItem) SetDocumentDate(val time.Time) {
+	s.DocumentDate = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *DunningNoticeItem) SetNetDueDate(val time.Time) {
+	s.NetDueDate = val
+}
+
+// SetDaysOverdue sets the value of DaysOverdue.
+func (s *DunningNoticeItem) SetDaysOverdue(val int32) {
+	s.DaysOverdue = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *DunningNoticeItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetLocalAmount sets the value of LocalAmount.
+func (s *DunningNoticeItem) SetLocalAmount(val Money) {
+	s.LocalAmount = val
+}
+
+// SetPreviousLevel sets the value of PreviousLevel.
+func (s *DunningNoticeItem) SetPreviousLevel(val int32) {
+	s.PreviousLevel = val
+}
+
+// SetLevel sets the value of Level.
+func (s *DunningNoticeItem) SetLevel(val int32) {
+	s.Level = val
+}
+
+// One page of a dunning run's notices.
+// Ref: #/components/schemas/DunningNoticePage
+type DunningNoticePage struct {
+	// The notices on this page.
+	Items []DunningNotice `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DunningNoticePage) GetItems() []DunningNotice {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DunningNoticePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DunningNoticePage) SetItems(val []DunningNotice) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DunningNoticePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DunningNoticePage) listDunningNoticesRes() {}
+
+// Merged schema.
+// Ref: #/components/schemas/DunningRun
+type DunningRun struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The company whose customers the run duns.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The date the items' days overdue were counted on.
+	KeyDate time.Time `json:"key_date"`
+	// `proposed`: the notices are a proposal; nothing changed on the items and nothing was sent. Open
+	// enumeration: clients must accept and preserve values not listed here; values may be added within
+	// /v1.
+	Status string `json:"status"`
+	// The company's currency (ISO 4217), the currency of `overdue_amount`.
+	Currency string `json:"currency"`
+	// The notices the run proposed, one per customer; 0 when nothing was overdue.
+	NoticeCount int32 `json:"notice_count"`
+	// The overdue items in those notices.
+	ItemCount int32 `json:"item_count"`
+	// The sum of the notices' `overdue_amount`: the items' amounts in the company's currency, as they were
+	// booked.
+	OverdueAmount Money `json:"overdue_amount"`
+}
+
+// GetID returns the value of ID.
+func (s *DunningRun) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *DunningRun) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *DunningRun) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *DunningRun) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *DunningRun) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *DunningRun) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DunningRun) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *DunningRun) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *DunningRun) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *DunningRun) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// GetStatus returns the value of Status.
+func (s *DunningRun) GetStatus() string {
+	return s.Status
+}
+
+// GetCurrency returns the value of Currency.
+func (s *DunningRun) GetCurrency() string {
+	return s.Currency
+}
+
+// GetNoticeCount returns the value of NoticeCount.
+func (s *DunningRun) GetNoticeCount() int32 {
+	return s.NoticeCount
+}
+
+// GetItemCount returns the value of ItemCount.
+func (s *DunningRun) GetItemCount() int32 {
+	return s.ItemCount
+}
+
+// GetOverdueAmount returns the value of OverdueAmount.
+func (s *DunningRun) GetOverdueAmount() Money {
+	return s.OverdueAmount
+}
+
+// SetID sets the value of ID.
+func (s *DunningRun) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *DunningRun) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *DunningRun) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *DunningRun) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *DunningRun) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *DunningRun) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DunningRun) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *DunningRun) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *DunningRun) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *DunningRun) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DunningRun) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *DunningRun) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetNoticeCount sets the value of NoticeCount.
+func (s *DunningRun) SetNoticeCount(val int32) {
+	s.NoticeCount = val
+}
+
+// SetItemCount sets the value of ItemCount.
+func (s *DunningRun) SetItemCount(val int32) {
+	s.ItemCount = val
+}
+
+// SetOverdueAmount sets the value of OverdueAmount.
+func (s *DunningRun) SetOverdueAmount(val Money) {
+	s.OverdueAmount = val
+}
+
+// Start a dunning run. It is created `proposed`, with one notice per customer that has items overdue
+// on the key date.
+// Ref: #/components/schemas/DunningRunCreate
+type DunningRunCreate struct {
+	// The company whose customers are dunned: a legal entity the caller may act in, with dunning levels in
+	// the configuration.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The date the items' days overdue are counted on. An item due on this date is not overdue.
+	KeyDate time.Time `json:"key_date"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *DunningRunCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetKeyDate returns the value of KeyDate.
+func (s *DunningRunCreate) GetKeyDate() time.Time {
+	return s.KeyDate
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *DunningRunCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetKeyDate sets the value of KeyDate.
+func (s *DunningRunCreate) SetKeyDate(val time.Time) {
+	s.KeyDate = val
+}
+
+// DunningRunHeaders wraps DunningRun with response headers.
+type DunningRunHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *DunningRunHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *DunningRunHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *DunningRunHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *DunningRunHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *DunningRunHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *DunningRunHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *DunningRunHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *DunningRunHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*DunningRunHeaders) createDunningRunRes() {}
+
+// One page of dunning runs.
+// Ref: #/components/schemas/DunningRunPage
+type DunningRunPage struct {
+	// The dunning runs on this page.
+	Items []DunningRun `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *DunningRunPage) GetItems() []DunningRun {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *DunningRunPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *DunningRunPage) SetItems(val []DunningRun) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *DunningRunPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*DunningRunPage) listDunningRunsRes() {}
 
 // A document the tenant's accredited e-invoicing provider delivered (ADR-0061 §4, §7, §15):
 // recorded once per connector and the provider's message id, its bytes kept as received.
@@ -35232,6 +35970,46 @@ func (s *GetDownPaymentRequestOKHeaders) SetResponse(val DownPaymentRequest) {
 
 func (*GetDownPaymentRequestOKHeaders) getDownPaymentRequestRes() {}
 
+type GetDunningRunBadRequest Problem
+
+func (*GetDunningRunBadRequest) getDunningRunRes() {}
+
+type GetDunningRunForbidden Problem
+
+func (*GetDunningRunForbidden) getDunningRunRes() {}
+
+type GetDunningRunNotFound Problem
+
+func (*GetDunningRunNotFound) getDunningRunRes() {}
+
+// GetDunningRunOKHeaders wraps DunningRun with response headers.
+type GetDunningRunOKHeaders struct {
+	ETag     OptString
+	Response DunningRun
+}
+
+// GetETag returns the value of ETag.
+func (s *GetDunningRunOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDunningRunOKHeaders) GetResponse() DunningRun {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetDunningRunOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDunningRunOKHeaders) SetResponse(val DunningRun) {
+	s.Response = val
+}
+
+func (*GetDunningRunOKHeaders) getDunningRunRes() {}
+
 type GetEInvoiceBadRequest Problem
 
 func (*GetEInvoiceBadRequest) getEInvoiceRes() {}
@@ -35493,9 +36271,61 @@ type GetHierarchyNotFound Problem
 
 func (*GetHierarchyNotFound) getHierarchyRes() {}
 
+type GetIncomingPaymentBadRequest Problem
+
+func (*GetIncomingPaymentBadRequest) getIncomingPaymentRes() {}
+
+type GetIncomingPaymentForbidden Problem
+
+func (*GetIncomingPaymentForbidden) getIncomingPaymentRes() {}
+
+type GetIncomingPaymentNotFound Problem
+
+func (*GetIncomingPaymentNotFound) getIncomingPaymentRes() {}
+
+// GetIncomingPaymentOKHeaders wraps IncomingPayment with response headers.
+type GetIncomingPaymentOKHeaders struct {
+	ETag     OptString
+	Response IncomingPayment
+}
+
+// GetETag returns the value of ETag.
+func (s *GetIncomingPaymentOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *GetIncomingPaymentOKHeaders) GetResponse() IncomingPayment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *GetIncomingPaymentOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *GetIncomingPaymentOKHeaders) SetResponse(val IncomingPayment) {
+	s.Response = val
+}
+
+func (*GetIncomingPaymentOKHeaders) getIncomingPaymentRes() {}
+
 type GetInternalOrderBadRequest Problem
 
 func (*GetInternalOrderBadRequest) getInternalOrderRes() {}
+
+type GetInternalOrderBudgetBadRequest Problem
+
+func (*GetInternalOrderBudgetBadRequest) getInternalOrderBudgetRes() {}
+
+type GetInternalOrderBudgetForbidden Problem
+
+func (*GetInternalOrderBudgetForbidden) getInternalOrderBudgetRes() {}
+
+type GetInternalOrderBudgetNotFound Problem
+
+func (*GetInternalOrderBudgetNotFound) getInternalOrderBudgetRes() {}
 
 type GetInternalOrderForbidden Problem
 
@@ -35532,6 +36362,18 @@ func (s *GetInternalOrderOKHeaders) SetResponse(val InternalOrder) {
 }
 
 func (*GetInternalOrderOKHeaders) getInternalOrderRes() {}
+
+type GetInternalOrderSettlementRuleBadRequest Problem
+
+func (*GetInternalOrderSettlementRuleBadRequest) getInternalOrderSettlementRuleRes() {}
+
+type GetInternalOrderSettlementRuleForbidden Problem
+
+func (*GetInternalOrderSettlementRuleForbidden) getInternalOrderSettlementRuleRes() {}
+
+type GetInternalOrderSettlementRuleNotFound Problem
+
+func (*GetInternalOrderSettlementRuleNotFound) getInternalOrderSettlementRuleRes() {}
 
 type GetJournalEntryBadRequest Problem
 
@@ -39669,6 +40511,602 @@ type ImportBankStatementsUnprocessableEntity Problem
 
 func (*ImportBankStatementsUnprocessableEntity) importBankStatementsRes() {}
 
+// Merged schema.
+// Ref: #/components/schemas/IncomingPayment
+type IncomingPayment struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The document number, from the company's `incoming_payment` number range.
+	DocumentNumber string `json:"document_number"`
+	// The company that received the payment.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The company's code.
+	CompanyCode string `json:"company_code"`
+	// The company's name, as it is now.
+	CompanyName string `json:"company_name"`
+	// The customer (`GET /v1/business-partners/{id}`).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The customer's business partner number.
+	CustomerNumber string `json:"customer_number"`
+	// The customer's name, as it is now.
+	CustomerName string `json:"customer_name"`
+	// The posting date of the clearing entry.
+	PostingDate time.Time `json:"posting_date"`
+	// The payment's currency (ISO 4217), the receipt's and every item's.
+	Currency string `json:"currency"`
+	// What was received and applied: the receipt's amount, the sum of the items' amounts.
+	Amount Money `json:"amount"`
+	// The receipt: the journal entry the bank statement line posted (`GET /v1/journal-entries/{id}`).
+	ReceiptJournalEntryID uuid.UUID `json:"receipt_journal_entry_id"`
+	// The receipt entry's fiscal year.
+	ReceiptJournalEntryYear int32 `json:"receipt_journal_entry_year"`
+	// The receipt entry's document number.
+	ReceiptJournalEntryNumber string `json:"receipt_journal_entry_number"`
+	// The incoming payments clearing account the receipt waited on.
+	ReceiptAccountID uuid.UUID `json:"receipt_account_id"`
+	// That account's number.
+	ReceiptAccountNumber string `json:"receipt_account_number"`
+	// That account's name, as it is now.
+	ReceiptAccountName string `json:"receipt_account_name"`
+	// The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the
+	// line with the payer's references and remittance text); absent when no statement line posted the
+	// entry.
+	ReceiptBankStatementID OptUUID `json:"receipt_bank_statement_id"`
+	// That statement's reference, as the bank gave it; absent with `receipt_bank_statement_id`.
+	ReceiptBankStatementRef OptString `json:"receipt_bank_statement_ref"`
+	// The line's number in that statement; absent with `receipt_bank_statement_id`.
+	ReceiptBankStatementLineNo OptInt32 `json:"receipt_bank_statement_line_no"`
+	// The clearing entry that cleared the receipt and the items (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The clearing entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The clearing entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The items the payment was applied to, by item number.
+	Items []IncomingPaymentItem `json:"items"`
+}
+
+// GetID returns the value of ID.
+func (s *IncomingPayment) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *IncomingPayment) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *IncomingPayment) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *IncomingPayment) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *IncomingPayment) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *IncomingPayment) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetDocumentNumber returns the value of DocumentNumber.
+func (s *IncomingPayment) GetDocumentNumber() string {
+	return s.DocumentNumber
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IncomingPayment) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCompanyCode returns the value of CompanyCode.
+func (s *IncomingPayment) GetCompanyCode() string {
+	return s.CompanyCode
+}
+
+// GetCompanyName returns the value of CompanyName.
+func (s *IncomingPayment) GetCompanyName() string {
+	return s.CompanyName
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IncomingPayment) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetCustomerNumber returns the value of CustomerNumber.
+func (s *IncomingPayment) GetCustomerNumber() string {
+	return s.CustomerNumber
+}
+
+// GetCustomerName returns the value of CustomerName.
+func (s *IncomingPayment) GetCustomerName() string {
+	return s.CustomerName
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPayment) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetCurrency returns the value of Currency.
+func (s *IncomingPayment) GetCurrency() string {
+	return s.Currency
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPayment) GetAmount() Money {
+	return s.Amount
+}
+
+// GetReceiptJournalEntryID returns the value of ReceiptJournalEntryID.
+func (s *IncomingPayment) GetReceiptJournalEntryID() uuid.UUID {
+	return s.ReceiptJournalEntryID
+}
+
+// GetReceiptJournalEntryYear returns the value of ReceiptJournalEntryYear.
+func (s *IncomingPayment) GetReceiptJournalEntryYear() int32 {
+	return s.ReceiptJournalEntryYear
+}
+
+// GetReceiptJournalEntryNumber returns the value of ReceiptJournalEntryNumber.
+func (s *IncomingPayment) GetReceiptJournalEntryNumber() string {
+	return s.ReceiptJournalEntryNumber
+}
+
+// GetReceiptAccountID returns the value of ReceiptAccountID.
+func (s *IncomingPayment) GetReceiptAccountID() uuid.UUID {
+	return s.ReceiptAccountID
+}
+
+// GetReceiptAccountNumber returns the value of ReceiptAccountNumber.
+func (s *IncomingPayment) GetReceiptAccountNumber() string {
+	return s.ReceiptAccountNumber
+}
+
+// GetReceiptAccountName returns the value of ReceiptAccountName.
+func (s *IncomingPayment) GetReceiptAccountName() string {
+	return s.ReceiptAccountName
+}
+
+// GetReceiptBankStatementID returns the value of ReceiptBankStatementID.
+func (s *IncomingPayment) GetReceiptBankStatementID() OptUUID {
+	return s.ReceiptBankStatementID
+}
+
+// GetReceiptBankStatementRef returns the value of ReceiptBankStatementRef.
+func (s *IncomingPayment) GetReceiptBankStatementRef() OptString {
+	return s.ReceiptBankStatementRef
+}
+
+// GetReceiptBankStatementLineNo returns the value of ReceiptBankStatementLineNo.
+func (s *IncomingPayment) GetReceiptBankStatementLineNo() OptInt32 {
+	return s.ReceiptBankStatementLineNo
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPayment) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *IncomingPayment) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPayment) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetItems returns the value of Items.
+func (s *IncomingPayment) GetItems() []IncomingPaymentItem {
+	return s.Items
+}
+
+// SetID sets the value of ID.
+func (s *IncomingPayment) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *IncomingPayment) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *IncomingPayment) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *IncomingPayment) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *IncomingPayment) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *IncomingPayment) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetDocumentNumber sets the value of DocumentNumber.
+func (s *IncomingPayment) SetDocumentNumber(val string) {
+	s.DocumentNumber = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IncomingPayment) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCompanyCode sets the value of CompanyCode.
+func (s *IncomingPayment) SetCompanyCode(val string) {
+	s.CompanyCode = val
+}
+
+// SetCompanyName sets the value of CompanyName.
+func (s *IncomingPayment) SetCompanyName(val string) {
+	s.CompanyName = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IncomingPayment) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetCustomerNumber sets the value of CustomerNumber.
+func (s *IncomingPayment) SetCustomerNumber(val string) {
+	s.CustomerNumber = val
+}
+
+// SetCustomerName sets the value of CustomerName.
+func (s *IncomingPayment) SetCustomerName(val string) {
+	s.CustomerName = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPayment) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetCurrency sets the value of Currency.
+func (s *IncomingPayment) SetCurrency(val string) {
+	s.Currency = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPayment) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetReceiptJournalEntryID sets the value of ReceiptJournalEntryID.
+func (s *IncomingPayment) SetReceiptJournalEntryID(val uuid.UUID) {
+	s.ReceiptJournalEntryID = val
+}
+
+// SetReceiptJournalEntryYear sets the value of ReceiptJournalEntryYear.
+func (s *IncomingPayment) SetReceiptJournalEntryYear(val int32) {
+	s.ReceiptJournalEntryYear = val
+}
+
+// SetReceiptJournalEntryNumber sets the value of ReceiptJournalEntryNumber.
+func (s *IncomingPayment) SetReceiptJournalEntryNumber(val string) {
+	s.ReceiptJournalEntryNumber = val
+}
+
+// SetReceiptAccountID sets the value of ReceiptAccountID.
+func (s *IncomingPayment) SetReceiptAccountID(val uuid.UUID) {
+	s.ReceiptAccountID = val
+}
+
+// SetReceiptAccountNumber sets the value of ReceiptAccountNumber.
+func (s *IncomingPayment) SetReceiptAccountNumber(val string) {
+	s.ReceiptAccountNumber = val
+}
+
+// SetReceiptAccountName sets the value of ReceiptAccountName.
+func (s *IncomingPayment) SetReceiptAccountName(val string) {
+	s.ReceiptAccountName = val
+}
+
+// SetReceiptBankStatementID sets the value of ReceiptBankStatementID.
+func (s *IncomingPayment) SetReceiptBankStatementID(val OptUUID) {
+	s.ReceiptBankStatementID = val
+}
+
+// SetReceiptBankStatementRef sets the value of ReceiptBankStatementRef.
+func (s *IncomingPayment) SetReceiptBankStatementRef(val OptString) {
+	s.ReceiptBankStatementRef = val
+}
+
+// SetReceiptBankStatementLineNo sets the value of ReceiptBankStatementLineNo.
+func (s *IncomingPayment) SetReceiptBankStatementLineNo(val OptInt32) {
+	s.ReceiptBankStatementLineNo = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPayment) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *IncomingPayment) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPayment) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetItems sets the value of Items.
+func (s *IncomingPayment) SetItems(val []IncomingPaymentItem) {
+	s.Items = val
+}
+
+// Apply an incoming payment to a customer's open items, in full and exactly.
+// Ref: #/components/schemas/IncomingPaymentCreate
+type IncomingPaymentCreate struct {
+	// The company that received the payment: a legal entity the caller may act in.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The customer whose open items the payment is applied to (business partner id).
+	CustomerID uuid.UUID `json:"customer_id"`
+	// The receipt: the journal entry a bank statement line matched as incoming posted, waiting on a house
+	// bank's incoming payments clearing account (`listUnappliedReceipts`).
+	ReceiptJournalEntryID uuid.UUID `json:"receipt_journal_entry_id"`
+	// The posting date of the clearing entry; absent: today, the company's date in its time zone
+	// (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+	// The customer's open items the payment is applied to (`GET /v1/open-items`), invoices and credits;
+	// together they equal the receipt exactly, in its currency.
+	Items []ClearingItemRef `json:"items"`
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *IncomingPaymentCreate) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetCustomerID returns the value of CustomerID.
+func (s *IncomingPaymentCreate) GetCustomerID() uuid.UUID {
+	return s.CustomerID
+}
+
+// GetReceiptJournalEntryID returns the value of ReceiptJournalEntryID.
+func (s *IncomingPaymentCreate) GetReceiptJournalEntryID() uuid.UUID {
+	return s.ReceiptJournalEntryID
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *IncomingPaymentCreate) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// GetItems returns the value of Items.
+func (s *IncomingPaymentCreate) GetItems() []ClearingItemRef {
+	return s.Items
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *IncomingPaymentCreate) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetCustomerID sets the value of CustomerID.
+func (s *IncomingPaymentCreate) SetCustomerID(val uuid.UUID) {
+	s.CustomerID = val
+}
+
+// SetReceiptJournalEntryID sets the value of ReceiptJournalEntryID.
+func (s *IncomingPaymentCreate) SetReceiptJournalEntryID(val uuid.UUID) {
+	s.ReceiptJournalEntryID = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *IncomingPaymentCreate) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
+
+// SetItems sets the value of Items.
+func (s *IncomingPaymentCreate) SetItems(val []ClearingItemRef) {
+	s.Items = val
+}
+
+// IncomingPaymentHeaders wraps IncomingPayment with response headers.
+type IncomingPaymentHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           IncomingPayment
+}
+
+// GetETag returns the value of ETag.
+func (s *IncomingPaymentHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *IncomingPaymentHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *IncomingPaymentHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *IncomingPaymentHeaders) GetResponse() IncomingPayment {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *IncomingPaymentHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *IncomingPaymentHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *IncomingPaymentHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *IncomingPaymentHeaders) SetResponse(val IncomingPayment) {
+	s.Response = val
+}
+
+func (*IncomingPaymentHeaders) createIncomingPaymentRes() {}
+
+// An open item an incoming payment was applied to, identified by (fiscal_year, journal_entry_id,
+// line_no).
+// Ref: #/components/schemas/IncomingPaymentItem
+type IncomingPaymentItem struct {
+	// The item's number in the payment, in the order of the request.
+	ItemNo int32 `json:"item_no"`
+	// Fiscal year of the item's journal entry.
+	FiscalYear int32 `json:"fiscal_year"`
+	// The item's journal entry (`GET /v1/journal-entries/{id}`).
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The item's line in the entry.
+	LineNo int32 `json:"line_no"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The entry's reference, a customer invoice's document number for one; its document number when it has
+	// none.
+	Reference string `json:"reference"`
+	// The amount the item stood at, in the payment's currency: positive for what the customer owed (an
+	// invoice), negative for a credit of the customer's.
+	Amount Money `json:"amount"`
+}
+
+// GetItemNo returns the value of ItemNo.
+func (s *IncomingPaymentItem) GetItemNo() int32 {
+	return s.ItemNo
+}
+
+// GetFiscalYear returns the value of FiscalYear.
+func (s *IncomingPaymentItem) GetFiscalYear() int32 {
+	return s.FiscalYear
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *IncomingPaymentItem) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *IncomingPaymentItem) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *IncomingPaymentItem) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetReference returns the value of Reference.
+func (s *IncomingPaymentItem) GetReference() string {
+	return s.Reference
+}
+
+// GetAmount returns the value of Amount.
+func (s *IncomingPaymentItem) GetAmount() Money {
+	return s.Amount
+}
+
+// SetItemNo sets the value of ItemNo.
+func (s *IncomingPaymentItem) SetItemNo(val int32) {
+	s.ItemNo = val
+}
+
+// SetFiscalYear sets the value of FiscalYear.
+func (s *IncomingPaymentItem) SetFiscalYear(val int32) {
+	s.FiscalYear = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *IncomingPaymentItem) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *IncomingPaymentItem) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *IncomingPaymentItem) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetReference sets the value of Reference.
+func (s *IncomingPaymentItem) SetReference(val string) {
+	s.Reference = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *IncomingPaymentItem) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// One page of incoming payments applied.
+// Ref: #/components/schemas/IncomingPaymentPage
+type IncomingPaymentPage struct {
+	// The incoming payments on this page.
+	Items []IncomingPayment `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *IncomingPaymentPage) GetItems() []IncomingPayment {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *IncomingPaymentPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *IncomingPaymentPage) SetItems(val []IncomingPayment) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *IncomingPaymentPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*IncomingPaymentPage) listIncomingPaymentsRes() {}
+
 // A consolidation run's intercompany difference (ADR-0059 §8): a pair of its companies on an
 // elimination's accounts (`matched`, `within_tolerance`, `open`), or a company's rows on them naming a
 // company outside the run (`outside_group`) or none (`no_trading_partner`). Amounts in the group
@@ -40448,6 +41886,192 @@ func (s *InternalOrderBalanceTotals) SetBalance(val Money) {
 	s.Balance = val
 }
 
+// The budget of an internal order against its actual costs (ADR-0064 §3), in the legal entity's local
+// currency.
+// Ref: #/components/schemas/InternalOrderBudget
+type InternalOrderBudget struct {
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The budget's version, the `ETag`: 0 while the budget was never set, then 1 and one more with every
+	// change.
+	Version int32 `json:"version"`
+	// The budget: one overall amount for the order, zero or more. Absent while it was never set.
+	Budget OptMoney `json:"budget"`
+	// The order's actual costs: the debits less the credits of the leading ledger's journal lines that
+	// name the order, over every fiscal year. Negative when the credits exceed the debits.
+	Actual Money `json:"actual"`
+	// The budget less the actual; negative once the actual exceeds the budget. Absent while the budget was
+	// never set.
+	Remaining OptMoney `json:"remaining"`
+	// Whether the actual exceeds the budget. False while the budget was never set.
+	Exceeded bool `json:"exceeded"`
+	// When the budget was last set (UTC). Absent while it was never set.
+	UpdatedAt OptDateTime `json:"updated_at"`
+	// The principal who last set the budget. Absent while it was never set.
+	UpdatedBy OptUUID `json:"updated_by"`
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderBudget) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderBudget) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderBudget) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderBudget) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetVersion returns the value of Version.
+func (s *InternalOrderBudget) GetVersion() int32 {
+	return s.Version
+}
+
+// GetBudget returns the value of Budget.
+func (s *InternalOrderBudget) GetBudget() OptMoney {
+	return s.Budget
+}
+
+// GetActual returns the value of Actual.
+func (s *InternalOrderBudget) GetActual() Money {
+	return s.Actual
+}
+
+// GetRemaining returns the value of Remaining.
+func (s *InternalOrderBudget) GetRemaining() OptMoney {
+	return s.Remaining
+}
+
+// GetExceeded returns the value of Exceeded.
+func (s *InternalOrderBudget) GetExceeded() bool {
+	return s.Exceeded
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *InternalOrderBudget) GetUpdatedAt() OptDateTime {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *InternalOrderBudget) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderBudget) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderBudget) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderBudget) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderBudget) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *InternalOrderBudget) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetBudget sets the value of Budget.
+func (s *InternalOrderBudget) SetBudget(val OptMoney) {
+	s.Budget = val
+}
+
+// SetActual sets the value of Actual.
+func (s *InternalOrderBudget) SetActual(val Money) {
+	s.Actual = val
+}
+
+// SetRemaining sets the value of Remaining.
+func (s *InternalOrderBudget) SetRemaining(val OptMoney) {
+	s.Remaining = val
+}
+
+// SetExceeded sets the value of Exceeded.
+func (s *InternalOrderBudget) SetExceeded(val bool) {
+	s.Exceeded = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *InternalOrderBudget) SetUpdatedAt(val OptDateTime) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *InternalOrderBudget) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// InternalOrderBudgetHeaders wraps InternalOrderBudget with response headers.
+type InternalOrderBudgetHeaders struct {
+	ETag     OptString
+	Response InternalOrderBudget
+}
+
+// GetETag returns the value of ETag.
+func (s *InternalOrderBudgetHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderBudgetHeaders) GetResponse() InternalOrderBudget {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *InternalOrderBudgetHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderBudgetHeaders) SetResponse(val InternalOrderBudget) {
+	s.Response = val
+}
+
+func (*InternalOrderBudgetHeaders) getInternalOrderBudgetRes() {}
+
+// The budget an internal order is given (a merge patch of its budget: `budget` is replaced whole).
+// Ref: #/components/schemas/InternalOrderBudgetUpdate
+type InternalOrderBudgetUpdate struct {
+	// One overall amount for the order, zero or more, in the legal entity's local currency.
+	Budget Money `json:"budget"`
+}
+
+// GetBudget returns the value of Budget.
+func (s *InternalOrderBudgetUpdate) GetBudget() Money {
+	return s.Budget
+}
+
+// SetBudget sets the value of Budget.
+func (s *InternalOrderBudgetUpdate) SetBudget(val Money) {
+	s.Budget = val
+}
+
 // A new internal order.
 // Ref: #/components/schemas/InternalOrderCreate
 type InternalOrderCreate struct {
@@ -40594,6 +42218,167 @@ func (s *InternalOrderPage) SetTotalEstimate(val OptInt64) {
 }
 
 func (*InternalOrderPage) listInternalOrdersRes() {}
+
+// The settlement rule of an internal order (ADR-0064 §3): one receiver, a cost center of the order's
+// legal entity, taking the whole.
+// Ref: #/components/schemas/InternalOrderSettlementRule
+type InternalOrderSettlementRule struct {
+	// The internal order (`GET /v1/internal-orders/{id}`).
+	InternalOrderID uuid.UUID `json:"internal_order_id"`
+	// The order's code.
+	InternalOrderCode string `json:"internal_order_code"`
+	// The order's name.
+	InternalOrderName string `json:"internal_order_name"`
+	// The order's legal entity (company code).
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The order's version, the `ETag`: it moves with every change of the order and of its rule.
+	Version int32 `json:"version"`
+	// The receiving cost center (`GET /v1/cost-centers/{id}`), which takes the whole. Absent while the
+	// order has no rule.
+	ReceiverCostCenterID OptUUID `json:"receiver_cost_center_id"`
+	// The receiving cost center's code. Absent while the order has no rule.
+	ReceiverCostCenterCode OptString `json:"receiver_cost_center_code"`
+	// When the rule was last set (UTC). Absent while the order has no rule.
+	UpdatedAt OptDateTime `json:"updated_at"`
+	// The principal who last set the rule. Absent while the order has no rule.
+	UpdatedBy OptUUID `json:"updated_by"`
+}
+
+// GetInternalOrderID returns the value of InternalOrderID.
+func (s *InternalOrderSettlementRule) GetInternalOrderID() uuid.UUID {
+	return s.InternalOrderID
+}
+
+// GetInternalOrderCode returns the value of InternalOrderCode.
+func (s *InternalOrderSettlementRule) GetInternalOrderCode() string {
+	return s.InternalOrderCode
+}
+
+// GetInternalOrderName returns the value of InternalOrderName.
+func (s *InternalOrderSettlementRule) GetInternalOrderName() string {
+	return s.InternalOrderName
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *InternalOrderSettlementRule) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetVersion returns the value of Version.
+func (s *InternalOrderSettlementRule) GetVersion() int32 {
+	return s.Version
+}
+
+// GetReceiverCostCenterID returns the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRule) GetReceiverCostCenterID() OptUUID {
+	return s.ReceiverCostCenterID
+}
+
+// GetReceiverCostCenterCode returns the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlementRule) GetReceiverCostCenterCode() OptString {
+	return s.ReceiverCostCenterCode
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *InternalOrderSettlementRule) GetUpdatedAt() OptDateTime {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *InternalOrderSettlementRule) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// SetInternalOrderID sets the value of InternalOrderID.
+func (s *InternalOrderSettlementRule) SetInternalOrderID(val uuid.UUID) {
+	s.InternalOrderID = val
+}
+
+// SetInternalOrderCode sets the value of InternalOrderCode.
+func (s *InternalOrderSettlementRule) SetInternalOrderCode(val string) {
+	s.InternalOrderCode = val
+}
+
+// SetInternalOrderName sets the value of InternalOrderName.
+func (s *InternalOrderSettlementRule) SetInternalOrderName(val string) {
+	s.InternalOrderName = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *InternalOrderSettlementRule) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *InternalOrderSettlementRule) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetReceiverCostCenterID sets the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRule) SetReceiverCostCenterID(val OptUUID) {
+	s.ReceiverCostCenterID = val
+}
+
+// SetReceiverCostCenterCode sets the value of ReceiverCostCenterCode.
+func (s *InternalOrderSettlementRule) SetReceiverCostCenterCode(val OptString) {
+	s.ReceiverCostCenterCode = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *InternalOrderSettlementRule) SetUpdatedAt(val OptDateTime) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *InternalOrderSettlementRule) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// InternalOrderSettlementRuleHeaders wraps InternalOrderSettlementRule with response headers.
+type InternalOrderSettlementRuleHeaders struct {
+	ETag     OptString
+	Response InternalOrderSettlementRule
+}
+
+// GetETag returns the value of ETag.
+func (s *InternalOrderSettlementRuleHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetResponse returns the value of Response.
+func (s *InternalOrderSettlementRuleHeaders) GetResponse() InternalOrderSettlementRule {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *InternalOrderSettlementRuleHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetResponse sets the value of Response.
+func (s *InternalOrderSettlementRuleHeaders) SetResponse(val InternalOrderSettlementRule) {
+	s.Response = val
+}
+
+func (*InternalOrderSettlementRuleHeaders) getInternalOrderSettlementRuleRes() {}
+
+// The settlement rule an internal order is given (a merge patch of its rule: the receiver is
+// replaced).
+// Ref: #/components/schemas/InternalOrderSettlementRuleUpdate
+type InternalOrderSettlementRuleUpdate struct {
+	// An active cost center of the order's legal entity, valid today: the one receiver, taking the whole.
+	ReceiverCostCenterID uuid.UUID `json:"receiver_cost_center_id"`
+}
+
+// GetReceiverCostCenterID returns the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRuleUpdate) GetReceiverCostCenterID() uuid.UUID {
+	return s.ReceiverCostCenterID
+}
+
+// SetReceiverCostCenterID sets the value of ReceiverCostCenterID.
+func (s *InternalOrderSettlementRuleUpdate) SetReceiverCostCenterID(val uuid.UUID) {
+	s.ReceiverCostCenterID = val
+}
 
 // Payment terms frozen when a document posted (T36b), as SAP keeps ZTERM, ZFBDT and ZBD1T..ZBD3T: a
 // later change to the payment term changes neither the net due date nor the discounts.
@@ -45137,6 +46922,26 @@ type ListDownPaymentRequestsForbidden Problem
 
 func (*ListDownPaymentRequestsForbidden) listDownPaymentRequestsRes() {}
 
+type ListDunningNoticesBadRequest Problem
+
+func (*ListDunningNoticesBadRequest) listDunningNoticesRes() {}
+
+type ListDunningNoticesForbidden Problem
+
+func (*ListDunningNoticesForbidden) listDunningNoticesRes() {}
+
+type ListDunningNoticesNotFound Problem
+
+func (*ListDunningNoticesNotFound) listDunningNoticesRes() {}
+
+type ListDunningRunsBadRequest Problem
+
+func (*ListDunningRunsBadRequest) listDunningRunsRes() {}
+
+type ListDunningRunsForbidden Problem
+
+func (*ListDunningRunsForbidden) listDunningRunsRes() {}
+
 type ListEInvoicesBadRequest Problem
 
 func (*ListEInvoicesBadRequest) listEInvoicesRes() {}
@@ -45248,6 +47053,14 @@ func (*ListHouseBanksBadRequest) listHouseBanksRes() {}
 type ListHouseBanksForbidden Problem
 
 func (*ListHouseBanksForbidden) listHouseBanksRes() {}
+
+type ListIncomingPaymentsBadRequest Problem
+
+func (*ListIncomingPaymentsBadRequest) listIncomingPaymentsRes() {}
+
+type ListIncomingPaymentsForbidden Problem
+
+func (*ListIncomingPaymentsForbidden) listIncomingPaymentsRes() {}
 
 type ListIntercompanyDifferencesBadRequest Problem
 
@@ -45696,6 +47509,18 @@ func (*ListTaxReturnsForbidden) listTaxReturnsRes() {}
 type ListTaxReturnsNotFound Problem
 
 func (*ListTaxReturnsNotFound) listTaxReturnsRes() {}
+
+type ListUnappliedReceiptsBadRequest Problem
+
+func (*ListUnappliedReceiptsBadRequest) listUnappliedReceiptsRes() {}
+
+type ListUnappliedReceiptsForbidden Problem
+
+func (*ListUnappliedReceiptsForbidden) listUnappliedReceiptsRes() {}
+
+type ListUnappliedReceiptsUnprocessableEntity Problem
+
+func (*ListUnappliedReceiptsUnprocessableEntity) listUnappliedReceiptsRes() {}
 
 type ListVarianceCommentsBadRequest Problem
 
@@ -51637,6 +53462,52 @@ func (o OptCreditLimit) Get() (v CreditLimit, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptCreditLimit) Or(d CreditLimit) CreditLimit {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptCustomerInvoicePost returns new OptCustomerInvoicePost with value set to v.
+func NewOptCustomerInvoicePost(v CustomerInvoicePost) OptCustomerInvoicePost {
+	return OptCustomerInvoicePost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCustomerInvoicePost is optional CustomerInvoicePost.
+type OptCustomerInvoicePost struct {
+	Value CustomerInvoicePost
+	Set   bool
+}
+
+// IsSet returns true if OptCustomerInvoicePost was set.
+func (o OptCustomerInvoicePost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCustomerInvoicePost) Reset() {
+	var v CustomerInvoicePost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCustomerInvoicePost) SetTo(v CustomerInvoicePost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCustomerInvoicePost) Get() (v CustomerInvoicePost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCustomerInvoicePost) Or(d CustomerInvoicePost) CustomerInvoicePost {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -59904,6 +61775,69 @@ type PostBankStatementLineUnprocessableEntity Problem
 
 func (*PostBankStatementLineUnprocessableEntity) postBankStatementLineRes() {}
 
+type PostCustomerInvoiceBadRequest Problem
+
+func (*PostCustomerInvoiceBadRequest) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceForbidden Problem
+
+func (*PostCustomerInvoiceForbidden) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceNotFound Problem
+
+func (*PostCustomerInvoiceNotFound) postCustomerInvoiceRes() {}
+
+// PostCustomerInvoiceOKHeaders wraps CustomerInvoice with response headers.
+type PostCustomerInvoiceOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CustomerInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *PostCustomerInvoiceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PostCustomerInvoiceOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PostCustomerInvoiceOKHeaders) GetResponse() CustomerInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PostCustomerInvoiceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PostCustomerInvoiceOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PostCustomerInvoiceOKHeaders) SetResponse(val CustomerInvoice) {
+	s.Response = val
+}
+
+func (*PostCustomerInvoiceOKHeaders) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoicePreconditionFailed Problem
+
+func (*PostCustomerInvoicePreconditionFailed) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoicePreconditionRequired Problem
+
+func (*PostCustomerInvoicePreconditionRequired) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceUnprocessableEntity Problem
+
+func (*PostCustomerInvoiceUnprocessableEntity) postCustomerInvoiceRes() {}
+
 type PostGoodsReceiptBadRequest Problem
 
 func (*PostGoodsReceiptBadRequest) postGoodsReceiptRes() {}
@@ -68051,6 +69985,8 @@ func (*ServiceUnavailableHeaders) updateConnectorRes()                       {}
 func (*ServiceUnavailableHeaders) updateContractRes()                        {}
 func (*ServiceUnavailableHeaders) updateCostCenterRes()                      {}
 func (*ServiceUnavailableHeaders) updateEntryTemplateRes()                   {}
+func (*ServiceUnavailableHeaders) updateInternalOrderBudgetRes()             {}
+func (*ServiceUnavailableHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*ServiceUnavailableHeaders) updateLegalEntityRes()                     {}
 func (*ServiceUnavailableHeaders) updateMemoRecordRes()                      {}
 func (*ServiceUnavailableHeaders) updateOrgUnitRes()                         {}
@@ -72422,11 +74358,13 @@ func (*TooManyRequestsHeaders) createContractRes()                        {}
 func (*TooManyRequestsHeaders) createCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) createCustomerInvoiceRes()                 {}
 func (*TooManyRequestsHeaders) createDownPaymentRequestRes()              {}
+func (*TooManyRequestsHeaders) createDunningRunRes()                      {}
 func (*TooManyRequestsHeaders) createEntryTemplateRes()                   {}
 func (*TooManyRequestsHeaders) createExchangeRateRes()                    {}
 func (*TooManyRequestsHeaders) createForecastVarianceCommentRes()         {}
 func (*TooManyRequestsHeaders) createGrIrClearingRes()                    {}
 func (*TooManyRequestsHeaders) createHierarchyRes()                       {}
+func (*TooManyRequestsHeaders) createIncomingPaymentRes()                 {}
 func (*TooManyRequestsHeaders) createInternalOrderRes()                   {}
 func (*TooManyRequestsHeaders) createLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) createMemoRecordRes()                      {}
@@ -72509,6 +74447,7 @@ func (*TooManyRequestsHeaders) getCurrentPrincipalRes()                   {}
 func (*TooManyRequestsHeaders) getCustomerInvoiceRes()                    {}
 func (*TooManyRequestsHeaders) getDepreciationRunRes()                    {}
 func (*TooManyRequestsHeaders) getDownPaymentRequestRes()                 {}
+func (*TooManyRequestsHeaders) getDunningRunRes()                         {}
 func (*TooManyRequestsHeaders) getEInvoiceContentRes()                    {}
 func (*TooManyRequestsHeaders) getEInvoiceRes()                           {}
 func (*TooManyRequestsHeaders) getEntryTemplateRes()                      {}
@@ -72520,7 +74459,10 @@ func (*TooManyRequestsHeaders) getGrIrClearingRes()                       {}
 func (*TooManyRequestsHeaders) getGroupLiquidityForecastRes()             {}
 func (*TooManyRequestsHeaders) getHierarchyNodeRes()                      {}
 func (*TooManyRequestsHeaders) getHierarchyRes()                          {}
+func (*TooManyRequestsHeaders) getIncomingPaymentRes()                    {}
+func (*TooManyRequestsHeaders) getInternalOrderBudgetRes()                {}
 func (*TooManyRequestsHeaders) getInternalOrderRes()                      {}
+func (*TooManyRequestsHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*TooManyRequestsHeaders) getJournalEntryRes()                       {}
 func (*TooManyRequestsHeaders) getLegalEntityRes()                        {}
 func (*TooManyRequestsHeaders) getLegalEntityTodayRes()                   {}
@@ -72610,6 +74552,8 @@ func (*TooManyRequestsHeaders) listCountryPacksRes()                      {}
 func (*TooManyRequestsHeaders) listCustomerInvoicesRes()                  {}
 func (*TooManyRequestsHeaders) listDepreciationRunsRes()                  {}
 func (*TooManyRequestsHeaders) listDownPaymentRequestsRes()               {}
+func (*TooManyRequestsHeaders) listDunningNoticesRes()                    {}
+func (*TooManyRequestsHeaders) listDunningRunsRes()                       {}
 func (*TooManyRequestsHeaders) listEInvoicesRes()                         {}
 func (*TooManyRequestsHeaders) listEntryTemplatesRes()                    {}
 func (*TooManyRequestsHeaders) listExchangeRatesRes()                     {}
@@ -72622,6 +74566,7 @@ func (*TooManyRequestsHeaders) listGrIrClearingsRes()                     {}
 func (*TooManyRequestsHeaders) listGroupAccountsRes()                     {}
 func (*TooManyRequestsHeaders) listHierarchiesRes()                       {}
 func (*TooManyRequestsHeaders) listHouseBanksRes()                        {}
+func (*TooManyRequestsHeaders) listIncomingPaymentsRes()                  {}
 func (*TooManyRequestsHeaders) listIntercompanyDifferencesRes()           {}
 func (*TooManyRequestsHeaders) listInternalOrderBalancesRes()             {}
 func (*TooManyRequestsHeaders) listInternalOrdersRes()                    {}
@@ -72670,6 +74615,7 @@ func (*TooManyRequestsHeaders) listTaxPeriodsRes()                        {}
 func (*TooManyRequestsHeaders) listTaxRegistrationsRes()                  {}
 func (*TooManyRequestsHeaders) listTaxReturnDraftItemsRes()               {}
 func (*TooManyRequestsHeaders) listTaxReturnsRes()                        {}
+func (*TooManyRequestsHeaders) listUnappliedReceiptsRes()                 {}
 func (*TooManyRequestsHeaders) listVarianceCommentsRes()                  {}
 func (*TooManyRequestsHeaders) listWebhookDeliveriesRes()                 {}
 func (*TooManyRequestsHeaders) listWebhookSubscriptionsRes()              {}
@@ -72691,6 +74637,7 @@ func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()              {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()               {}
 func (*TooManyRequestsHeaders) placeInHierarchyRes()                      {}
 func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
+func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
@@ -72769,6 +74716,8 @@ func (*TooManyRequestsHeaders) updateConnectorRes()                       {}
 func (*TooManyRequestsHeaders) updateContractRes()                        {}
 func (*TooManyRequestsHeaders) updateCostCenterRes()                      {}
 func (*TooManyRequestsHeaders) updateEntryTemplateRes()                   {}
+func (*TooManyRequestsHeaders) updateInternalOrderBudgetRes()             {}
+func (*TooManyRequestsHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*TooManyRequestsHeaders) updateLegalEntityRes()                     {}
 func (*TooManyRequestsHeaders) updateMemoRecordRes()                      {}
 func (*TooManyRequestsHeaders) updateOrgUnitRes()                         {}
@@ -72857,6 +74806,214 @@ type TransmitBankFileUnprocessableEntity Problem
 
 func (*TransmitBankFileUnprocessableEntity) transmitBankFileRes() {}
 
+// An incoming payment waiting on a house bank's incoming payments clearing account (ADR-0047): the
+// open credit line of the journal entry a bank statement line matched as incoming posted.
+// Ref: #/components/schemas/UnappliedReceipt
+type UnappliedReceipt struct {
+	// The receipt's journal entry: what `createIncomingPayment` takes as `receipt_journal_entry_id`.
+	JournalEntryID uuid.UUID `json:"journal_entry_id"`
+	// The entry's fiscal year.
+	JournalEntryYear int32 `json:"journal_entry_year"`
+	// The entry's document number.
+	JournalEntryNumber string `json:"journal_entry_number"`
+	// The entry's header text, which names the bank statement and line that posted it; absent when it has
+	// none.
+	Text OptString `json:"text"`
+	// The company that received the payment.
+	LegalEntityID uuid.UUID `json:"legal_entity_id"`
+	// The date the receipt was posted on.
+	PostingDate time.Time `json:"posting_date"`
+	// What was received, more than zero, in the receipt's currency.
+	Amount Money `json:"amount"`
+	// The incoming payments clearing account the receipt waits on.
+	AccountID uuid.UUID `json:"account_id"`
+	// That account's number.
+	AccountNumber string `json:"account_number"`
+	// That account's name, as it is now.
+	AccountName string `json:"account_name"`
+	// The code of the house bank whose incoming payments clearing account it is (`GET /v1/house-banks`).
+	HouseBankCode string `json:"house_bank_code"`
+	// The bank statement whose line posted the receipt (`GET /v1/bank-statements/{id}`, which shows the
+	// line with the payer's references and remittance text); absent when no statement line posted the
+	// entry.
+	BankStatementID OptUUID `json:"bank_statement_id"`
+	// That statement's reference, as the bank gave it; absent with `bank_statement_id`.
+	BankStatementRef OptString `json:"bank_statement_ref"`
+	// The line's number in that statement; absent with `bank_statement_id`.
+	BankStatementLineNo OptInt32 `json:"bank_statement_line_no"`
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *UnappliedReceipt) GetJournalEntryID() uuid.UUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *UnappliedReceipt) GetJournalEntryYear() int32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *UnappliedReceipt) GetJournalEntryNumber() string {
+	return s.JournalEntryNumber
+}
+
+// GetText returns the value of Text.
+func (s *UnappliedReceipt) GetText() OptString {
+	return s.Text
+}
+
+// GetLegalEntityID returns the value of LegalEntityID.
+func (s *UnappliedReceipt) GetLegalEntityID() uuid.UUID {
+	return s.LegalEntityID
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *UnappliedReceipt) GetPostingDate() time.Time {
+	return s.PostingDate
+}
+
+// GetAmount returns the value of Amount.
+func (s *UnappliedReceipt) GetAmount() Money {
+	return s.Amount
+}
+
+// GetAccountID returns the value of AccountID.
+func (s *UnappliedReceipt) GetAccountID() uuid.UUID {
+	return s.AccountID
+}
+
+// GetAccountNumber returns the value of AccountNumber.
+func (s *UnappliedReceipt) GetAccountNumber() string {
+	return s.AccountNumber
+}
+
+// GetAccountName returns the value of AccountName.
+func (s *UnappliedReceipt) GetAccountName() string {
+	return s.AccountName
+}
+
+// GetHouseBankCode returns the value of HouseBankCode.
+func (s *UnappliedReceipt) GetHouseBankCode() string {
+	return s.HouseBankCode
+}
+
+// GetBankStatementID returns the value of BankStatementID.
+func (s *UnappliedReceipt) GetBankStatementID() OptUUID {
+	return s.BankStatementID
+}
+
+// GetBankStatementRef returns the value of BankStatementRef.
+func (s *UnappliedReceipt) GetBankStatementRef() OptString {
+	return s.BankStatementRef
+}
+
+// GetBankStatementLineNo returns the value of BankStatementLineNo.
+func (s *UnappliedReceipt) GetBankStatementLineNo() OptInt32 {
+	return s.BankStatementLineNo
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *UnappliedReceipt) SetJournalEntryID(val uuid.UUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *UnappliedReceipt) SetJournalEntryYear(val int32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *UnappliedReceipt) SetJournalEntryNumber(val string) {
+	s.JournalEntryNumber = val
+}
+
+// SetText sets the value of Text.
+func (s *UnappliedReceipt) SetText(val OptString) {
+	s.Text = val
+}
+
+// SetLegalEntityID sets the value of LegalEntityID.
+func (s *UnappliedReceipt) SetLegalEntityID(val uuid.UUID) {
+	s.LegalEntityID = val
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *UnappliedReceipt) SetPostingDate(val time.Time) {
+	s.PostingDate = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *UnappliedReceipt) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// SetAccountID sets the value of AccountID.
+func (s *UnappliedReceipt) SetAccountID(val uuid.UUID) {
+	s.AccountID = val
+}
+
+// SetAccountNumber sets the value of AccountNumber.
+func (s *UnappliedReceipt) SetAccountNumber(val string) {
+	s.AccountNumber = val
+}
+
+// SetAccountName sets the value of AccountName.
+func (s *UnappliedReceipt) SetAccountName(val string) {
+	s.AccountName = val
+}
+
+// SetHouseBankCode sets the value of HouseBankCode.
+func (s *UnappliedReceipt) SetHouseBankCode(val string) {
+	s.HouseBankCode = val
+}
+
+// SetBankStatementID sets the value of BankStatementID.
+func (s *UnappliedReceipt) SetBankStatementID(val OptUUID) {
+	s.BankStatementID = val
+}
+
+// SetBankStatementRef sets the value of BankStatementRef.
+func (s *UnappliedReceipt) SetBankStatementRef(val OptString) {
+	s.BankStatementRef = val
+}
+
+// SetBankStatementLineNo sets the value of BankStatementLineNo.
+func (s *UnappliedReceipt) SetBankStatementLineNo(val OptInt32) {
+	s.BankStatementLineNo = val
+}
+
+// One page of receipts not yet applied.
+// Ref: #/components/schemas/UnappliedReceiptPage
+type UnappliedReceiptPage struct {
+	// The receipts on this page.
+	Items []UnappliedReceipt `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+}
+
+// GetItems returns the value of Items.
+func (s *UnappliedReceiptPage) GetItems() []UnappliedReceipt {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *UnappliedReceiptPage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// SetItems sets the value of Items.
+func (s *UnappliedReceiptPage) SetItems(val []UnappliedReceipt) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *UnappliedReceiptPage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+func (*UnappliedReceiptPage) listUnappliedReceiptsRes() {}
+
 // UnauthorizedHeaders wraps Problem with response headers.
 type UnauthorizedHeaders struct {
 	WWWAuthenticate OptString
@@ -72936,11 +75093,13 @@ func (*UnauthorizedHeaders) createContractRes()                        {}
 func (*UnauthorizedHeaders) createCostCenterRes()                      {}
 func (*UnauthorizedHeaders) createCustomerInvoiceRes()                 {}
 func (*UnauthorizedHeaders) createDownPaymentRequestRes()              {}
+func (*UnauthorizedHeaders) createDunningRunRes()                      {}
 func (*UnauthorizedHeaders) createEntryTemplateRes()                   {}
 func (*UnauthorizedHeaders) createExchangeRateRes()                    {}
 func (*UnauthorizedHeaders) createForecastVarianceCommentRes()         {}
 func (*UnauthorizedHeaders) createGrIrClearingRes()                    {}
 func (*UnauthorizedHeaders) createHierarchyRes()                       {}
+func (*UnauthorizedHeaders) createIncomingPaymentRes()                 {}
 func (*UnauthorizedHeaders) createInternalOrderRes()                   {}
 func (*UnauthorizedHeaders) createLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) createMemoRecordRes()                      {}
@@ -73023,6 +75182,7 @@ func (*UnauthorizedHeaders) getCurrentPrincipalRes()                   {}
 func (*UnauthorizedHeaders) getCustomerInvoiceRes()                    {}
 func (*UnauthorizedHeaders) getDepreciationRunRes()                    {}
 func (*UnauthorizedHeaders) getDownPaymentRequestRes()                 {}
+func (*UnauthorizedHeaders) getDunningRunRes()                         {}
 func (*UnauthorizedHeaders) getEInvoiceContentRes()                    {}
 func (*UnauthorizedHeaders) getEInvoiceRes()                           {}
 func (*UnauthorizedHeaders) getEntryTemplateRes()                      {}
@@ -73034,7 +75194,10 @@ func (*UnauthorizedHeaders) getGrIrClearingRes()                       {}
 func (*UnauthorizedHeaders) getGroupLiquidityForecastRes()             {}
 func (*UnauthorizedHeaders) getHierarchyNodeRes()                      {}
 func (*UnauthorizedHeaders) getHierarchyRes()                          {}
+func (*UnauthorizedHeaders) getIncomingPaymentRes()                    {}
+func (*UnauthorizedHeaders) getInternalOrderBudgetRes()                {}
 func (*UnauthorizedHeaders) getInternalOrderRes()                      {}
+func (*UnauthorizedHeaders) getInternalOrderSettlementRuleRes()        {}
 func (*UnauthorizedHeaders) getJournalEntryRes()                       {}
 func (*UnauthorizedHeaders) getLegalEntityRes()                        {}
 func (*UnauthorizedHeaders) getLegalEntityTodayRes()                   {}
@@ -73124,6 +75287,8 @@ func (*UnauthorizedHeaders) listCountryPacksRes()                      {}
 func (*UnauthorizedHeaders) listCustomerInvoicesRes()                  {}
 func (*UnauthorizedHeaders) listDepreciationRunsRes()                  {}
 func (*UnauthorizedHeaders) listDownPaymentRequestsRes()               {}
+func (*UnauthorizedHeaders) listDunningNoticesRes()                    {}
+func (*UnauthorizedHeaders) listDunningRunsRes()                       {}
 func (*UnauthorizedHeaders) listEInvoicesRes()                         {}
 func (*UnauthorizedHeaders) listEntryTemplatesRes()                    {}
 func (*UnauthorizedHeaders) listExchangeRatesRes()                     {}
@@ -73136,6 +75301,7 @@ func (*UnauthorizedHeaders) listGrIrClearingsRes()                     {}
 func (*UnauthorizedHeaders) listGroupAccountsRes()                     {}
 func (*UnauthorizedHeaders) listHierarchiesRes()                       {}
 func (*UnauthorizedHeaders) listHouseBanksRes()                        {}
+func (*UnauthorizedHeaders) listIncomingPaymentsRes()                  {}
 func (*UnauthorizedHeaders) listIntercompanyDifferencesRes()           {}
 func (*UnauthorizedHeaders) listInternalOrderBalancesRes()             {}
 func (*UnauthorizedHeaders) listInternalOrdersRes()                    {}
@@ -73184,6 +75350,7 @@ func (*UnauthorizedHeaders) listTaxPeriodsRes()                        {}
 func (*UnauthorizedHeaders) listTaxRegistrationsRes()                  {}
 func (*UnauthorizedHeaders) listTaxReturnDraftItemsRes()               {}
 func (*UnauthorizedHeaders) listTaxReturnsRes()                        {}
+func (*UnauthorizedHeaders) listUnappliedReceiptsRes()                 {}
 func (*UnauthorizedHeaders) listVarianceCommentsRes()                  {}
 func (*UnauthorizedHeaders) listWebhookDeliveriesRes()                 {}
 func (*UnauthorizedHeaders) listWebhookSubscriptionsRes()              {}
@@ -73205,6 +75372,7 @@ func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()              {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()               {}
 func (*UnauthorizedHeaders) placeInHierarchyRes()                      {}
 func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
+func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}
@@ -73283,6 +75451,8 @@ func (*UnauthorizedHeaders) updateConnectorRes()                       {}
 func (*UnauthorizedHeaders) updateContractRes()                        {}
 func (*UnauthorizedHeaders) updateCostCenterRes()                      {}
 func (*UnauthorizedHeaders) updateEntryTemplateRes()                   {}
+func (*UnauthorizedHeaders) updateInternalOrderBudgetRes()             {}
+func (*UnauthorizedHeaders) updateInternalOrderSettlementRuleRes()     {}
 func (*UnauthorizedHeaders) updateLegalEntityRes()                     {}
 func (*UnauthorizedHeaders) updateMemoRecordRes()                      {}
 func (*UnauthorizedHeaders) updateOrgUnitRes()                         {}
@@ -73888,6 +76058,133 @@ func (*UpdateEntryTemplatePreconditionRequired) updateEntryTemplateRes() {}
 type UpdateEntryTemplateUnprocessableEntity Problem
 
 func (*UpdateEntryTemplateUnprocessableEntity) updateEntryTemplateRes() {}
+
+type UpdateInternalOrderBudgetBadRequest Problem
+
+func (*UpdateInternalOrderBudgetBadRequest) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetForbidden Problem
+
+func (*UpdateInternalOrderBudgetForbidden) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetNotFound Problem
+
+func (*UpdateInternalOrderBudgetNotFound) updateInternalOrderBudgetRes() {}
+
+// UpdateInternalOrderBudgetOKHeaders wraps InternalOrderBudget with response headers.
+type UpdateInternalOrderBudgetOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrderBudget
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateInternalOrderBudgetOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateInternalOrderBudgetOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateInternalOrderBudgetOKHeaders) GetResponse() InternalOrderBudget {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateInternalOrderBudgetOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateInternalOrderBudgetOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateInternalOrderBudgetOKHeaders) SetResponse(val InternalOrderBudget) {
+	s.Response = val
+}
+
+func (*UpdateInternalOrderBudgetOKHeaders) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetPreconditionFailed Problem
+
+func (*UpdateInternalOrderBudgetPreconditionFailed) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetPreconditionRequired Problem
+
+func (*UpdateInternalOrderBudgetPreconditionRequired) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderBudgetUnprocessableEntity Problem
+
+func (*UpdateInternalOrderBudgetUnprocessableEntity) updateInternalOrderBudgetRes() {}
+
+type UpdateInternalOrderSettlementRuleBadRequest Problem
+
+func (*UpdateInternalOrderSettlementRuleBadRequest) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRuleForbidden Problem
+
+func (*UpdateInternalOrderSettlementRuleForbidden) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRuleNotFound Problem
+
+func (*UpdateInternalOrderSettlementRuleNotFound) updateInternalOrderSettlementRuleRes() {}
+
+// UpdateInternalOrderSettlementRuleOKHeaders wraps InternalOrderSettlementRule with response headers.
+type UpdateInternalOrderSettlementRuleOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           InternalOrderSettlementRule
+}
+
+// GetETag returns the value of ETag.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) GetResponse() InternalOrderSettlementRule {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *UpdateInternalOrderSettlementRuleOKHeaders) SetResponse(val InternalOrderSettlementRule) {
+	s.Response = val
+}
+
+func (*UpdateInternalOrderSettlementRuleOKHeaders) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRulePreconditionFailed Problem
+
+func (*UpdateInternalOrderSettlementRulePreconditionFailed) updateInternalOrderSettlementRuleRes() {}
+
+type UpdateInternalOrderSettlementRulePreconditionRequired Problem
+
+func (*UpdateInternalOrderSettlementRulePreconditionRequired) updateInternalOrderSettlementRuleRes() {
+}
+
+type UpdateInternalOrderSettlementRuleUnprocessableEntity Problem
+
+func (*UpdateInternalOrderSettlementRuleUnprocessableEntity) updateInternalOrderSettlementRuleRes() {}
 
 type UpdateLegalEntityBadRequest Problem
 

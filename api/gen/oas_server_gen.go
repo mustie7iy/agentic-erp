@@ -749,19 +749,22 @@ type Handler interface {
 	// an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It
 	// is created `draft` with a document number from the company's `customer_invoice` number range of the
 	// invoice date's fiscal year; nothing is posted. The customer is an active business partner with the
-	// customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one,
-	// `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the
-	// invoice's currency on an account that can be posted in the company (422
-	// `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks
-	// of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax
-	// code of the company with a rate in force on the invoice date, the tax date (422
-	// `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's
-	// rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net
-	// and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`,
-	// exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one
-	// code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names
-	// no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only
-	// (`x-agent: false`).
+	// customer role that is not blocked for posting in the company (422 `request.reference_not_found`
+	// naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise); its data in
+	// the company (reconciliation account, payment term) is required only when the invoice posts
+	// (`postCustomerInvoice`). A `payment_term_code` is a configured payment term (422
+	// `receivables.unknown_payment_term` naming it); absent, the invoice posts with the customer's term in
+	// the company. Each item is a net amount, more than zero, in the invoice's currency on an account that
+	// can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`),
+	// with the centers the ledger asks of the account on the posting date, else the invoice date. An
+	// item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the
+	// tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at
+	// that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the
+	// items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
+	// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
+	// lines name (one code for every emirate) is refused, 422
+	// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
+	// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, req *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
@@ -774,6 +777,27 @@ type Handler interface {
 	//
 	// POST /v1/down-payment-requests
 	CreateDownPaymentRequest(ctx context.Context, req *DownPaymentRequestCreate, params CreateDownPaymentRequestParams) (CreateDownPaymentRequestRes, error)
+	// CreateDunningRun implements createDunningRun operation.
+	//
+	// Starts a dunning run for a company at a key date and answers its proposal (ADR-0065 §3-§5, T76a):
+	// per customer one notice (`GET /v1/dunning-runs/{id}/notices`) with the customer's open items overdue
+	// on the key date and the dunning level each would reach. The run is `proposed`: nothing changes on
+	// the items, and nothing is sent to a customer. The items are the open items on the company's customer
+	// reconciliation accounts in the leading ledger, whoever posted them. An item is proposed when the
+	// customer owes it (a debit), it was posted with payment terms and, on the key date, it is past its
+	// net due date by at least the days of the company's first dunning level (`companies[].dunning.levels`
+	// of the configuration); an item due on the key date is not overdue. Credit items (a credit memo, a
+	// payment on account) are not dunned and reduce nothing; an item without payment terms has no due date
+	// and is left out. An item rises one level per run at most: one never dunned would reach level 1. A
+	// notice's level is the highest among its items. A company without dunning levels is refused (422
+	// `collections.no_dunning_levels`), as is a run of more than 5,000 overdue items (422
+	// `collections.run_too_large`: larger runs are not supported yet) and one whose amounts add up to more
+	// than an amount holds (422 `collections.amount_too_large`). A key date at which nothing is overdue
+	// gives a run without notices. A retry with the same `Idempotency-Key` answers the run started.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/dunning-runs
+	CreateDunningRun(ctx context.Context, req *DunningRunCreate, params CreateDunningRunParams) (CreateDunningRunRes, error)
 	// CreateEntryTemplate implements createEntryTemplate operation.
 	//
 	// Saves a manual journal entry without its dates as a template (ADR-0056, `EntryTemplateChanged`), for
@@ -853,6 +877,37 @@ type Handler interface {
 	//
 	// POST /v1/hierarchies
 	CreateHierarchy(ctx context.Context, req *HierarchyCreate, params CreateHierarchyParams) (CreateHierarchyRes, error)
+	// CreateIncomingPayment implements createIncomingPayment operation.
+	//
+	// Applies an incoming payment to a customer's open items, in full and exactly (ADR-0063 §6, T75c;
+	// plan default 4). The payment is a receipt: the journal entry a bank statement line matched as
+	// incoming posted, whose credit line waits as an open item on the house bank's incoming payments
+	// clearing account (ADR-0047); `listUnappliedReceipts` lists them. The items are open items of the
+	// customer on customer reconciliation accounts of the company (`GET /v1/open-items`), invoices and
+	// credits alike, in the receipt's currency; together they equal the receipt exactly (422
+	// `ledger.clearing_not_balanced`): no partial payment, no difference and no cash discount. One
+	// clearing entry, document type `DZ`, `source_context` `receivables`, offsets the receipt and every
+	// item at the amounts they were booked at and clears them all; what that leaves in local or group
+	// currency, receipt and items having been booked at different rates, is a realized exchange difference
+	// on the company's `fx_gain` or `fx_loss` account (422 `ledger.no_fx_account` without one). The
+	// posting date is the request's, else today, the company's date in its time zone; it must be in an
+	// open period (409 `ledger.period_not_open`). The application is a document with a number from the
+	// company's `incoming_payment` number range; an audit record and IncomingPaymentApplied are written
+	// with it. A receipt that is not waiting on an incoming payments clearing account of the company is
+	// refused, 422 `receivables.receipt_not_open` naming `receipt_journal_entry_id`, or 409
+	// `receivables.receipt_already_applied` when an incoming payment applied it. An item that is not an
+	// open item on a reconciliation account of the company is refused (422 `ledger.not_an_open_item`), as
+	// are an item of another customer or on a supplier account (422 `ledger.not_the_customers_item`), a
+	// cleared one (409 `ledger.item_already_cleared`), one of a reversed entry (409
+	// `ledger.entry_reversed`), a special G/L item (409 `ledger.special_gl_item`), one a payment run holds
+	// (409 `ledger.item_reserved`) and one in another currency (422 `ledger.mixed_items`), each naming its
+	// place in the request as the field `items[i]`. Nothing is posted when the application is refused. A
+	// retry with the same `Idempotency-Key` answers the payment applied; another request for the same
+	// receipt is refused. An application is not undone in the first version. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/incoming-payments
+	CreateIncomingPayment(ctx context.Context, req *IncomingPaymentCreate, params CreateIncomingPaymentParams) (CreateIncomingPaymentRes, error)
 	// CreateInternalOrder implements createInternalOrder operation.
 	//
 	// Creates an internal order of a legal entity in status `created` (ADR-0064 §1): a cost object of the
@@ -1814,8 +1869,9 @@ type Handler interface {
 	//
 	// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
 	// and name, its net, tax and gross totals and its items, each with its account's number and name, its
-	// centers' codes and the tax calculated for it when it was entered. One of a company the caller may
-	// not act in is not found (404), as one that does not exist.
+	// centers' codes and the tax calculated for it when it was entered; a posted one (T75b) with its
+	// journal entry's id, year and number, its payment term and net due date. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
 	//
 	// GET /v1/customer-invoices/{id}
 	GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error)
@@ -1835,6 +1891,15 @@ type Handler interface {
 	//
 	// GET /v1/down-payment-requests/{id}
 	GetDownPaymentRequest(ctx context.Context, params GetDownPaymentRequestParams) (GetDownPaymentRequestRes, error)
+	// GetDunningRun implements getDunningRun operation.
+	//
+	// One dunning run (ADR-0065 §3, T76a) with its company's code and name, its key date, its status and
+	// its totals: the notices it proposed, their items and the items' overdue amount in the company's
+	// currency. Its notices are read with `GET /v1/dunning-runs/{id}/notices`. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
+	//
+	// GET /v1/dunning-runs/{id}
+	GetDunningRun(ctx context.Context, params GetDunningRunParams) (GetDunningRunRes, error)
 	// GetEInvoice implements getEInvoice operation.
 	//
 	// One e-invoice as `listEInvoices` gives it (ADR-0061 §15, T65a). One of a company the caller may not
@@ -1942,6 +2007,17 @@ type Handler interface {
 	//
 	// GET /v1/hierarchies/{id}/nodes/{node_id}
 	GetHierarchyNode(ctx context.Context, params GetHierarchyNodeParams) (GetHierarchyNodeRes, error)
+	// GetIncomingPayment implements getIncomingPayment operation.
+	//
+	// One incoming payment applied (ADR-0063 §6, T75c) with its company's code and name, its customer's
+	// number and name, its amount, the receipt it applied (the journal entry the statement line posted,
+	// with its number, the incoming payments clearing account's number and name and the bank statement and
+	// line that posted it), the clearing entry that cleared receipt and items, and the items it was
+	// applied to, each with its journal entry's number and reference and the amount it stood at, a credit
+	// of the customer's negative. One of a company the caller may not act in is not found.
+	//
+	// GET /v1/incoming-payments/{id}
+	GetIncomingPayment(ctx context.Context, params GetIncomingPaymentParams) (GetIncomingPaymentRes, error)
 	// GetInternalOrder implements getInternalOrder operation.
 	//
 	// Returns one internal order with its responsible cost center's code. An order of a legal entity the
@@ -1949,6 +2025,31 @@ type Handler interface {
 	//
 	// GET /v1/internal-orders/{id}
 	GetInternalOrder(ctx context.Context, params GetInternalOrderParams) (GetInternalOrderRes, error)
+	// GetInternalOrderBudget implements getInternalOrderBudget operation.
+	//
+	// The budget of one internal order against its actual costs (ADR-0064 §3), in the order's legal
+	// entity's local currency: the budget, one overall amount for the order; the actual, the balance of
+	// the leading ledger's journal lines that name the order over every fiscal year, exact at the moment
+	// of the read (the total of `GET /v1/internal-order-balances` over the years); what remains, the
+	// budget less the actual, negative once the actual exceeds the budget; and `exceeded`, which says so.
+	// An order whose budget was never set has `version` 0 and no `budget` or `remaining`. Exceeding a
+	// budget is shown here and refuses no posting. The `ETag` is the budget's version, the one `PATCH`
+	// takes. An order of a legal entity the caller cannot act in is answered as missing (404). The actual
+	// is a ledger amount, so besides `controlling.order.read` the caller needs `ledger.entry.read`, as for
+	// the order's balances (`x-also-permissions`; 403 `identity.permission_missing` otherwise).
+	//
+	// GET /v1/internal-orders/{id}/budget
+	GetInternalOrderBudget(ctx context.Context, params GetInternalOrderBudgetParams) (GetInternalOrderBudgetRes, error)
+	// GetInternalOrderSettlementRule implements getInternalOrderSettlementRule operation.
+	//
+	// The settlement rule of one internal order (ADR-0064 §3): its one receiver, a cost center of the
+	// order's legal entity, which takes the whole of what the order is settled for, with the receiver's
+	// code. An order that has no rule yet is answered without a receiver. The `ETag` is the order's
+	// version, the one `PATCH` takes. An order of a legal entity the caller cannot act in is answered as
+	// missing (404).
+	//
+	// GET /v1/internal-orders/{id}/settlement-rule
+	GetInternalOrderSettlementRule(ctx context.Context, params GetInternalOrderSettlementRuleParams) (GetInternalOrderSettlementRuleRes, error)
 	// GetJournalEntry implements getJournalEntry operation.
 	//
 	// Returns one journal entry with its lines. Expandable: `partners`, the business partners its lines
@@ -2894,6 +2995,26 @@ type Handler interface {
 	//
 	// GET /v1/down-payment-requests
 	ListDownPaymentRequests(ctx context.Context, params ListDownPaymentRequestsParams) (ListDownPaymentRequestsRes, error)
+	// ListDunningNotices implements listDunningNotices operation.
+	//
+	// The notices a dunning run proposed (ADR-0065 §3-§4, T76a), one per customer: the customer's number
+	// and name, the notice's level (the highest among its items), its items' count and overdue amount in
+	// the company's currency, and its items by item number, each named by its journal entry with its due
+	// date, its days overdue on the run's key date, its amount in its own currency and in the company's,
+	// and the level it would reach beside the one it was last dunned at. Filtered by customer and level.
+	// Sortable by: `customer_number`. A run of a company the caller may not act in is not found (404), as
+	// one that does not exist.
+	//
+	// GET /v1/dunning-runs/{id}/notices
+	ListDunningNotices(ctx context.Context, params ListDunningNoticesParams) (ListDunningNoticesRes, error)
+	// ListDunningRuns implements listDunningRuns operation.
+	//
+	// The dunning runs of the companies the caller may act in (ADR-0065 §3, T76a), each as
+	// `getDunningRun` gives it: with its company's code and name, its key date, its status and its totals.
+	// Filtered by company, status and key date. Sortable by: `key_date` (default, the latest first).
+	//
+	// GET /v1/dunning-runs
+	ListDunningRuns(ctx context.Context, params ListDunningRunsParams) (ListDunningRunsRes, error)
 	// ListEInvoices implements listEInvoices operation.
 	//
 	// The e-invoices received from the tenant's accredited providers (ADR-0061 §15, T65a), newest
@@ -3029,6 +3150,16 @@ type Handler interface {
 	//
 	// GET /v1/house-banks
 	ListHouseBanks(ctx context.Context, params ListHouseBanksParams) (ListHouseBanksRes, error)
+	// ListIncomingPayments implements listIncomingPayments operation.
+	//
+	// The incoming payments applied to customers' open items in the companies the caller may act in
+	// (ADR-0063 §6, T75c), each as `getIncomingPayment` gives it: with its company's code and name, its
+	// customer's number and name, its receipt, its clearing entry and the items it was applied to.
+	// Filtered by company, customer, document number and posting date. Sortable by: `posting_date`,
+	// `document_number`.
+	//
+	// GET /v1/incoming-payments
+	ListIncomingPayments(ctx context.Context, params ListIncomingPaymentsParams) (ListIncomingPaymentsRes, error)
 	// ListIntercompanyDifferences implements listIntercompanyDifferences operation.
 	//
 	// A consolidation run's intercompany matching (ADR-0059 §8, T68f; SAP's intercompany matching and
@@ -3477,6 +3608,23 @@ type Handler interface {
 	//
 	// GET /v1/tax-registrations/{id}/returns
 	ListTaxReturns(ctx context.Context, params ListTaxReturnsParams) (ListTaxReturnsRes, error)
+	// ListUnappliedReceipts implements listUnappliedReceipts operation.
+	//
+	// The incoming payments of a company that wait to be applied (ADR-0063 §6, T75c; ADR-0047): the open
+	// credit lines on the incoming payments clearing accounts of the company's house banks that bank
+	// statement lines matched as incoming posted, each with its journal entry's number and text, its
+	// posting date, its amount, the account's number and name, the house bank's code, and the bank
+	// statement and line that posted it (`bank_statement_id`, `bank_statement_ref`,
+	// `bank_statement_line_no`): `GET /v1/bank-statements/{id}` shows that line with the payer's
+	// references and remittance text, which say whose payment it is. Filtered by house bank, currency and
+	// posting date. A receipt leaves the list when `createIncomingPayment` applies it, or when its entry
+	// is reversed; one on an account the configuration no longer names as a house bank's
+	// `incoming_gl_account` is neither listed nor applied. The statement's matches
+	// (`GET /v1/bank-statements/{id}/matches`) name each posting but not whether accounts receivable
+	// cleared it. The company is one the caller may act in. Sortable by: `posting_date`.
+	//
+	// GET /v1/unapplied-receipts
+	ListUnappliedReceipts(ctx context.Context, params ListUnappliedReceiptsParams) (ListUnappliedReceiptsRes, error)
 	// ListVarianceComments implements listVarianceComments operation.
 	//
 	// The variance comments of the period closes of the legal entities the caller may act in (ADR-0058
@@ -3762,6 +3910,32 @@ type Handler interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:post
 	PostBankStatementLine(ctx context.Context, req OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error)
+	// PostCustomerInvoice implements postCustomerInvoice operation.
+	//
+	// Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
+	// reconciliation account in the company (the customer's company data) with the customer, the invoice's
+	// gross amount, and credits each item's account with its net amount, tax code and centers, and output
+	// tax, one line per tax code and component on the component's account. The entry has the document type
+	// `DR`, the invoice's number as its reference and `source_context` `receivables`; the invoice date is
+	// its document date and its tax date. Its debit line is the customer's open item
+	// (`GET /v1/open-items`), kept with its payment terms: the term entered with the invoice, else the
+	// customer's in the company, counted from the invoice date, so its net due date is the invoice date
+	// plus the term's net days. The posting date is the request's, else the one entered with the invoice,
+	// else today, the company's date in its time zone; it must be in an open period (409
+	// `ledger.period_not_open`). The invoice becomes `posted` and names its `journal_entry_id`,
+	// `journal_entry_year`, `journal_entry_number`, `posting_date`, `payment_term_code` and
+	// `net_due_date`; an audit record and CustomerInvoicePosted are written with it. A customer that is
+	// not active, no longer holds the customer role, has no data in the company or is blocked for posting
+	// there is refused (422 `receivables.customer_not_usable`). The tax is calculated again on the invoice
+	// date: when the codes no longer give the tax the invoice was entered with, it is refused (409
+	// `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
+	// draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
+	// the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
+	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/customer-invoices/{id}:post
+	PostCustomerInvoice(ctx context.Context, req OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)
 	// PostGoodsReceipt implements postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -4954,6 +5128,36 @@ type Handler interface {
 	//
 	// PATCH /v1/entry-templates/{id}
 	UpdateEntryTemplate(ctx context.Context, req *EntryTemplateUpdate, params UpdateEntryTemplateParams) (UpdateEntryTemplateRes, error)
+	// UpdateInternalOrderBudget implements updateInternalOrderBudget operation.
+	//
+	// Sets or replaces the budget of an internal order (ADR-0064 §3): one overall amount, zero or more,
+	// in the order's legal entity's local currency (422 `controlling.order_budget_invalid`, whose field
+	// error names `budget.currency` or `budget.amount`). JSON Merge Patch (RFC 7396) of the order's
+	// budget, whose one field, `budget`, is replaced whole. `If-Match` is the budget's version as `GET`
+	// gave it, `"0"` for an order whose budget was never set; the order is read under a row lock, so of
+	// two changes at one version the second is refused (412). The budget may be set on an order in any
+	// status and may be below the order's actual costs: nothing is refused for it. Set directly by
+	// permission, with no approval request. Audited with the amounts before and after, and published as
+	// InternalOrderBudgetChanged. The answer is the budget against the actual costs, as `GET` gives it, so
+	// the caller also needs `ledger.entry.read`. Agents may not set a budget.
+	//
+	// PATCH /v1/internal-orders/{id}/budget
+	UpdateInternalOrderBudget(ctx context.Context, req *InternalOrderBudgetUpdate, params UpdateInternalOrderBudgetParams) (UpdateInternalOrderBudgetRes, error)
+	// UpdateInternalOrderSettlementRule implements updateInternalOrderSettlementRule operation.
+	//
+	// Sets or replaces the settlement rule of an internal order (ADR-0064 §3): one receiver, taking the
+	// whole. JSON Merge Patch (RFC 7396) of the rule, whose one field, `receiver_cost_center_id`, is
+	// replaced. The receiver must be an active cost center of the order's legal entity that is valid
+	// today, the legal entity's date in its time zone (422 `controlling.settlement_rule_receiver_invalid`,
+	// whose field error's code says why: `unknown`, `not_in_company`, `not_active`, `not_valid_today`).
+	// `If-Match` is the order's version, as `GET /v1/internal-orders/{id}` or this rule's `GET` gave it;
+	// the order is read under a row lock and its version moves with the rule, so of two changes at one
+	// version the second is refused (412). The rule may be set on an order in any status. Set directly by
+	// permission, with no approval request. Audited with the receivers before and after. Agents may not
+	// set a rule.
+	//
+	// PATCH /v1/internal-orders/{id}/settlement-rule
+	UpdateInternalOrderSettlementRule(ctx context.Context, req *InternalOrderSettlementRuleUpdate, params UpdateInternalOrderSettlementRuleParams) (UpdateInternalOrderSettlementRuleRes, error)
 	// UpdateLegalEntity implements updateLegalEntity operation.
 	//
 	// Changes master data of a legal entity. JSON Merge Patch (RFC 7396): absent fields are unchanged,

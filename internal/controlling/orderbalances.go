@@ -2,7 +2,6 @@ package controlling
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -129,20 +128,11 @@ func (e *Endpoints) orderBalancesQuery(ctx context.Context, tx pgx.Tx, params ge
 		}
 		q.actuals.After = &ledger.OrderActualKey{AccountNumber: c.Number, AccountID: c.Account, Period: c.Period}
 	}
-	q.order, err = scanOrder(tx.QueryRow(ctx, `SELECT `+orderColumns+` FROM controlling.internal_order WHERE id = $1`, params.InternalOrderID))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return obQuery{}, orderMissing()
-	}
-	if err != nil {
-		return obQuery{}, fmt.Errorf("controlling: read internal order %s: %w", params.InternalOrderID, err)
-	}
-	le, exp, ok, err := e.company(ctx, tx, q.order.LegalEntityID)
+	order, le, exp, err := e.orderInCompany(ctx, tx, params.InternalOrderID, false, orderMissing)
 	if err != nil {
 		return obQuery{}, err
 	}
-	if !ok {
-		return obQuery{}, orderMissing()
-	}
+	q.order = order
 	q.currency, q.exp, q.actuals.LegalEntityID = le.LocalCurrency, exp, le.ID
 	return q, nil
 }

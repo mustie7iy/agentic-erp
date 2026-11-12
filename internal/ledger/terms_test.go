@@ -77,11 +77,11 @@ func TestTermsFrozenOnOpenItems(t *testing.T) {
 	}
 	err := apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {
 		in := termsPosting(t, e, terms, nil)
-		in.Lines[1].AccountID = settleAccount(t, e, "2000", "100000") // a bank line: no supplier open item
+		in.Lines[1].AccountID = settleAccount(t, e, "2000", "100000") // a bank line: no open item
 		_, err := postings().Post(ctx, in)
 		return err
 	})
-	pgtest.CheckErr(t, err, "no supplier open item")
+	pgtest.CheckErr(t, err, "no supplier or customer open item")
 	three := *terms
 	three.Discounts = append(three.Discounts, ledger.Discount{Days: 40, Percent: "1"})
 	err = apitest.InRequest(t, e.ten, e.ten.Human, func(ctx context.Context) error {

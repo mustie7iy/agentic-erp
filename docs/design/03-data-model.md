@@ -517,7 +517,10 @@ total at the run date's rate, that one releaser releases; above it a second
 person approves the release first; posting-relevant too) and the service
 posting limit (`service_posting_limit`, optional, T61n: the largest journal
 entry, by its debits, a service principal posts; above it the entry is
-parked for a person; without it the manual entry approval limit; posting-relevant). The amounts are read with the digits of the
+parked for a person; without it the manual entry approval limit; posting-relevant) and its dunning levels
+(`dunning.levels`, optional, ADR-0065 §2: each a `level` numbered from 1 and
+the `days_overdue` an item must have reached for it, ascending, at most
+nine; operational, tier 2; a company without any has no dunning, §3.27). The amounts are read with the digits of the
 document's `companies[].currency`, and documents are converted into the
 legal entity's `local_currency`; the two are one currency because a
 configuration whose company currency differs from its legal entity's local
@@ -3346,7 +3349,8 @@ refers to, adds `snapshot_company` (unique on `tenant_id`, `id`,
 ## 3.19 Controlling (`controlling`)
 
 Plan values and plan against actual (ADR-0050 §2, §8, decision P5; T56g),
-and internal orders (ADR-0064; T60a, T60b).
+and internal orders with their budgets and settlement rules (ADR-0064;
+T60a, T60b, T60c, T60d).
 Cost centers, profit centers, hierarchies and the actuals by assignment are
 the ledger's (§3.7); controlling reads them only through the ledger's
 published port `ledger.AssignmentBalances` (what a plan may name, the cost
@@ -3357,7 +3361,8 @@ its outbox and the permissions `controlling.plan.read`,
 permission, which agents cannot hold). Migration 000267 adds the order
 master and the permissions `controlling.order.read`,
 `controlling.order.write` and `controlling.order.release` (an approval
-permission).
+permission). Migration 000274 adds the order's budget and the permission
+`controlling.order.budget`; migration 000275 the order's settlement rule.
 
 ```mermaid
 erDiagram
@@ -3395,6 +3400,13 @@ erDiagram
     text name
     uuid responsible_cost_center_id "ledger context"
     text status "created, released" }
+  internal_order ||--o| order_budget : "budgeted by"
+  order_budget { uuid internal_order_id PK
+    bigint amount "local currency, minor units, zero or more"
+    int version }
+  internal_order ||--o| settlement_rule : "settles to"
+  settlement_rule { uuid internal_order_id PK
+    uuid receiver_cost_center_id "ledger context" }
 ```
 
 | Table | Purpose |
@@ -3403,7 +3415,9 @@ erDiagram
 | `controlling.plan_batch` | A batch applied, insert-only: its key once per category, company and year (`plan_batch_key_once`) and the digest of its lines, so the same batch again is recognised and changes nothing and the key with other lines is refused; at least one line; refused on a locked category (`plan_category_open`) |
 | `controlling.plan_line` | A line of a batch: one center (`plan_line_one_center`), a period 1-16, a P&L account, the amount in the company's local currency, an optional positive quantity with its unit (`plan_line_quantity_unit`); of its batch's category, company and year (foreign key). Never deleted: a later batch of the same category, company and year naming its center sets `replaced_by_batch_id` once (`plan_line_replaced_once`, `plan_line_replaced_later`), so the plan is the lines not replaced, one per category, company, year, center, account and period (`plan_line_once`, a partial unique index), and every earlier plan stays readable. Nothing is written or replaced on a locked category (`plan_category_open`, the category read FOR SHARE). A batch that would write or replace a cost center's line in a period sharing a day with a period of the center whose `ledger.cost_center_period.lock_plan` is set is refused (T56g2; checked in the service through the ledger's port, the centers held FOR KEY SHARE; no trigger reads across the context boundary) |
 | `controlling.internal_order` | An internal order (ADR-0064 §1, T60a): a cost object of one company with a code unique in it (`^[0-9A-Z_-]{1,12}$`, `internal_order_code_once`), a name, a responsible cost center (the ledger's; no foreign key crosses the schema: checked through `ledger.AssignmentBalances.CostCenterRefs` to be an active cost center of the company) and a status, `created` then `released` (`controlling.order.release`, read FOR UPDATE with the caller's version). It starts as `created`, keeps its company and code and stays released (`internal_order_lifecycle`, a trigger); never deleted. Journal lines name it (`ledger.journal_line.internal_order_id`, §3.7, T60b) without a foreign key: the ledger asks `controlling.CostObjects` (its port `ledger.CostObjects`) for the orders a posting names, which holds them `FOR SHARE`; the order's actual costs are those lines, read through `ledger.AssignmentBalances.OrderActuals` and stored nowhere else |
-| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`), relayed as every context's (`outbox.Contexts`) |
+| `controlling.order_budget` | An order's budget (ADR-0064 §3, T60c): at most one row per order (the primary key; `order_budget_order`, a foreign key to the order), one overall amount of zero or more (`order_budget_not_negative`) in minor units of the order's company's local currency, which a company keeps (000045). An order without a row has no budget. Replaced with the version its reader saw (`controlling.order.budget`; the order read FOR UPDATE, the version one more with every change, `platform.touch`), each change audited with the amounts before and after; never deleted. Nothing is refused for a budget: `GET /v1/internal-orders/{id}/budget` compares it with the order's balance in the leading ledger over every year (`ledger.AssignmentBalances.OrderBalance`) |
+| `controlling.settlement_rule` | An order's settlement rule (ADR-0064 §3, T60d): at most one row per order (the primary key; `settlement_rule_order`, a foreign key to the order) naming its one receiver, a cost center (the ledger's; no foreign key crosses the schema: checked when the rule is set, through `ledger.AssignmentBalances.CostCenterRefs` and `CostCenterValidOn`, to be an active cost center of the order's company valid on the company's date), which takes the whole. An order without a row has no rule. Replaced with the order's version (`controlling.order.write`; the order read FOR UPDATE and its version moved with the rule), each change audited with the receivers before and after; the row's own `version` counts its replacements (`platform.touch`); never deleted |
+| `controlling.outbox`, `controlling.inbox` | The context's events (`PlanCategoryChanged`, `PlanBatchApplied`, `InternalOrderChanged`, `InternalOrderBudgetChanged`), relayed as every context's (`outbox.Contexts`) |
 
 Plan against actual (`GET /v1/cost-center-plan-actual`, and `GET
 /v1/profit-center-plan-actual`, T56g3) stores nothing: the category's
@@ -4032,7 +4046,13 @@ partner context, tenancy and the configuration through its ports, posts
 only through the ledger (§3.16) and keeps no foreign key out of its schema
 (02 §2.1). T75a (migration 000265) builds the schema with its outbox and
 inbox and the customer invoice, the accounting record of an invoice the
-company issued, entered as a draft; nothing is posted yet.
+company issued, entered as a draft. T75b (migration 000271) posts it,
+once: the invoice names its journal entry, whose debit line on the
+customer's reconciliation account is the customer's open item (§3.7).
+T75c (migration 000272) applies an incoming payment waiting on a house
+bank's incoming payments clearing account (ADR-0047) to a customer's open
+items, in full and exactly: a document written once, naming the receipt's
+entry and the ledger's clearing entry that cleared receipt and items.
 
 ```mermaid
 erDiagram
@@ -4043,12 +4063,16 @@ erDiagram
     uuid customer_id "partner, customer role"
     text kind "invoice"
     date invoice_date "the tax date"
-    date posting_date "optional"
+    date posting_date "optional; set when posted"
     char currency
     bigint net_amount
     bigint tax_amount
     bigint gross_amount "net + tax"
-    text status "draft"
+    text status "draft, posted"
+    text payment_term_code "optional; the term posted with"
+    date net_due_date "when posted"
+    smallint journal_entry_year "when posted"
+    uuid journal_entry_id "ledger, when posted"
     int version }
   customer_invoice_item { int item_no PK
     text description
@@ -4058,17 +4082,40 @@ erDiagram
     bigint tax_amount "0 without a code"
     uuid cost_center_id
     uuid profit_center_id }
+  incoming_payment ||--|{ incoming_payment_item : "applied to"
+  incoming_payment { uuid id PK
+    text document_number "incoming_payment range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner"
+    smallint receipt_entry_year
+    uuid receipt_entry_id "ledger: the statement line's entry, applied once"
+    uuid receipt_account_id "ledger: the incoming payments clearing account"
+    date posting_date
+    char currency
+    bigint amount "above 0: the receipt's, the items' sum"
+    smallint clearing_entry_year
+    uuid clearing_entry_id "ledger: cleared receipt and items" }
+  incoming_payment_item { int item_no PK
+    smallint fiscal_year
+    uuid journal_entry_id "ledger: the open item"
+    int line_no
+    bigint amount "debit positive; a credit negative" }
 ```
 
 - `receivables.customer_invoice`: amounts are minor units of `currency`,
   never negative (`customer_invoice_amounts_not_negative`); the kind gives
   their direction. `gross_amount = net_amount + tax_amount`
   (`customer_invoice_totals`). The number is unique per company
-  (`customer_invoice_number_once`). The kind is `invoice` and the status
-  `draft` alone (`customer_invoice_kind_check`,
-  `customer_invoice_status_check`), which T75d (`credit_memo`) and T75b
-  (`posted`) widen. The application may insert and read: nothing changes
-  or deletes a draft in the first version.
+  (`customer_invoice_number_once`). The kind is `invoice` alone
+  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`); the
+  status is `draft` or `posted` (`customer_invoice_status_check`). A
+  posted invoice names its journal entry with its year, its posting
+  date, the payment term it posted with and its net due date, and a
+  draft names no entry (`customer_invoice_posted`); an entry is one
+  invoice's (`customer_invoice_entry_once`). Posting is the only change:
+  the application may update the columns posting sets, and the trigger
+  `customer_invoice_posted_once` refuses a change of anything but a
+  draft being posted. Nothing deletes an invoice.
 - `receivables.customer_invoice_item`: a net amount above zero
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
@@ -4076,7 +4123,109 @@ erDiagram
   `customer_invoice_item_tax_needs_code`); insert-only
   (`platform.forbid_mutation`). The items' net and tax add up to the
   header's, which the context writes in one transaction.
+- `receivables.incoming_payment` (T75c): an incoming payment applied.
+  The number is unique per company (`incoming_payment_number_once`); the
+  amount is above zero (`incoming_payment_amount_positive`); a receipt is
+  applied once (`incoming_payment_receipt_once`) and a clearing entry is
+  one application's (`incoming_payment_entry_once`). Insert-only
+  (`platform.forbid_mutation`, no update or delete grant): an application
+  is not undone in the first version.
+- `receivables.incoming_payment_item`: the open items it was applied to,
+  each with the amount it stood at in the payment's currency, never zero
+  (`incoming_payment_item_amount_not_zero`), a credit of the customer's
+  negative; an open item is applied once (`incoming_payment_item_once`).
+  Insert-only. The items add up to the payment's amount, which the ledger
+  holds the application to (`ledger.Postings.ApplyReceipt`).
 - `receivables.outbox`, `receivables.inbox`: the context's events
-  (`CustomerInvoiceChanged`).
-- Permissions `receivables.invoice.read`, `.write` and `.post` (the last
-  used from T75b).
+  (`CustomerInvoiceChanged`, `CustomerInvoicePosted`,
+  `IncomingPaymentApplied`).
+- Permissions `receivables.invoice.read`, `.write` and `.post`, and
+  `receivables.payment.apply`.
+- In the ledger, `ledger.open_item_terms` keeps the terms of a customer
+  open item as of a supplier's (T75b), and `ledger.OpenItems.Receivable`
+  reads the customer open items of a company for the aging, dunning, the
+  collection worklist and the credit exposure (ADR-0063 As built).
+  `ledger.Postings.ApplyReceipt` posts the entry that clears a receipt on
+  an incoming payments clearing account with a customer's open items, and
+  `ledger.OpenItems.Receipts` reads the receipts not yet applied (T75c;
+  §3.7's clearing, `ledger.clearing` and `ledger.clearing_item`, with no
+  new table).
+
+## 3.27 Dunning and collections (`collections`)
+
+ADR-0065, T76a-T76c. A leaf: it reads the ledger's customer open items
+(§3.7, `ledger.OpenItems.Receivable`), the partner context's names,
+tenancy and the configuration through its ports, posts nothing and keeps
+no foreign key out of its schema (02 §2.1). T76a (migration 000273)
+builds the schema with its outbox and inbox and the dunning run: a
+proposal of the customer items of a company overdue on a key date, one
+notice per customer. Nothing changes on the items, which stay the
+ledger's.
+
+```mermaid
+erDiagram
+  dunning_run ||--o{ dunning_notice : "proposes"
+  dunning_notice ||--|{ dunning_notice_item : "has"
+  dunning_run { uuid id PK
+    uuid legal_entity_id "tenancy"
+    date key_date
+    text status "proposed"
+    char currency "the company's"
+    int notice_count
+    int item_count
+    bigint overdue_amount "in currency"
+    int version }
+  dunning_notice { uuid id PK
+    uuid dunning_run_id FK
+    uuid customer_id "partner, one per run"
+    text customer_number "when proposed"
+    smallint level "1-9, the highest of its items"
+    int item_count "above 0"
+    bigint overdue_amount "in the run's currency" }
+  dunning_notice_item { int item_no PK
+    uuid dunning_run_id "its notice's"
+    smallint fiscal_year "ledger: the journal line"
+    uuid journal_entry_id
+    int line_no
+    text document_number
+    text reference
+    date document_date
+    date net_due_date
+    int days_overdue "above 0"
+    char currency "the item's"
+    bigint amount "above 0"
+    bigint amount_lc "in the run's currency, as booked"
+    smallint previous_level "0: never dunned"
+    smallint level "1-9" }
+```
+
+- `collections.dunning_run`: the status is `proposed` alone
+  (`dunning_run_status_check`), which T76b widens (`confirmed`); the
+  totals are not negative and a run has at least an item per notice
+  (`dunning_run_notice_count_check`, `dunning_run_item_count_check`,
+  `dunning_run_overdue_amount_check`). `overdue_amount` is minor units
+  of `currency`, the company's. The list reads the tenant's runs by key
+  date (`dunning_run_by_key_date`). Proposing is the only write: the
+  application may not update or delete a run (T76b grants what
+  confirming sets).
+- `collections.dunning_notice`: one per customer in a run
+  (`dunning_notice_customer_once`), at a level from 1 to 9
+  (`dunning_notice_level_check`), with at least one item
+  (`dunning_notice_item_count_check`) and its customer's number
+  (`dunning_notice_customer_number_check`); insert-only
+  (`platform.forbid_mutation`). The list reads a run's notices by
+  customer number (`dunning_notice_by_customer_number`).
+- `collections.dunning_notice_item`: an open item of the ledger, named
+  by its journal line and proposed once in a run
+  (`dunning_notice_item_once_per_run`), in its notice's run
+  (`dunning_notice_item_notice_fkey`); overdue by at least a day
+  (`dunning_notice_item_overdue`); a debit, above zero in its own
+  currency (`dunning_notice_item_amount_positive`: credit items are not
+  dunned) and not negative in the run's
+  (`dunning_notice_item_amount_lc_check`); at a level from 1 to 9
+  (`dunning_notice_item_level_check`) that is its previous level or one
+  above (`dunning_notice_item_one_level`); insert-only. T76a writes
+  `previous_level` 0: no level is recorded before T76b.
+- `collections.outbox`, `collections.inbox`: the context's events
+  (`DunningRunChanged`).
+- Permissions `collections.dunning.read` and `.run`.

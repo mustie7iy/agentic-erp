@@ -4,8 +4,9 @@
 `go-reviewer` had no blocking finding on T75a's last commit). It decides
 the receivables context and the documents of T75a-T75e
 (`docs/design/plan-breadth-week1.md`, Lane A). Each slice records what it
-built under "As built"; T75a's is there now. The defaults taken and the
-questions left are listed at the end for the product owner's digest.
+built under "As built"; T75a's, T75b's and T75c's are there now. The
+defaults taken and the questions left are listed at the end for the product
+owner's digest.
 
 ## Context
 The product owner asked for a first usable version of every capability in
@@ -93,13 +94,16 @@ default 1.
 
 ### 3. The customer
 The customer is a business partner with the customer role, as the ledger
-checks one today: active and holding the role
-(`partner.Postings.PostingBlock`). T75a checks that and nothing more, so it
-does not wait for T74a. From T75b a receivables document **requires the
-customer's company data** in the company (its reconciliation account and
-payment terms, `partner.customer_company`, T74a): a customer without it is
-refused at posting, 422. A customer without company data stays postable by
-manual journal entries as today — plan default 2.
+checks one of a line on a customer reconciliation account
+(`partner.Postings.PostingBlock`): active, holding the role and, since
+T74a, not blocked for posting in the company (422
+`receivables.customer_not_usable` otherwise). Entering an invoice checks
+that and nothing more: a customer without company data may be invoiced.
+From T75b a receivables document **requires the customer's company data**
+in the company to post (its reconciliation account and payment terms,
+`partner.customer_company`, T74a): a customer without it is refused at
+posting, 422. A customer without company data stays postable by manual
+journal entries as today — plan default 2.
 
 ### 4. Tax
 Each item's tax is what its **output** tax code gives at the **invoice
@@ -143,6 +147,17 @@ in its currency; one entry clears payment and items. No partial payment,
 difference or discount — plan default 4. The application is a receivables
 document (`receivables.incoming_payment`); the clearing is the ledger's.
 
+The payment is a **receipt**: the journal entry a bank statement line
+matched as incoming posted, whose credit line on the incoming account is
+an open item (ADR-0047). The clearing entry offsets the receipt and each
+item at the amounts they were booked at in all three currencies, as a
+settlement offsets what it pays; what that leaves in local or group
+currency, receipt and items having been booked at different rates, is a
+realized exchange difference on the company's `fx_gain` or `fx_loss`
+account. Credit items already open on the customer's account net by
+themselves: they are items with negative amounts. An application is not
+undone in the first version (plan, "Later").
+
 ### 7. Credit memos (T75d)
 A customer credit memo is the same document with the kind `credit_memo`,
 posted with the signs turned. One naming an invoice may not exceed that
@@ -154,7 +169,9 @@ date.
 ### 8. Permissions and agents
 `receivables.invoice.read`, `receivables.invoice.write` (entering) and
 `receivables.invoice.post` (T75b); T75c adds `receivables.payment.apply`.
-None is an approval permission. Company access applies as everywhere: a
+Reading the incoming payments applied and the receipts not yet applied
+takes `receivables.invoice.read`: the plan names no read permission of
+their own. None is an approval permission. Company access applies as everywhere: a
 document of a company the caller may not act in is not found. Entering is
 human-only in the first version (`x-agent: false`): no design gives an
 agent or a service a part in entering customer invoices yet, and week 2's
@@ -164,7 +181,8 @@ billing enters them in process.
 Every state change writes an audit record and publishes an event through
 the context's outbox in the same transaction. `CustomerInvoiceChanged`
 (T75a) is emitted when an invoice is entered, with the status before and
-after; T75b adds `CustomerInvoicePosted`, T75c `IncomingPaymentApplied`.
+after; T75b adds `CustomerInvoicePosted`, emitted alone when an invoice
+posts, T75c `IncomingPaymentApplied`.
 Events carry the totals, not the items, and name the customer by id and
 number, never by name, as the product owner decided for suppliers in
 webhook events (2026-11-05).
@@ -277,3 +295,220 @@ Plan defaults 1-5 above. Taken in T75a beside them:
 - **Decided by default:** the six defaults above. Not built, by the plan:
   posting, changing or cancelling a draft, payment terms on the invoice
   (T75b reads them), a tax date of its own, attachments and custom fields.
+
+### T75b Customer invoice posted: the customer's open item (migration 000271)
+- `internal/receivables/post.go`: `POST /v1/customer-invoices/{id}:post`
+  (`receivables.invoice.post`, `If-Match`, idempotent by
+  `Idempotency-Key`, human-only) posts a draft once through
+  `ledger.Postings.Post`: Dr the customer's reconciliation account in the
+  company with the customer, the gross; Cr each item's account with its
+  net, tax code and centers; Cr output tax, one line per code and
+  component on the component's account. The entry has the document type
+  `DR` (number range `journal_dr`), the invoice's number as its reference,
+  the invoice date as document and tax date and `source_context`
+  `receivables`; the ledger derives its tax items from the lines and
+  holds the tax lines to the codes (ADR-0049 §7), as for the pilot's
+  sales entries.
+- The invoice's row is read `FOR UPDATE` and only a draft posts (409
+  `receivables.invalid_status`); a concurrent post waits and then meets
+  another version (412). The entry, the invoice's status, the audit
+  record `receivables.customer_invoice.post` and `CustomerInvoicePosted`
+  (`x-webhook`) are written in one transaction.
+- Migration 000271: `payment_term_code` (optional at entry),
+  `net_due_date`, `journal_entry_year`, `journal_entry_id` on
+  `receivables.customer_invoice`; the status `posted`;
+  `customer_invoice_posted` (a posted invoice names its entry, posting
+  date, term and due date; a draft no entry); `customer_invoice_entry_once`;
+  the trigger `customer_invoice_posted_once` (only a draft changes, and
+  only by being posted); the update grant on the columns posting sets.
+  Schema tests in `db/receivables_test.go`.
+- Terms: the term entered with the invoice (`payment_term_code` on
+  `createCustomerInvoice`, a configured term, 422
+  `receivables.unknown_payment_term` naming it), else the customer's in
+  the company, counted from the invoice date. In the ledger `keepTerms`
+  keeps `Posting.Terms` with customer open items as with supplier ones
+  (`ledger.open_item_terms`), so `GET /v1/open-items` shows the item's
+  `payment_terms` and ages it by its net due date.
+- `ledger.OpenItems.Receivable(ctx, legalEntity, customers)`
+  (`internal/ledger/receivable.go`): the legal entity's open items on
+  customer reconciliation accounts in the leading ledger, of the customers
+  named or of all, ordered by customer and item; each a
+  `ledger.ReceivableItem` with its item reference, account, customer,
+  document and posting dates, amount in transaction and in local currency
+  with their exponents (debit positive), the terms it was posted with
+  (nil without), its special G/L indicator, its entry's number and
+  reference and the document that posted it; `NetDueDate()` and
+  `DaysOverdue(on)` give its due date and days overdue, none without
+  terms. Cleared lines and lines of a reversed entry or a reversal are
+  left out; company access is the caller's to check. T75e, T76a, T76c
+  and T77a read it.
+- Refusals at posting: a customer that is not active, no longer a
+  customer, without company data in the company or blocked for posting
+  there 422 `receivables.customer_not_usable`; a closed period 409
+  `ledger.period_not_open`; tax the codes no longer give on the invoice
+  date 409 `receivables.tax_changed`; a tax component without an account
+  422 `receivables.no_tax_account`; the ledger's refusals of the entry.
+  The ledger's `:reverse` refuses the entry, 409
+  `ledger.entry_owned_elsewhere` (04 §4.9, as built before T75b for
+  every context without a reversal path).
+- The invoice shows `payment_term_code`, `net_due_date`,
+  `journal_entry_id`, `journal_entry_year` and `journal_entry_number`
+  (read through `ledger.OpenItems.Numbers`).
+- Walkthrough `step_customer_invoice` (step 48) extended: Ruth posts the
+  invoice; the entry's lines move 1200, 4000 and 2300 by the invoice's
+  amounts; Northwind's open item shows with NT30 and its due date; a
+  second post and the ledger's `:reverse` are refused. Step 2 adds the
+  `journal_dr` number range.
+- **Decided by default:** (1) the journal document type is `DR`, with its
+  own number range `journal_dr` (SAP's customer invoice type, stated from
+  memory, not checked against a source in the lane); (2) posting is
+  human-only, as entering is; (3) an optional `payment_term_code` is
+  entered with the invoice, since a draft cannot be changed; cash
+  discount tiers of the term are kept with the item as information, and
+  no discount is granted (plan, "Later"); (4) the tax is recalculated at
+  posting and a difference refuses the post rather than posting other
+  tax than the document shows; (5) in a foreign currency the tax lines'
+  local amounts are the posting date's conversion, as a manual sales
+  entry's are (ADR-0049 §7); (6) the posting emits `CustomerInvoicePosted` alone, not also
+  `CustomerInvoiceChanged`.
+- Known limit, the ledger's (ADR-0049 §7 As built): an output tax code
+  whose components share one account is refused at posting, 422
+  `ledger.output_tax_mismatch`, as a manual entry with it is.
+
+### T75c Incoming payment applied to a customer's invoices (migration 000272)
+- **The receipt.** A statement credit matched `incoming: true` posts Dr
+  the house bank's main account, Cr its `incoming_gl_account`, with
+  `source_context` `payments` (T49h). That open credit line is the
+  receipt. No existing statement read says whether it is still open:
+  `GET /v1/bank-statements/{id}/matches` names each match's posting, not
+  whether accounts receivable cleared it. So `GET /v1/unapplied-receipts`
+  was built: a company's receipts not yet applied, by posting date, each
+  with its entry's number and header text, its amount, the account's
+  number and name, the house bank's code and the bank statement and line
+  that posted it (`bank_statement_id`, `bank_statement_ref`,
+  `bank_statement_line_no`: `GET /v1/bank-statements/{id}` shows that
+  line with the payer's references and remittance text); filters
+  `house_bank_code`, `currency`, `posting_date_from`, `posting_date_to`;
+  cursor paging. The statement line is read through a port receivables
+  declares (`Statements`) and the composition root wires to
+  `payments.StatementPostings` (`internal/payments/statementpostings.go`:
+  the line whose match posted an entry, by `statement_match`'s journal
+  entry); the incoming payment shows the same three fields of its
+  receipt. A receipt on an account the configuration no longer names as
+  a house bank's `incoming_gl_account` is neither listed nor applied
+  (422 `receivables.receipt_not_open`). Receivables may not
+  import payments (`internal/layout`), so it reads the incoming accounts
+  from the configuration (`house_bank`, `house_banks[].incoming_gl_account`)
+  and the open lines from the ledger (`ledger.OpenItems.Receipts`,
+  `internal/ledger/receipt.go`): the leading ledger's open credit lines
+  on those accounts of entries the payments context posted, one line per
+  entry.
+- **The ledger's port**, `ledger.Postings.ApplyReceipt`
+  (`internal/ledger/receipt.go`): the receipt's line and the customer's
+  items are read in one `loadItems`, under one sorted set of entry locks
+  taken before any number range (`lockEntries`, ADR-0008), so a
+  reversal or a reservation of any of them finishes first or waits, and
+  the application cannot deadlock with a payment run or a manual
+  clearing on those locks. `accountItems` (bank postings) was split into
+  the lookup of an entry's lines on an account, which takes no lock
+  (`accountLines`), and the load, so the application locks once. The
+  receipt must be the entry's one line on the account, of the leading
+  ledger, a credit, not reversed, not cleared (422 `ledger.not_a_receipt`,
+  409 `ledger.entry_reversed`, `ledger.item_already_cleared`). Each item
+  passes the check every use of open items shares (`checkItem`: a line on
+  a reconciliation account of the company, not reversed, not cleared, no
+  special G/L item, not reserved) and is on a customer reconciliation
+  account with the customer as its partner (422
+  `ledger.not_the_customers_item`) and in the receipt's currency (422
+  `ledger.mixed_items`). Every refusal of an item names the request's
+  own field, `items[i]`, an account that can no longer be posted
+  included (422 `ledger.account_not_postable`: the item's by its place,
+  the receipt's and the exchange difference's by name, never the entry's
+  line). `offsetItems` offsets them all at their
+  original amounts; the transaction-currency total must be zero
+  (422 `ledger.clearing_not_balanced`, naming the receipt and the
+  difference); `fxLines` books the local and group totals as the
+  exchange difference (422 `ledger.no_fx_account` without the account),
+  with the items' shared trading partner (ADR-0059 §4). The entry posts
+  to the ledgers every item was posted in and `clearWithEntry` clears
+  receipt, items and their copies (ADR-0045), publishing the ledger's
+  `items_cleared`. Two applications of one receipt or item do not wait
+  for each other: the second to mark its lines cleared is refused
+  (`clearing_item_pkey`, 409 `ledger.item_already_cleared`) and rolls
+  back whole. Where two clearings mark the same lines in different
+  orders, PostgreSQL ends one as a deadlock victim, answered 503 with
+  `Retry-After` as everywhere (`problem.From`); the retry finds the lines
+  cleared.
+- **The document**, `internal/receivables/incoming.go` and
+  `incoming_api.go`: `POST /v1/incoming-payments`
+  (`receivables.payment.apply`, idempotent by `Idempotency-Key`,
+  human-only) takes the company, the customer, the receipt's journal
+  entry, an optional posting date (else the company's date in its time
+  zone) and the items by (fiscal year, journal entry, line). It finds the
+  receipt among the company's unapplied receipts (422
+  `receivables.receipt_not_open` naming `receipt_journal_entry_id`; 409
+  `receivables.receipt_already_applied` naming the payment that applied
+  it), calls the ledger, then numbers the document from the company's
+  `incoming_payment` range of the posting date's fiscal year and writes
+  it with its items, each at the amount the ledger cleared it at. The
+  ledger is called before the number is taken, so the entries' locks come
+  before every number range; the clearing entry therefore carries no
+  reference, and names the payment as its `source_document_id` and the
+  customer's number in its header text. The entry has the document type
+  `DZ` (number range `journal_dz`) and `source_context` `receivables`;
+  the ledger's `:reverse` refuses it (04 §4.9).
+  `GET /v1/incoming-payments` (the companies the caller may act in;
+  filters `legal_entity_id`, `customer_id`, `document_number`,
+  `posting_date_from`, `posting_date_to`; sortable by `posting_date` and
+  `document_number`; cursor paging) and `GET /v1/incoming-payments/{id}`
+  (404 for another company's) show the company by code and name, the
+  customer by number and name, the receipt and the clearing entry by
+  number, the incoming account by number and name, and each item with
+  its entry's number, its reference (a customer invoice's number) and its
+  amount with the currency.
+- Migration 000272: `receivables.incoming_payment`
+  (`incoming_payment_number_once` per company;
+  `incoming_payment_amount_positive`; `incoming_payment_receipt_once`, a
+  receipt is applied once; `incoming_payment_entry_once`) and
+  `receivables.incoming_payment_item` (`incoming_payment_item_once`, an
+  open item is applied once; a non-zero amount), both insert-only
+  (`platform.forbid_mutation`, no update or delete grant); the permission
+  `receivables.payment.apply`. Schema tests in `db/receivables_test.go`.
+- `IncomingPaymentApplied` (`x-webhook`: the customer by id and number,
+  the amount, the receipt's and the clearing entry's ids, the number of
+  items) and the audit record `receivables.incoming_payment.apply`, in
+  the application's transaction, beside the ledger's two
+  (`ledger.journal_entry.post`, `ledger.clearing.create`).
+- Walkthrough `step_incoming_payment` (step 52): RBC's third statement of
+  the day carries Northwind's CAD 1,595.05; Tom matches the line as
+  incoming and posts it; Ruth finds it among the unapplied receipts and
+  applies it to the invoice of step 48; the DZ entry debits 1015 and
+  credits Northwind on 1200; Northwind has no open item and nothing waits
+  on 1015; a supplier named as the customer and a second application are
+  refused. Step 2 adds the `incoming_payment` and `journal_dz` number
+  ranges.
+- **Decided by default:** (1) `GET /v1/unapplied-receipts` is needed and
+  built (above); (2) a receipt is an entry the payments context posted
+  (a matched statement line); a credit another context posted to an
+  incoming account is not offered (receipts without a statement are in
+  the plan's "Later"); (3) reads take `receivables.invoice.read`; (4)
+  the journal document type is `DZ` with its own range `journal_dz`
+  (SAP's customer payment type, stated from memory, not checked against
+  a source in the lane); (5) applying is human-only, as entering and
+  posting are; (6) the customer is not checked for a posting block: a
+  blocked customer may still pay what it owes, and the items are its own
+  by the ledger's check; (7) the ledger call precedes the document's
+  number, so the clearing entry has no reference (above); (8) the
+  document has no version of its own: it shows `version` 1 and
+  `updated_at` its creation, since it never changes; (9) a receipt and
+  a payment name the statement and line that posted the receipt, not the
+  line's text or the payer's references: those are the payments
+  context's to show, under its own permission
+  (`GET /v1/bank-statements/{id}`).
+- Not built, by the plan: partial payments, residual items, payments on
+  account, differences and tolerances, cash discount granted, one receipt
+  for several customers, a receipt in another currency than the items,
+  undoing an application, rule or agent matching, receipts without a
+  statement, direct debits, refunds. Credit memos are T75d; the netting
+  of a customer's credit items is built and tested here with credits
+  posted through the ledger's port.
