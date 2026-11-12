@@ -43,6 +43,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/identity"
 	"github.com/mustie7iy/agentic-erp/internal/integration"
 	"github.com/mustie7iy/agentic-erp/internal/ledger"
+	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/operations"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
 	"github.com/mustie7iy/agentic-erp/internal/payables"
@@ -231,6 +232,7 @@ func New(cfg Config) (http.Handler, error) {
 	// People's sessions, recorded per replica (ADR-0031), and ended by
 	// endCurrentSession through the same instance, which forgets them.
 	sessions := &identity.Sessions{Pool: cfg.Pool, AppRole: cfg.AppRole, Now: cfg.Now}
+	selling, crediting := salesAndCredit(cfg)
 	h := handler{
 		operationsAPI: &operations.Endpoints{Pages: cfg.Pages, Workflows: cfg.Workflows, Log: cfg.Log},
 		tenancyAPI:    &tenancy.Endpoints{Pages: cfg.Pages, Days: configuration.Settings{}, Now: cfg.Now},
@@ -244,10 +246,10 @@ func New(cfg Config) (http.Handler, error) {
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		receivablesAPI: Receivables(cfg),
-		salesAPI:       Sales(cfg),
+		salesAPI:       selling,
 		revenueAPI:     Revenue(cfg),
 		collectionsAPI: Collections(cfg),
-		creditAPI:      Credit(cfg),
+		creditAPI:      crediting,
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
 		integrationAPI: Integration(cfg),
@@ -437,10 +439,41 @@ func Receivables(cfg Config) *receivables.Endpoints {
 // A billing document posts through receivables' published API, in
 // process and in the billing's transaction (ADR-0067 §9).
 func Sales(cfg Config) *sales.Endpoints {
-	return &sales.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
+	s, _ := salesAndCredit(cfg)
+	return s
+}
+
+// salesAndCredit wires the sales context and the credit context, which
+// ask each other one question each (ADR-0066, As built T77b): credit
+// reads the customer's confirmed orders not yet billed from sales, which
+// owns them (credit.OpenOrders, answered by sales.Endpoints.OpenOrders),
+// and sales asks credit, when it confirms an order, whether the order's
+// value is within the customer's limit (sales.Credit, answered by
+// salesCredit). Neither imports the other: credit stays a leaf.
+func salesAndCredit(cfg Config) (*sales.Endpoints, *credit.Endpoints) {
+	s := &sales.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
 		Terms: partner.Suppliers{}, Partners: partner.Payees{},
 		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Invoices: Receivables(cfg), Entries: ledger.OpenItems{},
-		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+		Numbers: configuration.Numbers{}, Calendar: calendar(),
+		Settings: configuration.Settings{}, Rates: ledger.Rates{LegalEntities: tenancy.Directory{}}, People: LedgerPeople{}, Now: cfg.Now}
+	c := &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
+		Partners: partner.Payees{}, Orders: s}
+	s.Credit = salesCredit{credit: c}
+	return s, c
+}
+
+// salesCredit answers the sales context's question to the credit
+// context, which sales does not import (ADR-0066 §1, As built T77b): the
+// check of an order's value against its customer's limit, in sales' own
+// type.
+type salesCredit struct{ credit *credit.Endpoints }
+
+func (c salesCredit) Check(ctx context.Context, legalEntity, customer uuid.UUID, amount money.Minor) (sales.CreditCheck, error) {
+	x, err := c.credit.Check(ctx, legalEntity, customer, amount)
+	if err != nil || x.Limit == nil {
+		return sales.CreditCheck{Within: x.Within}, err
+	}
+	return sales.CreditCheck{HasLimit: true, Limit: x.Limit.Amount, Exposure: x.Total, Within: x.Within}, nil
 }
 
 // Revenue is the revenue recognition context as the API and the event
@@ -474,10 +507,11 @@ func Collections(cfg Config) *collections.Endpoints {
 
 // Credit is the credit management context as the API wires it (ADR-0066
 // §1): a leaf that reads the ledger's customer open items, the partner
-// context's customers and names and tenancy through its ports.
+// context's customers and names, the sales context's open orders and
+// tenancy through its ports (salesAndCredit).
 func Credit(cfg Config) *credit.Endpoints {
-	return &credit.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, OpenItems: ledger.OpenItems{}, Customers: partner.Customers{},
-		Partners: partner.Payees{}}
+	_, c := salesAndCredit(cfg)
+	return c
 }
 
 // uploads is the API's direct-upload service (ADR-0020).

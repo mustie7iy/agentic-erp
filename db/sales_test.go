@@ -12,7 +12,7 @@ import (
 
 // TestSalesPermissions (T78a, migration 000290; T78b, migration 000291;
 // T78c, migration 000292; T79a, migration 000293; T80a, migration 000294;
-// ADR-0067 §7): the sales
+// T77b, migration 000300; ADR-0067 §7): the sales
 // permissions are seeded and are no approval permissions.
 func TestSalesPermissions(t *testing.T) {
 	need(t)
@@ -24,7 +24,7 @@ func TestSalesPermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := strings.Join(codes, " "), "sales.billing.post sales.billing.read sales.billing.write sales.delivery.confirm sales.order.confirm sales.order.read sales.order.write sales.price.read sales.price.write sales.quotation.read sales.quotation.write"; got != want {
+	if got, want := strings.Join(codes, " "), "sales.billing.post sales.billing.read sales.billing.write sales.delivery.confirm sales.order.confirm sales.order.credit_release sales.order.read sales.order.write sales.price.read sales.price.write sales.quotation.read sales.quotation.write"; got != want {
 		t.Errorf("got %v, want %s", codes, want)
 	}
 }
@@ -685,6 +685,100 @@ func TestBillingPostingRules(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s := scene{tenant: id(), company: id(), customer: id(), order: id(), doc: id(), invoice: id(), entry: id()}
+			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
+			if c.want != "" {
+				failsWith(t, err, c.want)
+				return
+			}
+			if err != nil {
+				t.Fatalf("got %v, want no error", err)
+			}
+		})
+	}
+}
+
+// TestSalesOrderCreditBlockRules (T77b, migration 000300; ADR-0066 and
+// ADR-0067, As built T77b): a draft has no credit block; an order is
+// confirmed without one or blocked, never already released; a blocked
+// order's block is released once, naming who released it, by id and
+// name, and when, and
+// nothing else changes a confirmed order; a blocked order takes no
+// delivery until it is released.
+func TestSalesOrderCreditBlockRules(t *testing.T) {
+	need(t)
+	const header = `INSERT INTO sales.sales_order (tenant_id, id, document_number, legal_entity_id, customer_id, order_date,
+		currency, payment_term_code, net_amount, status, credit_block, created_by, updated_by)
+		VALUES ($1, $2, 'SO1', gen_random_uuid(), gen_random_uuid(), '2026-03-12', 'EUR', 'NT30', 100, 'draft', $3, $1, $1)`
+	const item = `INSERT INTO sales.sales_order_item (tenant_id, sales_order_id, item_no, description, quantity, uom_code, unit_price, price_unit,
+		net_amount, account_id) VALUES ($1, $2, 1, 'Bracket', 5, 'EA', 100, 1, 100, gen_random_uuid())`
+	const confirm = `UPDATE sales.sales_order SET status = 'confirmed', credit_block = $2, version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const release = `UPDATE sales.sales_order SET credit_block = $2, credit_released_by = $3, credit_released_by_name = $5, credit_released_at = $4,
+		version = version + 1, updated_by = tenant_id WHERE id = $1`
+	const delivery = `INSERT INTO sales.delivery (tenant_id, id, sales_order_id, delivery_no, delivery_date, created_by)
+		VALUES ($1, gen_random_uuid(), $2, 1, '2026-03-14', $1)`
+	const at = "2026-03-13T10:00:00Z"
+	type scene struct{ tenant, order, actor uuid.UUID }
+	draft := func(s scene) []stmt {
+		return []stmt{step(header, s.tenant, s.order, "none"), step(item, s.tenant, s.order)}
+	}
+	confirmed := func(s scene, block string, more ...stmt) []stmt {
+		return append(append(draft(s), step(confirm, s.order, block)), more...)
+	}
+	released := func(s scene) stmt { return step(release, s.order, "released", s.actor, at, "Ruth Receivables") }
+	cases := []struct {
+		name string
+		run  func(tx pgx.Tx, s scene) error
+		want string // empty: allowed
+	}{
+		{"confirmed without a block", func(tx pgx.Tx, s scene) error { return all(tx, confirmed(s, "none")...) }, ""},
+		{"confirmed with a block", func(tx pgx.Tx, s scene) error { return all(tx, confirmed(s, "blocked")...) }, ""},
+		{"a block released", func(tx pgx.Tx, s scene) error { return all(tx, confirmed(s, "blocked", released(s))...) }, ""},
+		{"a released order takes a delivery", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", released(s), step(delivery, s.tenant, s.order))...)
+		}, ""},
+		{"a blocked order takes no delivery", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", step(delivery, s.tenant, s.order))...)
+		}, "its sales order is not confirmed, or is blocked for credit"},
+		{"an unknown block", func(tx pgx.Tx, s scene) error { return all(tx, confirmed(s, "held")...) }, "sales_order_credit_block_check"},
+		{"a draft created blocked", func(tx pgx.Tx, s scene) error {
+			return all(tx, step(header, s.tenant, s.order, "blocked"))
+		}, "sales_order_credit_block_confirmed"},
+		{"confirmed as already released", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(draft(s), step(`UPDATE sales.sales_order SET status = 'confirmed', credit_block = 'released', credit_released_by = $2,
+				credit_released_by_name = 'Ruth Receivables', credit_released_at = $3, version = version + 1 WHERE id = $1`, s.order, s.actor, at))...)
+		}, "only a draft changes"},
+		{"released twice", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", released(s), released(s))...)
+		}, "only a draft changes"},
+		{"an order without a block released", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "none", released(s))...)
+		}, "only a draft changes"},
+		{"a release taken back", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", released(s), step(release, s.order, "blocked", nil, nil, nil))...)
+		}, "only a draft changes"},
+		{"a confirmed order blocked afterwards", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "none", step(`UPDATE sales.sales_order SET credit_block = 'blocked', version = version + 1 WHERE id = $1`, s.order))...)
+		}, "only a draft changes"},
+		{"released without who released it", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", step(release, s.order, "released", nil, at, "Ruth Receivables"))...)
+		}, "sales_order_credit_release"},
+		{"released without when", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", step(release, s.order, "released", s.actor, nil, "Ruth Receivables"))...)
+		}, "sales_order_credit_release"},
+		{"released without the name of who released it", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", step(release, s.order, "released", s.actor, at, nil))...)
+		}, "sales_order_credit_release"},
+		{"released by a name identity accepts, of white space", func(tx pgx.Tx, s scene) error {
+			return all(tx, confirmed(s, "blocked", step(release, s.order, "released", s.actor, at, " "))...)
+		}, ""},
+		{"who released an order that is not released", func(tx pgx.Tx, s scene) error {
+			return all(tx, append(draft(s), step(`UPDATE sales.sales_order SET status = 'confirmed', credit_block = 'blocked', credit_released_by = $2,
+				credit_released_at = $3, version = version + 1 WHERE id = $1`, s.order, s.actor, at))...)
+		}, "sales_order_credit_release"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := scene{tenant: id(), order: id(), actor: id()}
 			err := asApp(t, s.tenant, func(tx pgx.Tx) error { return c.run(tx, s) })
 			if c.want != "" {
 				failsWith(t, err, c.want)

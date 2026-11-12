@@ -16892,13 +16892,17 @@ paths:
       tags:
         - credit
       summary: Get a customer's credit exposure and check an amount against its limit
-      description: "A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066 §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, in the company's currency as they were booked; credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and billing do not count yet. With a credit limit set for the customer in the company (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it nothing is added. `is_within_limit` says whether the exposure and the amount together are no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing: what a consumer does with the answer is its own. It is computed at the read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one without open items in the company has an exposure of zero. An amount below zero is refused (422 `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner that does not exist."
+      description: "A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066 §3-§4, T77a, T77b). The exposure has two parts, each given beside their sum. `open_items` is what the customer's open items add up to: the items open now on the company's customer reconciliation accounts in the leading ledger, whoever posted them, in the company's currency as they were booked; credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's credits exceed what it owes. `open_orders` is the value of the customer's confirmed sales orders not yet billed: of each order of the company that is confirmed and not blocked for credit, the part not yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on the order's date, converted into the company's currency at the average rate valid on the order's date when the order is in another; what is posted as an invoice counts as an open item from then on, never twice. `exposure` is the two together. With a credit limit set for the customer in the company (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it nothing is added. `is_within_limit` says whether the exposure and the amount together are no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing: what a consumer does with the answer is its own; confirming a sales order makes the same check on the order's gross value and blocks the order when it is not within the limit (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one without open items or orders in the company has an exposure of zero. An open order whose value cannot be calculated refuses the read rather than being left out: one whose tax code is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422 `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`. Open items and orders that add up, alone or with the limit or the amount, to more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is 404, as a business partner that does not exist."
       x-permission: credit.limit.read
       x-snapshot: true
       x-problem-codes:
+        - config.not_bootstrapped
         - credit.amount_too_large
         - credit.invalid_amount
+        - ledger.no_exchange_rate
         - request.invalid_amount
+        - sales.amount_too_large
+        - sales.unknown_tax_code
       parameters:
         - name: legal_entity_id
           in: query
@@ -17642,7 +17646,7 @@ paths:
       tags:
         - sales
       summary: List sales orders
-      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value and its items with their ordered, delivered and billed quantities. Filtered by company, customer, status, document number and quotation. Sortable by: `order_date`, `document_number`."
+      description: "The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the quotation it came from, its net value, its credit block and its items with their ordered, delivered and billed quantities. Filtered by company, customer, status, credit block, document number and quotation. Sortable by: `order_date`, `document_number`."
       x-permission: sales.order.read
       x-problem-codes:
         - request.invalid_order_by
@@ -17667,6 +17671,17 @@ paths:
             x-extensible-enum:
               - draft
               - confirmed
+        - name: credit_block
+          in: query
+          required: false
+          description: "Only orders with this credit block: `blocked` finds the orders waiting for a release (`releaseSalesOrderCreditBlock`)."
+          schema:
+            type: string
+            description: "Credit block of a sales order. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - none
+              - blocked
+              - released
         - $ref: "#/components/parameters/DocumentNumber"
         - name: quotation_id
           in: query
@@ -17790,7 +17805,7 @@ paths:
       tags:
         - sales
       summary: Get a sales order
-      description: "One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and name, the quotation it was created from by id and number, its payment term, its net value and its items, each with its ordered, delivered and billed quantities, its unit price, its net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
+      description: "One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and name, the quotation it was created from by id and number, its payment term, its net value, its credit block (with who released it and when, once it is released) and its items, each with its ordered, delivered and billed quantities, its unit price, its net value and its revenue account's number and name. One of a company the caller may not act in is not found (404), as one that does not exist."
       x-permission: sales.order.read
       x-problem-codes: []
       parameters:
@@ -17821,13 +17836,18 @@ paths:
       tags:
         - sales
       summary: Confirm a sales order
-      description: "Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is not changed or cancelled in the first version. Nothing is posted. Audited, and published as SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`)."
+      description: "Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`): the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is not changed or cancelled in the first version. Nothing is posted. The confirmation checks the customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax its items' tax codes give on the order's date, in the company's currency (an order in another currency at the average rate valid on its date), is compared with the customer's credit limit in the company less its exposure, its open items and its other confirmed orders not yet billed, as `getCreditExposure` gives them. An order that is within the limit, and every order of a customer without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same, with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one customer confirmed at once are checked one after the other, so they cannot both take the room only one fits. The order is not checked again after its confirmation. The value must be calculable: a tax code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an order in another currency without a rate into the company's on its date (422 `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422 `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only (`x-agent: false`)."
       x-permission: sales.order.confirm
       x-agent: false
       x-problem-codes:
+        - config.not_bootstrapped
+        - credit.amount_too_large
+        - ledger.no_exchange_rate
         - request.version_mismatch
+        - sales.amount_too_large
         - sales.invalid_status
         - sales.quotation_ordered
+        - sales.unknown_tax_code
       parameters:
         - $ref: "#/components/parameters/Id"
         - $ref: "#/components/parameters/IfMatch"
@@ -17835,6 +17855,51 @@ paths:
       responses:
         "200":
           description: "The sales order, confirmed."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SalesOrder"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  "/v1/sales-orders/{id}:releaseCreditBlock":
+    post:
+      operationId: releaseSalesOrderCreditBlock
+      tags:
+        - sales
+      summary: Release a sales order's credit block
+      description: "Releases the credit block of a sales order that was confirmed over its customer's credit limit (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock and its `credit_block` moves from `blocked` to `released`, once, with who released it, by id and name, and when (`credit_released_by`, `credit_released_by_name`, `credit_released_at`). From then on the order takes deliveries and is billed as any confirmed order, and it counts in the customer's exposure, which may then exceed the limit: the release is the credit manager's decision, whatever the amount. An order without a block, or whose block is already released, is refused (409 `sales.order_not_credit_blocked`). The release is by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart from the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released order. Human-only (`x-agent: false`)."
+      x-permission: sales.order.credit_release
+      x-agent: false
+      x-problem-codes:
+        - request.version_mismatch
+        - sales.order_not_credit_blocked
+        - sales.quotation_ordered
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The sales order, its credit block released."
           headers:
             ETag:
               $ref: "#/components/headers/ETag"
@@ -18082,7 +18147,7 @@ paths:
       tags:
         - sales
       summary: Confirm a delivery against a sales order
-      description: "Records that quantities of a `confirmed` sales order's items were delivered, or a service made available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is read under a row lock, so two confirmations of one order wait for one another. An order that is not confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations racing for an item's last quantity, one is recorded. The delivery is numbered within its order and written once; it is not changed or reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only (`x-agent: false`)."
+      description: "Records that quantities of a `confirmed` sales order's items were delivered, or a service made available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is read under a row lock, so two confirmations of one order wait for one another. An order that is not confirmed takes none (409 `sales.order_not_confirmed`), nor does one blocked for credit until its block is released (409 `sales.order_credit_blocked`, `releaseSalesOrderCreditBlock`). `delivery_date` is not after the company's date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations racing for an item's last quantity, one is recorded. The delivery is numbered within its order and written once; it is not changed or reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only (`x-agent: false`)."
       x-permission: sales.delivery.confirm
       x-agent: false
       x-problem-codes:
@@ -18092,6 +18157,7 @@ paths:
         - sales.invalid_quantity
         - sales.item_repeated
         - sales.items_required
+        - sales.order_credit_blocked
         - sales.order_not_confirmed
         - sales.unit_mismatch
         - sales.unknown_order_item
@@ -48711,7 +48777,7 @@ components:
     CreditExposure:
       type: object
       description: "A customer's credit exposure in a company and the check of an amount against its credit limit (credit, ADR-0066 §3-§4). Every amount is in the company's currency."
-      required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, currency, open_item_count, exposure, has_limit, is_within_limit]
+      required: [legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, currency, open_item_count, open_items, open_order_count, open_orders, exposure, has_limit, is_within_limit]
       properties:
         legal_entity_id: {type: string, format: uuid, description: "The company.", readOnly: true}
         company_code: {type: string, description: "The company's code.", readOnly: true}
@@ -48720,8 +48786,11 @@ components:
         customer_number: {type: string, description: "The customer's business partner number.", readOnly: true}
         customer_name: {type: string, description: "The customer's name, as it is now.", readOnly: true}
         currency: {type: string, pattern: "^[A-Z]{3}$", description: "The company's currency (ISO 4217), the currency of every amount.", readOnly: true}
-        open_item_count: {type: integer, format: int32, minimum: 0, description: "The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which the exposure adds up.", readOnly: true}
-        exposure: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, as they were booked, credit items netted; negative when its credits exceed what it owes."}
+        open_item_count: {type: integer, format: int32, minimum: 0, description: "The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which `open_items` adds up.", readOnly: true}
+        open_items: {$ref: "#/components/schemas/Money", description: "What the customer's open items add up to, as they were booked, credit items netted; negative when its credits exceed what it owes."}
+        open_order_count: {type: integer, format: int32, minimum: 0, description: "The customer's confirmed sales orders in the company with a part not yet billed (`GET /v1/sales-orders?legal_entity_id=&customer_id=&status=confirmed`), those blocked for credit left out, which `open_orders` adds up.", readOnly: true}
+        open_orders: {$ref: "#/components/schemas/Money", description: "The value of the customer's confirmed sales orders not yet billed: of each order that is not blocked for credit, the part not yet posted as a customer invoice, net plus the output tax on the order's date, in the company's currency (an order in another currency at the average rate valid on its date)."}
+        exposure: {$ref: "#/components/schemas/Money", description: "The exposure: `open_items` and `open_orders` together; negative when the customer's credits exceed what it owes and has ordered."}
         has_limit: {type: boolean, description: "Whether a credit limit is set for the customer in the company. False: no limit is set, and the customer is not restricted.", readOnly: true}
         credit_limit_id: {type: string, format: uuid, description: "The credit limit (`GET /v1/credit-limits/{id}`); absent when none is set.", readOnly: true}
         limit: {$ref: "#/components/schemas/Money", description: "The credit limit; absent when none is set."}
@@ -48737,7 +48806,10 @@ components:
           customer_name: Northwind Traders
           currency: CAD
           open_item_count: 2
-          exposure: {amount: "1470.00", currency: CAD}
+          open_items: {amount: "1470.00", currency: CAD}
+          open_order_count: 1
+          open_orders: {amount: "1575.00", currency: CAD}
+          exposure: {amount: "3045.00", currency: CAD}
           has_limit: true
           credit_limit_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d81"
           limit: {amount: "5000.00", currency: CAD}
@@ -49051,12 +49123,12 @@ components:
             delivered_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity confirmed as delivered so far (`confirmSalesDelivery`), in the item's unit; at most `quantity`, the quantity ordered, and what is open for delivery is the difference."}
             billed_quantity: {$ref: "#/components/schemas/Quantity", description: "The quantity billed so far by the order's billing documents (`createBillingDocument`), in the item's unit; at most `delivered_quantity`."}
     SalesOrder:
-      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed."
+      description: "A sales order (sales, ADR-0067 §5): what a customer ordered. Amounts are net. Its `version` moves when it is confirmed, when its credit block is released (`releaseSalesOrderCreditBlock`) and with each delivery confirmed against it (`confirmSalesDelivery`) and each billing document created for it (`createBillingDocument`), which change what its items show as delivered and billed."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required: [document_number, legal_entity_id, company_code, company_name, customer_id, customer_number, customer_name, order_date,
-            currency, payment_term_code, net_amount, status, items]
+            currency, payment_term_code, net_amount, status, credit_block, items]
           properties:
             document_number: {type: string, description: "The document number, from the company's `sales_order` number range.", readOnly: true}
             legal_entity_id: {type: string, format: uuid, description: "The company that took the order.", readOnly: true}
@@ -49076,6 +49148,14 @@ components:
               x-extensible-enum: [draft, confirmed]
               description: "`draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
               readOnly: true
+            credit_block:
+              type: string
+              x-extensible-enum: [none, blocked, released]
+              description: "The order's credit block (ADR-0066, T77b). `none`: a draft, which is not checked, or an order confirmed within the customer's credit limit or for a customer without one; `blocked`: confirmed over the limit, taking no delivery until it is released; `released`: the block was released (`:releaseCreditBlock`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              readOnly: true
+            credit_released_by: {type: string, format: uuid, description: "The principal who released the credit block (`GET /v1/principals/{id}`), as `created_by` names one; absent unless `credit_block` is `released`.", readOnly: true}
+            credit_released_by_name: {type: string, description: "The name of who released the credit block, as it was when they released it; absent unless `credit_block` is `released`.", readOnly: true}
+            credit_released_at: {type: string, format: date-time, description: "When the credit block was released; absent unless `credit_block` is `released`.", readOnly: true}
             items:
               type: array
               items: {$ref: "#/components/schemas/SalesOrderItem"}
@@ -49102,6 +49182,7 @@ components:
           payment_term_code: NT30
           net_amount: {amount: "1500.00", currency: CAD}
           status: draft
+          credit_block: none
           items:
             - item_no: 1
               item_key: BRACKET-M8

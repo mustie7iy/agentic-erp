@@ -11,8 +11,10 @@ import (
 
 	"github.com/mustie7iy/agentic-erp/internal/money"
 	"github.com/mustie7iy/agentic-erp/internal/partner"
+	"github.com/mustie7iy/agentic-erp/internal/platform/audit"
 	"github.com/mustie7iy/agentic-erp/internal/platform/authz"
 	"github.com/mustie7iy/agentic-erp/internal/platform/errs"
+	"github.com/mustie7iy/agentic-erp/internal/platform/outbox"
 	"github.com/mustie7iy/agentic-erp/internal/platform/problem"
 	"github.com/mustie7iy/agentic-erp/internal/platform/reqctx"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
@@ -56,25 +58,31 @@ type OrderItem struct {
 // units of Currency, whose minor-unit digits are Exponent; Net is the sum
 // of the items' net values. QuotationID and QuotationNumber name the
 // quotation it was created from, nil for an order created directly.
+// CreditBlock is NoBlock, Blocked or Released, the last with who released
+// the block, their name as it was then, and when (T77b).
 type Order struct {
-	ID              uuid.UUID
-	DocumentNumber  string
-	LegalEntityID   uuid.UUID
-	CustomerID      uuid.UUID
-	QuotationID     *uuid.UUID
-	QuotationNumber *string
-	OrderDate       time.Time
-	Currency        string
-	Exponent        int
-	PaymentTermCode string
-	Net             money.Minor
-	Status          string
-	Items           []OrderItem
-	Version         int32
-	CreatedAt       time.Time
-	CreatedBy       uuid.UUID
-	UpdatedAt       time.Time
-	UpdatedBy       uuid.UUID
+	ID                   uuid.UUID
+	DocumentNumber       string
+	LegalEntityID        uuid.UUID
+	CustomerID           uuid.UUID
+	QuotationID          *uuid.UUID
+	QuotationNumber      *string
+	OrderDate            time.Time
+	Currency             string
+	Exponent             int
+	PaymentTermCode      string
+	Net                  money.Minor
+	Status               string
+	CreditBlock          string
+	CreditReleasedBy     *uuid.UUID
+	CreditReleasedByName *string
+	CreditReleasedAt     *time.Time
+	Items                []OrderItem
+	Version              int32
+	CreatedAt            time.Time
+	CreatedBy            uuid.UUID
+	UpdatedAt            time.Time
+	UpdatedBy            uuid.UUID
 }
 
 // OrderInput is a sales order as a client sends it: QuotationID alone, or
@@ -96,7 +104,7 @@ type OrderInput struct {
 func orderQuery(extra string) string {
 	return `SELECT o.id, o.document_number, o.legal_entity_id, o.customer_id, o.quotation_id,
 		(SELECT q.document_number FROM sales.quotation q WHERE q.tenant_id = o.tenant_id AND q.id = o.quotation_id), o.order_date, o.currency,
-		c.exponent, o.payment_term_code, o.net_amount, o.status, ` +
+		c.exponent, o.payment_term_code, o.net_amount, o.status, o.credit_block, o.credit_released_by, o.credit_released_by_name, o.credit_released_at, ` +
 		itemsJSON("sales_order_item", "sales_order_id", "o",
 			`, 'delivered_quantity', trim_scale(t.delivered_quantity)::text, 'billed_quantity', trim_scale(t.billed_quantity)::text`+extra) + `,
 		o.version, o.created_at, o.created_by, o.updated_at, o.updated_by
@@ -111,7 +119,7 @@ var orderSelect, publishedSelect = orderQuery(""), orderQuery(itemDeliveries + i
 func scanOrder(row pgx.Row) (Order, error) {
 	var o Order
 	err := row.Scan(&o.ID, &o.DocumentNumber, &o.LegalEntityID, &o.CustomerID, &o.QuotationID, &o.QuotationNumber, &o.OrderDate, &o.Currency,
-		&o.Exponent, &o.PaymentTermCode, &o.Net, &o.Status, &o.Items, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)
+		&o.Exponent, &o.PaymentTermCode, &o.Net, &o.Status, &o.CreditBlock, &o.CreditReleasedBy, &o.CreditReleasedByName, &o.CreditReleasedAt, &o.Items, &o.Version, &o.CreatedAt, &o.CreatedBy, &o.UpdatedAt, &o.UpdatedBy)
 	return o, errs.Wrapf(err, "scan sales order")
 }
 
@@ -241,7 +249,7 @@ func (e *Endpoints) MakeOrder(ctx context.Context, in OrderInput) (Order, error)
 	if err != nil {
 		return Order{}, err
 	}
-	return o, recordOrder(ctx, "sales.sales_order.create", o, src.doc.le, customer.Number, nil)
+	return o, recordOrder(ctx, "sales.sales_order.create", o, src.doc.le, customer.Number, nil, nil)
 }
 
 // source resolves what the order is made of: its quotation's, or the
@@ -356,8 +364,12 @@ func (e *Endpoints) paymentTerm(ctx context.Context, given *string, customer par
 // ConfirmOrder confirms a draft order, once (ADR-0067 §5). The order's
 // row is read FOR UPDATE and only a draft is confirmed (ADR-0008): a
 // second confirmation waits for the first and is then refused, 409
-// sales.invalid_status. The new status, its audit record and
-// SalesOrderChanged are written in the request's transaction.
+// sales.invalid_status. The order's gross value is checked against the
+// customer's credit limit (creditCheck; ADR-0066, As built T77b): an
+// order over it is confirmed all the same, with a credit block. The new
+// status with the block, its audit record, SalesOrderChanged and, for a
+// blocked order, SalesOrderCreditBlocked are written in the request's
+// transaction.
 func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func(int32) error) (Order, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -381,7 +393,12 @@ func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func
 	if err != nil {
 		return Order{}, fmt.Errorf("sales: customer of sales order %s: %w", id, err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE sales.sales_order SET status = $2, version = version + 1, updated_by = $3 WHERE id = $1`, id, Confirmed, p.ID); err != nil {
+	check, err := e.creditCheck(ctx, tx, o, le)
+	if err != nil {
+		return Order{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE sales.sales_order SET status = $2, credit_block = $4, version = version + 1, updated_by = $3 WHERE id = $1`,
+		id, Confirmed, p.ID, check.block); err != nil {
 		return Order{}, fmt.Errorf("sales: mark sales order %s confirmed: %w", id, err)
 	}
 	confirmed, err := loadOrder(ctx, tx, id, false)
@@ -389,21 +406,33 @@ func (e *Endpoints) ConfirmOrder(ctx context.Context, id uuid.UUID, ifMatch func
 		return Order{}, err
 	}
 	before := Draft
-	return confirmed, recordOrder(ctx, "sales.sales_order.confirm", confirmed, le, names[o.CustomerID].Number, &before)
+	return confirmed, recordOrder(ctx, "sales.sales_order.confirm", confirmed, le, names[o.CustomerID].Number, &before, &check)
 }
 
 // recordOrder adds the audit record of an order's change and publishes
 // SalesOrderChanged in the same transaction (ADR-0007, ADR-0011); before
 // is its status before, nil when it had none. The event names the
 // customer by id and number, never by name (product owner, 2026-11-05),
-// and carries the net value, not the items.
-func recordOrder(ctx context.Context, action string, o Order, le tenancy.Entity, customerNumber string, before *string) error {
+// and carries the net value, not the items. check is the credit check of
+// a confirmation, nil otherwise: the audit record says what was checked,
+// and an order it blocked is published as SalesOrderCreditBlocked too.
+func recordOrder(ctx context.Context, action string, o Order, le tenancy.Entity, customerNumber string, before *string, check *checked) error {
 	net := money.EventAmount(o.Net, o.Currency, o.Exponent)
 	payload := map[string]any{"sales_order_id": o.ID, "document_number": o.DocumentNumber, "legal_entity_id": o.LegalEntityID,
 		"legal_entity_code": le.Code, "customer_id": o.CustomerID, "customer_number": customerNumber, "quotation_id": o.QuotationID,
 		"order_date": o.OrderDate.Format(time.DateOnly), "payment_term_code": o.PaymentTermCode, "net_amount": net,
-		"status": o.Status, "status_before": before, "version": o.Version}
+		"status": o.Status, "status_before": before, "credit_block": o.CreditBlock, "version": o.Version}
 	detail := map[string]any{"document_number": o.DocumentNumber, "customer_id": o.CustomerID, "quotation_id": o.QuotationID, "status": o.Status,
-		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(o.Items)}
-	return record(ctx, action, "sales_order", "sales_order_changed", o.ID, detail, payload)
+		"status_before": before, "payment_term_code": o.PaymentTermCode, "net_amount": net, "items": len(o.Items), "credit_block": o.CreditBlock}
+	events := []outbox.Event{{Context: "sales", Name: "sales_order_changed", AggregateType: "sales.sales_order", AggregateID: o.ID, Payload: payload}}
+	if check != nil {
+		detail["credit_check"] = check.detail(le)
+		if check.block == Blocked {
+			events = append(events, check.blockedEvent(o, le, customerNumber))
+		}
+	}
+	if err := audit.Record(ctx, action, "sales.sales_order", o.ID, detail, events...); err != nil {
+		return fmt.Errorf("sales: record %s of sales order %s: %w", action, o.ID, err)
+	}
+	return nil
 }

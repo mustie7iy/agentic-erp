@@ -417,6 +417,7 @@ const (
 	ReleaseInternalOrderOperation                  OperationName = "ReleaseInternalOrder"
 	ReleasePaymentRunOperation                     OperationName = "ReleasePaymentRun"
 	ReleasePurchaseOrderOperation                  OperationName = "ReleasePurchaseOrder"
+	ReleaseSalesOrderCreditBlockOperation          OperationName = "ReleaseSalesOrderCreditBlock"
 	ReleaseSupplierInvoiceOperation                OperationName = "ReleaseSupplierInvoice"
 	RemoveHierarchyNodeOperation                   OperationName = "RemoveHierarchyNode"
 	RenameHierarchyNodeOperation                   OperationName = "RenameHierarchyNode"

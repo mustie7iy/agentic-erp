@@ -70,6 +70,10 @@ func (e *Endpoints) SetLimit(ctx context.Context, in LimitInput) (Limit, error) 
 	if err != nil {
 		return Limit{}, err
 	}
+	// A check of one of the customer's orders that is under way ends first (hold).
+	if err := hold(ctx, tx, le.ID, c.ID); err != nil {
+		return Limit{}, err
+	}
 	id := uuid.Must(uuid.NewV7())
 	if _, err := tx.Exec(ctx, `INSERT INTO credit.credit_limit (tenant_id, id, legal_entity_id, customer_id, customer_number, currency, amount,
 			created_by, updated_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,

@@ -76363,6 +76363,18 @@ func (s *CreditExposure) encodeFields(e *jx.Encoder) {
 		e.Int32(s.OpenItemCount)
 	}
 	{
+		e.FieldStart("open_items")
+		s.OpenItems.Encode(e)
+	}
+	{
+		e.FieldStart("open_order_count")
+		e.Int32(s.OpenOrderCount)
+	}
+	{
+		e.FieldStart("open_orders")
+		s.OpenOrders.Encode(e)
+	}
+	{
 		e.FieldStart("exposure")
 		s.Exposure.Encode(e)
 	}
@@ -76400,7 +76412,7 @@ func (s *CreditExposure) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfCreditExposure = [15]string{
+var jsonFieldsNameOfCreditExposure = [18]string{
 	0:  "legal_entity_id",
 	1:  "company_code",
 	2:  "company_name",
@@ -76409,13 +76421,16 @@ var jsonFieldsNameOfCreditExposure = [15]string{
 	5:  "customer_name",
 	6:  "currency",
 	7:  "open_item_count",
-	8:  "exposure",
-	9:  "has_limit",
-	10: "credit_limit_id",
-	11: "limit",
-	12: "available",
-	13: "amount",
-	14: "is_within_limit",
+	8:  "open_items",
+	9:  "open_order_count",
+	10: "open_orders",
+	11: "exposure",
+	12: "has_limit",
+	13: "credit_limit_id",
+	14: "limit",
+	15: "available",
+	16: "amount",
+	17: "is_within_limit",
 }
 
 // Decode decodes CreditExposure from json.
@@ -76423,7 +76438,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode CreditExposure to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -76523,8 +76538,40 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"open_item_count\"")
 			}
-		case "exposure":
+		case "open_items":
 			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				if err := s.OpenItems.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"open_items\"")
+			}
+		case "open_order_count":
+			requiredBitSet[1] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int32()
+				s.OpenOrderCount = int32(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"open_order_count\"")
+			}
+		case "open_orders":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				if err := s.OpenOrders.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"open_orders\"")
+			}
+		case "exposure":
+			requiredBitSet[1] |= 1 << 3
 			if err := func() error {
 				if err := s.Exposure.Decode(d); err != nil {
 					return err
@@ -76534,7 +76581,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"exposure\"")
 			}
 		case "has_limit":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Bool()
 				s.HasLimit = bool(v)
@@ -76586,7 +76633,7 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"amount\"")
 			}
 		case "is_within_limit":
-			requiredBitSet[1] |= 1 << 6
+			requiredBitSet[2] |= 1 << 1
 			if err := func() error {
 				v, err := d.Bool()
 				s.IsWithinLimit = bool(v)
@@ -76606,9 +76653,10 @@ func (s *CreditExposure) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11111111,
-		0b01000011,
+		0b00011111,
+		0b00000010,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -179082,6 +179130,196 @@ func (s *ReleasePurchaseOrderUnprocessableEntity) UnmarshalJSON(data []byte) err
 	return s.Decode(d)
 }
 
+// Encode encodes ReleaseSalesOrderCreditBlockBadRequest as json.
+func (s *ReleaseSalesOrderCreditBlockBadRequest) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReleaseSalesOrderCreditBlockBadRequest from json.
+func (s *ReleaseSalesOrderCreditBlockBadRequest) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReleaseSalesOrderCreditBlockBadRequest to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReleaseSalesOrderCreditBlockBadRequest(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReleaseSalesOrderCreditBlockBadRequest) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReleaseSalesOrderCreditBlockBadRequest) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReleaseSalesOrderCreditBlockForbidden as json.
+func (s *ReleaseSalesOrderCreditBlockForbidden) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReleaseSalesOrderCreditBlockForbidden from json.
+func (s *ReleaseSalesOrderCreditBlockForbidden) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReleaseSalesOrderCreditBlockForbidden to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReleaseSalesOrderCreditBlockForbidden(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReleaseSalesOrderCreditBlockForbidden) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReleaseSalesOrderCreditBlockForbidden) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReleaseSalesOrderCreditBlockNotFound as json.
+func (s *ReleaseSalesOrderCreditBlockNotFound) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReleaseSalesOrderCreditBlockNotFound from json.
+func (s *ReleaseSalesOrderCreditBlockNotFound) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReleaseSalesOrderCreditBlockNotFound to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReleaseSalesOrderCreditBlockNotFound(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReleaseSalesOrderCreditBlockNotFound) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReleaseSalesOrderCreditBlockNotFound) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReleaseSalesOrderCreditBlockPreconditionFailed as json.
+func (s *ReleaseSalesOrderCreditBlockPreconditionFailed) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReleaseSalesOrderCreditBlockPreconditionFailed from json.
+func (s *ReleaseSalesOrderCreditBlockPreconditionFailed) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReleaseSalesOrderCreditBlockPreconditionFailed to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReleaseSalesOrderCreditBlockPreconditionFailed(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReleaseSalesOrderCreditBlockPreconditionFailed) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReleaseSalesOrderCreditBlockPreconditionFailed) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ReleaseSalesOrderCreditBlockPreconditionRequired as json.
+func (s *ReleaseSalesOrderCreditBlockPreconditionRequired) Encode(e *jx.Encoder) {
+	unwrapped := (*Problem)(s)
+
+	unwrapped.Encode(e)
+}
+
+// Decode decodes ReleaseSalesOrderCreditBlockPreconditionRequired from json.
+func (s *ReleaseSalesOrderCreditBlockPreconditionRequired) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ReleaseSalesOrderCreditBlockPreconditionRequired to nil")
+	}
+	var unwrapped Problem
+	if err := func() error {
+		if err := unwrapped.Decode(d); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		return errors.Wrap(err, "alias")
+	}
+	*s = ReleaseSalesOrderCreditBlockPreconditionRequired(unwrapped)
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ReleaseSalesOrderCreditBlockPreconditionRequired) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ReleaseSalesOrderCreditBlockPreconditionRequired) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes ReleaseSupplierInvoiceBadRequest as json.
 func (s *ReleaseSupplierInvoiceBadRequest) Encode(e *jx.Encoder) {
 	unwrapped := (*Problem)(s)
@@ -193310,6 +193548,28 @@ func (s *SalesOrder) encodeFields(e *jx.Encoder) {
 		e.Str(s.Status)
 	}
 	{
+		e.FieldStart("credit_block")
+		e.Str(s.CreditBlock)
+	}
+	{
+		if s.CreditReleasedBy.Set {
+			e.FieldStart("credit_released_by")
+			s.CreditReleasedBy.Encode(e)
+		}
+	}
+	{
+		if s.CreditReleasedByName.Set {
+			e.FieldStart("credit_released_by_name")
+			s.CreditReleasedByName.Encode(e)
+		}
+	}
+	{
+		if s.CreditReleasedAt.Set {
+			e.FieldStart("credit_released_at")
+			s.CreditReleasedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
 		e.FieldStart("items")
 		e.ArrStart()
 		for _, elem := range s.Items {
@@ -193319,7 +193579,7 @@ func (s *SalesOrder) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSalesOrder = [21]string{
+var jsonFieldsNameOfSalesOrder = [25]string{
 	0:  "id",
 	1:  "version",
 	2:  "created_at",
@@ -193340,7 +193600,11 @@ var jsonFieldsNameOfSalesOrder = [21]string{
 	17: "payment_term_code",
 	18: "net_amount",
 	19: "status",
-	20: "items",
+	20: "credit_block",
+	21: "credit_released_by",
+	22: "credit_released_by_name",
+	23: "credit_released_at",
+	24: "items",
 }
 
 // Decode decodes SalesOrder from json.
@@ -193348,7 +193612,7 @@ func (s *SalesOrder) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SalesOrder to nil")
 	}
-	var requiredBitSet [3]uint8
+	var requiredBitSet [4]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -193584,8 +193848,50 @@ func (s *SalesOrder) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
-		case "items":
+		case "credit_block":
 			requiredBitSet[2] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.CreditBlock = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_block\"")
+			}
+		case "credit_released_by":
+			if err := func() error {
+				s.CreditReleasedBy.Reset()
+				if err := s.CreditReleasedBy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_released_by\"")
+			}
+		case "credit_released_by_name":
+			if err := func() error {
+				s.CreditReleasedByName.Reset()
+				if err := s.CreditReleasedByName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_released_by_name\"")
+			}
+		case "credit_released_at":
+			if err := func() error {
+				s.CreditReleasedAt.Reset()
+				if err := s.CreditReleasedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"credit_released_at\"")
+			}
+		case "items":
+			requiredBitSet[3] |= 1 << 0
 			if err := func() error {
 				s.Items = make([]SalesOrderItem, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -193611,10 +193917,11 @@ func (s *SalesOrder) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [3]uint8{
+	for i, mask := range [4]uint8{
 		0b11011111,
 		0b10011111,
 		0b00011111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

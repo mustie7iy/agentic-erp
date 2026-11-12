@@ -1645,6 +1645,10 @@ type ReleasePurchaseOrderRes interface {
 	releasePurchaseOrderRes()
 }
 
+type ReleaseSalesOrderCreditBlockRes interface {
+	releaseSalesOrderCreditBlockRes()
+}
+
 type ReleaseSupplierInvoiceRes interface {
 	releaseSupplierInvoiceRes()
 }

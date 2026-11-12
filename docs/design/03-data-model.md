@@ -4478,7 +4478,14 @@ keeps no foreign key out of its schema (02 §2.1). It stores a customer's
 credit limit in a company and nothing else: the credit exposure, what
 the customer's open items add up to, is computed from the ledger when it
 is read (ADR-0066 §3), and the check of an amount against the limit
-writes nothing (ADR-0066 §4).
+writes nothing (ADR-0066 §4). From T77b the exposure has a second part,
+the customer's confirmed sales orders not yet billed, read from the
+sales context (§3.29) through a port and stored nowhere either; the
+check a sales order's confirmation asks reads the limit's row
+`FOR UPDATE` under an advisory lock on the customer in the company,
+which setting a limit takes too, so two orders of one customer are
+checked one after the other (ADR-0066, As built T77b). T77b adds no table and no column
+here.
 
 ```mermaid
 erDiagram
@@ -4663,7 +4670,18 @@ erDiagram
   (`sales_order_confirmed_once`); the application may update `status`,
   `version` and `updated_by` alone and delete nothing. The list reads a
   company's orders by date and a customer's (`sales_order_by_date`,
-  `sales_order_by_customer`).
+  `sales_order_by_customer`). T77b (migration 000300) adds the credit
+  block: `credit_block` is `none`, `blocked` or `released`
+  (`sales_order_credit_block_check`), `none` for a draft
+  (`sales_order_credit_block_confirmed`); `credit_released_by`,
+  `credit_released_by_name` (the principal's display name then, as
+  identity holds it, with no rule of its own) and
+  `credit_released_at` are set exactly when it is `released`
+  (`sales_order_credit_release`). The change rule
+  (`sales_order_confirmed_once`) admits a draft confirmed with `none` or
+  `blocked`, and a blocked order released, once; the application may
+  also update these four columns. The credit exposure reads a
+  customer's confirmed, unblocked orders by `sales_order_by_customer`.
 - `sales.sales_order_item`: a quotation item's columns and rules, with
   `delivered_quantity` and `billed_quantity`, 0 when created:
   `0 <= billed_quantity <= delivered_quantity <= quantity`
@@ -4674,7 +4692,8 @@ erDiagram
 - `sales.delivery` (T78c, migration 000292): a confirmation that
   quantities of an order's items were delivered on `delivery_date`,
   numbered within its order (`delivery_no_positive`, `delivery_no_once`).
-  Only a confirmed order takes one (`delivery_order_confirmed`, a trigger
+  Only a confirmed order that is not blocked for credit (T77b) takes
+  one (`delivery_order_confirmed`, a trigger
   that also moves the order's `version` once per delivery and sets its
   `updated_by`, running as the table's owner: the application itself
   still changes a confirmed order in nothing, and
@@ -4759,9 +4778,11 @@ erDiagram
   amounts add up to the item's `net_amount`.
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
-  `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`).
+  `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,
+  `SalesOrderCreditBlocked`, `SalesOrderCreditReleased`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
-  `.write` and `.confirm`; `sales.delivery.confirm`; `sales.billing.read`,
+  `.write`, `.confirm` and `.credit_release` (T77b);
+  `sales.delivery.confirm`; `sales.billing.read`,
   `.write` and `.post` (posting comes with T79b); `sales.price.read` and
   `.write`.
 

@@ -118,7 +118,7 @@ func TestOrderFromQuotation(t *testing.T) {
 	want := map[string]any{"sales_order_id": id, "document_number": got["document_number"], "legal_entity_id": e.DE.String(),
 		"legal_entity_code": "2000", "customer_id": e.customer.String(), "customer_number": "BP70000001", "quotation_id": quotation,
 		"order_date": got["order_date"], "payment_term_code": "NT30", "net_amount": map[string]any{"amount": "28.03", "currency": "EUR"},
-		"status": "draft", "status_before": nil, "version": float64(1)}
+		"status": "draft", "status_before": nil, "credit_block": "none", "version": float64(1)}
 	if a, b := mustJSON(t, e.events(t, "sales_order_changed", "sales_order_id", id)), mustJSON(t, []map[string]any{want}); a != b {
 		t.Errorf("SalesOrderChanged: got %s, want %s", a, b)
 	}
@@ -308,7 +308,7 @@ func TestOrderConfirmed(t *testing.T) {
 		}
 	}
 	a, b := apitest.JSON(t, first), apitest.JSON(t, second)
-	fields(t, a, map[string]any{"status": "confirmed", "version": float64(2)})
+	fields(t, a, map[string]any{"status": "confirmed", "credit_block": "none", "version": float64(2)})
 	if tag := first.Header().Get("ETag"); tag != `"2"` {
 		t.Errorf("ETag: got %s, want \"2\"", tag)
 	}
@@ -325,7 +325,8 @@ func TestOrderConfirmed(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("SalesOrderChanged events: got %d, want 2 (created, confirmed)", len(events))
 	}
-	fields(t, events[1], map[string]any{"status": "confirmed", "status_before": "draft", "version": float64(2), "customer_number": "BP70000001"})
+	fields(t, events[1], map[string]any{"status": "confirmed", "status_before": "draft", "credit_block": "none", "version": float64(2),
+		"customer_number": "BP70000001"})
 	t.Run("confirmed once", func(t *testing.T) {
 		e.In(t).Problem(409, "sales.invalid_status", "POST", path, "", `"2"`)
 	})

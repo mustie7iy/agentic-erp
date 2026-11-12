@@ -24176,7 +24176,8 @@ func (s *ConfirmSalesOrderOKHeaders) SetResponse(val SalesOrder) {
 	s.Response = val
 }
 
-func (*ConfirmSalesOrderOKHeaders) confirmSalesOrderRes() {}
+func (*ConfirmSalesOrderOKHeaders) confirmSalesOrderRes()            {}
+func (*ConfirmSalesOrderOKHeaders) releaseSalesOrderCreditBlockRes() {}
 
 type ConfirmSalesOrderPreconditionFailed Problem
 
@@ -24409,6 +24410,7 @@ func (*ConflictHeaders) releaseContractRes()                       {}
 func (*ConflictHeaders) releaseInternalOrderRes()                  {}
 func (*ConflictHeaders) releasePaymentRunRes()                     {}
 func (*ConflictHeaders) releasePurchaseOrderRes()                  {}
+func (*ConflictHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*ConflictHeaders) releaseSupplierInvoiceRes()                {}
 func (*ConflictHeaders) removeHierarchyNodeRes()                   {}
 func (*ConflictHeaders) renameHierarchyNodeRes()                   {}
@@ -30610,10 +30612,22 @@ type CreditExposure struct {
 	// The company's currency (ISO 4217), the currency of every amount.
 	Currency string `json:"currency"`
 	// The customer's open items in the company (`GET /v1/open-items?legal_entity_id=&partner_id=`), which
-	// the exposure adds up.
+	// `open_items` adds up.
 	OpenItemCount int32 `json:"open_item_count"`
 	// What the customer's open items add up to, as they were booked, credit items netted; negative when
 	// its credits exceed what it owes.
+	OpenItems Money `json:"open_items"`
+	// The customer's confirmed sales orders in the company with a part not yet billed
+	// (`GET /v1/sales-orders?legal_entity_id=&customer_id=&status=confirmed`), those blocked for credit
+	// left out, which `open_orders` adds up.
+	OpenOrderCount int32 `json:"open_order_count"`
+	// The value of the customer's confirmed sales orders not yet billed: of each order that is not blocked
+	// for credit, the part not yet posted as a customer invoice, net plus the output tax on the order's
+	// date, in the company's currency (an order in another currency at the average rate valid on its
+	// date).
+	OpenOrders Money `json:"open_orders"`
+	// The exposure: `open_items` and `open_orders` together; negative when the customer's credits exceed
+	// what it owes and has ordered.
 	Exposure Money `json:"exposure"`
 	// Whether a credit limit is set for the customer in the company. False: no limit is set, and the
 	// customer is not restricted.
@@ -30670,6 +30684,21 @@ func (s *CreditExposure) GetCurrency() string {
 // GetOpenItemCount returns the value of OpenItemCount.
 func (s *CreditExposure) GetOpenItemCount() int32 {
 	return s.OpenItemCount
+}
+
+// GetOpenItems returns the value of OpenItems.
+func (s *CreditExposure) GetOpenItems() Money {
+	return s.OpenItems
+}
+
+// GetOpenOrderCount returns the value of OpenOrderCount.
+func (s *CreditExposure) GetOpenOrderCount() int32 {
+	return s.OpenOrderCount
+}
+
+// GetOpenOrders returns the value of OpenOrders.
+func (s *CreditExposure) GetOpenOrders() Money {
+	return s.OpenOrders
 }
 
 // GetExposure returns the value of Exposure.
@@ -30745,6 +30774,21 @@ func (s *CreditExposure) SetCurrency(val string) {
 // SetOpenItemCount sets the value of OpenItemCount.
 func (s *CreditExposure) SetOpenItemCount(val int32) {
 	s.OpenItemCount = val
+}
+
+// SetOpenItems sets the value of OpenItems.
+func (s *CreditExposure) SetOpenItems(val Money) {
+	s.OpenItems = val
+}
+
+// SetOpenOrderCount sets the value of OpenOrderCount.
+func (s *CreditExposure) SetOpenOrderCount(val int32) {
+	s.OpenOrderCount = val
+}
+
+// SetOpenOrders sets the value of OpenOrders.
+func (s *CreditExposure) SetOpenOrders(val Money) {
+	s.OpenOrders = val
 }
 
 // SetExposure sets the value of Exposure.
@@ -71777,6 +71821,26 @@ type ReleasePurchaseOrderUnprocessableEntity Problem
 
 func (*ReleasePurchaseOrderUnprocessableEntity) releasePurchaseOrderRes() {}
 
+type ReleaseSalesOrderCreditBlockBadRequest Problem
+
+func (*ReleaseSalesOrderCreditBlockBadRequest) releaseSalesOrderCreditBlockRes() {}
+
+type ReleaseSalesOrderCreditBlockForbidden Problem
+
+func (*ReleaseSalesOrderCreditBlockForbidden) releaseSalesOrderCreditBlockRes() {}
+
+type ReleaseSalesOrderCreditBlockNotFound Problem
+
+func (*ReleaseSalesOrderCreditBlockNotFound) releaseSalesOrderCreditBlockRes() {}
+
+type ReleaseSalesOrderCreditBlockPreconditionFailed Problem
+
+func (*ReleaseSalesOrderCreditBlockPreconditionFailed) releaseSalesOrderCreditBlockRes() {}
+
+type ReleaseSalesOrderCreditBlockPreconditionRequired Problem
+
+func (*ReleaseSalesOrderCreditBlockPreconditionRequired) releaseSalesOrderCreditBlockRes() {}
+
 type ReleaseSupplierInvoiceBadRequest Problem
 
 func (*ReleaseSupplierInvoiceBadRequest) releaseSupplierInvoiceRes() {}
@@ -77210,6 +77274,20 @@ type SalesOrder struct {
 	// `draft`: created; `confirmed`: confirmed, once (`:confirm`). Open enumeration: clients must accept
 	// and preserve values not listed here; values may be added within /v1.
 	Status string `json:"status"`
+	// The order's credit block (ADR-0066, T77b). `none`: a draft, which is not checked, or an order
+	// confirmed within the customer's credit limit or for a customer without one; `blocked`: confirmed
+	// over the limit, taking no delivery until it is released; `released`: the block was released
+	// (`:releaseCreditBlock`). Open enumeration: clients must accept and preserve values not listed here;
+	// values may be added within /v1.
+	CreditBlock string `json:"credit_block"`
+	// The principal who released the credit block (`GET /v1/principals/{id}`), as `created_by` names one;
+	// absent unless `credit_block` is `released`.
+	CreditReleasedBy OptUUID `json:"credit_released_by"`
+	// The name of who released the credit block, as it was when they released it; absent unless
+	// `credit_block` is `released`.
+	CreditReleasedByName OptString `json:"credit_released_by_name"`
+	// When the credit block was released; absent unless `credit_block` is `released`.
+	CreditReleasedAt OptDateTime `json:"credit_released_at"`
 	// The items, by item number.
 	Items []SalesOrderItem `json:"items"`
 }
@@ -77312,6 +77390,26 @@ func (s *SalesOrder) GetNetAmount() Money {
 // GetStatus returns the value of Status.
 func (s *SalesOrder) GetStatus() string {
 	return s.Status
+}
+
+// GetCreditBlock returns the value of CreditBlock.
+func (s *SalesOrder) GetCreditBlock() string {
+	return s.CreditBlock
+}
+
+// GetCreditReleasedBy returns the value of CreditReleasedBy.
+func (s *SalesOrder) GetCreditReleasedBy() OptUUID {
+	return s.CreditReleasedBy
+}
+
+// GetCreditReleasedByName returns the value of CreditReleasedByName.
+func (s *SalesOrder) GetCreditReleasedByName() OptString {
+	return s.CreditReleasedByName
+}
+
+// GetCreditReleasedAt returns the value of CreditReleasedAt.
+func (s *SalesOrder) GetCreditReleasedAt() OptDateTime {
+	return s.CreditReleasedAt
 }
 
 // GetItems returns the value of Items.
@@ -77417,6 +77515,26 @@ func (s *SalesOrder) SetNetAmount(val Money) {
 // SetStatus sets the value of Status.
 func (s *SalesOrder) SetStatus(val string) {
 	s.Status = val
+}
+
+// SetCreditBlock sets the value of CreditBlock.
+func (s *SalesOrder) SetCreditBlock(val string) {
+	s.CreditBlock = val
+}
+
+// SetCreditReleasedBy sets the value of CreditReleasedBy.
+func (s *SalesOrder) SetCreditReleasedBy(val OptUUID) {
+	s.CreditReleasedBy = val
+}
+
+// SetCreditReleasedByName sets the value of CreditReleasedByName.
+func (s *SalesOrder) SetCreditReleasedByName(val OptString) {
+	s.CreditReleasedByName = val
+}
+
+// SetCreditReleasedAt sets the value of CreditReleasedAt.
+func (s *SalesOrder) SetCreditReleasedAt(val OptDateTime) {
+	s.CreditReleasedAt = val
 }
 
 // SetItems sets the value of Items.
@@ -84014,6 +84132,7 @@ func (*TooManyRequestsHeaders) releaseContractRes()                       {}
 func (*TooManyRequestsHeaders) releaseInternalOrderRes()                  {}
 func (*TooManyRequestsHeaders) releasePaymentRunRes()                     {}
 func (*TooManyRequestsHeaders) releasePurchaseOrderRes()                  {}
+func (*TooManyRequestsHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*TooManyRequestsHeaders) releaseSupplierInvoiceRes()                {}
 func (*TooManyRequestsHeaders) removeHierarchyNodeRes()                   {}
 func (*TooManyRequestsHeaders) renameHierarchyNodeRes()                   {}
@@ -84801,6 +84920,7 @@ func (*UnauthorizedHeaders) releaseContractRes()                       {}
 func (*UnauthorizedHeaders) releaseInternalOrderRes()                  {}
 func (*UnauthorizedHeaders) releasePaymentRunRes()                     {}
 func (*UnauthorizedHeaders) releasePurchaseOrderRes()                  {}
+func (*UnauthorizedHeaders) releaseSalesOrderCreditBlockRes()          {}
 func (*UnauthorizedHeaders) releaseSupplierInvoiceRes()                {}
 func (*UnauthorizedHeaders) removeHierarchyNodeRes()                   {}
 func (*UnauthorizedHeaders) renameHierarchyNodeRes()                   {}
