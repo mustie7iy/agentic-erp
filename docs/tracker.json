@@ -10786,6 +10786,27 @@
       "r": "deploy/images/erp-analytics.Dockerfile · deploy/images/upstream.txt · scripts/base-image-current.sh · scripts/test-images.sh · .grype.yaml · ADR-0032 As built",
       "src": "ci:batch56",
       "c": []
+     },
+     {
+      "s": "D",
+      "t": "The race suite three times shuffled, the coverage gate and fuzzing run on GitHub for every pull request and for main's full run, as parallel jobs in shards computed from go list (a check fails when a package or a test of a split package is in no shard); make ci-local-light runs the other gates locally, and merge-pr.sh merges on its report only when the pull request's run held the three; a manual run on main is no longer cancelled by a newer one, and nothing but the fix forward merges while main's full run is red or still going",
+      "r": ".github/workflows/ci.yml · scripts/ci-shards.sh · scripts/ci-shard-weights.txt · scripts/coverage.sh · scripts/ci-local.sh · scripts/merge-pr.sh · scripts/test-ci-shards.sh · scripts/test-coverage-gate.sh · scripts/test-merge-pr.sh · Makefile · 06 §6.5 · ADR-0053 As built",
+      "src": "po:2026-11-10",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "A budget test's whole time, seeding included, is checked: scripts/budgets.sh fails when one takes longer than 240 s (TestConsolidatedStatementBudget seeded for about 290 s inside an 8-minute context on the runner and no gate looked, main's run 43007697247)",
+      "r": "scripts/budgets.sh · scripts/budget-times.sh · scripts/test-budget-times.sh · 06 §6.5",
+      "src": "ci:batch64",
+      "c": []
+     },
+     {
+      "s": "D",
+      "t": "The breaking-change check fails on a value removed from an open enumeration (x-extensible-enum, which oasdiff does not read) unless api/breaking-accepted.txt carries the removal under its reason (batch 65 removed the documented /v1 value method_not_allowed unnoticed)",
+      "r": "api/enumcompat.go · cmd/enumcompat · scripts/ci-local.sh · .github/workflows/ci.yml · api/breaking-accepted.txt · 06 §6.5 · ADR-0041",
+      "src": "ci:batch65",
+      "c": []
      }
     ]
    },

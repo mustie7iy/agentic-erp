@@ -17,6 +17,7 @@ go test -short ./internal/<pkg>/...   # fast loop for one package
 make test                     # vet + whole suite with -race
 make coverage                 # 100% statement coverage gate (CI enforces it)
 make ci-local                 # every gate CI has, locally, before a PR is merged (06 §6.5)
+make ci-local-light           # the same without race ×3, coverage and fuzzing, which the PR's GitHub jobs run
 make generate                 # regenerate api/gen after editing api/openapi.yaml
 ```
 
@@ -96,12 +97,18 @@ hard gate. Follow all of them; the later ones will stop you if you skip the earl
 - A `//nolint:<linter> // <reason>` is allowed only with a specific reason, and the reviewer
   will challenge it.
 - `make ci-local` runs every gate locally at CI's pinned versions: vet, staticcheck, gosec,
-  govulncheck, gitleaks, contract lint, the breaking-change check, `-race` three times
-  shuffled, the coverage gate, fuzzing and performance budgets. GitHub then gives a pull
-  request a short independent check (static checks, the suite without `-race`) and runs
-  the full suite on `main` on demand after each batch (06 §6.5). Merge with
-  `scripts/merge-pr.sh <n>`, which requires both; while the latest full run on `main` is
-  red, nothing merges but the fix forward.
+  govulncheck, gitleaks, contract lint, the breaking-change check (oasdiff, and
+  `cmd/enumcompat` for values removed from open enumerations), `-race` three times
+  shuffled, the coverage gate, fuzzing and performance budgets (and each budget test's
+  whole time). `make ci-local-light` leaves the race runs, the coverage gate and fuzzing
+  to GitHub, which runs them on every pull request as parallel jobs (the shards of
+  `scripts/ci-shards.sh`) beside its static checks and the suite without `-race`, and
+  runs the suite once without `-race` instead (PO 2026-11-10). GitHub runs the full
+  suite on `main` on demand after each batch, in the same shards (06 §6.5). Merge with
+  `scripts/merge-pr.sh <n>`, which requires `ci-ok` and a passing local report, and for
+  a light report that the pull request's own run held the race, coverage and fuzz jobs;
+  while the latest full run on `main` is red or still running, nothing merges but the
+  fix forward (`--fix-forward`).
 
 ### 3. Review before reporting done
 
@@ -131,8 +138,9 @@ one step with a blocking finding left, reconsider the approach and tell the coor
   the breaking-change check when the contract changes, the tests of the changed packages and
   of the packages that import them directly with `-race` against real PostgreSQL, 100%
   coverage of the changed packages, and `go-reviewer`. The whole-suite race run ×3, whole-repository coverage,
-  fuzzing, budgets, images, signing and infrastructure checks run once per batch in
-  `make ci-local`, unchanged, before every pull request. Commit per step with a message naming
+  fuzzing, budgets, images, signing and infrastructure checks run once per batch, unchanged:
+  all of them in `make ci-local` before the pull request, or the first three in the pull
+  request's GitHub jobs and the rest in `make ci-local-light`. Commit per step with a message naming
   the T-number, as the existing history does.
 - Decide by default: when an ADR, design doc or existing behaviour settles a choice, decide and
   record it in the ADR's "As built" section; when nothing settles it, write a new ADR, accepted
@@ -144,8 +152,9 @@ one step with a blocking finding left, reconsider the approach and tell the coor
 
 ## Definition of done
 
-`make lint` clean · `go build ./...` · the lane's fast loop green on the step · `make ci-local`
-passes on the batch before it merges (tests with `-race` ×3, coverage at 100%) ·
+`make lint` clean · `go build ./...` · the lane's fast loop green on the step · the batch's
+gates pass before it merges (tests with `-race` ×3, coverage at 100%, fuzzing): `make ci-local`,
+or `make ci-local-light` with the pull request's race, coverage and fuzz jobs green ·
 GitHub's `ci-ok` green · a slice's walkthrough step passes in the batch's run ·
 `go-reviewer` has no blocking findings · contract, data model, ADRs and tracker match what was
 built (06-engineering-process §6.8).

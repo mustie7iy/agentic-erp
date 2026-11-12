@@ -26,4 +26,26 @@ go test -exec true "$@" "${pkgs[@]}" >/dev/null
 # package stopped main's run after batch 61, when workflows' consolidation
 # and depreciation budgets, seeding their scaled data, passed but together
 # took over 10 minutes on the runner (run 42685494844).
-go test -count=1 -p 1 -timeout 30m -run 'Test[A-Za-z0-9]*(Budget|Perf)' "$@" "${pkgs[@]}"
+#
+# The run is read as go test's JSON so that each test's whole time can be
+# checked afterwards (scripts/budget-times.sh: a budget covers the measured
+# calls, and nothing looked at a test's seeding). What go test would have
+# printed is printed from it: every line with -v, otherwise the packages'
+# lines as they come and the failed tests' output at the end.
+json="$(mktemp)"
+# shellcheck source=scripts/lib/on-exit.sh
+. scripts/lib/on-exit.sh
+on_exit 'rm -f "$json"'
+verbose=false
+for arg in "$@"; do [ "$arg" != -v ] || verbose=true; done
+rc=0
+go test -json -count=1 -p 1 -timeout 30m -run 'Test[A-Za-z0-9]*(Budget|Perf)' "$@" "${pkgs[@]}" | tee "$json" |
+  jq --unbuffered -rjR --argjson v "$verbose" '(fromjson? // {Output: (. + "\n")}) | select(.Output != null and ($v or (.Test == null and .Output != "PASS\n"))) | .Output' || rc=1
+if [ "$rc" != 0 ] && [ "$verbose" = false ]; then
+  echo "--- output of the failed tests:"
+  jq -rjR -s '[split("\n")[] | fromjson?] | ([.[] | select(.Action == "fail" and .Test != null) | .Package + " " + .Test]) as $failed
+    | .[] | select(.Output != null and .Test != null and ((.Package + " " + .Test) as $t | $failed | index($t))) | .Output' "$json"
+fi
+./scripts/budget-times.sh "$json" || rc=1
+finished
+exit "$rc"
