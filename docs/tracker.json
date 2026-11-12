@@ -2845,9 +2845,23 @@
      {
       "s": "T",
       "t": "Credit scoring agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The credit scoring agent reads a customer's exposure, limit, aging, dunning history and payments and recommends a credit limit with its reasons for a credit manager to decide; it never changes a limit (erp agent credit-score); the ADR of the recommending agents",
+        "r": "T105a · docs/design/plan-breadth-week3.md §T105a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: credit scoring variants: a numeric score from a stated model and its back-testing, outside credit ratings and agency data, scoring on a schedule and at each order, the recommended limit applied on acceptance, scoring groups of customers, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T105a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -2936,16 +2950,51 @@
      {
       "s": "T",
       "t": "Dispute cases",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A collections specialist opens a dispute case on a customer's open invoice with a reason and the disputed amount, assigns it to a person, and closes it as accepted or rejected (POST /v1/dispute-cases, :close)",
+        "r": "T86a · docs/design/plan-breadth-week3.md §T86a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "A dunning run leaves an invoice with an open dispute case out of its proposal, and the collection worklist shows each customer's disputed amount beside its overdue amount",
+        "r": "T86b · docs/design/plan-breadth-week3.md §T86b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: dispute case variants: a case over several invoices or on a short payment at the incoming payment, the credit memo or write-off created from an accepted case, correspondence and attachments, escalation and deadlines, dunning the undisputed part of an invoice, disputed amounts in the credit exposure and the cash forecast, cases opened by the customer (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T86b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Collections agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The collections agent reads a company's collection worklist, a customer's overdue items, dunning notices, payments and dispute cases and recommends the next action per customer with a draft message for a collections specialist to decide; it never contacts a customer (erp agent collections)",
+        "r": "T105b · docs/design/plan-breadth-week3.md §T105b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: collections agent variants: promises to pay and their follow-up, payment plans, messages sent on acceptance (needs email transmission), prioritising by predicted payment behaviour, the agent run on a schedule, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T105b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -2971,16 +3020,51 @@
      {
       "s": "T",
       "t": "Lease contracts",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A lease accountant creates a lease contract as lessee (company, lessor, commencement date, term in months, payment amount and frequency, in advance or in arrears, annual discount rate, cost center) and reads it back with its payment schedule; the leases context and its ADR (POST /v1/lease-contracts)",
+        "r": "T88a · docs/design/plan-breadth-week3.md §T88a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: lease contract variants: changing a contract, modifications and reassessments, extension and purchase options, variable and index-linked payments, initial direct costs, incentives and restoration costs, the short-term and low-value exemptions, non-lease components, leases in a foreign currency, lessor accounting, taking contracts over from SAP RE-FX (each needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T88a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Right-of-use asset and liability schedules",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The lease accountant reads the contract's schedule (the opening lease liability as the present value of its payments, and per period the interest, the payment, the closing liability and the right-of-use asset's depreciation on a straight line) and activates the contract, which posts the right-of-use asset against the lease liability (GET /v1/lease-contracts/{id}/schedule, :activate)",
+        "r": "T88b · docs/design/plan-breadth-week3.md §T88b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The lease accountant runs lease accounting for a company and a period: per active contract the period's interest and depreciation are posted (POST /v1/lease-runs)",
+        "r": "T88c · docs/design/plan-breadth-week3.md §T88c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: lease schedule variants: the payment posted by the run or matched to the lessor's invoice automatically, the liability split into current and non-current, the right-of-use asset as an asset of asset accounting and in the asset history sheet, remeasurement, early termination, reversing a run, the run as a close task, disclosures and the maturity analysis, a parallel ledger under another accounting principle (each needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T88c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -2999,9 +3083,23 @@
      {
       "s": "T",
       "t": "Expense postings",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An accountant enters an employee's expense report (the employee as a business partner with the role supplier; lines with a date, an expense type, an amount, an input tax code and a cost center) and posts it: the employee's open item, which the payment run pays (POST /v1/expense-reports, :post)",
+        "r": "T87a · docs/design/plan-breadth-week3.md §T87a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: expense posting variants: submission by the employee and approval by a manager, receipts attached and read by capture, per diems and mileage rates, corporate cards and their statements, expenses in another currency, advances and their clearing, policy checks, employees from human capital (outside the required scope), expense reports loaded from an expense system (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T87a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -3449,17 +3547,45 @@
      {
       "s": "T",
       "t": "Profitability segments",
-      "r": "",
-      "src": "baseline",
-      "c": [],
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller reads net revenue by profitability segment (customer and item key) per period from posted billing documents: gross value, discounts, credit memos and net revenue (GET /v1/profitability-report)",
+        "r": "T92a · docs/design/plan-breadth-week3.md §T92a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: profitability segment variants: cost of sales and contribution margins per segment (needs stock valuation, outside the required scope), segments on journal lines and derived at posting, further characteristics (region, sales organization, product group), allocation of overhead to segments, plan against actual per segment, segments taken over from SAP CO-PA (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T92a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ],
       "ph": 3
      },
      {
       "s": "T",
       "t": "Margin reporting",
-      "r": "T60",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller reads the margin report of a company and a period from the general ledger: per profit center the revenue, the cost of sales on the accounts the configuration names, and the margin (GET /v1/margin-report)",
+        "r": "T92b · docs/design/plan-breadth-week3.md §T92b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: margin report variants: several margin levels and their account groups, the report by segment and by hierarchy node, comparison with the plan and the previous year, the report in the group's currency, drill-down to journal entries, export (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T92b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -3492,16 +3618,44 @@
      {
       "s": "T",
       "t": "Planning versions",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A controller copies a plan category's lines of a fiscal year into another plan category as a new version, scaled by a percentage, and reads it in the plan and actual reports (POST /v1/plan-categories/{id}:copy)",
+        "r": "T93a · docs/design/plan-breadth-week3.md §T93a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: planning version variants: planning on accounts without a center, top-down distribution and seasonal spreading, planning in quantities and drivers, approval of a version, comparison of two versions line by line, rolling forecasts, plan data loaded from a planning tool (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T93a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Planning agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The planning agent reads a company's plan and actual figures per center and account and recommends next year's plan lines with its reasons for a controller, who applies them as a plan batch; it never applies a plan (erp agent plan)",
+        "r": "T105e · docs/design/plan-breadth-week3.md §T105e",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: planning agent variants: proposals written into a plan version directly as proposals to accept line by line, drivers and scenarios, explanations of plan and actual variances for centers (T56j), planning across companies, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T105e, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    }
@@ -4294,7 +4448,7 @@
        {
         "s": "T",
         "t": "The bid comparison agent reads an RFQ's comparison and recommends an award with its reasons; it never awards",
-        "r": "week 3 with the thin agents (roadmap of 2026-11-10) · reads GET /v1/rfqs/{id}/comparison · docs/design/plan-breadth-week2.md §T82c",
+        "r": "T105c · docs/design/plan-breadth-week3.md §T105c · reads GET /v1/rfqs/{id}/comparison (T82c)",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -4415,16 +4569,44 @@
      {
       "s": "T",
       "t": "Spend cube in the semantic layer",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A buyer analyses spend by supplier, account, cost center and month, under a contract and outside one: spend metrics in the semantic model over supplier invoice items (POST /v1/analytics-queries)",
+        "r": "T91b · docs/design/plan-breadth-week3.md §T91b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: spend cube variants: spend categories and their taxonomy, spend by material group and catalog, price variance against contract and catalog prices, payment terms and discount capture, maverick buying rules, spend in the group's currency across companies, supplier consolidation views (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T91b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Savings opportunity agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The savings opportunity agent reads the spend cube, contracts and catalog items and recommends savings opportunities (spend outside a contract, several suppliers for one account, prices above a contract's) with the figures behind each for a buyer to decide (erp agent savings)",
+        "r": "T105d · docs/design/plan-breadth-week3.md §T105d",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: savings agent variants: opportunities tracked to realised savings, RFQs drafted from an opportunity, market price benchmarks, the agent run on a schedule, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T105d, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    }
@@ -4462,9 +4644,23 @@
      {
       "s": "T",
       "t": "Duplicate checks",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "When a business partner is created, the partner change lists the existing partners with the same tax registration number or the same normalized name and country as possible duplicates, and one whose tax registration number is already in use is refused unless the creator confirms it",
+        "r": "T89a · docs/design/plan-breadth-week3.md §T89a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: duplicate check variants: fuzzy matching of names and addresses, matching on bank details, a duplicate check over the existing partners as a run with its worklist, merging two partners, duplicate rules in configuration, the check on a change of an existing partner (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T89a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -4609,9 +4805,23 @@
      {
       "s": "T",
       "t": "Order capture agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A sales representative uploads a customer's purchase order document and order capture reads it into a draft sales order (the customer, the items with quantity, unit, item key or description and the printed price), which a person checks and confirms; capture never confirms (POST /v1/sales-orders:capture)",
+        "r": "T90a · docs/design/plan-breadth-week3.md §T90a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: order capture variants: an email inbox that takes orders in, scanned documents and other languages, matching the customer's own item numbers to item keys, comparing the printed price with the price list and holding a difference, capture into a quotation, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T90a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -4700,16 +4910,58 @@
      {
       "s": "T",
       "t": "Returns orders",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A sales administrator creates a returns order for quantities of a posted billing document's items, with a reason, and confirms it; the order's items show what was billed and what is being returned (POST /v1/returns-orders, :confirm)",
+        "r": "T85a · docs/design/plan-breadth-week3.md §T85a",
+        "src": "po:2026-11-12 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The sales administrator confirms that returned quantities arrived on a date; the returns order shows what was received and what is still expected; a confirmation in the sales context, no stock and no posting (POST /v1/returns-orders/{id}/receipts)",
+        "r": "T85b · docs/design/plan-breadth-week3.md §T85b",
+        "src": "po:2026-11-12 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: returns order variants: a return before billing or without a billing document, the return delivery, goods receipt, inspection and stock posting (Supply chain, outside the required scope), replacement deliveries, changing or cancelling a returns order, approval of a return, return reasons from configuration, the return in the revenue contract (right of return, refund liability: needs the accounting specialist) (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T85b, Later",
+        "src": "po:2026-11-12 · design:03 §3.16",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Credit memo requests",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A sales administrator creates a credit memo request against a posted billing document, for a returns order's received quantities or for an amount per item with a reason, and a sales manager approves or rejects it (POST /v1/credit-memo-requests, :approve, :reject)",
+        "r": "T85c · docs/design/plan-breadth-week3.md §T85c",
+        "src": "po:2026-11-12 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The billing clerk posts an approved credit memo request: a customer credit memo naming the billing document's invoice is entered and posted in receivables in the same transaction and clears against it (POST /v1/credit-memo-requests/{id}:post)",
+        "r": "T85d · docs/design/plan-breadth-week3.md §T85d",
+        "src": "po:2026-11-12 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: credit memo request variants: debit memo requests, a request without a billing document, approval tiers by amount and a rule that the approver is another person, restocking and handling charges, a credit paid out to the customer in place of clearing, cancelling a posted request, the credit memo as a document and as an e-invoice, the credited amounts in the revenue contract and in rebates (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T85d, Later",
+        "src": "po:2026-11-12 · design:03 §3.16",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -5654,16 +5906,44 @@
      {
       "s": "T",
       "t": "Retention rules",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A records administrator sets retention rules in the configuration (per company and document kind, the years a document is kept after its fiscal year ends; none is shipped) and reads which fiscal years of a document kind are past retention (configuration section retention; GET /v1/retention-status)",
+        "r": "T99a · docs/design/plan-breadth-week3.md §T99a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: retention rule variants: rules shipped with a country pack (each period needs the legal source), legal holds, retention counted from another date than the fiscal year's end, rules per document type and per business partner, retention of object storage evidence and of audit events (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T99a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Archiving runs",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The records administrator starts an archiving run for a company, a document kind and a fiscal year past retention: its documents are written to an archive file in object storage with a manifest and its SHA-256, and the year reads as archived; nothing is deleted (POST /v1/archiving-runs)",
+        "r": "T99b · docs/design/plan-breadth-week3.md §T99b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: archiving run variants: deleting archived documents from the database (needs the product owner: the ledger and the audit trail are append-only), reading a document back from the archive, archiving on a schedule, document kinds beyond journal entries, archive formats an auditor's tools read, destroying an archive at the end of its retention (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T99b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    }
@@ -5855,16 +6135,44 @@
      {
       "s": "T",
       "t": "Control library",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A compliance officer records a control (code, objective, process, owner, frequency, manual or automated) and the result of testing it (passed or failed, with a note of the evidence), and reads the library with each control's last test; the grc context and its ADR (POST /v1/controls, POST /v1/controls/{id}/tests)",
+        "r": "T98a · docs/design/plan-breadth-week3.md §T98a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: control library variants: test plans and their schedule, sign-off of a control by its owner, issues and remediation plans, evidence attached as files, controls per company, a library shipped with a country pack, controls changed through approval (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T98a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Continuous control monitoring agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The control monitoring agent reads the control library, the control matrix, the audit trail and the access data and recommends, per control, whether it found an exception, with the events it found, for the compliance officer to decide; it never records a test (erp agent control-monitor)",
+        "r": "T105f · docs/design/plan-breadth-week3.md §T105f",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: control monitoring variants: monitoring on a schedule and on events, test results recorded on acceptance, monitoring rules written as CEL, exceptions as issues with remediation, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T105f, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -5876,16 +6184,44 @@
      {
       "s": "T",
       "t": "Risk register",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A risk owner records a risk (title, category, owner, likelihood and impact from 1 to 5, the controls that mitigate it), rates it again and closes it; the register lists the risks by score (POST /v1/risks)",
+        "r": "T98c · docs/design/plan-breadth-week3.md §T98c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: risk register variants: risk assessments on a schedule, inherent and residual ratings, key risk indicators from governed metrics, treatment plans and their tasks, risk appetite and thresholds, a heat map, risks per company (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T98c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Risk agent",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The risk agent reads the risk register, the controls and their tests and the audit trail and recommends new ratings and risks not yet in the register with its reasons for a risk owner to decide; it never changes the register (erp agent risk)",
+        "r": "T105g · docs/design/plan-breadth-week3.md §T105g",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: risk agent variants: key risk indicators watched through metric watchers, risks from outside sources, scenario analysis of a risk, the agent run on a schedule, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T105g, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -5897,16 +6233,44 @@
      {
       "s": "T",
       "t": "Personal data blocking",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The privacy officer blocks a business partner's personal data once nothing is open for it: reads then answer its name, address and bank details masked, except to holders of a permission, and new documents for it are refused (POST /v1/business-partners/{id}:block-personal-data)",
+        "r": "T100b · docs/design/plan-breadth-week3.md §T100b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: personal data blocking variants: blocking proposed by a run at the end of purpose, blocking of principals and of contact persons, unblocking with approval, masked data in events, exports and analytics already written, blocking per company (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T100b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Deletion runs",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The privacy officer previews and starts a deletion run: for each business partner blocked longer than the retention rule for personal data, its name, address and bank details are blanked, and the client addresses of a blocked principal's audit events are blanked as a tenant's erasure blanks them; ledger documents stay (POST /v1/personal-data-deletion-runs)",
+        "r": "T100c · docs/design/plan-breadth-week3.md §T100c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: deletion run variants: deletion on a schedule, deleting rows in place of blanking them, personal data in object storage files and in archives, in free-text fields and attachments, deletion requested by the data subject with its deadline, a certificate of deletion (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T100c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    }
@@ -5994,9 +6358,23 @@
       "s": "T",
       "t": "Sales metrics as that module lands",
       "ph": 3,
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An analyst asks for order intake and billed value by customer, item key and month: sales metrics in the semantic model over a new dataset of sales order and billing document items (POST /v1/analytics-queries)",
+        "r": "T91a · docs/design/plan-breadth-week3.md §T91a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: sales metric variants: open order value and backlog, delivery performance, discounts and price realisation, quotation conversion, credit memos and returns rates, revenue recognized against billed, metrics by sales organization or representative (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T91a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -6172,16 +6550,44 @@
      {
       "s": "T",
       "t": "Follow-up questions in the same analysis",
-      "r": "T59",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An analyst asks a follow-up question in the same analysis: the analytics agent answers it with the earlier questions, queries and results in context, and the saved report keeps the whole exchange (erp ask -continue)",
+        "r": "T94a · docs/design/plan-breadth-week3.md §T94a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: follow-up variants: follow-up questions in the web workspace, branching an analysis, the exchange kept on the server and shared, limits on the context carried along (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T94a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Drill-through to documents",
-      "r": "T59",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An analyst drills from a row of a query's result to the documents behind it: the journal entries, purchase orders or supplier invoices that make up the figure, paged, with the caller's company access (POST /v1/analytics-queries:documents)",
+        "r": "T94b · docs/design/plan-breadth-week3.md §T94b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: drill-through variants: drill-through from a dashboard tile in the web workspace, from derived metrics (ratios), to the cash and forecast datasets' documents, across companies in the group's currency (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T94b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -6200,16 +6606,51 @@
      {
       "s": "T",
       "t": "Scheduled delivery",
-      "r": "T63",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An analyst saves a report (its queries and dashboard specification) under a name through the API and runs it again on current data (POST /v1/reports, POST /v1/reports/{id}:run)",
+        "r": "T95a · docs/design/plan-breadth-week3.md §T95a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "The analyst gives a saved report a schedule (daily, weekly or monthly); each due run is kept with its results and its recipients read it (PUT /v1/reports/{id}/schedule, GET /v1/report-runs)",
+        "r": "T95b · docs/design/plan-breadth-week3.md §T95b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: scheduled delivery variants: delivery by email and to a file share (needs email transmission, not built), delivery only when a condition holds, bursting one report per company or cost center, retention of old runs, a schedule in the web workspace (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T95b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Sharing with per-viewer access",
-      "r": "T63",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The owner shares a saved report with people or roles; each viewer runs it with their own company access, and a kept run is read only by a viewer whose access covers its companies (POST /v1/reports/{id}/shares)",
+        "r": "T95c · docs/design/plan-breadth-week3.md §T95c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: sharing variants: sharing with edit rights, links for people outside the tenant, folders and favourites, comments on a shared report, sharing in the web workspace (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T95c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -6228,9 +6669,23 @@
      {
       "s": "T",
       "t": "Excel export",
-      "r": "T63",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An analyst downloads a query's result or a kept report run as an Excel workbook, amounts as numbers with their currency's decimals (the workbook media type on POST /v1/analytics-queries and GET /v1/report-runs/{id}; erp query -xlsx)",
+        "r": "T95d · docs/design/plan-breadth-week3.md §T95d",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: Excel export variants: several sheets with formatting and charts, a workbook that refreshes from the API, export of operational lists (open items, aging, worklists), templates per report (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T95d, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -6249,16 +6704,44 @@
      {
       "s": "T",
       "t": "Metric watchers",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An analyst sets a watcher on a governed metric (its filter, its period, and a condition: above or below a value, or changed against the previous period by more than a percentage) and evaluates it; a condition that holds raises an alert (POST /v1/metric-watchers, :evaluate)",
+        "r": "T96a · docs/design/plan-breadth-week3.md §T96a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: metric watcher variants: conditions on ratios and on several metrics, watchers per dimension value, a watcher proposed by the analytics agent, pausing and snoozing, watchers as configuration with approval (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T96a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Anomaly alerts in workspaces",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "Watchers are evaluated after each refresh of the analytical store, a deviation from the average of the earlier periods among their conditions; a controller lists the open alerts of the companies they may access and acknowledges one (GET /v1/metric-alerts, :acknowledge)",
+        "r": "T96b · docs/design/plan-breadth-week3.md §T96b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: alert variants: alerts shown in the web workspace, notification by email or webhook, statistical anomaly detection beyond a deviation from the average, the analytics agent explaining an alert, alert routing and escalation (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T96b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -6270,16 +6753,44 @@
      {
       "s": "T",
       "t": "Forecasts on governed metrics",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An analyst forecasts a governed metric for the coming periods from its history by a named method (the average of the last periods, or the same period a year before) and reads history and forecast together (POST /v1/analytics-forecasts)",
+        "r": "T97a · docs/design/plan-breadth-week3.md §T97a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: forecast variants: trend and seasonal models and their accuracy measured against actuals, confidence ranges, forecasts kept and compared over time, forecasts per dimension value, forecasts written into a plan category (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T97a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Scenario modeling",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The analyst applies a scenario to a forecast (percentage changes per dimension value, such as a company or an account) and reads baseline and scenario side by side (scenario on POST /v1/analytics-forecasts)",
+        "r": "T97b · docs/design/plan-breadth-week3.md §T97b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: scenario variants: scenarios kept under a name and shared, drivers and formulas between metrics, scenarios on plan versions and on the liquidity forecast, several scenarios compared, the planning agent proposing scenarios (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T97b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -6291,16 +6802,44 @@
      {
       "s": "T",
       "t": "Event logs from SAP and core document flows",
-      "r": "T69",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A process analyst reads the event log of the purchase-to-pay flow for a company and a period: per purchase order each activity with its time and whether a person, an agent or the system did it, from requisition to payment, as JSON or CSV (GET /v1/process-event-logs)",
+        "r": "T103a · docs/design/plan-breadth-week3.md §T103a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: event log variants: event logs from SAP's document tables (needs the SAP specialist for the tables and fields), the order-to-cash and record-to-report flows, the log in XES, activities below the document level (changes, approvals per step), the log in the analytical store (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T103a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Discovery agent process maps",
-      "r": "T69",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The analyst reads the process map of a flow for a period: its activities, how often each follows another, the median time between them and the variants by frequency (GET /v1/process-maps)",
+        "r": "T103b · docs/design/plan-breadth-week3.md §T103b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: process map variants: the discovery agent describing a map and proposing changes, conformance against a reference flow, bottleneck and rework analysis, filters by supplier, amount or user, a drawn map in the web workspace, comparison of SAP's flow with the product's (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T103b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    }
@@ -8375,9 +8914,23 @@
      {
       "s": "T",
       "t": "MCP servers so agents use the same governed APIs",
-      "r": "T67",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An agent host connects to erp mcp and uses the API's operations open to agents as tools, with the caller's token, permissions and autonomy level (erp mcp, over standard input and output)",
+        "r": "T102a · docs/design/plan-breadth-week3.md §T102a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: MCP server variants: a server reached over HTTP with its own sign-in, resources and prompts beside tools, one server per context, tool lists narrowed by agent type, publishing the server in a registry (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T102a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -9134,23 +9687,65 @@
      {
       "s": "T",
       "t": "SOX control mapping (ITGCs and application controls)",
-      "r": "T66",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The compliance officer links a control to what enforces it in the product (a permission, a segregation-of-duties rule, a path of the configuration) and to the references of a framework the tenant names, and reads the control matrix with whether each link still holds (GET /v1/control-matrix)",
+        "r": "T98b · docs/design/plan-breadth-week3.md §T98b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: control mapping variants: a shipped mapping to a named framework (each reference needs a compliance specialist), general IT controls of the hosting evidenced from the delivery pipeline, the matrix as an auditor's export, coverage reports per process and assertion (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T98b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "GDPR: personal data inventory, blocking and deletion; the inventory includes the API audit trail's client addresses (audit.audit_event.client_address, T73c), and a person's erasure blanks those of their events as the tenant's erasure does (audit.event_immutable allows that alone)",
-      "r": "T66",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A privacy officer reads the personal data inventory (each table and field holding personal data, with its category and purpose, the audit trail's client addresses among them) and, for one business partner or principal, where data about them is held (GET /v1/personal-data-inventory)",
+        "r": "T100a · docs/design/plan-breadth-week3.md §T100a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: personal data inventory variants: a subject access export in a portable format, the inventory extended by custom fields, legal bases and consent records, processors and transfers, the inventory reviewed and signed off on a schedule; blocking and deletion are T100b and T100c under GRC and security / Data privacy (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T100a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Audit evidence export for external auditors",
-      "r": "T66",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "An auditor requests an evidence export for a company and a period: the audit events, the journal entries with their approval decisions and the result of verifying the audit chain, written as files with a manifest and SHA-256 to object storage and downloaded (POST /v1/audit-evidence-exports)",
+        "r": "T101a · docs/design/plan-breadth-week3.md §T101a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: audit evidence export variants: samples drawn by the auditor's criteria, evidence per control of the library, subledger documents and their attachments, a read-only auditor role with a time limit, export in an audit tool's format, a signed manifest (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T101a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -9662,9 +10257,23 @@
      {
       "s": "T",
       "t": "Fit-gap report",
-      "r": "T69",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A delivery consultant reads the fit-gap report of a SAP customizing extract: per customizing object the configuration generator reads, whether it was carried over, carried over with a note or left out, with the notes (erp delivery fit-gap)",
+        "r": "T104a · docs/design/plan-breadth-week3.md §T104a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: fit-gap variants: gaps from usage analysis and change-log mining (their own leaves), custom code in the report, effort estimates, the discovery agent writing the report's summary, the report kept per migration run and compared between extracts (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T104a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -9704,23 +10313,65 @@
      {
       "s": "T",
       "t": "Roles from actual usage",
-      "r": "T67 · also the phase 1 GRC item \"Access agent: least-privilege roles from usage\" (triage, PO 2026-10-21)",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The access agent reads a role's permissions, who holds it and which operations they called in a period, and recommends the permissions the role needs with those never used, for an identity administrator to decide; it never changes a role (erp agent access-roles)",
+        "r": "T106a · docs/design/plan-breadth-week3.md §T106a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: roles-from-usage variants: roles drafted as change requests, usage read from SAP (needs the SAP specialist), role mining across all principals, the agent run on a schedule, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T106a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "SoD analysis on every role change",
-      "r": "T67",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The access agent analyses a role as it stands or with permissions to be added: which segregation-of-duties rules its holders would break and how to avoid it, as a recommendation on the role (erp agent access-sod)",
+        "r": "T106b · docs/design/plan-breadth-week3.md §T106b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: SoD analysis variants: the analysis started by every role change event, mitigating controls from the control library, proposed new SoD rules, analysis across companies (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T106b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Access review preparation",
-      "r": "T67",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The access agent prepares an access review: per principal its roles, when each was last used, permissions never used and segregation-of-duties conflicts, with a recommendation to keep or remove each role, for the reviewer to decide (erp agent access-review)",
+        "r": "T106c · docs/design/plan-breadth-week3.md §T106c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: access review preparation variants: the periodic access review itself with its sign-off (its own leaf, post-pilot), reviews per manager, removing access on acceptance, reminders and escalation (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T106c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -9732,16 +10383,44 @@
      {
       "s": "T",
       "t": "Regulatory change monitoring",
-      "r": "T71",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A tax accountant gives the regulatory agent a notice of a regulatory change as text; it reads the notice against the tenant's country packs, tax codes and registrations and recommends whether and where the configuration is affected, quoting the notice (erp agent regulatory-notice)",
+        "r": "T107a · docs/design/plan-breadth-week3.md §T107a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: regulatory monitoring variants: the agent fetching the authorities' publications on a schedule (needs outbound access and a list of sources), notices in other languages, a register of notices with their status, country pack releases triggered by a notice, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T107a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Configuration and report updates",
-      "r": "T71",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "For a regulatory recommendation a person accepted, the regulatory agent drafts the configuration change request and has it simulated, for a person to submit and approve; it never submits or activates (erp agent regulatory-draft)",
+        "r": "T107b · docs/design/plan-breadth-week3.md §T107b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: regulatory update variants: changes to a tax return's layout and to statutory reports, a new country pack version drafted, golden tests drafted with a change, effective dates checked against open periods (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T107b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -9760,9 +10439,23 @@
      {
       "s": "T",
       "t": "Connector generation and monitoring",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "The integration agent reads the tenant's connectors, webhook subscriptions and their deliveries, bank files and long-running operations and recommends what to do about each failing one with its evidence, for an integration administrator to decide; it never enables, disables or redelivers (erp agent integration-monitor)",
+        "r": "T110a · docs/design/plan-breadth-week3.md §T110a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: integration agent variants: generating a connector from another system's interface description, monitoring on a schedule and from alerts, redelivery on acceptance, mapping proposals for a new interface, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T110a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
@@ -9774,23 +10467,65 @@
      {
       "s": "T",
       "t": "How-to answers",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A user asks the support agent how to do something; it answers from the API contract and the tenant's active configuration, naming the operations and the settings that apply (erp agent support-ask)",
+        "r": "T108a · docs/design/plan-breadth-week3.md §T108a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: how-to variants: answers in the web workspace, answers from the tenant's own process documents, feedback on answers, answers in French and Arabic, evaluation against the live Claude API (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T108a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Root cause from audit trail and logs",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A user gives the support agent a refused request or a stuck document; it reads the document, its audit events, its operation and the configuration and recommends the root cause with the events that show it (erp agent support-diagnose)",
+        "r": "T108b · docs/design/plan-breadth-week3.md §T108b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: root cause variants: reading the service's logs and traces (needs the observability stack's query access), incidents across tenants for operators, known-error records, diagnosis started from an alert (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T108b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "Fixes as configuration change requests",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "When the root cause is a setting, the support agent drafts the configuration change request that fixes it and has it simulated, for a person to submit and approve; it never submits or activates (erp agent support-fix)",
+        "r": "T108c · docs/design/plan-breadth-week3.md §T108c",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: fix variants: fixes to master data as partner changes, fixes proposed for a stuck workflow, a regression suite drafted with the fix, ticketing (its own leaf, post-pilot) (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T108c, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
@@ -9809,16 +10544,44 @@
      {
       "s": "T",
       "t": "Process docs from live configuration",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A process owner has the enablement agent write the description of a process (purchase to pay, or order to cash) from the tenant's active configuration and roles: who does what, with the limits and tolerances in force, every figure taken from the configuration (erp agent enablement-docs)",
+        "r": "T109a · docs/design/plan-breadth-week3.md §T109a",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: process document variants: documents kept and compared between configuration versions, documents regenerated when a change request is activated, diagrams, translation, training material and quizzes (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T109a, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      },
      {
       "s": "T",
       "t": "In-context help",
-      "r": "",
-      "src": "baseline",
-      "c": []
+      "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week3.md",
+      "c": [
+       {
+        "s": "T",
+        "t": "A user asks the enablement agent what a field or a problem code of an operation means; it explains it from the API contract and the tenant's configuration (erp agent enablement-help)",
+        "r": "T109b · docs/design/plan-breadth-week3.md §T109b",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       },
+       {
+        "s": "T",
+        "t": "later: in-context help variants: help shown beside the field in the web workspace, help through the API for other clients, help texts kept and reviewed by the tenant, guided walkthroughs of a task (after 1 December 2026: depth phase, not to be picked up before)",
+        "r": "docs/design/plan-breadth-week3.md §T109b, Later",
+        "src": "po:2026-11-10 · design:01 §1.2",
+        "c": []
+       }
+      ]
      }
     ]
    },
