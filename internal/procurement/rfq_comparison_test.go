@@ -11,8 +11,11 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mustie7iy/agentic-erp/api/gen"
+	"github.com/mustie7iy/agentic-erp/internal/app"
 	"github.com/mustie7iy/agentic-erp/internal/app/apitest"
+	"github.com/mustie7iy/agentic-erp/internal/config"
 	"github.com/mustie7iy/agentic-erp/internal/nfr"
+	"github.com/mustie7iy/agentic-erp/internal/platform/fixture"
 	"github.com/mustie7iy/agentic-erp/internal/platform/pgtest"
 )
 
@@ -58,7 +61,8 @@ func comparedRows(t *testing.T, c map[string]any) []string {
 // the order invited, a third and a fourth follow; then the quotations not
 // ranked, one expired the day before and one that leaves the desks out;
 // last the supplier that did not answer. The lowest amount of each item
-// is marked wherever it is quoted, never in the expired quotation.
+// is marked wherever it is quoted, never in the expired quotation, though
+// its desks are at that amount.
 func TestRFQComparison(t *testing.T) {
 	e := setupIn2026(t)
 	e.nameSuppliers(t)
@@ -74,6 +78,9 @@ func TestRFQComparison(t *testing.T) {
 			}
 		}
 		rows := comparedRows(t, got)
+		if len(rows) != 7 {
+			t.Fatalf("rows: got %d, want 7: %v", len(rows), rows)
+		}
 		if want := "BP90000006 rank <nil> <nil> <nil> <nil> <nil> false/false/false [1 2] | "; rows[0] != want {
 			t.Errorf("first row: got %q, want %q", rows[0], want)
 		}
@@ -87,7 +94,7 @@ func TestRFQComparison(t *testing.T) {
 		quotationUntil(c3, "C", "2026-12-31", price(1, "110.00", "EUR", ""), price(2, "96.00", "EUR", "")),                    // 4,400.00 + 1,200.00
 		quotationUntil(e.Vendor, "B", "2026-12-31", price(1, "75.00", "EUR", ""), price(2, "160.00", "EUR", "")),              // 3,000.00 + 2,000.00
 		quotationUntil(d4, "D", "2026-12-31", price(1, "70.00", "EUR", "")),                                                   // 2,800.00, no desks
-		quotationUntil(e5, "E", "2026-06-14", price(1, "1.00", "EUR", ""), price(2, "1.00", "EUR", "")),                       // expired yesterday
+		quotationUntil(e5, "E", "2026-06-14", price(1, "1.00", "EUR", ""), price(2, "80.00", "EUR", "")),                      // expired yesterday; its desks at the lowest amount, 1,000.00
 		quotationUntil(g7, "G", "2026-06-15", price(1, "200.00", "EUR", ""), price(2, "800.00", "EUR", `, "price_unit": 10`)), // 8,000.00 + 1,000.00, valid today
 	} {
 		e.Must(201, "POST", path+"/quotations", body, "")
@@ -109,7 +116,7 @@ func TestRFQComparison(t *testing.T) {
 			"BP90000001 rank 1 A recorded 2026-12-31 5000.00 EUR true/true/false [] | 1:100.00 EUR/1=4000.00 EUR 2:80.00 EUR/1=1000.00 EUR*",
 			"BP90000003 rank 3 C recorded 2026-12-31 5600.00 EUR true/true/false [] | 1:110.00 EUR/1=4400.00 EUR 2:96.00 EUR/1=1200.00 EUR",
 			"BP90000007 rank 4 G recorded 2026-06-15 9000.00 EUR true/true/false [] | 1:200.00 EUR/1=8000.00 EUR 2:800.00 EUR/10=1000.00 EUR*",
-			"BP90000005 rank <nil> E recorded 2026-06-14 52.50 EUR true/true/true [] | 1:1.00 EUR/1=40.00 EUR 2:1.00 EUR/1=12.50 EUR",
+			"BP90000005 rank <nil> E recorded 2026-06-14 1040.00 EUR true/true/true [] | 1:1.00 EUR/1=40.00 EUR 2:80.00 EUR/1=1000.00 EUR",
 			"BP90000004 rank <nil> D recorded 2026-12-31 2800.00 EUR true/false/false [2] | 1:70.00 EUR/1=2800.00 EUR*",
 			"BP90000006 rank <nil> <nil> <nil> <nil> <nil> false/false/false [1 2] | ",
 		}
@@ -162,6 +169,48 @@ func TestRFQComparison(t *testing.T) {
 		pgtest.Exec(t, `DELETE FROM identity.role_permission WHERE tenant_id = $1 AND permission_code = 'procurement.rfq.read'`, e.Tenant.ID)
 		e.in(t).Problem(403, "identity.permission_missing", "GET", path+"/comparison", "", "")
 	})
+}
+
+// TestRFQComparisonTimeZone: a quotation's validity is judged on the
+// company's date in its time zone, not UTC's. At 23:00 on 30 June in
+// Toronto (03:00 UTC on 1 July) a quotation valid until 30 June is still
+// ranked; at 01:00 on 1 July in Dubai (21:00 UTC on 30 June) it is
+// expired and unranked.
+func TestRFQComparisonTimeZone(t *testing.T) {
+	for _, c := range []struct {
+		zone, asOf string
+		at         time.Time
+		expired    bool
+		ranked     float64
+	}{
+		{"America/Toronto", "2026-06-30", time.Date(2026, 7, 1, 3, 0, 0, 0, time.UTC), false, 1},
+		{"Asia/Dubai", "2026-07-01", time.Date(2026, 6, 30, 21, 0, 0, 0, time.UTC), true, 0},
+	} {
+		t.Run(c.zone, func(t *testing.T) {
+			f := fixture.NewWith(t, nil, func(doc *config.Config) { doc.Company("2000").TimeZone = c.zone }, perms...)
+			f.API = apitest.NewWith(t, func(cfg *app.Config) { cfg.Now = func() time.Time { return c.at } })
+			e := env{Env: f, office: f.Account(t, "2000", "520000").String()}
+			path := "/v1/rfqs/" + e.publishedRFQ(t, "2026-07-31")
+			e.Must(201, "POST", path+"/quotations", quotationUntil(e.Supplier, "Q", "2026-06-30", price(1, "1.00", "EUR", ""), price(2, "1.00", "EUR", "")), "")
+			got, _ := e.Must(200, "GET", path+"/comparison", "", "")
+			if got["as_of"] != c.asOf {
+				t.Errorf("as_of: got %v, want %s", got["as_of"], c.asOf)
+			}
+			if got["ranked_count"] != c.ranked {
+				t.Errorf("ranked_count: got %v, want %v", got["ranked_count"], c.ranked)
+			}
+			row := apitest.List(t, got, "suppliers")[0].(map[string]any)
+			if row["supplier_reference"] != "Q" {
+				t.Fatalf("first row: got %v, want quotation Q", row)
+			}
+			if row["expired"] != c.expired {
+				t.Errorf("expired: got %v, want %v", row["expired"], c.expired)
+			}
+			if ranked := row["rank"] != nil; ranked == c.expired {
+				t.Errorf("rank: got %v, want ranked %v", row["rank"], !c.expired)
+			}
+		})
+	}
 }
 
 // TestRFQComparisonOutOfRange: a quotation whose amounts are out of an

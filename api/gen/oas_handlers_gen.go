@@ -37935,9 +37935,10 @@ func (s *Server) handleGetRfqRequest(args [1]string, argsEscaped bool, w http.Re
 // come the suppliers invited that have no quotation (`answered` false). Amounts are compared exactly,
 // in the currency's minor units. Of each RFQ item the lowest amount among the quotations not expired
 // is given (`items[].lowest_amount`), and every price at that amount is marked (`lowest`), also in a
-// quotation that is not ranked for leaving other items out. The rows are bounded by the suppliers an
-// RFQ can invite (100), so the comparison is not paged. An RFQ of a legal entity the caller cannot act
-// in is answered as missing (404).
+// quotation that is not ranked for leaving other items out. The comparison is not paged: its rows are
+// bounded by the suppliers an RFQ can invite (100) and each row's prices by the items an RFQ can hold
+// (1,000), the bounds of a page of `rfqs/{id}/quotations`. An RFQ of a legal entity the caller cannot
+// act in is answered as missing (404).
 //
 // GET /v1/rfqs/{id}/comparison
 func (s *Server) handleGetRfqComparisonRequest(args [1]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {

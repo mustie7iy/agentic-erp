@@ -186,7 +186,9 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
 12. A quotation valid until the company's date today is still valid that
     day; it is expired from the next.
 13. The comparison is readable for an RFQ in any status and is not paged:
-    an RFQ invites at most 100 suppliers.
+    an RFQ invites at most 100 suppliers and holds at most 1,000 items,
+    so at most 100 rows of 1,000 prices each, the bounds of a page of
+    the RFQ's quotations (up to 500 quotations of 1,000 prices).
 
 ## As built
 
@@ -316,6 +318,9 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
   ranking a wrong total.
 - **Budget.** `TestRFQComparisonBudget`: an RFQ of 50 items and 20
   quotations (1,000 prices) within the budget of a list page (p95
-  150 ms; 01 §1.3), measured at a median of 14 ms.
+  150 ms; 01 §1.3), measured at a median of 14 ms. That is far above an
+  RFQ a buyer types quotations into, and far below the contract's bound
+  (100 suppliers of 1,000 items), which no requirement asks a budget
+  for.
 - **Walkthrough.** `step_rfq` extended: the comparison ranks the cheaper
   supplier first and marks the lowest amount of each item.
