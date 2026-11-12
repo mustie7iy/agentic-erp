@@ -144,7 +144,7 @@ func changeToAPI(ch PurchaseOrderChange) gen.PurchaseOrderChange {
 
 func contractToAPI(c Contract) gen.Contract {
 	out := gen.Contract{ID: c.ID, Version: c.Version, CreatedAt: c.CreatedAt, CreatedBy: c.CreatedBy, UpdatedAt: c.UpdatedAt,
-		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), DocumentNumber: c.DocumentNumber, LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID,
+		UpdatedBy: gen.NewOptUUID(c.UpdatedBy), DocumentNumber: c.DocumentNumber, Kind: c.Kind, LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID,
 		Currency: c.Currency, ValidFrom: c.ValidFrom, ValidTo: c.ValidTo, TargetValue: apitypes.Money(c.TargetValue, c.Currency, c.Exponent),
 		ConsumedValue: apitypes.Money(c.ConsumedValue, c.Currency, c.Exponent), Status: c.Status, RenewalOfID: apitypes.OptUUID(c.RenewalOfID),
 		RenewedByID: apitypes.OptUUID(c.RenewedByID), RfqID: apitypes.OptUUID(c.RFQID), RfqDocumentNumber: apitypes.OptString(c.RFQNumber),
@@ -324,7 +324,7 @@ func contractOK(c Contract) *gen.UpdateContractOKHeaders {
 
 // CreateContract implements POST /v1/contracts.
 func (e *Endpoints) CreateContract(ctx context.Context, req *gen.ContractCreate, _ gen.CreateContractParams) (gen.CreateContractRes, error) {
-	c, err := e.createContract(ctx, NewContract{LegalEntityID: req.LegalEntityID, SupplierID: req.SupplierID, Currency: req.Currency,
+	c, err := e.createContract(ctx, NewContract{Kind: req.Kind.Value, LegalEntityID: req.LegalEntityID, SupplierID: req.SupplierID, Currency: req.Currency,
 		ValidFrom: req.ValidFrom, ValidTo: req.ValidTo, Target: req.TargetValue.Amount, TargetCurrency: req.TargetValue.Currency,
 		Items: contractInputs(req.Items)})
 	if err != nil {
@@ -355,7 +355,7 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 	}
 	le, supplier := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.SupplierID)
 	before := apitypes.Ptr[time.Time](params.ExpiringBefore)
-	ks, err := e.Pages.Keyset(contractSort, fmt.Sprintf("listContracts|%s|%s|%s|%v", le, supplier, params.Status.Value, before),
+	ks, err := e.Pages.Keyset(contractSort, fmt.Sprintf("listContracts|%s|%s|%s|%v|%s", le, supplier, params.Status.Value, before, params.Kind.Value),
 		apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, err
@@ -365,8 +365,8 @@ func (e *Endpoints) ListContracts(ctx context.Context, params gen.ListContractsP
 		return nil, err
 	}
 	q, args := ks.SQL(contractSelect+` WHERE ($1 OR c.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR c.legal_entity_id = $3)
-		AND ($4::uuid IS NULL OR c.supplier_id = $4) AND ($5 = '' OR c.status = $5) AND ($6::date IS NULL OR c.valid_to < $6)`,
-		[]any{access.All, access.IDs, le, supplier, params.Status.Value, before})
+		AND ($4::uuid IS NULL OR c.supplier_id = $4) AND ($5 = '' OR c.status = $5) AND ($6::date IS NULL OR c.valid_to < $6) AND ($7 = '' OR c.kind = $7)`,
+		[]any{access.All, access.IDs, le, supplier, params.Status.Value, before, params.Kind.Value})
 	rows, _ := tx.Query(ctx, q, args...)
 	list, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Contract, error) { return scanContract(r) })
 	if err != nil {

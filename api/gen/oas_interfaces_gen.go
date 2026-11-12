@@ -317,6 +317,10 @@ type CreateRoleRes interface {
 	createRoleRes()
 }
 
+type CreateScheduleLineRes interface {
+	createScheduleLineRes()
+}
+
 type CreateSegmentRes interface {
 	createSegmentRes()
 }
@@ -1235,6 +1239,10 @@ type ListRolePermissionsRes interface {
 
 type ListRolesRes interface {
 	listRolesRes()
+}
+
+type ListScheduleLinesRes interface {
+	listScheduleLinesRes()
 }
 
 type ListSegmentsRes interface {

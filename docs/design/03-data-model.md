@@ -1605,6 +1605,8 @@ erDiagram
   rfq |o--o| contract : "awarded to"
   supplier_quotation ||--|{ supplier_quotation_item : prices
   rfq_item ||--o{ supplier_quotation_item : "priced by"
+  contract ||--o{ schedule_line : schedules
+  contract_item ||--o{ schedule_line : "asked for by"
   requisition { uuid id PK
     text document_number
     uuid legal_entity_id
@@ -1626,6 +1628,7 @@ erDiagram
     text account_assignment "none | cost_center (T56e)"
     uuid cost_center_id "T56e" }
   contract { uuid id PK
+    text kind "contract, scheduling_agreement"
     uuid supplier_id
     date valid_from
     date valid_to
@@ -1633,6 +1636,13 @@ erDiagram
     text status
     uuid renewal_of_id
     date expiry_alerted_on }
+  schedule_line { uuid id PK
+    uuid contract_id
+    int line_no
+    int contract_item_no
+    date delivery_date
+    numeric quantity
+    int version }
   contract_release { uuid contract_id PK
     uuid purchase_order_id PK
     bigint value }
@@ -1953,6 +1963,19 @@ A quotation is written as `recorded` and its outcome, `awarded` or
 one quotation of an RFQ is awarded (`supplier_quotation_one_awarded`). The
 application may update a quotation's status, version and `updated_by`
 and nothing else of it. Permission `procurement.rfq.award`.
+
+A contract has a kind (migration 000279, T83a, ADR-0070 §1): `contract`,
+the default, or `scheduling_agreement`, given when it is created and kept
+(trigger `contract_kind_kept`). A scheduling agreement is a contract in
+every other respect and has a delivery schedule: `schedule_line` asks for
+a quantity above zero of one of the agreement's items (a foreign key to
+`contract_item`), in that item's unit, due on a date. Trigger
+`schedule_line_checked` reads the contract `FOR SHARE` and takes a line
+only for a scheduling agreement that is `active`, for a live item, on a
+date within the agreement's validity, numbered after the agreement's last
+(`line_no` 1 to n, unique per contract). A line is not changed or
+deleted. Its value, quantity × the item's unit price ÷ price unit, is
+computed on read: an active contract's items do not change.
 
 An order item carries its expected delivery date (`delivery_date`, optional,
 SAP's EKET-EINDT; migration 000205, T53g, ADR-0051 §5): the one it is

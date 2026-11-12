@@ -1,6 +1,7 @@
 package procurement
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"time"
@@ -20,15 +21,18 @@ import (
 type Contract struct {
 	ID             uuid.UUID
 	DocumentNumber string
-	LegalEntityID  uuid.UUID
-	SupplierID     uuid.UUID
-	Currency       string
-	Exponent       int
-	ValidFrom      time.Time
-	ValidTo        time.Time
-	TargetValue    money.Minor
-	ConsumedValue  money.Minor
-	Status         string
+	// KindContract or KindSchedulingAgreement (ADR-0070), fixed when the
+	// contract is created.
+	Kind          string
+	LegalEntityID uuid.UUID
+	SupplierID    uuid.UUID
+	Currency      string
+	Exponent      int
+	ValidFrom     time.Time
+	ValidTo       time.Time
+	TargetValue   money.Minor
+	ConsumedValue money.Minor
+	Status        string
 	// The contract this one renews, the live renewal of this one (not
 	// cancelled), and the day its coming expiry was alerted (T47g).
 	RenewalOfID     *uuid.UUID
@@ -48,7 +52,7 @@ type Contract struct {
 
 const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.supplier_id, c.currency, cu.exponent, c.valid_from, c.valid_to,
 		c.target_value, coalesce((SELECT sum(value) FROM procurement.contract_release r WHERE r.tenant_id = c.tenant_id AND r.contract_id = c.id), 0)::bigint,
-		c.status, c.renewal_of_id, (SELECT r.id FROM procurement.contract r WHERE r.tenant_id = c.tenant_id AND r.renewal_of_id = c.id AND r.status <> 'cancelled') AS renewed_by_id,
+		c.status, c.kind, c.renewal_of_id, (SELECT r.id FROM procurement.contract r WHERE r.tenant_id = c.tenant_id AND r.renewal_of_id = c.id AND r.status <> 'cancelled') AS renewed_by_id,
 		c.expiry_alerted_on, c.version, c.created_at, c.created_by, c.updated_at, c.updated_by,
 		(SELECT aw.id FROM procurement.rfq aw WHERE aw.tenant_id = c.tenant_id AND aw.contract_id = c.id) AS rfq_id,
 		(SELECT aw.document_number FROM procurement.rfq aw WHERE aw.tenant_id = c.tenant_id AND aw.contract_id = c.id) AS rfq_document_number,
@@ -60,8 +64,10 @@ const contractSelect = `SELECT c.id, c.document_number, c.legal_entity_id, c.sup
 
 func scanContract(row pgx.Row) (Contract, error) {
 	var c Contract
-	if err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
-		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.RenewalOfID, &c.RenewedByID, &c.ExpiryAlertedOn, &c.Version, &c.CreatedAt, &c.CreatedBy, &c.UpdatedAt, &c.UpdatedBy, &c.RFQID, &c.RFQNumber, &c.Items); err != nil {
+	err := row.Scan(&c.ID, &c.DocumentNumber, &c.LegalEntityID, &c.SupplierID, &c.Currency, &c.Exponent, &c.ValidFrom, &c.ValidTo,
+		&c.TargetValue, &c.ConsumedValue, &c.Status, &c.Kind, &c.RenewalOfID, &c.RenewedByID, &c.ExpiryAlertedOn, &c.Version, &c.CreatedAt, &c.CreatedBy,
+		&c.UpdatedAt, &c.UpdatedBy, &c.RFQID, &c.RFQNumber, &c.Items)
+	if err != nil {
 		return Contract{}, fmt.Errorf("scan contract: %w", err)
 	}
 	return c, nil
@@ -134,8 +140,10 @@ func checkValidity(from, to time.Time) error {
 	return nil
 }
 
-// NewContract is the input of createContract.
+// NewContract is the input of createContract. Kind is KindContract or
+// KindSchedulingAgreement; "" is KindContract.
 type NewContract struct {
+	Kind                      string
 	LegalEntityID, SupplierID uuid.UUID
 	Currency                  string
 	ValidFrom, ValidTo        time.Time
@@ -143,13 +151,20 @@ type NewContract struct {
 	Items                     []ItemInput
 }
 
-// createContract creates a draft contract.
+// createContract creates a draft contract of the kind asked for, which
+// must be one there is.
 func (e *Endpoints) createContract(ctx context.Context, in NewContract) (Contract, error) {
+	kind, err := contractKind(in.Kind)
+	if err != nil {
+		return Contract{}, err
+	}
+	in.Kind = kind
 	return e.draftContract(ctx, in, nil)
 }
 
 // draftContract creates a draft contract, renewing renewalOf when it is
-// not nil.
+// not nil. Its callers give a kind there is, or none for KindContract (an
+// award's contract).
 func (e *Endpoints) draftContract(ctx context.Context, in NewContract, renewalOf *uuid.UUID) (Contract, error) {
 	tx, p, err := reqctx.Request(ctx)
 	if err != nil {
@@ -188,11 +203,11 @@ func (e *Endpoints) draftContract(ctx context.Context, in NewContract, renewalOf
 	if err != nil {
 		return Contract{}, err
 	}
-	id := uuid.Must(uuid.NewV7())
+	id, kind := uuid.Must(uuid.NewV7()), cmp.Or(in.Kind, KindContract)
 	if _, err := tx.Exec(ctx, `INSERT INTO procurement.contract (tenant_id, id, document_number, legal_entity_id, supplier_id, currency, valid_from,
-			valid_to, target_value, status, renewal_of_id, created_by, updated_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11, $11)`,
-		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, renewalOf, p.ID); err != nil {
+			valid_to, target_value, status, renewal_of_id, created_by, updated_by, kind)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft', $10, $11, $11, $12)`,
+		p.TenantID, id, number, le.ID, in.SupplierID, in.Currency, in.ValidFrom, in.ValidTo, target, renewalOf, p.ID, kind); err != nil {
 		return Contract{}, fmt.Errorf("procurement: create contract %s: %w", number, err)
 	}
 	if err := writeContractItems(ctx, tx, p.TenantID, id, items); err != nil {
@@ -202,7 +217,7 @@ func (e *Endpoints) draftContract(ctx context.Context, in NewContract, renewalOf
 	if err != nil {
 		return Contract{}, err
 	}
-	action, detail := "procurement.contract.create", map[string]any{"document_number": number, "items": len(items)}
+	action, detail := "procurement.contract.create", map[string]any{"document_number": number, "kind": kind, "items": len(items)}
 	if renewalOf != nil {
 		action, detail["renewal_of_id"] = "procurement.contract.renew", *renewalOf
 	}

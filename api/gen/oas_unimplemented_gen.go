@@ -908,7 +908,11 @@ func (UnimplementedHandler) CreateConsolidationRun(ctx context.Context, req *Con
 
 // CreateContract implements createContract operation.
 //
-// Creates a draft contract.
+// Creates a draft contract of the `kind` given: a `contract` (the default), against which purchase
+// orders are created at its prices, or a `scheduling_agreement` (ADR-0070), whose delivery schedule is
+// entered once it is released (`contracts/{id}/schedule-lines`). Another kind is refused (422
+// `procurement.invalid_kind`). Both are numbered from the company's `contract` number range and are
+// changed, released, cancelled, terminated, renewed and expire alike; a contract keeps its kind.
 //
 // POST /v1/contracts
 func (UnimplementedHandler) CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (r CreateContractRes, _ error) {
@@ -1354,6 +1358,29 @@ func (UnimplementedHandler) CreateRole(ctx context.Context, req *RoleCreate, par
 //
 // POST /v1/role-assignments
 func (UnimplementedHandler) CreateRoleAssignment(ctx context.Context, req *RoleAssignmentCreate, params CreateRoleAssignmentParams) (r CreateRoleAssignmentRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateScheduleLine implements createScheduleLine operation.
+//
+// Enters one line of a scheduling agreement's delivery schedule (ADR-0070 §3): a quantity of one of
+// the agreement's items due on a date. The contract is read under its row lock: it must be a
+// scheduling agreement (409 `procurement.not_a_scheduling_agreement` for a contract of the kind
+// `contract`) that is `active` (409 `procurement.invalid_status` for a draft, or one cancelled,
+// terminated or expired). The line names an item of the agreement by `contract_item_no`, with its
+// quantity in that item's unit (422 `procurement.invalid_contract_item`, naming `contract_item_no`,
+// for an item the agreement lacks or another unit), positive (422 `procurement.invalid_quantity`), due
+// on a date within the agreement's validity (422 `procurement.schedule_line_outside_validity`, naming
+// `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit,
+// rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422
+// `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered
+// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is not
+// changed or deleted in the first version. The line has no address of its own: `Location` is the
+// agreement's schedule filtered to it. Audited, and published as ScheduleLineChanged, which names the
+// supplier by id and number.
+//
+// POST /v1/contracts/{id}/schedule-lines
+func (UnimplementedHandler) CreateScheduleLine(ctx context.Context, req *ScheduleLineCreate, params CreateScheduleLineParams) (r CreateScheduleLineRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -3735,7 +3762,8 @@ func (UnimplementedHandler) ListConsolidationRuns(ctx context.Context, params Li
 
 // ListContracts implements listContracts operation.
 //
-// Purchasing contracts. Sortable by: `valid_from`, `document_number`.
+// Purchasing contracts and scheduling agreements (`kind`). Sortable by: `valid_from`,
+// `document_number`.
 //
 // GET /v1/contracts
 func (UnimplementedHandler) ListContracts(ctx context.Context, params ListContractsParams) (r ListContractsRes, _ error) {
@@ -4573,6 +4601,19 @@ func (UnimplementedHandler) ListRolePermissions(ctx context.Context, params List
 //
 // GET /v1/roles
 func (UnimplementedHandler) ListRoles(ctx context.Context, params ListRolesParams) (r ListRolesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListScheduleLines implements listScheduleLines operation.
+//
+// The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one
+// date in the order entered: each line with the agreement's number, the agreement item it asks for
+// (its material key and description), its quantity in that item's unit, the item's price and the
+// line's value. A contract of the kind `contract` has none and answers an empty page. A contract of a
+// legal entity the caller cannot act in is answered as missing (404). Sortable by: `delivery_date`.
+//
+// GET /v1/contracts/{id}/schedule-lines
+func (UnimplementedHandler) ListScheduleLines(ctx context.Context, params ListScheduleLinesParams) (r ListScheduleLinesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

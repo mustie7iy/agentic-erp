@@ -21833,6 +21833,7 @@ func (*ConflictHeaders) createRequisitionRes()                     {}
 func (*ConflictHeaders) createRfqRes()                             {}
 func (*ConflictHeaders) createRoleAssignmentRes()                  {}
 func (*ConflictHeaders) createRoleRes()                            {}
+func (*ConflictHeaders) createScheduleLineRes()                    {}
 func (*ConflictHeaders) createSegmentRes()                         {}
 func (*ConflictHeaders) createSodRuleRes()                         {}
 func (*ConflictHeaders) createSupplierInvoiceRes()                 {}
@@ -24967,6 +24968,11 @@ type Contract struct {
 	UpdatedBy OptUUID `json:"updated_by"`
 	// Document number.
 	DocumentNumber string `json:"document_number"`
+	// What the contract is, fixed when it is created (ADR-0070): a `contract`, against which purchase
+	// orders are created, or a `scheduling_agreement`, which has a delivery schedule
+	// (`contracts/{id}/schedule-lines`). Open enumeration: clients must accept and preserve values not
+	// listed here; values may be added within /v1.
+	Kind string `json:"kind"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// Supplier.
@@ -25034,6 +25040,11 @@ func (s *Contract) GetUpdatedBy() OptUUID {
 // GetDocumentNumber returns the value of DocumentNumber.
 func (s *Contract) GetDocumentNumber() string {
 	return s.DocumentNumber
+}
+
+// GetKind returns the value of Kind.
+func (s *Contract) GetKind() string {
+	return s.Kind
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25141,6 +25152,11 @@ func (s *Contract) SetDocumentNumber(val string) {
 	s.DocumentNumber = val
 }
 
+// SetKind sets the value of Kind.
+func (s *Contract) SetKind(val string) {
+	s.Kind = val
+}
+
 // SetLegalEntityID sets the value of LegalEntityID.
 func (s *Contract) SetLegalEntityID(val uuid.UUID) {
 	s.LegalEntityID = val
@@ -25214,6 +25230,10 @@ func (s *Contract) SetItems(val []ContractItem) {
 // Create a draft contract.
 // Ref: #/components/schemas/ContractCreate
 type ContractCreate struct {
+	// What the contract is (ADR-0070): `contract`, or `scheduling_agreement` for one with a delivery
+	// schedule. Open enumeration: values may be added within /v1; one the server does not know is refused
+	// (422 `procurement.invalid_kind`).
+	Kind OptString `json:"kind"`
 	// Legal entity.
 	LegalEntityID uuid.UUID `json:"legal_entity_id"`
 	// Supplier.
@@ -25228,6 +25248,11 @@ type ContractCreate struct {
 	TargetValue Money `json:"target_value"`
 	// Items.
 	Items []ContractItem `json:"items"`
+}
+
+// GetKind returns the value of Kind.
+func (s *ContractCreate) GetKind() OptString {
+	return s.Kind
 }
 
 // GetLegalEntityID returns the value of LegalEntityID.
@@ -25263,6 +25288,11 @@ func (s *ContractCreate) GetTargetValue() Money {
 // GetItems returns the value of Items.
 func (s *ContractCreate) GetItems() []ContractItem {
 	return s.Items
+}
+
+// SetKind sets the value of Kind.
+func (s *ContractCreate) SetKind(val OptString) {
+	s.Kind = val
 }
 
 // SetLegalEntityID sets the value of LegalEntityID.
@@ -27798,6 +27828,26 @@ func (*CreateRolePreconditionRequired) createRoleRes() {}
 type CreateRoleUnprocessableEntity Problem
 
 func (*CreateRoleUnprocessableEntity) createRoleRes() {}
+
+type CreateScheduleLineBadRequest Problem
+
+func (*CreateScheduleLineBadRequest) createScheduleLineRes() {}
+
+type CreateScheduleLineForbidden Problem
+
+func (*CreateScheduleLineForbidden) createScheduleLineRes() {}
+
+type CreateScheduleLineNotFound Problem
+
+func (*CreateScheduleLineNotFound) createScheduleLineRes() {}
+
+type CreateScheduleLinePreconditionRequired Problem
+
+func (*CreateScheduleLinePreconditionRequired) createScheduleLineRes() {}
+
+type CreateScheduleLineUnprocessableEntity Problem
+
+func (*CreateScheduleLineUnprocessableEntity) createScheduleLineRes() {}
 
 type CreateSegmentBadRequest Problem
 
@@ -47626,6 +47676,18 @@ func (*ListRolesBadRequest) listRolesRes() {}
 type ListRolesForbidden Problem
 
 func (*ListRolesForbidden) listRolesRes() {}
+
+type ListScheduleLinesBadRequest Problem
+
+func (*ListScheduleLinesBadRequest) listScheduleLinesRes() {}
+
+type ListScheduleLinesForbidden Problem
+
+func (*ListScheduleLinesForbidden) listScheduleLinesRes() {}
+
+type ListScheduleLinesNotFound Problem
+
+func (*ListScheduleLinesNotFound) listScheduleLinesRes() {}
 
 type ListSegmentsBadRequest Problem
 
@@ -70818,6 +70880,351 @@ type RunBalanceCarryForwardUnprocessableEntity Problem
 func (*RunBalanceCarryForwardUnprocessableEntity) runBalanceCarryForwardRes() {}
 
 // Merged schema.
+// Ref: #/components/schemas/ScheduleLine
+type ScheduleLine struct {
+	// Identifier (UUIDv7).
+	ID uuid.UUID `json:"id"`
+	// Optimistic-lock version; equals the ETag. Increases by one on every change.
+	Version int32 `json:"version"`
+	// Creation time (UTC).
+	CreatedAt time.Time `json:"created_at"`
+	// Principal that created the resource.
+	CreatedBy uuid.UUID `json:"created_by"`
+	// Time of the last change (UTC).
+	UpdatedAt time.Time `json:"updated_at"`
+	// Principal that made the last change. Absent on resources whose table does not record it.
+	UpdatedBy OptUUID `json:"updated_by"`
+	// The scheduling agreement.
+	ContractID uuid.UUID `json:"contract_id"`
+	// The scheduling agreement's document number.
+	ContractDocumentNumber string `json:"contract_document_number"`
+	// The line's number: lines are numbered 1 to n per agreement in the order entered.
+	LineNo int32 `json:"line_no"`
+	// The item of the agreement the line asks for.
+	ContractItemNo int32 `json:"contract_item_no"`
+	// That item's material key.
+	MaterialKey string `json:"material_key"`
+	// That item's description.
+	Description string `json:"description"`
+	// The date the quantity is due, within the agreement's validity.
+	DeliveryDate time.Time `json:"delivery_date"`
+	// The quantity due, in the agreement item's unit; positive.
+	Quantity Quantity `json:"quantity"`
+	// The agreement item's price per `price_unit`, in the agreement's currency.
+	UnitPrice Money `json:"unit_price"`
+	// Quantity the unit price refers to.
+	PriceUnit int32 `json:"price_unit"`
+	// The line's value: quantity × unit price ÷ price unit, rounded half away from zero to the
+	// currency's minor unit.
+	Amount Money `json:"amount"`
+}
+
+// GetID returns the value of ID.
+func (s *ScheduleLine) GetID() uuid.UUID {
+	return s.ID
+}
+
+// GetVersion returns the value of Version.
+func (s *ScheduleLine) GetVersion() int32 {
+	return s.Version
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ScheduleLine) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetCreatedBy returns the value of CreatedBy.
+func (s *ScheduleLine) GetCreatedBy() uuid.UUID {
+	return s.CreatedBy
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ScheduleLine) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetUpdatedBy returns the value of UpdatedBy.
+func (s *ScheduleLine) GetUpdatedBy() OptUUID {
+	return s.UpdatedBy
+}
+
+// GetContractID returns the value of ContractID.
+func (s *ScheduleLine) GetContractID() uuid.UUID {
+	return s.ContractID
+}
+
+// GetContractDocumentNumber returns the value of ContractDocumentNumber.
+func (s *ScheduleLine) GetContractDocumentNumber() string {
+	return s.ContractDocumentNumber
+}
+
+// GetLineNo returns the value of LineNo.
+func (s *ScheduleLine) GetLineNo() int32 {
+	return s.LineNo
+}
+
+// GetContractItemNo returns the value of ContractItemNo.
+func (s *ScheduleLine) GetContractItemNo() int32 {
+	return s.ContractItemNo
+}
+
+// GetMaterialKey returns the value of MaterialKey.
+func (s *ScheduleLine) GetMaterialKey() string {
+	return s.MaterialKey
+}
+
+// GetDescription returns the value of Description.
+func (s *ScheduleLine) GetDescription() string {
+	return s.Description
+}
+
+// GetDeliveryDate returns the value of DeliveryDate.
+func (s *ScheduleLine) GetDeliveryDate() time.Time {
+	return s.DeliveryDate
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ScheduleLine) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// GetUnitPrice returns the value of UnitPrice.
+func (s *ScheduleLine) GetUnitPrice() Money {
+	return s.UnitPrice
+}
+
+// GetPriceUnit returns the value of PriceUnit.
+func (s *ScheduleLine) GetPriceUnit() int32 {
+	return s.PriceUnit
+}
+
+// GetAmount returns the value of Amount.
+func (s *ScheduleLine) GetAmount() Money {
+	return s.Amount
+}
+
+// SetID sets the value of ID.
+func (s *ScheduleLine) SetID(val uuid.UUID) {
+	s.ID = val
+}
+
+// SetVersion sets the value of Version.
+func (s *ScheduleLine) SetVersion(val int32) {
+	s.Version = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ScheduleLine) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetCreatedBy sets the value of CreatedBy.
+func (s *ScheduleLine) SetCreatedBy(val uuid.UUID) {
+	s.CreatedBy = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ScheduleLine) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetUpdatedBy sets the value of UpdatedBy.
+func (s *ScheduleLine) SetUpdatedBy(val OptUUID) {
+	s.UpdatedBy = val
+}
+
+// SetContractID sets the value of ContractID.
+func (s *ScheduleLine) SetContractID(val uuid.UUID) {
+	s.ContractID = val
+}
+
+// SetContractDocumentNumber sets the value of ContractDocumentNumber.
+func (s *ScheduleLine) SetContractDocumentNumber(val string) {
+	s.ContractDocumentNumber = val
+}
+
+// SetLineNo sets the value of LineNo.
+func (s *ScheduleLine) SetLineNo(val int32) {
+	s.LineNo = val
+}
+
+// SetContractItemNo sets the value of ContractItemNo.
+func (s *ScheduleLine) SetContractItemNo(val int32) {
+	s.ContractItemNo = val
+}
+
+// SetMaterialKey sets the value of MaterialKey.
+func (s *ScheduleLine) SetMaterialKey(val string) {
+	s.MaterialKey = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ScheduleLine) SetDescription(val string) {
+	s.Description = val
+}
+
+// SetDeliveryDate sets the value of DeliveryDate.
+func (s *ScheduleLine) SetDeliveryDate(val time.Time) {
+	s.DeliveryDate = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ScheduleLine) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// SetUnitPrice sets the value of UnitPrice.
+func (s *ScheduleLine) SetUnitPrice(val Money) {
+	s.UnitPrice = val
+}
+
+// SetPriceUnit sets the value of PriceUnit.
+func (s *ScheduleLine) SetPriceUnit(val int32) {
+	s.PriceUnit = val
+}
+
+// SetAmount sets the value of Amount.
+func (s *ScheduleLine) SetAmount(val Money) {
+	s.Amount = val
+}
+
+// Enter a schedule line of a scheduling agreement.
+// Ref: #/components/schemas/ScheduleLineCreate
+type ScheduleLineCreate struct {
+	// The item of the agreement the line asks for.
+	ContractItemNo int32 `json:"contract_item_no"`
+	// The date the quantity is due, within the agreement's validity.
+	DeliveryDate time.Time `json:"delivery_date"`
+	// The quantity due, in the agreement item's unit; positive.
+	Quantity Quantity `json:"quantity"`
+}
+
+// GetContractItemNo returns the value of ContractItemNo.
+func (s *ScheduleLineCreate) GetContractItemNo() int32 {
+	return s.ContractItemNo
+}
+
+// GetDeliveryDate returns the value of DeliveryDate.
+func (s *ScheduleLineCreate) GetDeliveryDate() time.Time {
+	return s.DeliveryDate
+}
+
+// GetQuantity returns the value of Quantity.
+func (s *ScheduleLineCreate) GetQuantity() Quantity {
+	return s.Quantity
+}
+
+// SetContractItemNo sets the value of ContractItemNo.
+func (s *ScheduleLineCreate) SetContractItemNo(val int32) {
+	s.ContractItemNo = val
+}
+
+// SetDeliveryDate sets the value of DeliveryDate.
+func (s *ScheduleLineCreate) SetDeliveryDate(val time.Time) {
+	s.DeliveryDate = val
+}
+
+// SetQuantity sets the value of Quantity.
+func (s *ScheduleLineCreate) SetQuantity(val Quantity) {
+	s.Quantity = val
+}
+
+// ScheduleLineHeaders wraps ScheduleLine with response headers.
+type ScheduleLineHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Location           OptString
+	Response           ScheduleLine
+}
+
+// GetETag returns the value of ETag.
+func (s *ScheduleLineHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *ScheduleLineHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetLocation returns the value of Location.
+func (s *ScheduleLineHeaders) GetLocation() OptString {
+	return s.Location
+}
+
+// GetResponse returns the value of Response.
+func (s *ScheduleLineHeaders) GetResponse() ScheduleLine {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *ScheduleLineHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *ScheduleLineHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetLocation sets the value of Location.
+func (s *ScheduleLineHeaders) SetLocation(val OptString) {
+	s.Location = val
+}
+
+// SetResponse sets the value of Response.
+func (s *ScheduleLineHeaders) SetResponse(val ScheduleLine) {
+	s.Response = val
+}
+
+func (*ScheduleLineHeaders) createScheduleLineRes() {}
+
+// One page of a scheduling agreement's schedule lines.
+// Ref: #/components/schemas/ScheduleLinePage
+type ScheduleLinePage struct {
+	// The schedule lines on this page.
+	Items []ScheduleLine `json:"items"`
+	// Opaque cursor for the next page; absent on the last page.
+	NextPageToken OptString `json:"next_page_token"`
+	// Planner estimate of the total number of matches; present only when `include=total_estimate` was
+	// requested and the estimate is cheap.
+	TotalEstimate OptInt64 `json:"total_estimate"`
+}
+
+// GetItems returns the value of Items.
+func (s *ScheduleLinePage) GetItems() []ScheduleLine {
+	return s.Items
+}
+
+// GetNextPageToken returns the value of NextPageToken.
+func (s *ScheduleLinePage) GetNextPageToken() OptString {
+	return s.NextPageToken
+}
+
+// GetTotalEstimate returns the value of TotalEstimate.
+func (s *ScheduleLinePage) GetTotalEstimate() OptInt64 {
+	return s.TotalEstimate
+}
+
+// SetItems sets the value of Items.
+func (s *ScheduleLinePage) SetItems(val []ScheduleLine) {
+	s.Items = val
+}
+
+// SetNextPageToken sets the value of NextPageToken.
+func (s *ScheduleLinePage) SetNextPageToken(val OptString) {
+	s.NextPageToken = val
+}
+
+// SetTotalEstimate sets the value of TotalEstimate.
+func (s *ScheduleLinePage) SetTotalEstimate(val OptInt64) {
+	s.TotalEstimate = val
+}
+
+func (*ScheduleLinePage) listScheduleLinesRes() {}
+
+// Merged schema.
 // Ref: #/components/schemas/Segment
 type Segment struct {
 	// Identifier (UUIDv7).
@@ -71194,6 +71601,7 @@ func (*ServiceUnavailableHeaders) createRequisitionRes()                     {}
 func (*ServiceUnavailableHeaders) createRfqRes()                             {}
 func (*ServiceUnavailableHeaders) createRoleAssignmentRes()                  {}
 func (*ServiceUnavailableHeaders) createRoleRes()                            {}
+func (*ServiceUnavailableHeaders) createScheduleLineRes()                    {}
 func (*ServiceUnavailableHeaders) createSegmentRes()                         {}
 func (*ServiceUnavailableHeaders) createSodRuleRes()                         {}
 func (*ServiceUnavailableHeaders) createSupplierInvoiceRes()                 {}
@@ -76214,6 +76622,7 @@ func (*TooManyRequestsHeaders) createRequisitionRes()                     {}
 func (*TooManyRequestsHeaders) createRfqRes()                             {}
 func (*TooManyRequestsHeaders) createRoleAssignmentRes()                  {}
 func (*TooManyRequestsHeaders) createRoleRes()                            {}
+func (*TooManyRequestsHeaders) createScheduleLineRes()                    {}
 func (*TooManyRequestsHeaders) createSegmentRes()                         {}
 func (*TooManyRequestsHeaders) createSodRuleRes()                         {}
 func (*TooManyRequestsHeaders) createSupplierInvoiceRes()                 {}
@@ -76444,6 +76853,7 @@ func (*TooManyRequestsHeaders) listRfqsRes()                              {}
 func (*TooManyRequestsHeaders) listRoleAssignmentsRes()                   {}
 func (*TooManyRequestsHeaders) listRolePermissionsRes()                   {}
 func (*TooManyRequestsHeaders) listRolesRes()                             {}
+func (*TooManyRequestsHeaders) listScheduleLinesRes()                     {}
 func (*TooManyRequestsHeaders) listSegmentsRes()                          {}
 func (*TooManyRequestsHeaders) listSodRulesRes()                          {}
 func (*TooManyRequestsHeaders) listSupplierInvoicesRes()                  {}
@@ -76957,6 +77367,7 @@ func (*UnauthorizedHeaders) createRequisitionRes()                     {}
 func (*UnauthorizedHeaders) createRfqRes()                             {}
 func (*UnauthorizedHeaders) createRoleAssignmentRes()                  {}
 func (*UnauthorizedHeaders) createRoleRes()                            {}
+func (*UnauthorizedHeaders) createScheduleLineRes()                    {}
 func (*UnauthorizedHeaders) createSegmentRes()                         {}
 func (*UnauthorizedHeaders) createSodRuleRes()                         {}
 func (*UnauthorizedHeaders) createSupplierInvoiceRes()                 {}
@@ -77187,6 +77598,7 @@ func (*UnauthorizedHeaders) listRfqsRes()                              {}
 func (*UnauthorizedHeaders) listRoleAssignmentsRes()                   {}
 func (*UnauthorizedHeaders) listRolePermissionsRes()                   {}
 func (*UnauthorizedHeaders) listRolesRes()                             {}
+func (*UnauthorizedHeaders) listScheduleLinesRes()                     {}
 func (*UnauthorizedHeaders) listSegmentsRes()                          {}
 func (*UnauthorizedHeaders) listSodRulesRes()                          {}
 func (*UnauthorizedHeaders) listSupplierInvoicesRes()                  {}

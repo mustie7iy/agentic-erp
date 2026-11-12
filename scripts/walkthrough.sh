@@ -6302,6 +6302,71 @@ step_rfq_award() {
   passed
 }
 
+# schedule_line_body DATE QUANTITY UNIT is the request for a schedule line
+# of an agreement's item 1.
+schedule_line_body() {
+  echo "{\"contract_item_no\": 1, \"delivery_date\": \"$1\", \"quantity\": {\"value\": \"$2\", \"unit\": \"$3\"}}"
+}
+
+# step_scheduling_agreement is T83a (ADR-0070 §1-§3): Ben creates a
+# scheduling agreement with Tyrell, a contract of its own kind, for one
+# item, releases it as any contract and enters its delivery schedule: two
+# lines for the coming two months, in the agreement's unit and within its
+# validity, a year from the company's date today. It keeps the agreement
+# (AGREEMENT).
+step_scheduling_agreement() {
+  heading "Step 56 — Scheduling agreements: a scheduling agreement with one item is created and released, and two schedule lines are entered for the coming two months"
+  as ben
+  local today until first second expense body plain tag shown
+  today=$(company_day)
+  until=$(date_add "$today" 364)
+  first=$(date_add "$today" 30)
+  second=$(date_add "$today" 60)
+  expense=$(account 6000)
+  say "Maple uses toner steadily and wants it delivered month by month at one price. Ben creates a scheduling"
+  say "agreement with Tyrell (ADR-0070): a contract of its own kind, priced and valid for a year as any contract:"
+  body="{\"kind\": \"scheduling_agreement\", \"legal_entity_id\": \"$LE\", \"supplier_id\": \"$SUPPLIER\", \"currency\": \"CAD\",
+    \"valid_from\": \"$today\", \"valid_to\": \"$until\", \"target_value\": {\"amount\": \"50000.00\", \"currency\": \"CAD\"}, \"items\": [
+    {\"material_key\": \"TONER-XL\", \"description\": \"Toner cartridges, XL\", \"unit_price\": {\"amount\": \"85.00\", \"currency\": \"CAD\"}, \"uom_code\": \"EA\", \"account_id\": \"$expense\"}]}"
+  api 201 '"\(.kind) \(.document_number): \(.status), \(.valid_from) to \(.valid_to), target value \(.target_value.amount) \(.target_value.currency)", (.items[] | "  item \(.item_no) \(.material_key) \(.description): \(.unit_price.amount) \(.unit_price.currency) per \(.price_unit) \(.uom_code)")' \
+    createContract -body "$body"
+  AGREEMENT=$(field .id) tag=$ETAG
+  expect "the new agreement" "$(field '"\(.kind) \(.status) \(.supplier_id) \(.target_value.amount) \(.target_value.currency)"')" \
+    "scheduling_agreement draft $SUPPLIER 50000.00 CAD"
+  say "Its schedule is entered once it is released; a draft takes no line. Ben releases it:"
+  refused 409 procurement.invalid_status createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 120 EA)"
+  api 200 '"\(.kind) \(.document_number): \(.status)"' releaseContract -p "id=$AGREEMENT" -if-match "$tag"
+  expect "the released agreement" "$(field '"\(.kind) \(.status)"')" "scheduling_agreement active"
+  say "It is Maple's only scheduling agreement; the contract the RFQ's award created in step 55 is a contract,"
+  say "and takes no schedule line:"
+  api 200 '.items[] | "  \(.kind) \(.document_number): \(.status)"' listContracts -p "legal_entity_id=$LE" -p kind=scheduling_agreement
+  expect "Maple's scheduling agreements" "$(field '[.items[].id] | join(" ")')" "$AGREEMENT"
+  QUIET=1 api 200 '' listContracts -p "legal_entity_id=$LE" -p kind=contract -p "supplier_id=$DP_SUPPLIER" -p status=active
+  plain=$(field '.items[0].id')
+  expect "the contract of step 55 is of the kind contract" "$(field '.items[0] | "\(.kind) \(.rfq_id)"')" "contract $RFQ"
+  refused 409 procurement.not_a_scheduling_agreement createScheduleLine -p "id=$plain" -body "$(schedule_line_body "$first" 120 EA)"
+  say "Ben enters the delivery schedule: 120 cartridges in a month, 80 in two. Each line names the agreement's"
+  say "item, in its unit, on a date within the agreement's validity; its value is its quantity at the agreement's"
+  say "price, exact to the cent:"
+  shown='"line \(.line_no) of \(.contract_document_number): \(.quantity.value) \(.quantity.unit) of \(.material_key) due \(.delivery_date), at \(.unit_price.amount) per \(.price_unit) = \(.amount.amount) \(.amount.currency)"'
+  api 201 "$shown" createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 120 EA)"
+  expect "the first line" "$(field '"\(.line_no) \(.material_key) \(.delivery_date) \(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.amount.currency)"')" \
+    "1 TONER-XL $first 120 EA 10200.00 CAD"
+  api 201 "$shown" createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$second" 80 EA)"
+  expect "the second line" "$(field '"\(.line_no) \(.delivery_date) \(.quantity.value) \(.quantity.unit) \(.amount.amount) \(.amount.currency)"')" \
+    "2 $second 80 EA 6800.00 CAD"
+  say "A date after the agreement ends is refused, naming its validity, and so is another unit than the item's:"
+  refused 422 procurement.schedule_line_outside_validity createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$(date_add "$until" 1)" 120 EA)"
+  expect "the field refused" "$(field '.errors[0].field')" "delivery_date"
+  refused 422 procurement.invalid_contract_item createScheduleLine -p "id=$AGREEMENT" -body "$(schedule_line_body "$first" 120 BOX)"
+  say "The agreement's schedule, by delivery date:"
+  api 200 '.items[] | "  line \(.line_no): \(.quantity.value) \(.quantity.unit) of \(.material_key) due \(.delivery_date), \(.amount.amount) \(.amount.currency)"' \
+    listScheduleLines -p "id=$AGREEMENT"
+  expect "the schedule" "$(field '[.items[] | "\(.line_no) \(.delivery_date) \(.quantity.value) \(.amount.amount) \(.amount.currency)"] | join(", ")')" \
+    "1 $first 120 10200.00 CAD, 2 $second 80 6800.00 CAD"
+  passed
+}
+
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8326,7 +8391,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_rfq step_rfq_award step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_rfq step_rfq_award step_scheduling_agreement step_close'
 
 main() {
   stop_unseen

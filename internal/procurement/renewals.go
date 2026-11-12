@@ -38,7 +38,9 @@ func (e *Endpoints) renewContract(ctx context.Context, id uuid.UUID, ifMatch fun
 	if err != nil {
 		return Contract{}, err
 	}
-	return e.draftContract(ctx, NewContract{LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID, Currency: c.Currency,
+	// The renewal continues the contract as what it is: a scheduling
+	// agreement's renewal is one (ADR-0070 §1); its schedule starts empty.
+	return e.draftContract(ctx, NewContract{Kind: c.Kind, LegalEntityID: c.LegalEntityID, SupplierID: c.SupplierID, Currency: c.Currency,
 		ValidFrom: c.ValidTo.AddDate(0, 0, 1), ValidTo: validTo, Target: target, TargetCurrency: targetCurrency, Items: contractItemInputs(c)}, &c.ID)
 }
 
