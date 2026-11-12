@@ -51,7 +51,7 @@ func (e env) rfq(t *testing.T, due string) map[string]any {
 	return r
 }
 
-// invited are the suppliers of an RFQ as "number name", in their order.
+// invited are the suppliers of an RFQ as "id number name", in their order.
 func invited(t *testing.T, r map[string]any) string {
 	t.Helper()
 	var out []string
@@ -134,7 +134,7 @@ func TestRFQLifecycle(t *testing.T) {
 	checks(t, "read after publication", got, "published", 2)
 	e.Problem(409, "procurement.invalid_status", "POST", path+":publish", "", `"2"`)
 
-	changes := events(t, e, "rfq_changed")
+	changes := apitest.CompanyNamed(t, events(t, e, "rfq_changed"))
 	if len(changes) != 2 {
 		t.Fatalf("rfq_changed events: got %d, want 2", len(changes))
 	}
@@ -148,7 +148,7 @@ func TestRFQLifecycle(t *testing.T) {
 			t.Errorf("rfq_changed %d: got %v, want RQ100000 with 2 items and 2 suppliers", i, changes[i])
 		}
 	}
-	published := events(t, e, "rfq_published")
+	published := apitest.CompanyNamed(t, events(t, e, "rfq_published"))
 	if len(published) != 1 {
 		t.Fatalf("rfq_published events: got %d, want 1", len(published))
 	}
@@ -329,11 +329,15 @@ func TestRFQReplayed(t *testing.T) {
 }
 
 // TestRFQList: the list's filters and its pages in both orders, each RFQ
-// with its suppliers named; a caller sees the RFQs of the companies it
-// may act in, and another company's is answered as missing.
+// of a page with its own company, accounts and suppliers named; a caller
+// sees the RFQs of the companies it may act in, and another company's is
+// answered as missing.
 func TestRFQList(t *testing.T) {
 	e := setupIn2026(t)
-	first := e.rfq(t, "2026-09-30") // RQ100000
+	e.nameSuppliers(t)
+	first := e.rfq(t, "2026-09-30") // RQ100000, the only one inviting both suppliers
+	one := fmt.Sprintf("%s BP90000001 %s", e.Supplier, tyrell)
+	both := one + fmt.Sprintf(", %s BP90000002 %s", e.Vendor, cabot)
 	second, _ := e.Must(201, "POST", "/v1/rfqs", e.rfqBody("2026-07-31", e.chairsAndDesks(), e.Supplier), "")
 	third, _ := e.Must(201, "POST", "/v1/rfqs", e.rfqBody("2026-08-31", e.chairsAndDesks(), e.Supplier), "")
 	e.act(t, "/v1/rfqs/"+id(third), "publish", "")
@@ -343,8 +347,23 @@ func TestRFQList(t *testing.T) {
 		var numbers []string
 		for _, r := range apitest.List(t, page, "items") {
 			m := r.(map[string]any)
-			if invited(t, m) == "" {
-				t.Errorf("RFQ %v: got no suppliers, want them named", m["document_number"])
+			want := one
+			if m["document_number"] == "RQ100000" {
+				want = both
+			}
+			if got := invited(t, m); got != want {
+				t.Errorf("RFQ %v suppliers: got %s, want %s", m["document_number"], got, want)
+			}
+			if m["company_code"] != "2000" {
+				t.Errorf("RFQ %v company_code: got %v, want 2000", m["document_number"], m["company_code"])
+			}
+			apitest.WantNamed(t, "listed RFQ's company", m, "legal_entity_id", "company_name", `SELECT name FROM tenancy.legal_entity WHERE id = $1`)
+			for _, it := range apitest.List(t, m, "items") {
+				item := it.(map[string]any)
+				if item["account_number"] != "520000" {
+					t.Errorf("RFQ %v item %v account_number: got %v, want 520000", m["document_number"], item["item_no"], item["account_number"])
+				}
+				apitest.WantNamed(t, "listed RFQ's item's account", item, "account_id", "account_name", `SELECT name FROM ledger.gl_account WHERE id = $1`)
 			}
 			numbers = append(numbers, m["document_number"].(string))
 		}

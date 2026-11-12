@@ -349,7 +349,8 @@ func (e *Endpoints) recorded(ctx context.Context, tx pgx.Tx, id uuid.UUID, actio
 	detail["supplier_ids"] = stored.supplierIDs()
 	payload := func() map[string]any {
 		return map[string]any{"rfq_id": stored.ID, "document_number": stored.DocumentNumber, "legal_entity_id": stored.LegalEntityID,
-			"currency": stored.Currency, "due_date": stored.DueDate.Format(time.DateOnly), "item_count": len(stored.Items)}
+			"legal_entity_code": stored.CompanyCode,
+			"currency":          stored.Currency, "due_date": stored.DueDate.Format(time.DateOnly), "item_count": len(stored.Items)}
 	}
 	changed := payload()
 	changed["status"], changed["change"], changed["supplier_count"] = stored.Status, change, len(stored.Suppliers)

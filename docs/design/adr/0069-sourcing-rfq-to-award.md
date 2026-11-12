@@ -203,7 +203,8 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
   (wired to `ledger.AssetReads`), each in one call for a page, and its
   company's code and name from the directory.
 - **Events.** `RfqChanged` (`created`, `published`) and `RfqPublished`
-  with the suppliers invited by id and number, in `api/asyncapi.yaml`.
+  with the suppliers invited by id and number, each naming the company
+  by `legal_entity_code` beside its id, in `api/asyncapi.yaml`.
 - **Number range.** `rfq`: the walkthrough's tenant and the test fixture
   have one (`RQ`). The configuration generated from an SAP extract
   (`internal/delivery/sapconfig`) does not add one yet, as it adds none

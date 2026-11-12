@@ -2845,7 +2845,7 @@ components:
       examples:
         - name: created
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000701", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_changed.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-11-18T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
-          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "currency": "EUR", "due_date": "2026-12-04", "status": "draft", "change": "created", "item_count": 2, "supplier_count": 2}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "currency": "EUR", "due_date": "2026-12-04", "status": "draft", "change": "created", "item_count": 2, "supplier_count": 2}
     RfqPublished:
       name: RfqPublished
       title: Request for quotation published
@@ -2865,7 +2865,7 @@ components:
       examples:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000702", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_published.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-11-18T09:05:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
-          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "currency": "EUR", "due_date": "2026-12-04", "item_count": 2, "suppliers": [{"supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001"}, {"supplier_id": "0192a000-0000-7000-8000-000000000302", "supplier_number": "BP90000002"}]}
+          payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "currency": "EUR", "due_date": "2026-12-04", "item_count": 2, "suppliers": [{"supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001"}, {"supplier_id": "0192a000-0000-7000-8000-000000000302", "supplier_number": "BP90000002"}]}
     ContractExpired:
       name: ContractExpired
       title: Contract expired
@@ -5930,11 +5930,12 @@ components:
               amount: {"$ref": "#/components/schemas/Money"}
     RfqChangedV1:
       type: object
-      required: ["rfq_id", "document_number", "legal_entity_id", "currency", "due_date", "status", "change", "item_count", "supplier_count"]
+      required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "currency", "due_date", "status", "change", "item_count", "supplier_count"]
       properties:
         rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The legal entity's company code."}
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
         status: {"type": "string", "description": "The status after the change. Open enum: draft, published."}
@@ -5943,11 +5944,12 @@ components:
         supplier_count: {"type": "integer", "description": "The suppliers invited."}
     RfqPublishedV1:
       type: object
-      required: ["rfq_id", "document_number", "legal_entity_id", "currency", "due_date", "item_count", "suppliers"]
+      required: ["rfq_id", "document_number", "legal_entity_id", "legal_entity_code", "currency", "due_date", "item_count", "suppliers"]
       properties:
         rfq_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.rfq.id`."}
         document_number: {"type": "string"}
         legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The legal entity's company code."}
         currency: {"type": "string", "description": "The ISO 4217 currency quotations are given in."}
         due_date: {"$ref": "#/components/schemas/Date", "description": "The date quotations are due."}
         item_count: {"type": "integer", "description": "The items asked for."}
