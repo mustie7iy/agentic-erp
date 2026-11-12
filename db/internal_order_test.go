@@ -181,7 +181,7 @@ func TestSettlementRuleRules(t *testing.T) {
 	})
 }
 
-// An order settled and closed (T60e, migration 000273; ADR-0064 §3): a
+// An order settled and closed (T60e, migration 000282; ADR-0064 §3): a
 // settlement is kept once and never changed, and a closed order stays
 // closed.
 
@@ -238,8 +238,8 @@ func TestOrderSettlementRules(t *testing.T) {
 	})
 }
 
-// The controlling context posts journal entries (T60e, migrations 000273
-// and 000274; ADR-0064 §3): the journal takes its source context, and
+// The controlling context posts journal entries (T60e, migrations 000280
+// and 000281; ADR-0064 §3): the journal takes its source context, and
 // the widened check is validated on every partition.
 func TestJournalSourceControlling(t *testing.T) {
 	need(t)

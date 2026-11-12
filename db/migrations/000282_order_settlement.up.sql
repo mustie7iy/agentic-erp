@@ -2,7 +2,7 @@
 -- §T60e). A settlement moves the order's unsettled balance, per account,
 -- up to a fiscal period to the receiver of its settlement rule: one
 -- journal entry through the ledger's posting port (source context
--- controlling, which the journal takes since 000273), kept here with the
+-- controlling, which the journal takes since 000280), kept here with the
 -- period, the receiver, the entry and the amount moved. The receiver and the entry are the ledger's: no
 -- foreign key crosses a schema. Insert-only: the table has no version, so
 -- the application is granted no UPDATE (platform.secure_table) and never

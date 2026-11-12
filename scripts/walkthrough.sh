@@ -6137,7 +6137,7 @@ step_distribution() {
 # invoice, in full and exactly: one entry clears the receipt and the
 # invoice, the customer has no open item left and nothing waits on 1015.
 step_incoming_payment() {
-  heading "Step 52 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
+  heading "Step 53 — Incoming payments: a statement credit matched as incoming waits on the bank's incoming account; applied in full to the customer's invoice, one entry clears both"
   local customer=$CUSTOMER invoice=$CUSTOMER_INVOICE item st receipt payment clearing body number reference
   [ -n "$customer" ] && [ -n "$invoice" ] && [ -n "$CUSTOMER_INVOICE_ENTRY" ] || fail "step 48's customer invoice is not there"
   as tom
@@ -6221,7 +6221,7 @@ step_incoming_payment() {
 # memo stay open for step_ar_aging: CREDITED_INVOICE and CREDIT_MEMO are
 # the documents, CREDITED_INVOICE_ENTRY and CREDIT_MEMO_ENTRY their entries.
 step_customer_credit() {
-  heading "Step 50 — Customer credit memos: a second invoice partly credited by a credit memo naming it, posted with the signs turned; invoice and memo are the customer's open items, net what the customer owes"
+  heading "Step 54 — Customer credit memos: a second invoice partly credited by a credit memo naming it, posted with the signs turned; invoice and memo are the customer's open items, net what the customer owes"
   local customer=$CUSTOMER sales invoice number entry memo memo_entry over due item
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ruth
@@ -6290,16 +6290,16 @@ step_customer_credit() {
 # depends on the day it runs. The totals are the open items of the
 # customer reconciliation account 1200.
 step_ar_aging() {
-  heading "Step 51 — AR aging: the customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue; the credit memo reduces its customer's bucket and total"
+  heading "Step 55 — AR aging: the customer open items on a key date, per customer and in total, not yet due and in buckets of days overdue; the credit memo reduces its customer's bucket and total"
   local customer=$CUSTOMER due later row cents
-  [ -n "$customer" ] && [ -n "$CREDITED_INVOICE_ENTRY" ] && [ -n "$CREDIT_MEMO_ENTRY" ] || fail "step 50's invoice and credit memo are not there"
+  [ -n "$customer" ] && [ -n "$CREDITED_INVOICE_ENTRY" ] && [ -n "$CREDIT_MEMO_ENTRY" ] || fail "step 54's invoice and credit memo are not there"
   as ruth
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   later=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 45 * 86400 | strftime("%Y-%m-%d")')
   row='"  \(.customer_number) \(.customer_name): \(.item_count) items, \(.amount.amount) \(.amount.currency)", (.buckets[] | "    \(.bucket)\(if .days_from then " \(.days_from)-\(.days_to // "") days" else "" end): \(.item_count) items, \(.amount.amount) \(.amount.currency)")'
   say "Ruth reads the aging of Maple's customer open items (T75e). It is computed on read from the ledger's open"
   say "items on customer reconciliation accounts; each item falls in one bucket by its net due date. On $due,"
-  say "the day Northwind's invoice of step 50 and its credit memo are due, neither is overdue: an item due on the"
+  say "the day Northwind's invoice of step 54 and its credit memo are due, neither is overdue: an item due on the"
   say "key date is not yet due. The credit memo reduces Northwind's bucket and total to what it owes, CAD 1,680.00:"
   api 200 '"aging of \(.company_code) \(.company_name) on \(.key_date), in \(.currency), buckets to \(.aging_days | map(tostring) | join(", ")) days", (.items[] | '"$row"')' \
     getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$due" -p aging_days=30,60 -p "customer_id=$customer"
@@ -6361,7 +6361,7 @@ rbc_incoming() {
 # requests': nothing here depends on today's date. The step duns its own
 # invoice, so it holds whether or not the invoice of step 48 is still open.
 step_dunning() {
-  heading "Step 49 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items; the run is confirmed once, a stale proposal is refused, and the next run proposes level 2"
+  heading "Step 56 — Dunning: the company's dunning levels through a governed change; a dunning run at a key date after a customer invoice's due date proposes one notice for the customer at level 1; nothing changes on the open items; the run is confirmed once, a stale proposal is refused, and the next run proposes level 2"
   local customer=$CUSTOMER entry due key later base cr request run before twin twin_tag
   due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
   key=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 40 * 86400 | strftime("%Y-%m-%d")')
@@ -6466,7 +6466,7 @@ step_dunning() {
 # Northwind's is overdue, so it is not listed. The key dates are the
 # requests'.
 step_collections() {
-  heading "Step 50 — The collection worklist: the company's customers with overdue items on a key date, the largest overdue amount first, each with its open and overdue amounts, oldest due date, dunning level and last dunning date"
+  heading "Step 57 — The collection worklist: the company's customers with overdue items on a key date, the largest overdue amount first, each with its open and overdue amounts, oldest due date, dunning level and last dunning date"
   local customer=$DUNNED_CUSTOMER key=$DUNNING_KEY
   as ruth
   say "Ruth reads whom to chase: Maple's customers with items overdue on $key, the largest overdue amount first."
@@ -6497,7 +6497,7 @@ step_collections() {
 # and the larger amount is within it. The amounts follow from the exposure
 # read, so the step holds whatever earlier steps left open.
 step_credit_limit() {
-  heading "Step 51 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
+  heading "Step 58 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
   local customer=$CUSTOMER exposure limit raised id tag before
   as ruth
   say "Ruth looks after Maple's credit as well. Before more is sold to Northwind Traders on account she reads what"

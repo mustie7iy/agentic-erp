@@ -393,14 +393,14 @@ adding up to 100, all active and of one company.
   receiver of `FAIR-<year>`; a cost center that is none and a change at
   the replaced version are refused.
 
-### T60e: an order settled and closed (migrations 000273-000275)
+### T60e: an order settled and closed (migrations 000280-000282)
 - **The journal takes controlling's entries.** `ledger.journal_entry`'s
-  list of source contexts gains `controlling` (000273 replaces the check
-  `NOT VALID`; 000274 validates it partition by partition, as T60b's
+  list of source contexts gains `controlling` (000280 replaces the check
+  `NOT VALID`; 000281 validates it partition by partition, as T60b's
   check was), and the API's open enumerations of `source_context` name
   it. Schema test: `db/internal_order_test.go`
   (`TestJournalSourceControlling`).
-- **Table** `controlling.order_settlement` (000275): the order (foreign
+- **Table** `controlling.order_settlement` (000282): the order (foreign
   key), its company, the fiscal year and period settled up to, the
   posting date, the receiver, the journal entry (once,
   `order_settlement_entry_once`) with its document number, the amount
@@ -532,7 +532,7 @@ adding up to 100, all active and of one company.
   cost; settling again posts nothing; the order is closed and a posting
   to it is refused (`closed`).
 
-### T60f: a distribution cycle run (migration 000276)
+### T60f: a distribution cycle run (migration 000283)
 - **Tables.** `controlling.allocation_cycle`: a company's cycle with a
   code unique in it (`allocation_cycle_code_once`), a name, a `kind`
   (`distribution` alone) and its sender cost center; it keeps its company,

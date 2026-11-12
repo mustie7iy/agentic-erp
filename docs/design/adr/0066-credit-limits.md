@@ -206,7 +206,7 @@ the check is what an agent that takes an order asks first.
 
 ## As built
 
-### T77a Credit limit and its check (migration 000271)
+### T77a Credit limit and its check (migration 000279)
 
 - **Context.** `internal/credit` with the ports `LegalEntities`,
   `OpenItems`, `Customers` and `Partners`, wired by `app.Credit`;
@@ -259,7 +259,7 @@ the check is what an agent that takes an order asks first.
   its key, as `GET /v1/open-items?partner_id=` does, and returns one
   object; it scans no company and lists nothing. Its latency class is the
   default for a GET, not `report`.
-- **Walkthrough.** `step_credit_limit` (step 51): Ruth reads Northwind's
+- **Walkthrough.** `step_credit_limit` (step 58): Ruth reads Northwind's
   exposure in Maple, which equals its open items added up, with no limit
   set and so within it; she sets a limit 500.00 above the exposure, a
   second limit and one in another currency refused; 400.00 is within the

@@ -290,7 +290,7 @@ is a report read and gets a budget test.
   items in one query, not a computed report (07 §7.7 item 7); starting a
   run is bounded by §5. T76c's worklist, computed on read, gets the
   budget.
-- **Walkthrough.** `step_dunning` (step 53): Ruth posts an invoice to
+- **Walkthrough.** `step_dunning` (step 56): Ruth posts an invoice to
   Northwind on NT30; a run before Maple has dunning levels is refused;
   Ada gives Maple its levels through a tier 2 change; a run at a key date
   40 days after the invoice date, ten days past its due date, proposes
@@ -299,7 +299,7 @@ is a report read and gets a budget test.
   The step duns an invoice of its own, so it holds whether or not the
   invoice of step 48 is still open when it runs.
 
-### T76b Dunning run confirmed (migration 000269)
+### T76b Dunning run confirmed (migration 000277)
 
 - **Schema.** `collections.dunned_item` (insert-only: the item's journal
   line, the confirmed run, the level, the dunning date; keyed by item
@@ -378,7 +378,7 @@ is a report read and gets a budget test.
   proposes Northwind's notice at level 2 with the invoice's item from
   level 1 to 2.
 
-### T76c Collection worklist (migration 000270)
+### T76c Collection worklist (migration 000278)
 
 - **Operation.** `GET /v1/collection-worklist?legal_entity_id=&key_date=`
   (both required; `x-slo-class: report`, `x-snapshot: true`; an agent
@@ -422,7 +422,7 @@ is a report read and gets a budget test.
   `TestCollectionWorklistBudget` (2,000 customers with 50 items each,
   every item dunned once, a page of 100): p95 1.2-1.5 s at a load
   average of 35-47, 2026-11-12.
-- **Walkthrough.** `step_collections` (step 50): at the key date of the
+- **Walkthrough.** `step_collections` (step 57): at the key date of the
   run confirmed in `step_dunning`, Northwind leads Maple's worklist with
   its notice's overdue amount, its items' due date, level 1 and the key
   date as last dunning date; at the due date it is not listed.

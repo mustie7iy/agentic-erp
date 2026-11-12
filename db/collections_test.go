@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestCollectionsPermissions (T76a, migration 000273; T76c, 000270;
+// TestCollectionsPermissions (T76a, migration 000273; T76c, 000278;
 // ADR-0065 §7): the dunning permissions and the worklist's are seeded and
 // are no approval permissions.
 func TestCollectionsPermissions(t *testing.T) {
@@ -39,7 +39,7 @@ func TestDunningRunRules(t *testing.T) {
 		overdue_amount, created_by, updated_by) VALUES ($1, $2, gen_random_uuid(), '2026-06-30', $3, $4, $5, $6, $7, $1, $1)`
 	const notice = `INSERT INTO collections.dunning_notice (tenant_id, id, dunning_run_id, customer_id, customer_number, level, item_count, overdue_amount)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-	// An item dunned before was dunned as often as its previous level, at least (T76b, 000269).
+	// An item dunned before was dunned as often as its previous level, at least (T76b, 000277).
 	const item = `INSERT INTO collections.dunning_notice_item (tenant_id, dunning_run_id, dunning_notice_id, item_no, fiscal_year, journal_entry_id,
 		line_no, document_number, document_date, net_due_date, days_overdue, currency, amount, amount_lc, previous_level, level, previous_dunnings)
 		VALUES ($1, $2, $3, $4, 2026, $5, 1, 'DR1', '2026-03-01', '2026-03-31', $6, 'EUR', $7, $8, $9::smallint, $10, $9::smallint)`
@@ -202,7 +202,7 @@ func TestDunningRunRules(t *testing.T) {
 	}
 }
 
-// TestDunningRunConfirmation (T76b, migration 000269; ADR-0065 §8): a
+// TestDunningRunConfirmation (T76b, migration 000277; ADR-0065 §8): a
 // proposed run moves to confirmed, once, by its status, version and who
 // changed it alone; a dunned item is one of the items its run proposed,
 // at a level from 1 to 9, recorded once per run and fixed; an item is
@@ -313,7 +313,7 @@ func TestDunningRunConfirmation(t *testing.T) {
 }
 
 // TestDunningRowsAreFixedForTheOwner (T76a, migration 000273; T76b,
-// 000269): a notice, an item and a recorded level are insert-only for
+// 000277): a notice, an item and a recorded level are insert-only for
 // every role, the tables' owner included: what a run proposed and what a
 // confirmation recorded is not rewritten by a later migration's statement
 // or a repair either.

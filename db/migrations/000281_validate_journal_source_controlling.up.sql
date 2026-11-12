@@ -1,4 +1,4 @@
--- Validates the check 000273 added NOT VALID to the journal entries (06
+-- Validates the check 000280 added NOT VALID to the journal entries (06
 -- §6.4), one partition at a time: VALIDATE scans a partition under a lock
 -- that lets postings go on. The parent's check is then validated, which
 -- reads no partition again: each holds it validated already.

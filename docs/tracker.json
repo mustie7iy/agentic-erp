@@ -1158,7 +1158,7 @@
        {
         "s": "D",
         "t": "An AR accountant enters and posts a credit memo to a customer naming the invoice it credits: an open credit item that clears against the invoice or nets when a payment is applied",
-        "r": "T75d · docs/design/plan-breadth-week1.md §T75d · db/migrations/000269 · kind credit_memo and reference_invoice_id on POST /v1/customer-invoices, POST /v1/customer-invoices/{id}:post (422 receivables.credit_exceeds_invoice) · internal/receivables/kinds.go · walkthrough step_customer_credit · ADR-0063 §7 and As built",
+        "r": "T75d · docs/design/plan-breadth-week1.md §T75d · db/migrations/000276 · kind credit_memo and reference_invoice_id on POST /v1/customer-invoices, POST /v1/customer-invoices/{id}:post (422 receivables.credit_exceeds_invoice) · internal/receivables/kinds.go · walkthrough step_customer_credit · ADR-0063 §7 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },
@@ -2829,7 +2829,7 @@
        {
         "s": "D",
         "t": "A credit manager sets a customer's credit limit in a company, and any API consumer reads the customer's exposure and whether an amount is within the limit (GET /v1/credit-exposure); the credit context and its ADR",
-        "r": "T77a · docs/design/plan-breadth-week1.md §T77a · db/migrations/000271 · credit.credit_limit · POST /v1/credit-limits · PATCH /v1/credit-limits/{id} · GET /v1/credit-limits · GET /v1/credit-limits/{id} · GET /v1/credit-exposure · CreditLimitChanged · credit.limit.read, .write · walkthrough step_credit_limit · ADR-0066 and As built",
+        "r": "T77a · docs/design/plan-breadth-week1.md §T77a · db/migrations/000279 · credit.credit_limit · POST /v1/credit-limits · PATCH /v1/credit-limits/{id} · GET /v1/credit-limits · GET /v1/credit-limits/{id} · GET /v1/credit-exposure · CreditLimitChanged · credit.limit.read, .write · walkthrough step_credit_limit · ADR-0066 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -2885,7 +2885,7 @@
        {
         "s": "D",
         "t": "A collections specialist reads a company's worklist: the customers with overdue items, the largest overdue amount first, with open and overdue totals, oldest due date, highest dunning level and last dunning date (GET /v1/collection-worklist)",
-        "r": "T76c · docs/design/plan-breadth-week1.md §T76c · db/migrations/000270 · GET /v1/collection-worklist · collections.worklist.read · TestCollectionWorklistBudget (01 §1.3) · walkthrough step_collections · ADR-0065 §9 and As built",
+        "r": "T76c · docs/design/plan-breadth-week1.md §T76c · db/migrations/000278 · GET /v1/collection-worklist · collections.worklist.read · TestCollectionWorklistBudget (01 §1.3) · walkthrough step_collections · ADR-0065 §9 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -2913,7 +2913,7 @@
        {
         "s": "D",
         "t": "A credit controller confirms a dunning run: each item's level and dunning date are recorded, one event per customer is published, and the next run proposes the next level",
-        "r": "T76b · docs/design/plan-breadth-week1.md §T76b · db/migrations/000269 · collections.dunned_item · POST /v1/dunning-runs/{id}:confirm · DunningNoticeIssued · 409 collections.proposal_stale, collections.invalid_status · walkthrough step_dunning · ADR-0065 §8 and As built",
+        "r": "T76b · docs/design/plan-breadth-week1.md §T76b · db/migrations/000277 · collections.dunned_item · POST /v1/dunning-runs/{id}:confirm · DunningNoticeIssued · 409 collections.proposal_stale, collections.invalid_status · walkthrough step_dunning · ADR-0065 §8 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -3370,7 +3370,7 @@
        {
         "s": "D",
         "t": "A controller settles an internal order's actual costs up to a period to its receiving cost center, on the original accounts, and closes the settled order",
-        "r": "T60e · docs/design/plan-breadth-week1.md §T60e · migrations 000273-000275 · internal/controlling/settlement.go · ADR-0064 §3 · scripts/walkthrough.sh step_order_settlement",
+        "r": "T60e · docs/design/plan-breadth-week1.md §T60e · migrations 000280-000282 · internal/controlling/settlement.go · ADR-0064 §3 · scripts/walkthrough.sh step_order_settlement",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },
@@ -3398,7 +3398,7 @@
        {
         "s": "D",
         "t": "A controller defines a distribution cycle (one sender cost center, receivers with fixed percentages) and runs it for a period: the sender's primary costs move to the receivers on their original accounts",
-        "r": "T60f · docs/design/plan-breadth-week1.md §T60f · migration 000276 · internal/controlling/allocation.go, allocationrun.go · ADR-0064 §5 · scripts/walkthrough.sh step_distribution",
+        "r": "T60f · docs/design/plan-breadth-week1.md §T60f · migration 000283 · internal/controlling/allocation.go, allocationrun.go · ADR-0064 §5 · scripts/walkthrough.sh step_distribution",
         "src": "po:2026-11-10 · design:07 §7.6 · adr:ADR-0050",
         "c": []
        },

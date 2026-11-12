@@ -3,7 +3,7 @@
 -- ledger.Postings with source_context controlling), so the journal's
 -- list of source contexts gains it. Expand only (06 §6.4): the wider
 -- check replaces the narrower one NOT VALID, which reads no row under the
--- lock; every row there satisfied the narrower check, and 000274
+-- lock; every row there satisfied the narrower check, and 000281
 -- validates the new one partition by partition. Added to the parent, it
 -- is each partition's too, and a partition created later
 -- (db.EnsurePartitions) gets it validated, being empty.

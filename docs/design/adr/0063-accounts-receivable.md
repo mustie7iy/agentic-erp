@@ -389,7 +389,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   whose components share one account is refused at posting, 422
   `ledger.output_tax_mismatch`, as a manual entry with it is.
 
-### T75d Customer credit memo (migration 000269)
+### T75d Customer credit memo (migration 000276)
 - `internal/receivables/kinds.go`: the kinds `invoice` and `credit_memo`.
   `POST /v1/customer-invoices` takes `kind` (absent: an invoice) and, on a
   credit memo, `reference_invoice_id`; no new operation or table. A kind
@@ -431,7 +431,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   keeps that invoice's term from that invoice's date, so it is due when
   its invoice is and ages with it (T75e); a memo naming none keeps the
   customer's term in the company from its own date.
-- Migration 000269: `reference_invoice_id` on
+- Migration 000276: `reference_invoice_id` on
   `receivables.customer_invoice` (`customer_invoice_reference_fkey` to a
   document of the tenant; `customer_invoice_reference_on_credit`, only a
   credit memo names one; `customer_invoice_reference_not_itself`); the
@@ -455,7 +455,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `TestCreditMemoNetsAndClears` applies a receipt of 100.00 to an invoice
   of 119.00 and its memo of 19.00 together, exactly, and clears an invoice
   credited in full against its memo through `POST /v1/clearings`.
-- Walkthrough `step_customer_credit` (step 50): Ruth enters and posts a
+- Walkthrough `step_customer_credit` (step 54): Ruth enters and posts a
   second invoice to Northwind, CAD 2,100.00, and a credit memo naming it,
   CAD 420.00; the DG entry credits Northwind on 1200 and debits 4000 and
   2300; invoice and memo are Northwind's open items, CAD 1,680.00 net; a
@@ -544,8 +544,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   `request.invalid_parameter` (`aging_days`); a page size out of range
   400 `request.invalid_page_size`; a company the caller may not act in
   422 `request.reference_not_found` (`legal_entity_id`).
-- Walkthrough `step_ar_aging` (step 51): Ruth reads Maple's aging on the
-  day Northwind's invoice and credit memo of step 50 are due (not due,
+- Walkthrough `step_ar_aging` (step 55): Ruth reads Maple's aging on the
+  day Northwind's invoice and credit memo of step 54 are due (not due,
   CAD 1,680.00 in two items) and fifteen days later (1 to 30 days
   overdue); the rows and the buckets add up to the totals, which are the
   open items of account 1200 as `GET /v1/open-items` ages them; a key date
@@ -669,7 +669,7 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   items) and the audit record `receivables.incoming_payment.apply`, in
   the application's transaction, beside the ledger's two
   (`ledger.journal_entry.post`, `ledger.clearing.create`).
-- Walkthrough `step_incoming_payment` (step 52): RBC's third statement of
+- Walkthrough `step_incoming_payment` (step 53): RBC's third statement of
   the day carries Northwind's CAD 1,595.05; Tom matches the line as
   incoming and posts it; Ruth finds it among the unapplied receipts and
   applies it to the invoice of step 48; the DZ entry debits 1015 and

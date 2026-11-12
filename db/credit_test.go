@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// TestCreditPermissions (T77a, migration 000271; ADR-0066 §6): the
+// TestCreditPermissions (T77a, migration 000279; ADR-0066 §6): the
 // permissions to read and to set credit limits are seeded and are no
 // approval permissions.
 func TestCreditPermissions(t *testing.T) {
@@ -27,7 +27,7 @@ func TestCreditPermissions(t *testing.T) {
 	}
 }
 
-// TestCreditLimitRules (T77a, migration 000271; ADR-0066 §2): a credit
+// TestCreditLimitRules (T77a, migration 000279; ADR-0066 §2): a credit
 // limit is an amount of zero or more in a known currency, one per
 // customer and company; a change sets its amount with its version and
 // who changed it, and nothing else of it; no limit is deleted.
@@ -108,7 +108,7 @@ func TestCreditLimitRules(t *testing.T) {
 	}
 }
 
-// TestCreditLimitTouched (T77a, migration 000271): a change of a limit
+// TestCreditLimitTouched (T77a, migration 000279): a change of a limit
 // moves its updated_at, which the application cannot set itself.
 func TestCreditLimitTouched(t *testing.T) {
 	need(t)

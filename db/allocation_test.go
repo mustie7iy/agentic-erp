@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Allocation cycles and their runs (T60f, migration 000276; ADR-0064 §5):
+// Allocation cycles and their runs (T60f, migration 000283; ADR-0064 §5):
 // what the database keeps of a cycle, its receivers' shares and its runs.
 
 const (

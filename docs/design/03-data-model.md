@@ -4102,7 +4102,7 @@ T75c (migration 000272) applies an incoming payment waiting on a house
 bank's incoming payments clearing account (ADR-0047) to a customer's open
 items, in full and exactly: a document written once, naming the receipt's
 entry and the ledger's clearing entry that cleared receipt and items.
-T75d (migration 000269) adds the kind `credit_memo` and
+T75d (migration 000276) adds the kind `credit_memo` and
 `reference_invoice_id`, the posted invoice a credit memo credits: only a
 credit memo names one, a document of the tenant and never itself
 (`customer_invoice_reference_on_credit`, `_reference_fkey`,
@@ -4221,7 +4221,7 @@ no foreign key out of its schema (02 §2.1). T76a (migration 000273)
 builds the schema with its outbox and inbox and the dunning run: a
 proposal of the customer items of a company overdue on a key date, one
 notice per customer. Nothing changes on the items, which stay the
-ledger's. T76b (migration 000269) confirms a run: the run's status
+ledger's. T76b (migration 000277) confirms a run: the run's status
 changes, and each item's level and dunning date are recorded in
 `dunned_item`, which the next run reads.
 
@@ -4315,13 +4315,13 @@ erDiagram
 - `collections.outbox`, `collections.inbox`: the context's events
   (`DunningRunChanged`, `DunningNoticeIssued`).
 - Permissions `collections.dunning.read` and `.run`, and
-  `collections.worklist.read` (T76c, migration 000270). The collection
+  `collections.worklist.read` (T76c, migration 000278). The collection
   worklist has no table: it is computed on read from the ledger's open
   customer items and `dunned_item` (ADR-0065 §9).
 
 ## 3.28 Credit management (`credit`)
 
-ADR-0066, T77a (migration 000271). A leaf: it reads the ledger's customer
+ADR-0066, T77a (migration 000279). A leaf: it reads the ledger's customer
 open items (§3.7, `ledger.OpenItems.Receivable`), the partner context's
 customers and names and tenancy through its ports, posts nothing and
 keeps no foreign key out of its schema (02 §2.1). It stores a customer's

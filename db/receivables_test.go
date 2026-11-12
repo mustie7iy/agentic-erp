@@ -217,7 +217,7 @@ func TestCustomerInvoicePosting(t *testing.T) {
 	}
 }
 
-// TestCustomerCreditMemoRules (T75d, migration 000269; ADR-0063 §7): the
+// TestCustomerCreditMemoRules (T75d, migration 000276; ADR-0063 §7): the
 // document is an invoice or a credit memo; only a credit memo names the
 // invoice it credits, a document of the same tenant and never itself; one
 // naming none is allowed.
