@@ -265,8 +265,12 @@ func TestBillingRefusals(t *testing.T) {
 		if f := field(got); f != "sales_order_id" {
 			t.Errorf("field: got %v, want sales_order_id", f)
 		}
-		if d, _ := got["detail"].(string); !strings.Contains(d, "Item 2 of sales order SO") || !strings.Contains(d, "cannot be billed on "+today+": its account") {
-			t.Errorf("detail: got %q, want it to name item 2, the date and the account", d)
+		detail, _ := got["detail"].(string)
+		if !strings.Contains(detail, "Item 2 of sales order SO") {
+			t.Errorf("detail: got %q, want it to name item 2 of the order", detail)
+		}
+		if want := "cannot be billed on " + today + ": its account"; !strings.Contains(detail, want) {
+			t.Errorf("detail: got %q, want it to contain %q", detail, want)
 		}
 	})
 	var n int

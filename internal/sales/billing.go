@@ -200,7 +200,7 @@ func billable(ctx context.Context, tx pgx.Tx, o Order) ([]BillingItem, error) {
 		delivered := money.ParseRat(it.Delivered)
 		open := new(big.Rat).Sub(delivered, money.ParseRat(it.Billed))
 		share := new(big.Rat).Quo(delivered, money.ParseRat(it.Quantity))
-		upTo, _ := money.Round(share.Mul(share, new(big.Rat).SetInt64(int64(it.Net))), 0) // the share is at most one, so this is at most the item's net value, which is in range
+		upTo, _ := money.Round(share.Mul(share, new(big.Rat).SetInt64(int64(it.Net))), 0) // delivered is at most ordered (sales_order_item_quantities), so this is at most the item's net value, which is in range
 		amount := upTo - earlier[it.ItemNo]
 		if open.Sign() <= 0 || amount <= 0 {
 			continue

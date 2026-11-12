@@ -381,8 +381,11 @@ func TestOrdersPublishedDeliveries(t *testing.T) {
 		if d := o.Items[0].Delivered; d != "3.5" {
 			t.Errorf("item 1's delivered quantity: got %s, want 3.5", d)
 		}
-		if d := o.Items[1].Deliveries; d == nil || len(d) != 0 {
-			t.Errorf("item 2's deliveries: got %v, want an empty list", d)
+		if d := o.Items[1].Deliveries; d == nil {
+			t.Error("item 2's deliveries: got nil, want an empty list read")
+		}
+		if n := len(o.Items[1].Deliveries); n != 0 {
+			t.Errorf("item 2's deliveries: got %d, want none", n)
 		}
 		read, err := sales.GetOrder(ctx, uuid.MustParse(id))
 		if err != nil {
