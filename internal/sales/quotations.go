@@ -132,7 +132,7 @@ func (e *Endpoints) MakeQuotation(ctx context.Context, in QuotationInput) (Quota
 	if err != nil {
 		return Quotation{}, err
 	}
-	doc, err := e.document(ctx, tx, le, in.Currency)
+	doc, err := e.document(ctx, tx, le, in.CustomerID, in.Currency)
 	if err != nil {
 		return Quotation{}, err
 	}
@@ -172,36 +172,56 @@ func (e *Endpoints) MakeQuotation(ctx context.Context, in QuotationInput) (Quota
 // §3). Its company data is required from the sales order, not for a
 // quotation (ADR-0067 §4).
 func (e *Endpoints) parties(ctx context.Context, legalEntity, customer uuid.UUID) (tenancy.Entity, partner.Named, error) {
+	le, err := e.company(ctx, legalEntity)
+	if err != nil {
+		return tenancy.Entity{}, partner.Named{}, err
+	}
+	named, err := e.customer(ctx, le, customer)
+	return le, named, err
+}
+
+// company is the request's legal entity (legal_entity_id), one the caller
+// may act in.
+func (e *Endpoints) company(ctx context.Context, legalEntity uuid.UUID) (tenancy.Entity, error) {
 	access, err := authz.Companies(ctx)
 	if err != nil {
-		return tenancy.Entity{}, partner.Named{}, fmt.Errorf("sales: company access: %w", err)
+		return tenancy.Entity{}, fmt.Errorf("sales: company access: %w", err)
 	}
 	le, err := tenancy.Accessible(ctx, e.LegalEntities, access, legalEntity, "legal_entity_id")
 	if err != nil {
-		return tenancy.Entity{}, partner.Named{}, fmt.Errorf("sales: legal entity of a quotation: %w", err)
+		return tenancy.Entity{}, fmt.Errorf("sales: legal entity %s: %w", legalEntity, err)
 	}
+	return le, nil
+}
+
+// customer is the request's customer (customer_id) by number and name: a
+// business partner that may be posted as a customer in the company, else
+// 422 naming customer_id (request.reference_not_found for an unknown
+// one, sales.customer_not_usable otherwise).
+func (e *Endpoints) customer(ctx context.Context, le tenancy.Entity, customer uuid.UUID) (partner.Named, error) {
 	names, err := e.Partners.Names(ctx, []uuid.UUID{customer})
 	if err != nil {
-		return tenancy.Entity{}, partner.Named{}, fmt.Errorf("sales: customer %s: %w", customer, err)
+		return partner.Named{}, fmt.Errorf("sales: customer %s: %w", customer, err)
 	}
 	named, ok := names[customer]
 	if !ok {
-		return tenancy.Entity{}, partner.Named{}, problem.ReferenceNotFound("customer_id", "business partner", "no business partner with this id")
+		return partner.Named{}, problem.ReferenceNotFound("customer_id", "business partner", "no business partner with this id")
 	}
 	why, err := e.Customers.PostingBlock(ctx, customer, le.ID, customerRole)
 	if err != nil {
-		return tenancy.Entity{}, partner.Named{}, fmt.Errorf("sales: may customer %s be sold to: %w", customer, err)
+		return partner.Named{}, fmt.Errorf("sales: may customer %s be sold to: %w", customer, err)
 	}
 	if why != "" {
-		return tenancy.Entity{}, partner.Named{}, problem.Invalid("sales.customer_not_usable", "customer_id", "The customer cannot be sold to: "+why+".")
+		return partner.Named{}, problem.Invalid("sales.customer_not_usable", "customer_id", "The customer cannot be sold to: "+why+".")
 	}
-	return le, named, nil
+	return named, nil
 }
 
-// document is what a new document of the company in the currency is
-// checked against: the currency's minor-unit digits (422
-// sales.unknown_currency naming currency) and the company's date today.
-func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, code string) (document, error) {
+// document is what a new document of the company to the customer in the
+// currency is checked and priced against: the currency's minor-unit
+// digits (422 sales.unknown_currency naming currency) and the company's
+// date today.
+func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, customer uuid.UUID, code string) (document, error) {
 	exp, err := currency.Exponent(ctx, tx, code, problem.Invalid("sales.unknown_currency", "currency", "The currency is not known."))
 	if err != nil {
 		return document{}, fmt.Errorf("sales: currency %s: %w", code, err)
@@ -210,7 +230,7 @@ func (e *Endpoints) document(ctx context.Context, tx pgx.Tx, le tenancy.Entity, 
 	if err != nil {
 		return document{}, err
 	}
-	return document{le: le, currency: code, exp: exp, date: day.Date, zone: day.Zone}, nil
+	return document{le: le, customer: customer, currency: code, exp: exp, date: day.Date, zone: day.Zone}, nil
 }
 
 // MarkAccepted records that the customer accepted an open quotation,

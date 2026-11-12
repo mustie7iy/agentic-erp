@@ -24,8 +24,11 @@ type ItemInput struct {
 	Description string
 	// Quantity is a plain decimal string in the unit of measure Unit.
 	Quantity, Unit string
-	UnitPrice      Amount
-	// PriceUnit is the quantity the unit price refers to, at least 1.
+	// UnitPrice is the price entered with the item; nil: the item takes
+	// the price recorded for its item key (ADR-0067 §10).
+	UnitPrice *Amount
+	// PriceUnit is the quantity an entered unit price refers to, at least
+	// 1; a recorded price comes with its own.
 	PriceUnit int32
 	AccountID uuid.UUID
 	TaxCode   *string
@@ -34,8 +37,8 @@ type ItemInput struct {
 // Item is an item of a sales document as it is stored: what is sold, its
 // quantity (a decimal string with up to six decimals) and unit, its unit
 // price per price unit and its net value in minor units of the document's
-// currency, and the revenue account and output tax code its billing posts
-// with.
+// currency, where the price came from (Manual or PriceList), and the
+// revenue account and output tax code its billing posts with.
 type Item struct {
 	ItemNo      int32       `json:"item_no"`
 	ItemKey     *string     `json:"item_key"`
@@ -44,16 +47,19 @@ type Item struct {
 	Unit        string      `json:"unit"`
 	UnitPrice   money.Minor `json:"unit_price"`
 	PriceUnit   int32       `json:"price_unit"`
+	PriceSource string      `json:"price_source"`
 	Net         money.Minor `json:"net_amount"`
 	AccountID   uuid.UUID   `json:"account_id"`
 	TaxCode     *string     `json:"tax_code"`
 }
 
 // document is what a sales document's items are checked and priced
-// against: its company, its currency with its minor-unit digits, and its
-// date, the company's today in the time zone it is told in.
+// against: its company, its customer, whose prices its items take, its
+// currency with its minor-unit digits, and its date, the company's today
+// in the time zone it is told in.
 type document struct {
 	le       tenancy.Entity
+	customer uuid.UUID
 	currency string
 	exp      int
 	date     time.Time
@@ -75,11 +81,15 @@ func (e *Endpoints) items(ctx context.Context, tx pgx.Tx, doc document, in []Ite
 	if len(in) == 0 {
 		return nil, 0, problem.Invalid("sales.items_required", "items", "A sales document has at least one item.")
 	}
-	units, err := knownUnits(ctx, tx, in)
+	named := make([]string, len(in))
+	for i, it := range in {
+		named[i] = it.Unit
+	}
+	units, err := knownUnits(ctx, tx, named)
 	if err != nil {
 		return nil, 0, err
 	}
-	check := itemCheck{e: e, doc: doc, units: units, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}
+	check := itemCheck{e: e, tx: tx, doc: doc, units: units, accounts: map[uuid.UUID]bool{}, codes: map[string]bool{}}
 	items, nets := make([]Item, len(in)), make([]money.Minor, len(in))
 	for i, it := range in {
 		if items[i], err = check.item(ctx, i, it); err != nil {
@@ -94,17 +104,13 @@ func (e *Endpoints) items(ctx context.Context, tx pgx.Tx, doc document, in []Ite
 	return items, net, nil
 }
 
-// knownUnits are the units of measure the items name that the reference
-// data knows.
-func knownUnits(ctx context.Context, tx pgx.Tx, in []ItemInput) (map[string]bool, error) {
-	named := make([]string, len(in))
-	for i, it := range in {
-		named[i] = it.Unit
-	}
+// knownUnits are the units of measure among those named that the
+// reference data knows.
+func knownUnits(ctx context.Context, tx pgx.Tx, named []string) (map[string]bool, error) {
 	rows, _ := tx.Query(ctx, `SELECT code FROM ref.unit_of_measure WHERE code = ANY($1) ORDER BY code`, named)
 	codes, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
-		return nil, fmt.Errorf("sales: read the items' units of measure: %w", err)
+		return nil, fmt.Errorf("sales: read units of measure: %w", err)
 	}
 	known := make(map[string]bool, len(codes))
 	for _, c := range codes {
@@ -117,6 +123,7 @@ func knownUnits(ctx context.Context, tx pgx.Tx, in []ItemInput) (map[string]bool
 // each account and tax code once.
 type itemCheck struct {
 	e        *Endpoints
+	tx       pgx.Tx
 	doc      document
 	units    map[string]bool
 	accounts map[uuid.UUID]bool // postable in the company
@@ -136,7 +143,7 @@ func (c itemCheck) item(ctx context.Context, i int, it ItemInput) (Item, error) 
 	if !c.units[it.Unit] {
 		return Item{}, problem.Invalid("sales.unknown_unit", field+".quantity.unit", "Unit of measure "+it.Unit+" is not known.")
 	}
-	p, err := price(c.doc, i, it)
+	p, err := price(ctx, c.tx, c.doc, i, it)
 	if err != nil {
 		return Item{}, err
 	}
@@ -149,7 +156,7 @@ func (c itemCheck) item(ctx context.Context, i int, it ItemInput) (Item, error) 
 		}
 	}
 	return Item{ItemNo: int32(i + 1), ItemKey: it.ItemKey, Description: it.Description, Quantity: it.Quantity, Unit: it.Unit,
-		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode}, nil
+		UnitPrice: p.UnitPrice, PriceUnit: p.PriceUnit, PriceSource: p.Source, Net: p.Net, AccountID: it.AccountID, TaxCode: it.TaxCode}, nil
 }
 
 // namesWhatIsSold refuses an item whose description, or whose item key
@@ -223,16 +230,18 @@ func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, d
 	n := len(items)
 	nos, keys, descriptions, quantities, units := make([]int32, n), make([]*string, n), make([]string, n), make([]string, n), make([]string, n)
 	prices, priceUnits, nets, accounts, codes := make([]money.Minor, n), make([]int32, n), make([]money.Minor, n), make([]uuid.UUID, n), make([]*string, n)
+	sources := make([]string, n)
 	for i, it := range items {
 		nos[i], keys[i], descriptions[i], quantities[i], units[i] = it.ItemNo, it.ItemKey, it.Description, it.Quantity, it.Unit
 		prices[i], priceUnits[i], nets[i], accounts[i], codes[i] = it.UnitPrice, it.PriceUnit, it.Net, it.AccountID, it.TaxCode
+		sources[i] = it.PriceSource
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO `+pgx.Identifier{"sales", table}.Sanitize()+` (tenant_id, `+pgx.Identifier{column}.Sanitize()+`, item_no, item_key,
-			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code)
-		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc
-		FROM unnest($3::int[], $4::text[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::bigint[], $11::uuid[], $12::text[])
-			AS x(n, k, d, q, u, p, pu, na, ac, tc)`,
-		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes); err != nil {
+			description, quantity, uom_code, unit_price, price_unit, net_amount, account_id, tax_code, price_source)
+		SELECT $1, $2, n, k, d, q::numeric, u, p, pu, na, ac, tc, ps
+		FROM unnest($3::int[], $4::text[], $5::text[], $6::text[], $7::text[], $8::bigint[], $9::int[], $10::bigint[], $11::uuid[], $12::text[],
+			$13::text[]) AS x(n, k, d, q, u, p, pu, na, ac, tc, ps)`,
+		tenant, doc, nos, keys, descriptions, quantities, units, prices, priceUnits, nets, accounts, codes, sources); err != nil {
 		return fmt.Errorf("sales: write items of sales.%s %s: %w", table, doc, err)
 	}
 	return nil
@@ -246,6 +255,6 @@ func insertItems(ctx context.Context, tx pgx.Tx, table, column string, tenant, d
 func itemsJSON(table, column, doc, extra string) string {
 	return `coalesce((SELECT json_agg(json_build_object('item_no', t.item_no, 'item_key', t.item_key, 'description', t.description,
 			'quantity', trim_scale(t.quantity)::text, 'unit', t.uom_code, 'unit_price', t.unit_price, 'price_unit', t.price_unit,
-			'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code` + extra + `) ORDER BY t.item_no)
+			'price_source', t.price_source, 'net_amount', t.net_amount, 'account_id', t.account_id, 'tax_code', t.tax_code` + extra + `) ORDER BY t.item_no)
 		 FROM ` + pgx.Identifier{"sales", table}.Sanitize() + ` t WHERE t.tenant_id = ` + doc + `.tenant_id AND t.` + pgx.Identifier{column}.Sanitize() + ` = ` + doc + `.id), '[]')`
 }

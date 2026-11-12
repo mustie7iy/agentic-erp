@@ -4572,14 +4572,14 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Price determination",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A pricing analyst records prices for item keys, for every customer or for one, with validity dates; a quotation or order item naming an item key without a price takes the price valid on the document's date (POST /v1/sales-prices)",
-        "r": "T80a · docs/design/plan-breadth-week2.md §T80a",
+        "r": "T80a · docs/design/plan-breadth-week2.md §T80a · db/migrations/000278 · sales.price · price_source on sales.quotation_item, sales_order_item · POST /v1/sales-prices · GET /v1/sales-prices · GET /v1/sales-prices/{id} · SalesPriceChanged · sales.price.read, .write · walkthrough step_price_list · ADR-0067 §10 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

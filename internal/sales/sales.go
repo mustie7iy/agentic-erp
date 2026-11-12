@@ -4,7 +4,10 @@
 // described at a unit price with the revenue account and output tax code
 // its billing will post with. A sales order is created from an accepted
 // quotation or directly and confirmed once (orders.go); Orders is the
-// context's published read of one.
+// context's published read of one. An item's price is the one entered
+// with it, or the price record of its item key valid on the document's
+// date (ADR-0067 §10; prices.go the records, pricing.go the one function
+// that prices an item for both documents).
 //
 // A sales document carries net amounts and posts nothing: tax is
 // calculated when the order is billed, and billing posts through

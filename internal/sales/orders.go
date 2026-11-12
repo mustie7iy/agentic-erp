@@ -253,7 +253,7 @@ func (e *Endpoints) source(ctx context.Context, tx pgx.Tx, in OrderInput) (order
 	if err != nil {
 		return ordered{}, fmt.Errorf("sales: legal entity of a sales order: %w", err)
 	}
-	doc, err := e.document(ctx, tx, le, *in.Currency)
+	doc, err := e.document(ctx, tx, le, *in.CustomerID, *in.Currency)
 	if err != nil {
 		return ordered{}, err
 	}
@@ -296,7 +296,7 @@ func (e *Endpoints) fromQuotation(ctx context.Context, tx pgx.Tx, id uuid.UUID) 
 	if err != nil {
 		return ordered{}, err
 	}
-	return ordered{doc: document{le: le, currency: q.Currency, exp: q.Exponent, date: day.Date, zone: day.Zone}, customer: q.CustomerID, customerField: "quotation_id",
+	return ordered{doc: document{le: le, customer: q.CustomerID, currency: q.Currency, exp: q.Exponent, date: day.Date, zone: day.Zone}, customer: q.CustomerID, customerField: "quotation_id",
 		quotation: &q.ID, items: q.Items, net: q.Net}, nil
 }
 

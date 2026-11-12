@@ -505,7 +505,7 @@ func TestOrderDatedInTheCompanysZone(t *testing.T) {
 	for name, in := range map[string]sales.OrderInput{
 		"from a quotation": {QuotationID: &quotation},
 		"directly": {LegalEntityID: &e.DE, CustomerID: &e.customer, Currency: &currency, Items: []sales.ItemInput{{Description: "Bracket",
-			Quantity: "1", Unit: "EA", UnitPrice: sales.Amount{Value: "10.00", Currency: "EUR"}, PriceUnit: 1, AccountID: e.revenue}}},
+			Quantity: "1", Unit: "EA", UnitPrice: &sales.Amount{Value: "10.00", Currency: "EUR"}, PriceUnit: 1, AccountID: e.revenue}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := e.inRequest(t, func(ctx context.Context) error {

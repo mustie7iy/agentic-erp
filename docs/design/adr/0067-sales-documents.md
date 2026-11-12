@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's and T78b's are there now. The defaults
+records what it built under "As built"; T78a's, T78b's and T80a's are there now. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -107,8 +107,8 @@ an output tax code.
 - **One pricing function.** The item's price and value are set in one
   function for both documents (`internal/sales/pricing.go`, `price`). In
   T78a and T78b the price is the one entered with the item; price
-  determination (T80a, T80b) changes that function and nothing else of
-  the documents.
+  determination (T80a, T80b; §10) changes that function and nothing else
+  of the documents.
 - **The account.** Any account that can be posted in the company may
   carry an item, as on a customer invoice (ADR-0063, default 2). Revenue
   account determination comes later.
@@ -145,8 +145,8 @@ name the customer by id and number, never by name.
 
 ### 7. Permissions and agents
 `sales.quotation.read` and `.write` (creating, and recording the
-customer's answer); `sales.order.read`, `.write` and `.confirm`; the later
-slices add theirs. None is an approval permission. Every write of the
+customer's answer); `sales.order.read`, `.write` and `.confirm`;
+`sales.price.read` and `.write` (§10); the later slices add theirs. None is an approval permission. Every write of the
 context is human-only (`x-agent: false`) in the first version, as
 receivables' are (ADR-0063 §8): no ADR gives an agent a sales action, and
 the order capture agent is a leaf of its own.
@@ -165,7 +165,55 @@ transaction, with the billing date as invoice and tax date; the customer
 invoice is the accounting record, not the legal tax invoice (plan
 default 7; ADR-0063 §2).
 
+### 10. Prices and their determination (T80a)
+A price record is the net price of an item key in a company: for every
+customer, or for one; per a price unit of a unit of measure, in a
+currency; valid from a day and, when it has a last day, until it (plan
+default 8). Records are insert-only: a price is never changed or
+deleted, and a new price is a new record. A pricing analyst records
+them (`POST /v1/sales-prices`, `sales.price.write`, human-only as every
+write of the context, §7).
+
+An item that gives a `unit_price` keeps it, whatever the records say:
+the price sent with the item overrides the price list, and the item
+reads `price_source` `manual`. An item without one takes the record of
+its `item_key` in the document's company that is valid on the document's
+date (the company's date, §2), in the item's unit of measure and the
+document's currency; it reads `price_source` `price_list`. Among the
+records that qualify:
+
+1. the customer's price wins over the general one;
+2. then the latest `valid_from`;
+3. then, of two with the same `valid_from`, the one recorded last
+   (`created_at`, then `id`), so that a price typed wrong is corrected by
+   recording it again, and the choice never depends on the order rows
+   are read in.
+
+A record in another unit or another currency is not converted and does
+not count: the unit and the currency must be the item's. An item with
+neither a price nor such a record, or without an item key to look one
+up by, is refused naming the price it lacks (422 `sales.no_price`,
+`items[i].unit_price`). The item key is compared exactly, as it is
+stored.
+
+The price is fixed on the item when it is created: the item stores the
+unit price, the price unit and the net value, and a later record changes
+no item. An order created from a quotation copies the quotation's items
+with their prices and their sources (§5); it is not priced again. The
+item's value is computed as before (§3): quantity × unit price ÷ price
+unit, half away from zero at the minor unit, more than zero.
+
 ## Alternatives
+- **A price record changed in place, with versions**: the items priced
+  from it would point at a row that no longer says what they took. An
+  insert-only record with a validity is what the plan names, and the
+  later record wins.
+- **One record per key, customer, unit, currency and `valid_from`
+  (a unique rule)**: a wrong price could then not be corrected for its
+  first day. Not taken: the record written last wins.
+- **Converting a price from another unit or currency**: needs unit
+  conversions per item and a rate date; the plan lists currency
+  conversion of a price for later.
 - **Quotations and orders in `receivables`**: not taken. 02 §2.2 and 03
   §3.16 name `sales` as a context of its own, and receivables' documents
   post while sales' do not.
@@ -210,6 +258,19 @@ Plan defaults 1-7 above. Taken in T78a beside them:
    name (REVIEW.md, API-consumer classes).
 8. The customer's rejection is recorded by `:decline`, not the plan's
    `:reject` (§2): the contract's rule on approval decisions decides it.
+
+Taken in T80a beside plan default 8:
+
+9. A price record names its unit and currency, and only an item in that
+   unit on a document in that currency takes it; nothing is converted.
+10. Of two records with the same `valid_from` the one recorded last
+    wins; there is no uniqueness rule on a record's key and dates.
+11. A record's customer is checked as a quotation's is (active, the
+    customer role, not blocked for posting in the company); `valid_from`
+    may be any day, past or to come.
+12. `price_unit` sent without a `unit_price` is not read: a recorded
+    price comes with its own.
+13. Recording prices is human-only, as every sales write (§7).
 
 ## Questions
 - Plan questions 2 and 3 (accounting specialist, product owner): when
@@ -355,3 +416,66 @@ Plan defaults 1-7 above. Taken in T78a beside them:
   cancelling an order, sales areas, partner functions, order types,
   schedule lines, incompletion checks, approval, the order confirmation
   as a document.
+
+### T80a Prices and their determination (migration 000278)
+- `internal/sales/prices.go`, `price_api.go`; `pricing.go`'s `price`
+  now takes the transaction and the document's customer
+  (`document.customer`, set where a document is made in `quotations.go`
+  and `orders.go`), and returns where the price came from. `items.go`
+  stores and reads `price_source`; `ItemInput.UnitPrice` is optional.
+  `quotations.go`'s `parties` is split into `company` and `customer`,
+  which a price record's checks reuse. No new port and no new wiring.
+- Migration 000278: `sales.price` (`price_item_key_check`,
+  `price_positive`, `price_unit_positive`, `price_validity`; a unit and
+  a currency of the reference data; insert-only by
+  `platform.forbid_mutation`; `price_by_item_key`, `price_by_customer`);
+  `price_source` on `sales.quotation_item` and `sales.sales_order_item`
+  (`manual` by default, so the rows there and the previous version's
+  writes are entered prices; `quotation_item_price_source_check`,
+  `sales_order_item_price_source_check`); the permissions
+  `sales.price.read` and `.write`. Schema tests in
+  `db/sales_price_test.go`.
+- `POST /v1/sales-prices` (201 with `Location` and `ETag`, idempotent,
+  human-only), `GET /v1/sales-prices` (the companies the caller may act
+  in; filters `legal_entity_id`, `item_key`, `customer_id`, `valid_on`;
+  sortable by `item_key` and `valid_from`; cursor paging),
+  `GET /v1/sales-prices/{id}` (404 for another company's). A record's
+  `version` is 1: it is written once. It names its company by code and
+  name and its customer by number and name.
+- `unit_price` of `SalesItemCreate` is optional (a request that was
+  valid stays valid); `SalesItem` and `SalesOrderItem` gain
+  `price_source`.
+- Refusals of a price record, each naming the request's own field: an
+  item key of white space `request.validation_failed` (`item_key`); an
+  unknown customer `request.reference_not_found`, one that cannot be
+  sold to `sales.customer_not_usable` (`customer_id`); an unknown unit
+  `sales.unknown_unit` (`unit`); an unknown currency
+  `sales.unknown_currency` (`unit_price.currency`); an amount that is
+  not the currency's `request.invalid_amount`, one of zero or less
+  `sales.amount_not_positive` (`unit_price.amount`); `valid_to` before
+  `valid_from` `sales.invalid_validity` (`valid_to`). Of an item: no
+  price and no valid record, or no key, 422 `sales.no_price`
+  (`items[i].unit_price`); a determined price whose value rounds to
+  zero `sales.amount_not_positive` naming `items[i].quantity.value`,
+  since the price was not the request's.
+- `SalesPriceChanged` (`x-webhook`; the customer by id and number, both
+  null for a general price) and the audit record `sales.price.create`,
+  in the record's transaction.
+- T78a's and T78b's tests pass as they were, but for what the contract's
+  change forces: three literals in `quotations_test.go`,
+  `orders_test.go` and `failures_test.go` give the now optional price as
+  an optional value, and the tests' permission list names the two new
+  permissions. Walkthrough steps 54 and 55 are unchanged.
+- Walkthrough `step_price_list` (step 56): Paula, the pricing analyst,
+  records the general price of BRACKET-M8 and Northwind's own per 100;
+  Sally's quotation item without a price takes Northwind's (250 at
+  1174.99 per 100: 2937.48, rounded half away from zero) beside an item
+  at a price she enters; the same item for Contoso, a second customer,
+  takes the general price; a key without a record and an item without a
+  key are refused naming the price; a later general price changes no
+  item priced before.
+- **Decided by default:** defaults 9-13 above. Not built, by the plan:
+  scales, prices per customer group, price list type or sales
+  organization, surcharges and freight, minimum prices and approval,
+  currency conversion of a price, repricing a document, mass changes
+  and uploads, prices taken over from SAP.

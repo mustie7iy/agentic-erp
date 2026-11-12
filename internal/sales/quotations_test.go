@@ -26,7 +26,8 @@ import (
 
 func TestMain(m *testing.M) { pgtest.Main(m) }
 
-var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.order.read", "sales.order.write", "sales.order.confirm"}
+var perms = []string{"sales.quotation.read", "sales.quotation.write", "sales.order.read", "sales.order.write", "sales.order.confirm",
+	"sales.price.read", "sales.price.write"}
 
 // far is a validity no run of the tests reaches.
 const far = "2099-12-31"
@@ -505,7 +506,7 @@ func TestQuotationDatesAreTheCompanys(t *testing.T) {
 	// 03:00 UTC on 10 March is still 9 March in Toronto.
 	h := endpoints(t, instant(t, "2026-03-10T03:00:00Z"))
 	in := sales.QuotationInput{LegalEntityID: e.DE, CustomerID: e.customer, ValidUntil: instant(t, "2026-03-09T00:00:00Z"), Currency: "EUR",
-		Items: []sales.ItemInput{{Description: "Bracket", Quantity: "1", Unit: "EA", UnitPrice: sales.Amount{Value: "10.00", Currency: "EUR"},
+		Items: []sales.ItemInput{{Description: "Bracket", Quantity: "1", Unit: "EA", UnitPrice: &sales.Amount{Value: "10.00", Currency: "EUR"},
 			PriceUnit: 1, AccountID: e.revenue}}}
 	never := func(int32) error { return nil }
 	err := e.inRequest(t, func(ctx context.Context) error {

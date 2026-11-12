@@ -40,7 +40,9 @@ func (e *Endpoints) references(ctx context.Context, docs []named) (references, e
 	refs := references{companies: map[uuid.UUID]tenancy.Entity{}}
 	var partners, accounts []uuid.UUID
 	for _, d := range docs {
-		partners = append(partners, d.customer)
+		if d.customer != uuid.Nil { // a general price names none
+			partners = append(partners, d.customer)
+		}
 		for _, it := range d.items {
 			accounts = append(accounts, it.AccountID)
 		}
@@ -77,8 +79,10 @@ func itemInputs(items []gen.SalesItemCreate) []ItemInput {
 	out := make([]ItemInput, len(items))
 	for i, it := range items {
 		out[i] = ItemInput{ItemKey: apitypes.Ptr[string](it.ItemKey), Description: it.Description, Quantity: it.Quantity.Value, Unit: it.Quantity.Unit,
-			UnitPrice: Amount{Value: it.UnitPrice.Amount, Currency: it.UnitPrice.Currency}, PriceUnit: it.PriceUnit.Or(1), AccountID: it.AccountID,
-			TaxCode: apitypes.Ptr[string](it.TaxCode)}
+			PriceUnit: it.PriceUnit.Or(1), AccountID: it.AccountID, TaxCode: apitypes.Ptr[string](it.TaxCode)}
+		if p, ok := it.UnitPrice.Get(); ok {
+			out[i].UnitPrice = &Amount{Value: p.Amount, Currency: p.Currency}
+		}
 	}
 	return out
 }
@@ -89,7 +93,7 @@ func itemAPI(it Item, currency string, exp int, refs references) gen.SalesItem {
 	account := refs.accounts[it.AccountID]
 	return gen.SalesItem{ItemNo: it.ItemNo, ItemKey: apitypes.OptString(it.ItemKey), Description: it.Description,
 		Quantity: gen.Quantity{Value: it.Quantity, Unit: it.Unit}, UnitPrice: apitypes.Money(it.UnitPrice, currency, exp), PriceUnit: it.PriceUnit,
-		NetAmount: apitypes.Money(it.Net, currency, exp), AccountID: it.AccountID, AccountNumber: account.Number, AccountName: account.Name,
+		PriceSource: it.PriceSource, NetAmount: apitypes.Money(it.Net, currency, exp), AccountID: it.AccountID, AccountNumber: account.Number, AccountName: account.Name,
 		TaxCode: apitypes.OptString(it.TaxCode)}
 }
 

@@ -325,6 +325,10 @@ type CreateSalesOrderRes interface {
 	createSalesOrderRes()
 }
 
+type CreateSalesPriceRes interface {
+	createSalesPriceRes()
+}
+
 type CreateSegmentRes interface {
 	createSegmentRes()
 }
@@ -771,6 +775,10 @@ type GetRoleRes interface {
 
 type GetSalesOrderRes interface {
 	getSalesOrderRes()
+}
+
+type GetSalesPriceRes interface {
+	getSalesPriceRes()
 }
 
 type GetSchemaRes interface {
@@ -1247,6 +1255,10 @@ type ListRolesRes interface {
 
 type ListSalesOrdersRes interface {
 	listSalesOrdersRes()
+}
+
+type ListSalesPricesRes interface {
+	listSalesPricesRes()
 }
 
 type ListSegmentsRes interface {

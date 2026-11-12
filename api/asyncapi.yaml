@@ -430,12 +430,13 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations and sales orders (ADR-0067 §6).
+    description: Quotations, sales orders and sales prices (ADR-0067 §6, §10).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       QuotationChanged: {$ref: '#/components/messages/QuotationChanged'}
       SalesOrderChanged: {$ref: '#/components/messages/SalesOrderChanged'}
+      SalesPriceChanged: {$ref: '#/components/messages/SalesPriceChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -711,6 +712,7 @@ operations:
     messages:
       - $ref: '#/channels/sales/messages/QuotationChanged'
       - $ref: '#/channels/sales/messages/SalesOrderChanged'
+      - $ref: '#/channels/sales/messages/SalesPriceChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3810,6 +3812,33 @@ components:
         - name: confirmed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: confirmed, status_before: draft, version: 2}
+    SalesPriceChanged:
+      name: SalesPriceChanged
+      x-webhook: true
+      title: Sales price changed
+      summary: A sales price was recorded.
+      description: |
+        Emitted when a price record is written (ADR-0067 §10, T80a): the
+        net price of an item key in a company, for every customer
+        (customer_id and customer_number null) or for one, valid from a
+        day. A record is never changed: a new price is a new record with
+        a later valid_from, and this event again. It names the customer
+        by id and number, never by name. `GET /v1/sales-prices/{id}`
+        returns the record. Subject is the price record's id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.sales_price_changed.v1}
+      payload: {$ref: '#/components/schemas/SalesPriceChangedV1'}
+      examples:
+        - name: general
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001021, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001031, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001031, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: null, customer_number: null, unit: EA, unit_price: {amount: '12.50', currency: CAD}, price_unit: 1, valid_from: '2026-11-01', valid_to: null}
+        - name: for_a_customer
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001022, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_price_changed.v1, subject: 0192a000-0000-7000-8000-000000001032, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {price_id: 0192a000-0000-7000-8000-000000001032, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', item_key: BRACKET-M8, customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, unit: EA, unit_price: {amount: '1175.00', currency: CAD}, price_unit: 100, valid_from: '2026-11-01', valid_to: '2027-10-31'}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4533,6 +4562,21 @@ components:
         status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
         version: {type: integer, description: "The order's version after the change."}
+    SalesPriceChangedV1:
+      type: object
+      required: [price_id, legal_entity_id, legal_entity_code, item_key, customer_id, customer_number, unit, unit_price, price_unit, valid_from, valid_to]
+      properties:
+        price_id: {$ref: '#/components/schemas/Uuid', description: '`sales.price.id`.'}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company whose price it is.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        item_key: {type: string, description: 'The key naming what is sold, as sales items give it.'}
+        customer_id: {type: [string, 'null'], format: uuid, description: 'The customer the price is for (`partner.business_partner.id`); null for a general price.'}
+        customer_number: {type: [string, 'null'], description: "The customer's business partner number; null for a general price."}
+        unit: {type: string, description: 'The unit of measure the price is per.'}
+        unit_price: {$ref: '#/components/schemas/Money', description: 'The net price per `price_unit`.'}
+        price_unit: {type: integer, description: 'The quantity the unit price refers to.'}
+        valid_from: {$ref: '#/components/schemas/Date', description: 'The first day the price is valid.'}
+        valid_to: {type: [string, 'null'], format: date, description: 'The last day the price is valid; null: no last day.'}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

@@ -4238,7 +4238,8 @@ foreign key out of its schema (02 §2.1) and posts nothing itself (billing
 posts through receivables, §3.26). T78a (migration 000276) builds the
 schema with its outbox and inbox and the quotation: what the company
 offers a customer, valid until a date, net of tax. T78b (migration
-000277) adds the sales order. There is no material
+000277) adds the sales order and T80a (migration 000278) the price
+records an item without a price is priced from. There is no material
 master (§3.16's shared `material` joins the items when it is built): an
 item names what is sold by a description and an optional free-text
 `item_key`.
@@ -4265,6 +4266,7 @@ erDiagram
     text uom_code "ref.unit_of_measure"
     bigint unit_price "per price_unit, above zero"
     int price_unit
+    text price_source "manual or price_list"
     bigint net_amount "quantity x unit_price / price_unit, rounded"
     uuid account_id "ledger, revenue as a rule"
     text tax_code "optional output tax code"
@@ -4289,6 +4291,17 @@ erDiagram
     numeric delivered_quantity "at most quantity"
     numeric billed_quantity "at most delivered_quantity"
   }
+  price { uuid id PK
+    uuid legal_entity_id "tenancy"
+    text item_key "as sales items give it"
+    uuid customer_id "optional: partner; null for every customer"
+    text uom_code "ref.unit_of_measure"
+    char currency
+    bigint unit_price "per price_unit, above zero"
+    int price_unit
+    date valid_from
+    date valid_to "optional, not before valid_from"
+  }
 ```
 
 - `sales.quotation`: numbered once per company
@@ -4309,7 +4322,11 @@ erDiagram
   unit price above zero per a price unit above zero
   (`quotation_item_price_positive`, `quotation_item_price_unit_positive`)
   and a net value above zero (`quotation_item_net_positive`);
-  insert-only (`platform.forbid_mutation`).
+  insert-only (`platform.forbid_mutation`). `price_source` (T80a) says
+  where the unit price came from: `manual`, entered with the item, the
+  default, or `price_list`, a price record's
+  (`quotation_item_price_source_check`; on an order item
+  `sales_order_item_price_source_check`).
 - `sales.sales_order` (T78b, migration 000277): numbered once per
   company (`sales_order_number_once`), with a payment term and a net
   value above zero (`sales_order_net_positive`); the status is `draft` or
@@ -4327,7 +4344,21 @@ erDiagram
   `0 <= billed_quantity <= delivered_quantity <= quantity`
   (`sales_order_item_quantities`). The application may not change or
   delete an item until T78c and T79a are granted what they set.
+- `sales.price` (T80a, migration 000278; ADR-0067 §10): the net price of
+  an item key (`price_item_key_check`) in a company, for every customer
+  (`customer_id` null) or for one, above zero (`price_positive`) per a
+  price unit above zero (`price_unit_positive`) of a unit of the
+  reference data, in a currency, valid from a day and, when `valid_to`
+  is set, until a day not before it (`price_validity`). Insert-only
+  (`platform.forbid_mutation`; the application may not update or delete):
+  a new price is a new record, and the same key may have several. An
+  item without a price takes the record of its key valid on the
+  document's date in its unit and the document's currency: the
+  customer's before the general one, then the latest `valid_from`, then
+  the latest `created_at` and `id`. The determination and the list read a
+  company's records of a key (`price_by_item_key`) and a customer's
+  (`price_by_customer`).
 - `sales.outbox`, `sales.inbox`: the context's events
-  (`QuotationChanged`, `SalesOrderChanged`).
+  (`QuotationChanged`, `SalesOrderChanged`, `SalesPriceChanged`).
 - Permissions `sales.quotation.read` and `.write`; `sales.order.read`,
-  `.write` and `.confirm`.
+  `.write` and `.confirm`; `sales.price.read` and `.write`.
