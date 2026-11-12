@@ -97,7 +97,9 @@ func scanDelivery(row pgx.Row) (Delivery, error) {
 // UPDATE (ADR-0008) and its items are read after the lock is held
 // (loadOrder), so two confirmations of one order wait for one another
 // and the second is judged on what the first left open. Only a
-// confirmed order takes one (409 sales.order_not_confirmed); the date is
+// confirmed order takes one (409 sales.order_not_confirmed), and one
+// blocked for credit none until its block is released (409
+// sales.order_credit_blocked; ADR-0066, As built T77b); the date is
 // not after the company's date today (422 sales.delivery_date_in_future);
 // each item is one of the order's, named once, with a quantity in its
 // unit of at most what is open (422, naming the request's field). The
@@ -117,6 +119,10 @@ func (e *Endpoints) ConfirmDelivery(ctx context.Context, orderID uuid.UUID, in D
 	if o.Status != Confirmed {
 		return Delivery{}, problem.Conflict("sales.order_not_confirmed",
 			"Sales order "+o.DocumentNumber+" is "+o.Status+"; a delivery is confirmed against a confirmed order.")
+	}
+	if o.CreditBlock == Blocked {
+		return Delivery{}, problem.Conflict("sales.order_credit_blocked",
+			"Sales order "+o.DocumentNumber+" is blocked for credit; it takes a delivery once its credit block is released.")
 	}
 	le, _, err := e.LegalEntities.Entity(ctx, o.LegalEntityID) // a stored order's legal entity exists
 	if err != nil {

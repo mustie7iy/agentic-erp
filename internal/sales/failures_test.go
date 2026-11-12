@@ -36,7 +36,25 @@ func TestDatabaseFailures(t *testing.T) {
 	created, _ := e.Must(201, "POST", billings, bill(toBill, ""), "")
 	billing := uuid.MustParse(created["id"].(string))
 	e.Must(201, "POST", deliveries(toBill), delivered(today, "1 1 EA", "2 2 EA"), "")
+	// The customer has a limit and confirmed orders, so a confirmation reads its limit, its orders and its open items;
+	// another customer's order is blocked, and one is in US dollars at a recorded rate.
+	e.limited(t, e.customer, "100000.00")
+	blocked := uuid.MustParse(e.placed(t, e.buyer(t, "BP70000090", "0.00"), e.item(line{code: "A1"}))["id"].(string))
+	e.usd(t)
+	dollars := uuid.MustParse(e.drafted(t, e.customer, "USD", e.item(line{currency: "USD", code: "A1"})))
 	calls := map[string]func(ctx context.Context) error{
+		"release a credit block": func(ctx context.Context) error {
+			_, err := h.ReleaseSalesOrderCreditBlock(ctx, gen.ReleaseSalesOrderCreditBlockParams{ID: blocked, IfMatch: `"2"`})
+			return err
+		},
+		"confirm in another currency": func(ctx context.Context) error {
+			_, err := h.ConfirmSalesOrder(ctx, gen.ConfirmSalesOrderParams{ID: dollars, IfMatch: `"1"`})
+			return err
+		},
+		"open orders": func(ctx context.Context) error {
+			_, _, err := h.OpenOrders(ctx, e.DE, e.customer)
+			return err
+		},
 		"confirm a delivery": func(ctx context.Context) error {
 			_, err := h.ConfirmSalesDelivery(ctx, &gen.SalesDeliveryCreate{DeliveryDate: instant(t, "2026-01-03T00:00:00Z"), Items: []gen.SalesDeliveryItemCreate{
 				{ItemNo: 1, Quantity: gen.Quantity{Value: "2", Unit: "EA"}}, {ItemNo: 2, Quantity: gen.Quantity{Value: "0.5", Unit: "KG"}}}},

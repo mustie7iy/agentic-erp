@@ -38,7 +38,10 @@ func orderAPI(o Order, refs references) gen.SalesOrder {
 		CompanyName: le.Name, CustomerID: o.CustomerID, CustomerNumber: customer.Number, CustomerName: customer.Name,
 		QuotationID: apitypes.OptUUID(o.QuotationID), QuotationNumber: apitypes.OptString(o.QuotationNumber), OrderDate: o.OrderDate,
 		Currency: o.Currency, PaymentTermCode: o.PaymentTermCode, NetAmount: apitypes.Money(o.Net, o.Currency, o.Exponent), Status: o.Status,
-		Items: make([]gen.SalesOrderItem, len(o.Items))}
+		CreditBlock: o.CreditBlock, CreditReleasedBy: apitypes.OptUUID(o.CreditReleasedBy), Items: make([]gen.SalesOrderItem, len(o.Items))}
+	if o.CreditReleasedAt != nil {
+		out.CreditReleasedAt.SetTo(*o.CreditReleasedAt)
+	}
 	for i, it := range o.Items {
 		base := itemAPI(it.Item, o.Currency, o.Exponent, refs)
 		out.Items[i] = gen.SalesOrderItem{ItemNo: base.ItemNo, ItemKey: base.ItemKey, Description: base.Description, Quantity: base.Quantity,
@@ -104,6 +107,21 @@ func (e *Endpoints) ConfirmSalesOrder(ctx context.Context, params gen.ConfirmSal
 	return &gen.ConfirmSalesOrderOKHeaders{ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
 }
 
+// ReleaseSalesOrderCreditBlock implements POST
+// /v1/sales-orders/{id}:releaseCreditBlock.
+func (e *Endpoints) ReleaseSalesOrderCreditBlock(ctx context.Context, params gen.ReleaseSalesOrderCreditBlockParams) (gen.ReleaseSalesOrderCreditBlockRes, error) {
+	o, err := e.ReleaseCreditBlock(ctx, params.ID, etag.IfMatch(params.IfMatch))
+	if err != nil {
+		return nil, err
+	}
+	out, err := e.orderAnswer(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	return &gen.ConfirmSalesOrderOKHeaders{ // ogen gives the two actions one answer type
+		ETag: gen.NewOptString(etag.Format(o.Version)), Response: out}, nil
+}
+
 var orderSort = pagination.Sort{Default: "order_date", Fields: []pagination.Field{
 	{Name: "order_date", Column: "o.order_date", Type: "date"}, {Name: "document_number", Column: "o.document_number", Type: "text"},
 }}
@@ -116,7 +134,7 @@ func (e *Endpoints) ListSalesOrders(ctx context.Context, params gen.ListSalesOrd
 		return nil, err
 	}
 	le, customer, quotation := apitypes.Ptr[uuid.UUID](params.LegalEntityID), apitypes.Ptr[uuid.UUID](params.CustomerID), apitypes.Ptr[uuid.UUID](params.QuotationID)
-	scope := fmt.Sprintf("listSalesOrders|%s|%s|%s|%s|%s", le, customer, params.Status.Value, params.DocumentNumber.Value, quotation)
+	scope := fmt.Sprintf("listSalesOrders|%s|%s|%s|%s|%s|%s", le, customer, params.Status.Value, params.DocumentNumber.Value, quotation, params.CreditBlock.Value)
 	ks, err := e.Pages.Keyset(orderSort, scope, apitypes.Page(params.OrderBy, params.PageSize, params.PageToken))
 	if err != nil {
 		return nil, fmt.Errorf("sales: page of sales orders: %w", err)
@@ -127,8 +145,8 @@ func (e *Endpoints) ListSalesOrders(ctx context.Context, params gen.ListSalesOrd
 	}
 	query, args := ks.SQL(orderSelect+` WHERE ($1 OR o.legal_entity_id = ANY($2)) AND ($3::uuid IS NULL OR o.legal_entity_id = $3)
 		AND ($4::uuid IS NULL OR o.customer_id = $4) AND ($5 = '' OR o.status = $5) AND ($6 = '' OR o.document_number = $6)
-		AND ($7::uuid IS NULL OR o.quotation_id = $7)`,
-		[]any{access.All, access.IDs, le, customer, params.Status.Value, params.DocumentNumber.Value, quotation})
+		AND ($7::uuid IS NULL OR o.quotation_id = $7) AND ($8 = '' OR o.credit_block = $8)`,
+		[]any{access.All, access.IDs, le, customer, params.Status.Value, params.DocumentNumber.Value, quotation, params.CreditBlock.Value})
 	rows, _ := tx.Query(ctx, query, args...)
 	orders, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (Order, error) { return scanOrder(r) })
 	if err != nil {

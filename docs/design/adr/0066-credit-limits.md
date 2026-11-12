@@ -267,3 +267,114 @@ the check is what an agent that takes an order asks first.
   the checks; she raises the limit with her version of it, a stale
   version refused, and 600.00 is within it; the audit trail has the
   limit's two records.
+
+### T77b Order credit block (migration 000296)
+
+The check that blocked nothing now blocks a sales order
+(`docs/design/plan-breadth-week2.md`, T77b). The product owner decided on
+2026-11-12 what the plan's default 10 and questions 10 and 11 left open;
+§3 and §4 above read with these changes.
+
+- **The exposure has two parts** (product owner, 2026-11-12; it replaces
+  "open orders … do not count" in §3 and answers question 1's second
+  half). A customer's exposure in a company is its open items, as T77a
+  reads them, plus the gross value of its confirmed sales orders not yet
+  billed. `GET /v1/credit-exposure` gives both beside their sum:
+  `open_items` with `open_item_count`, `open_orders` with
+  `open_order_count`, and `exposure`, the two together, from which
+  `available` and `is_within_limit` follow.
+- **What an order counts.** Of each order of the company that is
+  `confirmed` and not blocked for credit, the part not yet posted as a
+  customer invoice: per item, its net value less what posted billing
+  documents billed of it, plus the output tax on those open amounts.
+  What is posted is the customer's open item from then on, so nothing
+  counts twice. No billing document is posted before T79b: until then a
+  confirmed order counts in full, a created (unposted) billing document
+  changing nothing.
+- **Gross with gross** (product owner, 2026-11-12; plan question 10). The
+  amount is net plus output tax, calculated by `internal/tax` on the
+  order's date over the items that carry a tax code, rounded as the
+  company's tax settings say: the calculation receivables makes for an
+  invoice (ADR-0063 §4), with the order's date standing in for the
+  invoice date billing will have. Gross is net plus tax exactly
+  (`money.Sum`). A tax code that is no longer an output tax code of the
+  company on the order's date refuses the valuation (422
+  `sales.unknown_tax_code`, naming the order and the item) rather than
+  being read as no tax.
+- **In the company's currency.** An order in another currency is
+  converted at the average rate valid on the order's date
+  (`ledger.Rates.Conversion`, the rate `ExactToCompany` uses, which the
+  plan names), rounded once to the company's minor units: what is
+  compared is what `GET /v1/credit-exposure` shows. Without a rate the
+  valuation is refused (422 `ledger.no_exchange_rate`). The rate is the
+  order date's for as long as the order is open; nothing is revalued.
+  Decided by default.
+- **Who owns what, and how the two contexts ask each other.** The sales
+  context owns the orders and their valuation: `sales.Endpoints.OpenOrders`
+  is its published read of a customer's open orders in a company (a
+  count and a gross amount in the company's currency). Credit declares
+  the port `credit.OpenOrders` with plain values, so it imports nothing
+  of sales. Sales asks credit whether an order is within the limit
+  through a port sales declares, `sales.Credit`, which the composition
+  root answers from `credit.Endpoints.Check` (`app.salesCredit`), as
+  partner asks cash about planning groups. Neither context imports the
+  other; `credit` stays a leaf and `internal/layout`'s import table is
+  unchanged. The composition root builds the two together
+  (`app.salesAndCredit`). No dependency direction changed.
+- **The check at confirmation** (`sales.Endpoints.ConfirmOrder`, in the
+  confirming transaction). The order's whole gross value, in the
+  company's currency, is checked with the exposure, which does not hold
+  the order yet: it is within the limit when exposure and amount together
+  are no more than it. A customer without a limit is never blocked. An
+  order over the limit is confirmed with `credit_block` `blocked`; one
+  within it with `none`. The order is not checked again (plan default
+  10).
+- **The lock.** `credit.Endpoints.Check` reads the customer's limit row
+  `FOR UPDATE` and holds it until the confirming transaction ends, and
+  reads the exposure after the lock is held. Two confirmations of two
+  orders of one customer therefore run one after the other, and the
+  second is checked against an exposure that holds the first: they
+  cannot both take the room only one fits. Changing the limit waits on
+  the same row. The order's own row is locked first, the limit second,
+  and nothing takes them the other way round. A customer without a limit
+  has no row to hold and needs none. Within the check the orders are
+  read before the open items, so an invoice posted between the two reads
+  is counted in both, never in neither.
+- **A blocked order does not count in the exposure** until it is
+  released. Decided by default: the product owner counted "confirmed
+  orders not yet billed"; a blocked order cannot be delivered, so it
+  commits no credit, and there is no way to reject or cancel one in the
+  first version, so counting it would block every later order of the
+  customer until someone released an order nobody means to deliver. Once
+  released it counts, and may take the exposure above the limit: that is
+  the credit manager's decision. Listed for the product owner.
+- **Every confirmation values the order**, whether the customer has a
+  limit or not, since the order counts in its exposure from then on and a
+  limit may be set later: a tax code or a rate that is missing refuses
+  the confirmation instead of surfacing at a later read. Decided by
+  default.
+- **The block and its release** are the sales context's (ADR-0067, As
+  built T77b): `credit_block` on `sales.sales_order`, the refusal of a
+  delivery, `POST /v1/sales-orders/{id}:releaseCreditBlock` with
+  `sales.order.credit_release`, and the events. No rule sets the person
+  who releases apart from the one who confirmed (product owner,
+  2026-11-12; plan question 11). The limit stays per customer and
+  company.
+- **Tests.** `internal/credit/check_test.go` (the two parts, the check,
+  amounts out of range), `internal/sales/credit_test.go` (the block, the
+  lock with `apitest.Serialized`, the release, currencies, tax);
+  walkthrough `step_credit_block` (step 66), which also raises step 59's
+  last limit so that step 63's order of 1824.41 CAD gross is within it.
+- **When T79b lands** (posting a billing document as a customer
+  invoice): `sales.openOrders` (`internal/sales/credit.go`) subtracts the
+  items of billing documents whose `status` is `posted`, the status the
+  plan gives T79b. If T79b names it otherwise, that one literal changes.
+  `TestOpenOrdersAndBilling` (`internal/sales/credit_test.go`) asserts
+  today's half, a created document changing nothing, and says where the
+  posted half is added: after the post, `open_orders` falls by the
+  document's gross, `open_items` rises by the invoice's, and `exposure`
+  stays when the invoice's tax is the order date's.
+- **Not built, by the plan's "Later":** checking again at delivery or
+  when an order changes, automatic release on payment, rejecting a
+  blocked order, a worklist of blocked orders, approval of a release
+  above an amount, group limits, risk classes.

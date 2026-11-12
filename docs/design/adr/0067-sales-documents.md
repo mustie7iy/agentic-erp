@@ -803,3 +803,72 @@ Taken in T80b beside plan default 9:
   conditions, condition exclusion, statistical conditions, tax as a
   condition, rebates, pricing configuration generated from SAP's
   condition tables.
+
+### T77b Order credit block (migration 000296)
+
+The credit check joins the confirmation, as T78b left it to
+(`docs/design/plan-breadth-week2.md`, T77b; ADR-0066, As built T77b,
+which records what the check compares, the exposure and the lock).
+
+- `internal/sales/credit.go`: the ports `Credit` (the check, answered by
+  the credit context through the composition root, since credit is a
+  leaf) and `Rates` (`ledger.Rates`); the valuation of an order (net plus
+  output tax on the order's date, in the company's currency);
+  `Endpoints.OpenOrders`, the context's published read of a customer's
+  confirmed orders not yet billed, for the credit exposure;
+  `ReleaseCreditBlock`. `orders.go` checks at confirmation,
+  `deliveries.go` refuses a blocked order, `order_api.go` shows the
+  block, filters by it and releases it.
+- Migration 000296: on `sales.sales_order`, `credit_block` (`none`,
+  `blocked`, `released`; `sales_order_credit_block_check`),
+  `credit_released_by` and `credit_released_at`, set exactly when it is
+  released (`sales_order_credit_release`); a draft has no block
+  (`sales_order_credit_block_confirmed`). The order's change rule
+  (`sales_order_confirmed_once`) admits a draft confirmed with or without
+  a block, never already released, and a blocked order released, once;
+  the application is granted the three columns. The delivery's trigger
+  refuses a blocked order (`delivery_order_confirmed`). The permission
+  `sales.order.credit_release`. Schema tests in `db/sales_test.go`.
+- `POST /v1/sales-orders/{id}:confirm` answers the order with its
+  `credit_block`: `none`, or `blocked` for an order over the customer's
+  limit. It is confirmed either way (200). It refuses an order whose
+  value cannot be calculated: 422 `sales.unknown_tax_code` (a tax code no
+  longer an output code on the order's date), 422
+  `ledger.no_exchange_rate` (another currency without a rate on the
+  order's date), 422 `sales.amount_too_large`.
+- `POST /v1/sales-orders/{id}/deliveries` refuses a blocked order, 409
+  `sales.order_credit_blocked` (the plan's status; a state the order is
+  in, as 409 `sales.order_not_confirmed` is). Billing bills what is
+  delivered, so a blocked order has nothing to bill (422
+  `sales.nothing_to_bill`).
+- `POST /v1/sales-orders/{id}:releaseCreditBlock`
+  (`sales.order.credit_release`, `If-Match`, idempotent, human-only):
+  `blocked` to `released`, once, under the order's row lock, with who
+  released it and when; 409 `sales.order_not_credit_blocked` for an order
+  without a block or already released. Nothing is checked again.
+- `GET /v1/sales-orders?credit_block=` filters by the block; the order
+  shows `credit_block`, `credit_released_by` and `credit_released_at`.
+- Events and audit: `SalesOrderChanged` carries `credit_block`;
+  `SalesOrderCreditBlocked` (`x-webhook`; the order's gross value, the
+  amount checked, the limit and the exposure it was checked against) is
+  published with it when the order is blocked; the confirmation's audit
+  record holds the amount checked and, for a customer with a limit, the
+  limit and the exposure. `SalesOrderCreditReleased` (`x-webhook`; who
+  and when) and the audit record `sales.sales_order.release_credit_block`
+  for the release. Events name the customer by id and number.
+- Walkthrough `step_credit_block` (step 66): with Northwind's limit of
+  step 59, Sally confirms an order within what is available, without a
+  block, and a larger one, blocked; its delivery is refused; Sally may
+  not release it; Ruth, who holds the credit manager's role, releases
+  it, once, and the delivery is confirmed; the exposure shows the open
+  orders beside the open items throughout.
+- **Decided by default:** the action is `:releaseCreditBlock`, the
+  contract's form of an action's name (`:signOff`, `:acceptProposal`;
+  `api/spec_test.go`), where the plan wrote `:release-credit-block`; the
+  refusal of a delivery is 409, the plan's
+  status and the status of the order's other state refusals; `none` is
+  stored for an unblocked order and a draft rather than a null; the
+  release takes the caller's version (`If-Match`) as the confirmation
+  does; `SalesOrderChanged` gains `credit_block` rather than the
+  confirmation publishing a second kind of change event for an unblocked
+  order. Not built, by the plan's "Later": see ADR-0066, As built T77b.

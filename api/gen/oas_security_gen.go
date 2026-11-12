@@ -456,6 +456,7 @@ var operationRolesOidc = map[string][]string{
 	ReleaseInternalOrderOperation:                  []string{},
 	ReleasePaymentRunOperation:                     []string{},
 	ReleasePurchaseOrderOperation:                  []string{},
+	ReleaseSalesOrderCreditBlockOperation:          []string{},
 	ReleaseSupplierInvoiceOperation:                []string{},
 	RemoveHierarchyNodeOperation:                   []string{},
 	RenameHierarchyNodeOperation:                   []string{},

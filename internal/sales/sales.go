@@ -4,7 +4,10 @@
 // described at a unit price with the revenue account and output tax code
 // its billing will post with. A sales order is created from an accepted
 // quotation or directly and confirmed once (orders.go); Orders is the
-// context's published read of one. An item's price is the one entered
+// context's published read of one. The confirmation checks the order's
+// gross value against the customer's credit limit and blocks an order
+// over it until a credit manager releases it (ADR-0066 and ADR-0067, As
+// built T77b; credit.go). An item's price is the one entered
 // with it, or the price record of its item key valid on the document's
 // date (ADR-0067 §10; prices.go the records, pricing.go the one function
 // that prices an item for both documents). A tenant whose configuration
@@ -19,10 +22,11 @@
 // key (ADR-0067 §3). Quantities are decimal strings, amounts minor units
 // of the document's currency (ADR-0005).
 //
-// The context reads the ledger (accounts, tax codes), the partner context
-// (the customer by role, its company data and the payment terms), tenancy
-// and the configuration through the ports
-// below, as receivables does.
+// The context reads the ledger (accounts, tax codes, exchange rates), the
+// partner context (the customer by role, its company data and the payment
+// terms), tenancy and the configuration through the ports below, as
+// receivables does, and asks the credit context, a leaf, about a
+// customer's limit through a port of its own (Credit).
 package sales
 
 import (
@@ -115,6 +119,8 @@ type Endpoints struct {
 	Numbers       Numbers
 	Calendar      Calendar
 	Settings      Settings
+	Rates         Rates
+	Credit        Credit
 	// Now is the clock a document is dated by and a quotation's validity
 	// is judged on, in the company's time zone; nil: the wall clock.
 	Now func() time.Time

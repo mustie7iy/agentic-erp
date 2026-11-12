@@ -439,7 +439,7 @@ channels:
   sales:
     address: 'erp.{cell}.sales.{tenant}.{event}'
     title: Sales events
-    description: Quotations, sales orders, their deliveries, billing documents and sales prices and discounts (ADR-0067 §6, §10, §11).
+    description: Quotations, sales orders, their deliveries, their credit blocks, billing documents and sales prices and discounts (ADR-0067 §6, §10, §11; ADR-0066, T77b).
     servers: [{$ref: '#/servers/jetstream'}]
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
@@ -448,6 +448,8 @@ channels:
       SalesPriceChanged: {$ref: '#/components/messages/SalesPriceChanged'}
       SalesOrderDelivered: {$ref: '#/components/messages/SalesOrderDelivered'}
       BillingDocumentChanged: {$ref: '#/components/messages/BillingDocumentChanged'}
+      SalesOrderCreditBlocked: {$ref: '#/components/messages/SalesOrderCreditBlocked'}
+      SalesOrderCreditReleased: {$ref: '#/components/messages/SalesOrderCreditReleased'}
   credit:
     address: 'erp.{cell}.credit.{tenant}.{event}'
     title: Credit management events
@@ -742,6 +744,8 @@ operations:
       - $ref: '#/channels/sales/messages/SalesPriceChanged'
       - $ref: '#/channels/sales/messages/SalesOrderDelivered'
       - $ref: '#/channels/sales/messages/BillingDocumentChanged'
+      - $ref: '#/channels/sales/messages/SalesOrderCreditBlocked'
+      - $ref: '#/channels/sales/messages/SalesOrderCreditReleased'
   publishCreditEvents:
     action: send
     title: Credit management publishes
@@ -4039,7 +4043,10 @@ components:
         is confirmed (`confirmed`, status_before `draft`). It carries the
         order's net value, not its items, names the customer by id and
         number, never by name, and the quotation the order was created
-        from (null for an order created directly).
+        from (null for an order created directly). `credit_block` is the
+        order's credit block after the change: `none` for a draft, and
+        `none` or `blocked` for an order just confirmed (T77b); a blocked
+        one is also published as SalesOrderCreditBlocked.
         `GET /v1/sales-orders/{id}` returns the order at `version` or
         later. Subject is the sales order id.
       traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
@@ -4052,10 +4059,10 @@ components:
       examples:
         - name: created
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001101, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-19T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: draft, status_before: null, version: 1}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: draft, status_before: null, credit_block: none, version: 1}
         - name: confirmed
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001102, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_changed.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-19T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
-          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: confirmed, status_before: draft, version: 2}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_id: 0192a000-0000-7000-8000-000000001011, order_date: '2026-11-19', payment_term_code: NT30, net_amount: {amount: '1500.00', currency: CAD}, status: confirmed, status_before: draft, credit_block: none, version: 2}
     SalesPriceChanged:
       name: SalesPriceChanged
       x-webhook: true
@@ -4117,6 +4124,58 @@ components:
         - name: delivered
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001103, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_delivered.v1, subject: 0192a000-0000-7000-8000-000000001111, time: '2026-11-20T15:42:07Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {delivery_id: 0192a000-0000-7000-8000-000000001211, delivery_no: 1, sales_order_id: 0192a000-0000-7000-8000-000000001111, document_number: SO100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, delivery_date: '2026-11-20', items: [{item_no: 1, quantity: {value: '120', unit: EA}, delivered_quantity: {value: '120', unit: EA}}], version: 3}
+    SalesOrderCreditBlocked:
+      name: SalesOrderCreditBlocked
+      x-webhook: true
+      title: Sales order blocked for credit
+      summary: A sales order was confirmed over its customer's credit limit and is blocked.
+      description: |
+        Emitted when a sales order is confirmed with a credit block
+        (ADR-0066, T77b): its gross value, in the company's currency, and
+        the customer's exposure together are more than the customer's
+        credit limit in the company. It carries the order's gross value,
+        the amount checked, the limit and the exposure the order was
+        checked against, and names the customer by id and number, never
+        by name. The order is confirmed (SalesOrderChanged says so, with
+        the same version) and takes no delivery until its block is
+        released (SalesOrderCreditReleased).
+        `GET /v1/sales-orders/{id}` returns the order at `version` or
+        later. Subject is the sales order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.sales_order_credit_blocked.v1}
+      payload: {$ref: '#/components/schemas/SalesOrderCreditBlockedV1'}
+      examples:
+        - name: blocked
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001104, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_credit_blocked.v1, subject: 0192a000-0000-7000-8000-000000001112, time: '2026-11-21T09:12:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001112, document_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, gross_amount: {amount: '5250.00', currency: CAD}, checked_amount: {amount: '5250.00', currency: CAD}, limit: {amount: '5000.00', currency: CAD}, exposure: {amount: '3045.00', currency: CAD}, version: 2}
+    SalesOrderCreditReleased:
+      name: SalesOrderCreditReleased
+      x-webhook: true
+      title: Sales order's credit block released
+      summary: The credit block of a sales order was released.
+      description: |
+        Emitted when a person holding `sales.order.credit_release`
+        releases the credit block of a sales order (ADR-0066, T77b), once.
+        It names who released it and when, and the customer by id and
+        number, never by name. From then on the order takes deliveries
+        and counts in the customer's exposure.
+        `GET /v1/sales-orders/{id}` returns the order at `version` or
+        later. Subject is the sales order id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.sales_order_credit_released.v1}
+      payload: {$ref: '#/components/schemas/SalesOrderCreditReleasedV1'}
+      examples:
+        - name: released
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001105, source: /erp/eu-1/sales, type: com.example.erp.sales.sales_order_credit_released.v1, subject: 0192a000-0000-7000-8000-000000001112, time: '2026-11-21T11:30:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000102}
+          payload: {sales_order_id: 0192a000-0000-7000-8000-000000001112, document_number: SO100002, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, released_by: 0192a000-0000-7000-8000-000000000102, released_at: '2026-11-21T11:30:00Z', version: 3}
     BillingDocumentChanged:
       name: BillingDocumentChanged
       x-webhook: true
@@ -4894,7 +4953,36 @@ components:
         net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net values."}
         status: {type: string, description: "The order's status after the change. Open enum: draft, confirmed."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        credit_block: {type: string, description: "The order's credit block after the change. Open enum: none, blocked, released. Always given from T77b on; not among the required fields, since a field added to a published event is not required of it (ADR-0041)."}
         version: {type: integer, description: "The order's version after the change."}
+    SalesOrderCreditBlockedV1:
+      type: object
+      required: [sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, gross_amount, checked_amount, limit, exposure, version]
+      properties:
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.sales_order.id`.'}
+        document_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that took the order.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "The order's gross value in its own currency: its net value plus the output tax on the order's date."}
+        checked_amount: {$ref: '#/components/schemas/Money', description: "The amount checked: `gross_amount` in the company's currency, converted at the average rate valid on the order's date when the order is in another."}
+        limit: {$ref: '#/components/schemas/Money', description: "The customer's credit limit in the company when the order was checked."}
+        exposure: {$ref: '#/components/schemas/Money', description: "The customer's exposure when the order was checked, without this order: its open items and its other confirmed orders not yet billed, in the company's currency. With `checked_amount` it is more than `limit`."}
+        version: {type: integer, description: "The order's version after the confirmation."}
+    SalesOrderCreditReleasedV1:
+      type: object
+      required: [sales_order_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, released_by, released_at, version]
+      properties:
+        sales_order_id: {$ref: '#/components/schemas/Uuid', description: '`sales.sales_order.id`.'}
+        document_number: {type: string, description: "The sales order's document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that took the order.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        released_by: {$ref: '#/components/schemas/Uuid', description: 'The principal who released the block: `identity.principal.id`.'}
+        released_at: {type: string, format: date-time, description: 'When the block was released.'}
+        version: {type: integer, description: "The order's version after the release."}
     SalesPriceChangedV1:
       type: object
       required: [price_id, legal_entity_id, legal_entity_code, item_key, customer_id, customer_number, kind, condition_type, unit, unit_price, price_unit, percent, valid_from, valid_to]

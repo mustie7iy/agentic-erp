@@ -2835,7 +2835,7 @@
        },
        {
         "s": "T",
-        "t": "later: credit limit variants: open orders, deliveries and billing in the exposure, limits across the group, validity dates and reviews, approval of limit changes, risk classes (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: credit limit variants: limits across the group, validity dates and reviews, approval of limit changes, risk classes (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week1.md §T77a, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
@@ -2850,20 +2850,20 @@
       "c": []
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Order credit blocks",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
-        "t": "When a sales order is confirmed its value is checked against the customer's credit limit: an order that takes the customer over the limit is confirmed with a credit block, cannot be delivered, and a credit manager releases it (POST /v1/sales-orders/{id}:release-credit-block)",
-        "r": "T77b · docs/design/plan-breadth-week2.md §T77b",
-        "src": "po:2026-11-10 · design:01 §1.2",
+        "s": "D",
+        "t": "When a sales order is confirmed its gross value is checked against the customer's credit limit less its exposure, its open items and its confirmed orders not yet billed: an order that takes the customer over the limit is confirmed with a credit block, cannot be delivered, and a credit manager releases it (POST /v1/sales-orders/{id}:releaseCreditBlock)",
+        "r": "T77b · docs/design/plan-breadth-week2.md §T77b · db/migrations/000296 · sales.sales_order.credit_block · POST /v1/sales-orders/{id}:releaseCreditBlock · GET /v1/sales-orders?credit_block= · GET /v1/credit-exposure (open_items, open_orders) · SalesOrderCreditBlocked, SalesOrderCreditReleased · sales.order.credit_release · walkthrough step_credit_block · ADR-0066 and ADR-0067, As built T77b",
+        "src": "po:2026-11-10 · po:2026-11-12 · design:01 §1.2",
         "c": []
        },
        {
         "s": "T",
-        "t": "later: order credit block variants: checking again at delivery and when an order changes, automatic release when a payment brings the customer within the limit, rejecting a blocked order, the order's tax in the amount checked, a worklist of blocked orders with their ages, approval of a release above an amount (after 1 December 2026: depth phase, not to be picked up before)",
+        "t": "later: order credit block variants: checking again at delivery and when an order changes, automatic release when a payment brings the customer within the limit, rejecting a blocked order, a worklist of blocked orders with their ages, approval of a release above an amount (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T77b, Later",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []

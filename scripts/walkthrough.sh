@@ -600,7 +600,7 @@ latest_pack() {
 # The permissions of everyone's day-to-day work: all but administering
 # access and the organisation, activating configuration, the AI policy,
 # releasing payments and deciding approvals, which the approver roles hold.
-STAFF_DENIED=' identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide '
+STAFF_DENIED=' identity.access.manage tenancy.org.manage config.change.activate agents.ai_policy.manage agents.model.invoke payments.run.release payments.file.transmit workflow.request.decide sales.order.credit_release '
 
 # grant ROLE_ID PERMISSION... grants a role the permissions.
 grant() {
@@ -6601,8 +6601,12 @@ step_collections() {
 # for the customer is refused. An amount of 400.00 is then within the
 # limit and 600.00 is not; the check changes nothing, the open items and
 # the limit are as before. She raises the limit with her version of it,
-# and the larger amount is within it. The amounts follow from the exposure
-# read, so the step holds whatever earlier steps left open.
+# to 5000.00 above the exposure, and the larger amount is within it. The
+# amounts follow from the exposure read, so the step holds whatever
+# earlier steps left open. The raised limit leaves room for the sales
+# order of step_sales_order (1824.41 CAD with its GST), which is checked
+# against it when it is confirmed (T77b): with less room that order would
+# be confirmed blocked and take no delivery.
 step_credit_limit() {
   heading "Step 59 — Credit limits: a customer's credit exposure is its open items; a limit is set for the customer in the company; one amount is within the limit and a larger one is not; the check changes nothing; the limit is changed with the caller's version"
   local customer=$CUSTOMER exposure limit raised id tag before
@@ -6620,7 +6624,7 @@ step_credit_limit() {
     "$(jq -rn --arg x "$exposure" '$x | tonumber * 100 | round')"
   expect "an exposure above zero" "$(jq -rn --arg x "$exposure" '($x | tonumber) > 0')" true
   limit=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 500 }')
-  raised=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 1000 }')
+  raised=$(awk -v x="$exposure" 'BEGIN { printf "%.2f", x + 5000 }')
   say "She sets Northwind's limit in Maple at $limit CAD, 500.00 above what it owes. A limit is one amount per"
   say "customer and company in the company's currency; it holds at once, and nothing is posted or blocked:"
   api 201 '"credit limit of \(.customer_number) \(.customer_name) in \(.company_code): \(.limit.amount) \(.limit.currency), version \(.version)"' \
@@ -6660,7 +6664,7 @@ step_credit_limit() {
   refused 412 request.version_mismatch updateCreditLimit -p "id=$id" -if-match "$tag" -body '{"limit": {"amount": "1.00", "currency": "CAD"}}'
   api 200 '"\(.amount.amount) \(.amount.currency) on top of \(.exposure.amount): within the limit of \(.limit.amount): \(.is_within_limit)"' \
     getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer" -p amount=600.00
-  expect "600.00 within the raised limit" "$(field '"\(.limit.amount) \(.available.amount) \(.is_within_limit)"')" "$raised 1000.00 true"
+  expect "600.00 within the raised limit" "$(field '"\(.limit.amount) \(.available.amount) \(.is_within_limit)"')" "$raised 5000.00 true"
   QUIET=1 api 200 '' listAuditEvents -p object_type=credit.credit_limit -p "object_id=$id"
   expect "the limit's audit trail" "$(field '[.items[].action] | sort | join(" ")')" "credit.credit_limit.change credit.credit_limit.create"
   passed
@@ -7119,6 +7123,111 @@ step_price_list() {
     "PR00 price 2937.48, K007 discount_percent -146.87"
   expect "the discount's rate" "$(field '.items[0].conditions[1].percent')" 5
   expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
+  passed
+}
+# step_credit_block is T77b (ADR-0066 and ADR-0067, As built T77b): with
+# Northwind's limit of step_credit_limit, Sally confirms an order within
+# what is available, without a credit block, and a larger one, which is
+# confirmed blocked: its delivery is refused. Releasing the block is the
+# credit manager's (sales.order.credit_release, which finance_staff does
+# not hold): Sally is refused, Ruth releases it, once, and the delivery
+# is confirmed. Throughout, the exposure shows Northwind's confirmed
+# orders not yet billed, gross, beside its open items; a blocked order
+# counts only once it is released. The amounts follow from the exposure
+# read, so the step holds whatever earlier steps left: step 63's order
+# counts for as long as its billing document is not posted.
+step_credit_block() {
+  heading "Step 66 — Order credit blocks: a sales order's gross value checked against the customer's credit limit when it is confirmed; an order within the limit confirmed without a block, a larger one blocked and refused a delivery; the block released by the credit manager, once; confirmed orders not yet billed in the exposure beside the open items"
+  local customer=$CUSTOMER sales role ruth items orders count exposure limit available billing earlier small large number day tag
+  [ -n "$customer" ] || fail "step 47's customer is not there"
+  as ada
+  say "Releasing a credit block is a credit manager's decision, not day-to-day work: finance_staff does not hold"
+  say "sales.order.credit_release. Ada creates the role and gives it to Ruth, who looks after Maple's credit:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "credit_manager", "name": "Credit manager"}'
+  role=$(field .id)
+  grant "$role" sales.order.credit_release
+  ruth=$(awk -F'\t' '$2 == "Ruth Receivables" { print $1 }' "$WORK/names")
+  [ -n "$ruth" ] || fail "step 47's Ruth is not there"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$ruth\", \"role_id\": \"$role\"}"
+  as ruth
+  sales=$(account 4000)
+  say "Since step 59 Northwind has ordered (step 63). Its exposure now has two parts (ADR-0066, As built T77b): its"
+  say "open items, and its confirmed sales orders not yet billed at their gross value, net plus GST. An order counts"
+  say "until its billing document is posted as a customer invoice, which is then the open item:"
+  api 200 '"\(.customer_number) \(.customer_name): open items \(.open_items.amount) (\(.open_item_count)) + open orders \(.open_orders.amount) (\(.open_order_count)) = exposure \(.exposure.amount) \(.exposure.currency); limit \(.limit.amount), available \(.available.amount)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  items=$(field .open_items.amount) orders=$(field .open_orders.amount) count=$(field .open_order_count)
+  exposure=$(field .exposure.amount) limit=$(field .limit.amount) available=$(field .available.amount)
+  expect "the exposure, its two parts together" "$exposure" "$(awk -v a="$items" -v b="$orders" 'BEGIN { printf "%.2f", a + b }')"
+  expect "what is available, the limit less the exposure" "$available" "$(awk -v a="$limit" -v b="$exposure" 'BEGIN { printf "%.2f", a - b }')"
+  QUIET=1 api 200 '' listBillingDocuments -p "sales_order_id=$SALES_ORDER"
+  billing=$(field '.items[0].status')
+  # Step 63's order is 1737.53 net with 5% GST, 86.88: it counts in full while step 64's billing document is not posted.
+  earlier="1 1824.41"
+  [ "$billing" = created ] || earlier="0 0.00"
+  expect "Northwind's open orders: step 63's while its billing document is $billing" "$count $orders" "$earlier"
+  as sally
+  say "Sally takes an order for 100 brackets M10 at 10.00: 1000.00 net, 1050.00 with 5% GST, within what is"
+  say "available. Confirming it checks the gross value against the limit less the exposure; it is confirmed without a"
+  say "credit block:"
+  QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"100\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  small=$(field .id)
+  api 200 '"sales order \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency), credit block \(.credit_block)"' \
+    confirmSalesOrder -p "id=$small" -if-match "$ETAG"
+  expect "the order within the limit" "$(field '"\(.status) \(.credit_block) \(.net_amount.amount)"')" "confirmed none 1000.00"
+  as ruth
+  api 200 '"open orders \(.open_orders.amount) (\(.open_order_count)), exposure \(.exposure.amount), available \(.available.amount) \(.available.currency)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the order in the exposure at its gross value, 1050.00" "$(field '"\(.open_order_count) \(.open_orders.amount) \(.exposure.amount) \(.available.amount)"')" \
+    "$((count + 1)) $(awk -v a="$orders" 'BEGIN { printf "%.2f", a + 1050 }') $(awk -v a="$exposure" 'BEGIN { printf "%.2f", a + 1050 }') $(awk -v a="$available" 'BEGIN { printf "%.2f", a - 1050 }')"
+  available=$(field .available.amount)
+  expect "less than 5250.00 available" "$(jq -rn --arg a "$available" '($a | tonumber) < 5250')" true
+  as sally
+  say "A second order, 500 brackets, is 5000.00 net and 5250.00 with GST: more than the $available CAD available. It is"
+  say "confirmed all the same, with a credit block, and SalesOrderCreditBlocked tells whoever listens:"
+  QUIET=1 api 201 '' createSalesOrder -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"currency\": \"CAD\", \"items\": [{\"description\": \"Machined bracket M10\", \"quantity\": {\"value\": \"500\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"10.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}]}"
+  large=$(field .id)
+  number=$(field .document_number)
+  api 200 '"sales order \(.document_number): \(.status), net \(.net_amount.amount) \(.net_amount.currency), credit block \(.credit_block)"' \
+    confirmSalesOrder -p "id=$large" -if-match "$ETAG"
+  tag=$ETAG
+  expect "the order over the limit" "$(field '"\(.status) \(.credit_block) \(.net_amount.amount) \(has("credit_released_by"))"')" "confirmed blocked 5000.00 false"
+  say "A blocked order takes no delivery, and so nothing of it is billed:"
+  day=$(company_day)
+  refused 409 sales.order_credit_blocked confirmSalesDelivery -p "id=$large" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"500\", \"unit\": \"EA\"}}]}"
+  say "The credit manager finds the orders waiting for her, and sees that a blocked order takes none of the"
+  say "customer's room: the exposure is as it was."
+  as ruth
+  api 200 '.items[] | "  \(.document_number) \(.customer_number) \(.customer_name): \(.net_amount.amount) \(.net_amount.currency), credit block \(.credit_block)"' \
+    listSalesOrders -p "legal_entity_id=$LE" -p credit_block=blocked
+  expect "the blocked orders" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  QUIET=1 api 200 '' getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "what is available with the order blocked" "$(field .available.amount)" "$available"
+  say "Sally may not release the block herself:"
+  as sally
+  refused 403 identity.permission_missing releaseSalesOrderCreditBlock -p "id=$large" -if-match "$tag"
+  as ruth
+  say "Ruth speaks to Northwind, which has always paid, and releases the block at the version she read. It is"
+  say "released once, with who released it and when, audited and published as SalesOrderCreditReleased:"
+  api 200 '"sales order \(.document_number): \(.status), credit block \(.credit_block) by \(.credit_released_by) at \(.credit_released_at), version \(.version)"' \
+    releaseSalesOrderCreditBlock -p "id=$large" -if-match "$tag"
+  expect "the released order" "$(field '"\(.status) \(.credit_block) \(.credit_released_by) \(.version)"')" "confirmed released $ruth 3"
+  refused 409 sales.order_not_credit_blocked releaseSalesOrderCreditBlock -p "id=$large" -if-match "$ETAG"
+  api 200 '"open orders \(.open_orders.amount) (\(.open_order_count)), exposure \(.exposure.amount), limit \(.limit.amount), available \(.available.amount); within the limit: \(.is_within_limit)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the released order in the exposure, now over the limit" "$(field '"\(.open_order_count) \(.available.amount) \(.is_within_limit)"')" \
+    "$((count + 2)) $(awk -v a="$available" 'BEGIN { printf "%.2f", a - 5250 }') false"
+  as sally
+  say "Now the order is delivered as any confirmed order:"
+  api 201 '"delivery \(.delivery_no) of sales order \(.sales_order_number) on \(.delivery_date): " + ([.items[] | "item \(.item_no) \(.quantity.value) \(.quantity.unit)"] | join(", "))' \
+    confirmSalesDelivery -p "id=$large" \
+    -body "{\"delivery_date\": \"$day\", \"items\": [{\"item_no\": 1, \"quantity\": {\"value\": \"500\", \"unit\": \"EA\"}}]}"
+  expect "the delivery of the released order" "$(field '"\(.delivery_no) \(.sales_order_number)"')" "1 $number"
+  as ruth
+  QUIET=1 api 200 '' listAuditEvents -p object_type=sales.sales_order -p "object_id=$large"
+  expect "the order's audit trail" "$(field '[.items[].action] | sort | join(" ")')" \
+    "sales.sales_order.confirm sales.sales_order.create sales.sales_order.release_credit_block"
   passed
 }
 # step_close is the financial close (ADR-0058), the story's last step: it
@@ -9145,7 +9254,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_credit_block step_close'
 
 main() {
   stop_unseen

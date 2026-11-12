@@ -542,19 +542,21 @@ type Invoker interface {
 	// available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
 	// context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
 	// read under a row lock, so two confirmations of one order wait for one another. An order that is not
-	// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
-	// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
-	// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
-	// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
-	// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
-	// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
-	// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
-	// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
-	// written once; it is not changed or reversed in the first version. Each order item's
-	// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
-	// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
-	// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
-	// `listSalesDeliveries`. Human-only (`x-agent: false`).
+	// confirmed takes none (409 `sales.order_not_confirmed`), nor does one blocked for credit until its
+	// block is released (409 `sales.order_credit_blocked`, `releaseSalesOrderCreditBlock`).
+	// `delivery_date` is not after the company's date today in its time zone (422
+	// `sales.delivery_date_in_future`). Each item names an item of the order by its number (422
+	// `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a
+	// quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422
+	// `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier
+	// deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the
+	// item and its open quantity in the message): of two confirmations racing for an item's last quantity,
+	// one is recorded. The delivery is numbered within its order and written once; it is not changed or
+	// reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered
+	// and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open.
+	// Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+	// delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only
+	// (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}/deliveries
 	ConfirmSalesDelivery(ctx context.Context, request *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error)
@@ -563,9 +565,26 @@ type Invoker interface {
 	// Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 	// the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 	// (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-	// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
-	// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
-	// (`x-agent: false`).
+	// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
+	// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
+	// its items' tax codes give on the order's date, in the company's currency (an order in another
+	// currency at the average rate valid on its date), is compared with the customer's credit limit in the
+	// company less its exposure, its open items and its other confirmed orders not yet billed, as
+	// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
+	// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
+	// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
+	// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
+	// customer confirmed at once are checked one after the other, so they cannot both take the room only
+	// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
+	// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
+	// order in another currency without a rate into the company's on its date (422
+	// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+	// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
+	// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
+	// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
+	// limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as
+	// SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers
+	// the confirmed order. Human-only (`x-agent: false`).
 	//
 	// POST /v1/sales-orders/{id}:confirm
 	ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error)
@@ -2250,23 +2269,34 @@ type Invoker interface {
 	// GetCreditExposure invokes getCreditExposure operation.
 	//
 	// A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
-	// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
-	// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
-	// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
-	// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
-	// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
-	// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
-	// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
-	// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
-	// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
-	// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
-	// what a consumer does with the answer is its own. It is computed at the read from one database state
-	// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
-	// without open items in the company has an exposure of zero. An amount below zero is refused (422
-	// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
-	// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
-	// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
-	// cannot act in is 404, as a business partner that does not exist.
+	// §3-§4, T77a, T77b). The exposure has two parts, each given beside their sum. `open_items` is what
+	// the customer's open items add up to: the items open now on the company's customer reconciliation
+	// accounts in the leading ledger, whoever posted them, in the company's currency as they were booked;
+	// credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's
+	// credits exceed what it owes. `open_orders` is the value of the customer's confirmed sales orders not
+	// yet billed: of each order of the company that is confirmed and not blocked for credit, the part not
+	// yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on
+	// the order's date, converted into the company's currency at the average rate valid on the order's
+	// date when the order is in another; what is posted as an invoice counts as an open item from then on,
+	// never twice. `exposure` is the two together. With a credit limit set for the customer in the company
+	// (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when
+	// the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency;
+	// without it nothing is added. `is_within_limit` says whether the exposure and the amount together are
+	// no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit`
+	// and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks
+	// nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
+	// check on the order's gross value and blocks the order when it is not within the limit
+	// (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
+	// snapshot) and stores nothing. Any business partner can be asked about; one without open items or
+	// orders in the company has an exposure of zero. An open order whose value cannot be calculated
+	// refuses the read rather than being left out: one whose tax code is no longer an output tax code on
+	// the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the
+	// company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422
+	// `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming
+	// `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`.
+	// Open items and orders that add up, alone or with the limit or the amount, to more than an amount
+	// holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is
+	// 404, as a business partner that does not exist.
 	//
 	// GET /v1/credit-exposure
 	GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error)
@@ -2838,10 +2868,11 @@ type Invoker interface {
 	// GetSalesOrder invokes getSalesOrder operation.
 	//
 	// One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
-	// name, the quotation it was created from by id and number, its payment term, its net value and its
-	// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
-	// revenue account's number and name. One of a company the caller may not act in is not found (404), as
-	// one that does not exist.
+	// name, the quotation it was created from by id and number, its payment term, its net value, its
+	// credit block (with who released it and when, once it is released) and its items, each with its
+	// ordered, delivered and billed quantities, its unit price, its net value and its revenue account's
+	// number and name. One of a company the caller may not act in is not found (404), as one that does not
+	// exist.
 	//
 	// GET /v1/sales-orders/{id}
 	GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error)
@@ -4123,9 +4154,9 @@ type Invoker interface {
 	//
 	// The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 	// `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
-	// quotation it came from, its net value and its items with their ordered, delivered and billed
-	// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
-	// `order_date`, `document_number`.
+	// quotation it came from, its net value, its credit block and its items with their ordered, delivered
+	// and billed quantities. Filtered by company, customer, status, credit block, document number and
+	// quotation. Sortable by: `order_date`, `document_number`.
 	//
 	// GET /v1/sales-orders
 	ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error)
@@ -5104,6 +5135,22 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders/{id}:release
 	ReleasePurchaseOrder(ctx context.Context, params ReleasePurchaseOrderParams) (ReleasePurchaseOrderRes, error)
+	// ReleaseSalesOrderCreditBlock invokes releaseSalesOrderCreditBlock operation.
+	//
+	// Releases the credit block of a sales order that was confirmed over its customer's credit limit
+	// (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock
+	// and its `credit_block` moves from `blocked` to `released`, once, with who released it and when
+	// (`credit_released_by`, `credit_released_at`). From then on the order takes deliveries and is billed
+	// as any confirmed order, and it counts in the customer's exposure, which may then exceed the limit:
+	// the release is the credit manager's decision, whatever the amount. An order without a block, or
+	// whose block is already released, is refused (409 `sales.order_not_credit_blocked`). The release is
+	// by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart from
+	// the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and
+	// published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released
+	// order. Human-only (`x-agent: false`).
+	//
+	// POST /v1/sales-orders/{id}:releaseCreditBlock
+	ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error)
 	// ReleaseSupplierInvoice invokes releaseSupplierInvoice operation.
 	//
 	// Returns an invoice on hold to `parked`. Requires status `on_hold`.
@@ -12938,19 +12985,21 @@ func (c *Client) sendConfirmDunningRun(ctx context.Context, params ConfirmDunnin
 // available, on a date (ADR-0067 §8, T78c). It is a confirmation by a person, kept in the sales
 // context: no stock moves and nothing is posted; billing and revenue recognition read it. The order is
 // read under a row lock, so two confirmations of one order wait for one another. An order that is not
-// confirmed takes none (409 `sales.order_not_confirmed`). `delivery_date` is not after the company's
-// date today in its time zone (422 `sales.delivery_date_in_future`). Each item names an item of the
-// order by its number (422 `sales.unknown_order_item` naming `items[i].item_no`), once (422
-// `sales.item_repeated`), with a quantity more than zero (422 `sales.invalid_quantity`) in the order
-// item's unit (422 `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered
-// less what earlier deliveries confirmed (422 `sales.exceeds_open_quantity` naming
-// `items[i].quantity.value`, with the item and its open quantity in the message): of two confirmations
-// racing for an item's last quantity, one is recorded. The delivery is numbered within its order and
-// written once; it is not changed or reversed in the first version. Each order item's
-// `delivered_quantity` rises by what was delivered and the order's `version` moves, so `getSalesOrder`
-// shows what is delivered and what is open. Audited, and published as SalesOrderDelivered. A retry
-// with the same `Idempotency-Key` answers the delivery recorded; the order's deliveries are listed by
-// `listSalesDeliveries`. Human-only (`x-agent: false`).
+// confirmed takes none (409 `sales.order_not_confirmed`), nor does one blocked for credit until its
+// block is released (409 `sales.order_credit_blocked`, `releaseSalesOrderCreditBlock`).
+// `delivery_date` is not after the company's date today in its time zone (422
+// `sales.delivery_date_in_future`). Each item names an item of the order by its number (422
+// `sales.unknown_order_item` naming `items[i].item_no`), once (422 `sales.item_repeated`), with a
+// quantity more than zero (422 `sales.invalid_quantity`) in the order item's unit (422
+// `sales.unit_mismatch`) that is at most the item's open quantity, what was ordered less what earlier
+// deliveries confirmed (422 `sales.exceeds_open_quantity` naming `items[i].quantity.value`, with the
+// item and its open quantity in the message): of two confirmations racing for an item's last quantity,
+// one is recorded. The delivery is numbered within its order and written once; it is not changed or
+// reversed in the first version. Each order item's `delivered_quantity` rises by what was delivered
+// and the order's `version` moves, so `getSalesOrder` shows what is delivered and what is open.
+// Audited, and published as SalesOrderDelivered. A retry with the same `Idempotency-Key` answers the
+// delivery recorded; the order's deliveries are listed by `listSalesDeliveries`. Human-only
+// (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}/deliveries
 func (c *Client) ConfirmSalesDelivery(ctx context.Context, request *SalesDeliveryCreate, params ConfirmSalesDeliveryParams) (ConfirmSalesDeliveryRes, error) {
@@ -13102,9 +13151,26 @@ func (c *Client) sendConfirmSalesDelivery(ctx context.Context, request *SalesDel
 // Confirms a `draft` sales order (ADR-0067 §5, T78b), at the version the caller read (`If-Match`):
 // the order is read under a row lock and moves to `confirmed` once. One that is not a draft is refused
 // (409 `sales.invalid_status`). Confirming is by permission, without an approval; a confirmed order is
-// not changed or cancelled in the first version. Nothing is posted. Audited, and published as
-// SalesOrderChanged. A retry with the same `Idempotency-Key` answers the confirmed order. Human-only
-// (`x-agent: false`).
+// not changed or cancelled in the first version. Nothing is posted. The confirmation checks the
+// customer's credit (ADR-0066, T77b), once: the order's gross value, its net value plus the output tax
+// its items' tax codes give on the order's date, in the company's currency (an order in another
+// currency at the average rate valid on its date), is compared with the customer's credit limit in the
+// company less its exposure, its open items and its other confirmed orders not yet billed, as
+// `getCreditExposure` gives them. An order that is within the limit, and every order of a customer
+// without a limit, is confirmed with `credit_block` `none`. One that is not is confirmed all the same,
+// with `credit_block` `blocked`: it takes no delivery, and so no billing, until a person holding
+// `sales.order.credit_release` releases it (`releaseSalesOrderCreditBlock`). Two orders of one
+// customer confirmed at once are checked one after the other, so they cannot both take the room only
+// one fits. The order is not checked again after its confirmation. The value must be calculable: a tax
+// code that is no longer an output tax code on the order's date (422 `sales.unknown_tax_code`), an
+// order in another currency without a rate into the company's on its date (422
+// `ledger.no_exchange_rate`) or a value with its tax too large for an amount (422
+// `sales.amount_too_large`) refuses the confirmation, whether the customer has a limit or not, since a
+// confirmed order counts in its exposure. An exposure that adds up, with the order, to more than an
+// amount holds is refused too (422 `credit.amount_too_large`). Audited, with the amount checked, the
+// limit and the exposure when the customer has a limit, and published as SalesOrderChanged, and as
+// SalesOrderCreditBlocked when the order is blocked. A retry with the same `Idempotency-Key` answers
+// the confirmed order. Human-only (`x-agent: false`).
 //
 // POST /v1/sales-orders/{id}:confirm
 func (c *Client) ConfirmSalesOrder(ctx context.Context, params ConfirmSalesOrderParams) (ConfirmSalesOrderRes, error) {
@@ -30275,23 +30341,34 @@ func (c *Client) sendGetCostCenter(ctx context.Context, params GetCostCenterPara
 // GetCreditExposure invokes getCreditExposure operation.
 //
 // A customer's credit exposure in a company and whether an amount is within its credit limit (ADR-0066
-// §3-§4, T77a). The exposure is what the customer's open items add up to: the items open now on the
-// company's customer reconciliation accounts in the leading ledger, whoever posted them, in the
-// company's currency as they were booked; credit items (a credit memo, a payment on account) reduce
-// it, so it is negative when the customer's credits exceed what it owes. Open orders, deliveries and
-// billing do not count yet. With a credit limit set for the customer in the company (`has_limit`
-// true), `limit` is the limit and `available` the limit less the exposure, negative when the exposure
-// exceeds it. `amount` is an amount to check, zero or more, in the company's currency; without it
-// nothing is added. `is_within_limit` says whether the exposure and the amount together are no more
-// than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit` and
-// `available` are absent and `is_within_limit` is true. The check changes nothing and blocks nothing:
-// what a consumer does with the answer is its own. It is computed at the read from one database state
-// (a repeatable-read snapshot) and stores nothing. Any business partner can be asked about; one
-// without open items in the company has an exposure of zero. An amount below zero is refused (422
-// `credit.invalid_amount`, naming `amount`), and one without exactly the currency's minor-unit digits
-// is 400 `request.invalid_amount`. Open items that add up, alone or with the limit or the amount, to
-// more than an amount holds are refused too (422 `credit.amount_too_large`). A legal entity the caller
-// cannot act in is 404, as a business partner that does not exist.
+// §3-§4, T77a, T77b). The exposure has two parts, each given beside their sum. `open_items` is what
+// the customer's open items add up to: the items open now on the company's customer reconciliation
+// accounts in the leading ledger, whoever posted them, in the company's currency as they were booked;
+// credit items (a credit memo, a payment on account) reduce it, so it is negative when the customer's
+// credits exceed what it owes. `open_orders` is the value of the customer's confirmed sales orders not
+// yet billed: of each order of the company that is confirmed and not blocked for credit, the part not
+// yet posted as a customer invoice, at its net value plus the output tax its items' tax codes give on
+// the order's date, converted into the company's currency at the average rate valid on the order's
+// date when the order is in another; what is posted as an invoice counts as an open item from then on,
+// never twice. `exposure` is the two together. With a credit limit set for the customer in the company
+// (`has_limit` true), `limit` is the limit and `available` the limit less the exposure, negative when
+// the exposure exceeds it. `amount` is an amount to check, zero or more, in the company's currency;
+// without it nothing is added. `is_within_limit` says whether the exposure and the amount together are
+// no more than the limit. A customer without a limit is not restricted: `has_limit` is false, `limit`
+// and `available` are absent and `is_within_limit` is true. The check changes nothing and blocks
+// nothing: what a consumer does with the answer is its own; confirming a sales order makes the same
+// check on the order's gross value and blocks the order when it is not within the limit
+// (`confirmSalesOrder`). It is computed at the read from one database state (a repeatable-read
+// snapshot) and stores nothing. Any business partner can be asked about; one without open items or
+// orders in the company has an exposure of zero. An open order whose value cannot be calculated
+// refuses the read rather than being left out: one whose tax code is no longer an output tax code on
+// the order's date (422 `sales.unknown_tax_code`), one in another currency without a rate into the
+// company's on its date (422 `ledger.no_exchange_rate`), one too large for an amount (422
+// `sales.amount_too_large`). An amount below zero is refused (422 `credit.invalid_amount`, naming
+// `amount`), and one without exactly the currency's minor-unit digits is 400 `request.invalid_amount`.
+// Open items and orders that add up, alone or with the limit or the amount, to more than an amount
+// holds are refused too (422 `credit.amount_too_large`). A legal entity the caller cannot act in is
+// 404, as a business partner that does not exist.
 //
 // GET /v1/credit-exposure
 func (c *Client) GetCreditExposure(ctx context.Context, params GetCreditExposureParams) (GetCreditExposureRes, error) {
@@ -37975,10 +38052,11 @@ func (c *Client) sendGetRolePermission(ctx context.Context, params GetRolePermis
 // GetSalesOrder invokes getSalesOrder operation.
 //
 // One sales order (ADR-0067 §5, T78b) with its company's code and name, its customer's number and
-// name, the quotation it was created from by id and number, its payment term, its net value and its
-// items, each with its ordered, delivered and billed quantities, its unit price, its net value and its
-// revenue account's number and name. One of a company the caller may not act in is not found (404), as
-// one that does not exist.
+// name, the quotation it was created from by id and number, its payment term, its net value, its
+// credit block (with who released it and when, once it is released) and its items, each with its
+// ordered, delivered and billed quantities, its unit price, its net value and its revenue account's
+// number and name. One of a company the caller may not act in is not found (404), as one that does not
+// exist.
 //
 // GET /v1/sales-orders/{id}
 func (c *Client) GetSalesOrder(ctx context.Context, params GetSalesOrderParams) (GetSalesOrderRes, error) {
@@ -66934,9 +67012,9 @@ func (c *Client) sendListSalesDeliveries(ctx context.Context, params ListSalesDe
 //
 // The sales orders of the companies the caller may act in (ADR-0067 §5, T78b), each as
 // `getSalesOrder` gives it: with its company's code and name, its customer's number and name, the
-// quotation it came from, its net value and its items with their ordered, delivered and billed
-// quantities. Filtered by company, customer, status, document number and quotation. Sortable by:
-// `order_date`, `document_number`.
+// quotation it came from, its net value, its credit block and its items with their ordered, delivered
+// and billed quantities. Filtered by company, customer, status, credit block, document number and
+// quotation. Sortable by: `order_date`, `document_number`.
 //
 // GET /v1/sales-orders
 func (c *Client) ListSalesOrders(ctx context.Context, params ListSalesOrdersParams) (ListSalesOrdersRes, error) {
@@ -67031,6 +67109,23 @@ func (c *Client) sendListSalesOrders(ctx context.Context, params ListSalesOrders
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "credit_block" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "credit_block",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CreditBlock.Get(); ok {
 				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
@@ -78724,6 +78819,173 @@ func (c *Client) sendReleasePurchaseOrder(ctx context.Context, params ReleasePur
 
 	stage = "DecodeResponse"
 	result, err := decodeReleasePurchaseOrderResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ReleaseSalesOrderCreditBlock invokes releaseSalesOrderCreditBlock operation.
+//
+// Releases the credit block of a sales order that was confirmed over its customer's credit limit
+// (ADR-0066, T77b), at the version the caller read (`If-Match`): the order is read under a row lock
+// and its `credit_block` moves from `blocked` to `released`, once, with who released it and when
+// (`credit_released_by`, `credit_released_at`). From then on the order takes deliveries and is billed
+// as any confirmed order, and it counts in the customer's exposure, which may then exceed the limit:
+// the release is the credit manager's decision, whatever the amount. An order without a block, or
+// whose block is already released, is refused (409 `sales.order_not_credit_blocked`). The release is
+// by its own permission, `sales.order.credit_release`; no rule sets the person who releases apart from
+// the one who confirmed the order. Nothing is checked again and nothing is posted. Audited, and
+// published as SalesOrderCreditReleased. A retry with the same `Idempotency-Key` answers the released
+// order. Human-only (`x-agent: false`).
+//
+// POST /v1/sales-orders/{id}:releaseCreditBlock
+func (c *Client) ReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (ReleaseSalesOrderCreditBlockRes, error) {
+	res, err := c.sendReleaseSalesOrderCreditBlock(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendReleaseSalesOrderCreditBlock(ctx context.Context, params ReleaseSalesOrderCreditBlockParams) (res ReleaseSalesOrderCreditBlockRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("releaseSalesOrderCreditBlock"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/sales-orders/{id}:releaseCreditBlock"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ReleaseSalesOrderCreditBlockOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/sales-orders/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":releaseCreditBlock"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ReleaseSalesOrderCreditBlockOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeReleaseSalesOrderCreditBlockResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
