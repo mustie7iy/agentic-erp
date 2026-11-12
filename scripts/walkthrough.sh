@@ -1546,7 +1546,7 @@ migrated_down_payment() {
 # CRA, "Charge and collect the tax - Which rate to charge",
 # https://www.canada.ca/en/revenue-agency/services/tax/businesses/topics/gst-hst-businesses/charge-collect-which-rate.html),
 # a number range for the customer invoices of step 48 (T75a; the packs
-# number none yet),
+# number none yet) and one for the quotations of step 54 (T78a),
 # and two codes of tax alone for the return's adjustments (kind adjustment,
 # rate 0; ADR-0049 §11, keyed as Canada 2026.6's returns.yaml maps them):
 # GA, an adjustment decreasing the net tax (line 107) on 1300, and GI, an
@@ -1600,7 +1600,8 @@ PILOT_SETTINGS='
 | .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
     {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999},
     {"company": "@CC@", "document_type": "incoming_payment", "fiscal_year": @YEAR@, "prefix": "IP", "first": 1, "last": 999999},
-    {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999}]'
+    {"company": "@CC@", "document_type": "journal_dz", "fiscal_year": @YEAR@, "first": 1400000000, "last": 1499999999},
+    {"company": "@CC@", "document_type": "quotation", "fiscal_year": @YEAR@, "prefix": "QT", "first": 1, "last": 999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -6175,6 +6176,68 @@ step_dunning() {
   passed
 }
 
+# step_quotation is T78a (ADR-0067 §2-§4): Sally, the sales
+# representative, makes a quotation to the customer of step_customer,
+# valid for thirty days, and reads it back with each item's value and its
+# net value; an input tax code and an unknown unit are refused naming the
+# item's own field; she records that Northwind accepted it, once. Nothing
+# is posted. QUOTATION is the accepted quotation for later steps.
+step_quotation() {
+  heading "Step 54 — Quotations: a quotation to a customer created with its items priced net of tax, read back with its net value; the customer's acceptance recorded once; nothing posted"
+  local customer=$CUSTOMER sales until before item1 item2 quotation number open
+  as ada
+  say "Ada adds Sally, the sales representative, to the team:"
+  person sally "Sally Sales" finance_staff
+  as sally
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  open=$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')
+  sales=$(account 4000)
+  until=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  say "Northwind Traders asks for a price for 120 machined brackets and their installation. Sally makes a"
+  say "quotation, valid until $until. An item names what is sold by a description and Maple's own item key (there is"
+  say "no material master), with its quantity, its price, the revenue account its billing will credit and the"
+  say "output tax code it will be billed with. Amounts are net: the GST is calculated when the order is billed"
+  say "(ADR-0067 §3). 2.5 hours at 95.01 are 237.525: 237.53, rounded half away from zero."
+  item1="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"120\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"12.50\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  item2="{\"description\": \"Installation on site\", \"quantity\": {\"value\": \"2.5\", \"unit\": \"H\"}, \"unit_price\": {\"amount\": \"95.01\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  before=$(company_day)
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name), \(.company_code) \(.company_name): \(.status), made \(.quotation_date), valid until \(.valid_until), net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key // "-") \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) = \(.net_amount.amount), on \(.account_number) \(.account_name), \(.tax_code // "no tax code")")' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item1, $item2]}"
+  quotation=$(field .id)
+  number=$(field .document_number)
+  expect "the quotation's status" "$(field .status)" open
+  expect_today "the quotation's date, Maple's today" "$(field .quotation_date)" "$before"
+  expect "each item's net value" "$(field '[.items[] | .net_amount.amount] | join(" ")')" "1500.00 237.53"
+  expect "the net value" "$(field '"\(.net_amount.amount) \(.net_amount.currency)"')" "1737.53 CAD"
+  expect "the customer by name" "$(field .customer_name)" "Northwind Traders"
+  say "Read back, it is the same quotation, and it is among Northwind's open ones:"
+  api 200 '"quotation \(.document_number): \(.status), valid until \(.valid_until), net \(.net_amount.amount) \(.net_amount.currency), \(.items | length) items"' \
+    getQuotation -p "id=$quotation"
+  expect "read back" "$(field '"\(.document_number) \(.status) \(.valid_until) \(.net_amount.amount) \(.version)"')" "$number open $until 1737.53 1"
+  api 200 '.items[] | "  \(.document_number) \(.customer_name): \(.status), \(.net_amount.amount) \(.net_amount.currency)"' \
+    listQuotations -p "customer_id=$customer" -p status=open
+  expect "the customer's open quotations" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  say "GA, an input tax code (the return's adjustment of step 2), is no output tax code, and XX is no unit of measure;"
+  say "each refusal names the item's own field:"
+  refused 422 sales.unknown_tax_code createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [${item1/GO5/GA}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].tax_code"
+  refused 422 sales.unknown_unit createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item1, ${item2/\"H\"/\"XX\"}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[1].quantity.unit"
+  say "Northwind accepts. Sally records the answer at the version she read; it is recorded once:"
+  QUIET=1 api 200 '' getQuotation -p "id=$quotation"
+  api 200 '"quotation \(.document_number): \(.status), version \(.version)"' acceptQuotation -p "id=$quotation" -if-match "$ETAG"
+  expect "the accepted quotation" "$(field '"\(.status) \(.version) \(.net_amount.amount)"')" "accepted 2 1737.53"
+  refused 409 sales.invalid_status declineQuotation -p "id=$quotation" -if-match "$ETAG"
+  QUIET=1 api 200 '' listQuotations -p "customer_id=$customer" -p status=accepted
+  expect "the customer's accepted quotations" "$(field '[.items[].document_number] | join(" ")')" "$number"
+  QUOTATION=$quotation
+  say "A quotation posts nothing: Northwind's open items are as they were."
+  QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open items" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount)"] | join(", ")')" "$open"
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -8199,7 +8262,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_incoming_payment step_dunning step_quotation step_close'
 
 main() {
   stop_unseen

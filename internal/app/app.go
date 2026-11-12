@@ -60,6 +60,7 @@ import (
 	"github.com/mustie7iy/agentic-erp/internal/platform/workflow"
 	"github.com/mustie7iy/agentic-erp/internal/procurement"
 	"github.com/mustie7iy/agentic-erp/internal/receivables"
+	"github.com/mustie7iy/agentic-erp/internal/sales"
 	"github.com/mustie7iy/agentic-erp/internal/taxfiling"
 	"github.com/mustie7iy/agentic-erp/internal/tenancy"
 	"github.com/mustie7iy/agentic-erp/packs"
@@ -82,6 +83,7 @@ type (
 	procurementAPI = procurement.Endpoints
 	payablesAPI    = payables.Endpoints
 	receivablesAPI = receivables.Endpoints
+	salesAPI       = sales.Endpoints
 	collectionsAPI = collections.Endpoints
 	paymentsAPI    = payments.Endpoints
 	auditAPI       = audit.Endpoints
@@ -110,6 +112,7 @@ type handler struct {
 	*procurementAPI
 	*payablesAPI
 	*receivablesAPI
+	*salesAPI
 	*collectionsAPI
 	*paymentsAPI
 	*auditAPI
@@ -235,6 +238,7 @@ func New(cfg Config) (http.Handler, error) {
 		procurementAPI: procurementEndpoints(cfg),
 		payablesAPI:    payablesEndpoints(cfg, upload),
 		receivablesAPI: Receivables(cfg),
+		salesAPI:       Sales(cfg),
 		collectionsAPI: Collections(cfg),
 		paymentsAPI:    Payments(cfg),
 		auditAPI:       &audit.Endpoints{Pages: cfg.Pages, Anchors: cfg.Objects},
@@ -416,6 +420,15 @@ func Receivables(cfg Config) *receivables.Endpoints {
 		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
 		Postings: postings(), Entries: ledger.OpenItems{}, Receipts: ledger.OpenItems{}, Statements: receivablesStatements{},
 		Numbers: configuration.Numbers{}, Calendar: calendar(), Settings: configuration.Settings{}, Now: cfg.Now}
+}
+
+// Sales is the sales context as the API wires it (ADR-0067 §1): the
+// ledger, the partner context, tenancy and the configuration through its
+// ports, as receivables reads them.
+func Sales(cfg Config) *sales.Endpoints {
+	return &sales.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, Partners: partner.Payees{},
+		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
+		Settings: configuration.Settings{}, Now: cfg.Now}
 }
 
 // receivablesStatements gives receivables the statement lines behind its

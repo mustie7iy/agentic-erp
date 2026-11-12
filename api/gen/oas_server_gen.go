@@ -81,6 +81,17 @@ type Handler interface {
 	//
 	// POST /v1/memo-records/{id}:acceptProposal
 	AcceptMemoRecordProposal(ctx context.Context, req OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (AcceptMemoRecordProposalRes, error)
+	// AcceptQuotation implements acceptQuotation operation.
+	//
+	// Records that the customer accepted an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `accepted` once. One
+	// that is not open is refused (409 `sales.invalid_status`), and so is one whose `valid_until` is
+	// before the company's date today in its time zone (409 `sales.quotation_expired`): it is made again.
+	// Nothing is posted. Audited, and published as QuotationChanged. A retry with the same
+	// `Idempotency-Key` answers the accepted quotation. Human-only (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:accept
+	AcceptQuotation(ctx context.Context, params AcceptQuotationParams) (AcceptQuotationRes, error)
 	// AcceptVarianceComment implements acceptVarianceComment operation.
 	//
 	// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
@@ -1033,6 +1044,33 @@ type Handler interface {
 	//
 	// POST /v1/purchase-orders/{id}/changes
 	CreatePurchaseOrderChange(ctx context.Context, req *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error)
+	// CreateQuotation implements createQuotation operation.
+	//
+	// Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a
+	// date. It is created `open`, dated the company's date today in its time zone, with a document number
+	// from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no
+	// document is sent to the customer. The customer is an active business partner with the customer role
+	// that is not blocked for posting in the company (422 `request.reference_not_found` naming
+	// `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is
+	// required from the sales order, not here. `valid_until` is not before the quotation's date (422
+	// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
+	// `item_key` (there is no material master; neither is white space alone, 422
+	// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
+	// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
+	// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
+	// `price_unit`, the revenue account its billing credits, one that can be posted in the company (422
+	// `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the
+	// company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming
+	// `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422
+	// `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is
+	// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+	// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the
+	// quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the
+	// order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/quotations
+	CreateQuotation(ctx context.Context, req *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
 	// CreateRecommendation implements createRecommendation operation.
 	//
 	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -1156,6 +1194,18 @@ type Handler interface {
 	//
 	// POST /v1/recommendations/{id}:decide
 	DecideRecommendation(ctx context.Context, req *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
+	// DeclineQuotation implements declineQuotation operation.
+	//
+	// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `rejected` once,
+	// whether or not it is still valid. One that is not open is refused (409 `sales.invalid_status`). The
+	// action is `:decline` because `:reject` is an approval decision's, made on approval requests alone
+	// (04 §4.9); a quotation has no approval. Nothing is posted. Audited, and published as
+	// QuotationChanged. A retry with the same `Idempotency-Key` answers the rejected quotation. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:decline
+	DeclineQuotation(ctx context.Context, params DeclineQuotationParams) (DeclineQuotationRes, error)
 	// DeleteWebhookSubscription implements deleteWebhookSubscription operation.
 	//
 	// Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer
@@ -2326,6 +2376,15 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetQuotation implements getQuotation operation.
+	//
+	// One quotation (ADR-0067 §2, T78a) with its company's code and name, its customer's number and name,
+	// its net value and its items, each with its quantity, unit price, net value and its revenue account's
+	// number and name. One of a company the caller may not act in is not found (404), as one that does not
+	// exist.
+	//
+	// GET /v1/quotations/{id}
+	GetQuotation(ctx context.Context, params GetQuotationParams) (GetQuotationRes, error)
 	// GetRecommendation implements getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -3503,6 +3562,15 @@ type Handler interface {
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
+	// ListQuotations implements listQuotations operation.
+	//
+	// The quotations of the companies the caller may act in (ADR-0067 §2, T78a), each as `getQuotation`
+	// gives it: with its company's code and name, its customer's number and name, its net value and its
+	// items. Filtered by company, customer, status and document number. Sortable by: `quotation_date`,
+	// `document_number`.
+	//
+	// GET /v1/quotations
+	ListQuotations(ctx context.Context, params ListQuotationsParams) (ListQuotationsRes, error)
 	// ListRecommendations implements listRecommendations operation.
 	//
 	// Agent recommendations, newest first. Sortable by: `created_at`.

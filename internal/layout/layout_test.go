@@ -118,6 +118,7 @@ var allowed = map[string][]string{
 	"procurement":             {"approvals", "config", "ledger", "partner", "tenancy"},
 	"provisioning":            {"config", "configuration", "identity", "tenancy"},
 	"receivables":             {"config", "ledger", "partner", "tenancy"}, // as payables reads them (ADR-0063 §1)
+	"sales":                   {"config", "ledger", "partner", "tenancy"}, // as receivables reads them (ADR-0067 §1)
 	"reconagent":              {"apitools", "llm"},
 	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},

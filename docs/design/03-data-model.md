@@ -4229,3 +4229,66 @@ erDiagram
 - `collections.outbox`, `collections.inbox`: the context's events
   (`DunningRunChanged`).
 - Permissions `collections.dunning.read` and `.run`.
+
+## 3.28 Sales (`sales`)
+
+ADR-0067, T78a-T79b. Built as receivables is: it reads the ledger, the
+partner context, tenancy and the configuration through its ports, keeps no
+foreign key out of its schema (02 §2.1) and posts nothing itself (billing
+posts through receivables, §3.26). T78a (migration 000276) builds the
+schema with its outbox and inbox and the quotation: what the company
+offers a customer, valid until a date, net of tax. There is no material
+master (§3.16's shared `material` joins the items when it is built): an
+item names what is sold by a description and an optional free-text
+`item_key`.
+
+```mermaid
+erDiagram
+  quotation ||--|{ quotation_item : "has"
+  quotation { uuid id PK
+    text document_number "quotation range, unique per company"
+    uuid legal_entity_id "tenancy"
+    uuid customer_id "partner, customer role"
+    date quotation_date "the company's date when made"
+    date valid_until "not before quotation_date"
+    char currency
+    bigint net_amount "sum of the items'"
+    text status "open, accepted, rejected"
+    int version
+  }
+  quotation_item { uuid quotation_id PK
+    int item_no PK
+    text item_key "optional, free text"
+    text description
+    numeric quantity "(20,6), above zero"
+    text uom_code "ref.unit_of_measure"
+    bigint unit_price "per price_unit, above zero"
+    int price_unit
+    bigint net_amount "quantity x unit_price / price_unit, rounded"
+    uuid account_id "ledger, revenue as a rule"
+    text tax_code "optional output tax code"
+  }
+```
+
+- `sales.quotation`: numbered once per company
+  (`quotation_number_once`); valid until a day not before its date
+  (`quotation_validity`); a net value above zero
+  (`quotation_net_positive`), minor units of `currency`; the status is
+  `open`, `accepted` or `rejected` (`quotation_status_check`). The
+  customer's answer is its one change: an open quotation becomes accepted
+  or rejected, once (`quotation_answered_once`), and the application may
+  update `status`, `version` and `updated_by` alone and delete nothing.
+  The list reads a company's quotations by date and a customer's
+  (`quotation_by_date`, `quotation_by_customer`).
+- `sales.quotation_item`: a description, and an item key when it has
+  one, that are not white space alone
+  (`quotation_item_description_check`, `quotation_item_item_key_check`);
+  a quantity above zero
+  (`quotation_item_quantity_positive`) in a unit of the reference data, a
+  unit price above zero per a price unit above zero
+  (`quotation_item_price_positive`, `quotation_item_price_unit_positive`)
+  and a net value above zero (`quotation_item_net_positive`);
+  insert-only (`platform.forbid_mutation`).
+- `sales.outbox`, `sales.inbox`: the context's events
+  (`QuotationChanged`).
+- Permissions `sales.quotation.read` and `.write`.

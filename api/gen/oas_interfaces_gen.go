@@ -21,6 +21,10 @@ type AcceptMemoRecordProposalRes interface {
 	acceptMemoRecordProposalRes()
 }
 
+type AcceptQuotationRes interface {
+	acceptQuotationRes()
+}
+
 type AcceptVarianceCommentRes interface {
 	acceptVarianceCommentRes()
 }
@@ -289,6 +293,10 @@ type CreatePurchaseOrderRes interface {
 	createPurchaseOrderRes()
 }
 
+type CreateQuotationRes interface {
+	createQuotationRes()
+}
+
 type CreateRecommendationRes interface {
 	createRecommendationRes()
 }
@@ -339,6 +347,10 @@ type CreateYearCloseRes interface {
 
 type DecideRecommendationRes interface {
 	decideRecommendationRes()
+}
+
+type DeclineQuotationRes interface {
+	declineQuotationRes()
 }
 
 type DeleteWebhookSubscriptionRes interface {
@@ -715,6 +727,10 @@ type GetPurchaseOrderDocumentRes interface {
 
 type GetPurchaseOrderRes interface {
 	getPurchaseOrderRes()
+}
+
+type GetQuotationRes interface {
+	getQuotationRes()
 }
 
 type GetRecommendationRes interface {
@@ -1183,6 +1199,10 @@ type ListPurchaseOrderChangesRes interface {
 
 type ListPurchaseOrdersRes interface {
 	listPurchaseOrdersRes()
+}
+
+type ListQuotationsRes interface {
+	listQuotationsRes()
 }
 
 type ListRecommendationsRes interface {

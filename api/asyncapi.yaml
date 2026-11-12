@@ -93,6 +93,7 @@ info:
     - name: payables
     - name: receivables
     - name: collections
+    - name: sales
     - name: payments
     - name: workflow
     - name: integration
@@ -426,6 +427,14 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       DunningRunChanged: {$ref: '#/components/messages/DunningRunChanged'}
+  sales:
+    address: 'erp.{cell}.sales.{tenant}.{event}'
+    title: Sales events
+    description: Quotations (ADR-0067 §6).
+    servers: [{$ref: '#/servers/jetstream'}]
+    parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
+    messages:
+      QuotationChanged: {$ref: '#/components/messages/QuotationChanged'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -694,6 +703,12 @@ operations:
     channel: {$ref: '#/channels/collections'}
     messages:
       - $ref: '#/channels/collections/messages/DunningRunChanged'
+  publishSalesEvents:
+    action: send
+    title: Sales publishes
+    channel: {$ref: '#/channels/sales'}
+    messages:
+      - $ref: '#/channels/sales/messages/QuotationChanged'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3738,6 +3753,33 @@ components:
         - name: applied
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f03, source: /erp/eu-1/receivables, type: com.example.erp.receivables.incoming_payment_applied.v1, subject: 0192a000-0000-7000-8000-000000000f41, time: '2026-11-12T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {incoming_payment_id: 0192a000-0000-7000-8000-000000000f41, document_number: IP100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, posting_date: '2026-11-12', amount: {amount: '1050.00', currency: CAD}, receipt_journal_entry_id: 0192a000-0000-7000-8000-000000000f32, journal_entry_id: 0192a000-0000-7000-8000-000000000f33, journal_entry_year: 2026, journal_entry_number: '1400000001', item_count: 1}
+    QuotationChanged:
+      name: QuotationChanged
+      x-webhook: true
+      title: Quotation changed
+      summary: A quotation was created, accepted or rejected.
+      description: |
+        Emitted at each change of a quotation's status (ADR-0067 §6, T78a):
+        when it is created (`open`, status_before null) and when the
+        customer's answer is recorded (`accepted` or `rejected`,
+        status_before `open`). It carries the quotation's net value, not
+        its items, and names the customer by id and number, never by name.
+        `GET /v1/quotations/{id}` returns the quotation at `version` or
+        later. Subject is the quotation id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.sales.quotation_changed.v1}
+      payload: {$ref: '#/components/schemas/QuotationChangedV1'}
+      examples:
+        - name: created
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001001, source: /erp/eu-1/sales, type: com.example.erp.sales.quotation_changed.v1, subject: 0192a000-0000-7000-8000-000000001011, time: '2026-11-18T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {quotation_id: 0192a000-0000-7000-8000-000000001011, document_number: QT100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_date: '2026-11-18', valid_until: '2026-12-18', net_amount: {amount: '1500.00', currency: CAD}, status: open, status_before: null, version: 1}
+        - name: accepted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000001002, source: /erp/eu-1/sales, type: com.example.erp.sales.quotation_changed.v1, subject: 0192a000-0000-7000-8000-000000001011, time: '2026-11-19T09:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {quotation_id: 0192a000-0000-7000-8000-000000001011, document_number: QT100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, quotation_date: '2026-11-18', valid_until: '2026-12-18', net_amount: {amount: '1500.00', currency: CAD}, status: accepted, status_before: open, version: 2}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4428,6 +4470,22 @@ components:
         journal_entry_year: {type: integer, description: "The clearing entry's fiscal year."}
         journal_entry_number: {type: string, description: "The clearing entry's document number."}
         item_count: {type: integer, description: "How many open items of the customer the payment was applied to."}
+    QuotationChangedV1:
+      type: object
+      required: [quotation_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, quotation_date, valid_until, net_amount, status, status_before, version]
+      properties:
+        quotation_id: {$ref: '#/components/schemas/Uuid', description: '`sales.quotation.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that made it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        quotation_date: {$ref: '#/components/schemas/Date', description: "The day it was made, the company's date."}
+        valid_until: {$ref: '#/components/schemas/Date', description: 'The last day the customer may accept it.'}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net values."}
+        status: {type: string, description: "The quotation's status after the change. Open enum: open, accepted, rejected."}
+        status_before: {type: [string, 'null'], description: 'Its status before; null when it was created.'}
+        version: {type: integer, description: "The quotation's version after the change."}
     ConsolidationRunChangedV1:
       type: object
       required: [run_id, group_code, fiscal_year, fiscal_period, status, status_before, problem, version]

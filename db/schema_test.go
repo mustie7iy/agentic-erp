@@ -277,7 +277,7 @@ func TestDesignRules(t *testing.T) {
 		}
 		return out
 	}
-	tenantSchemas := `('platform','tenancy','identity','config','partner','ledger','procurement','payables','payments','workflow','audit','integration','agents','analytics','cash','controlling','tax','assets','closing','consolidation','einvoicing','receivables','collections')`
+	tenantSchemas := `('platform','tenancy','identity','config','partner','ledger','procurement','payables','payments','workflow','audit','integration','agents','analytics','cash','controlling','tax','assets','closing','consolidation','einvoicing','receivables','collections','sales')`
 
 	if bad := query(`SELECT c.oid::regclass::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 		WHERE n.nspname IN ` + tenantSchemas + ` AND c.relkind IN ('r','p') AND NOT c.relispartition AND NOT c.relrowsecurity`); len(bad) > 0 {

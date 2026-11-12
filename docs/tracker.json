@@ -4481,14 +4481,14 @@
     "ph": 3,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Quotations",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A sales representative creates a quotation for a customer (items by description and optional item key with quantity, unit, unit price, revenue account and output tax code, valid until a date), reads it back with its net value and records that the customer accepted or rejected it; the sales context and its ADR",
-        "r": "T78a · docs/design/plan-breadth-week2.md §T78a",
+        "r": "T78a · docs/design/plan-breadth-week2.md §T78a · db/migrations/000276 · sales.quotation, quotation_item · POST /v1/quotations · GET /v1/quotations · GET /v1/quotations/{id} · POST /v1/quotations/{id}:accept, :decline · QuotationChanged · sales.quotation.read, .write · number range quotation · walkthrough step_quotation · ADR-0067 §1-§4, §6, §7 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

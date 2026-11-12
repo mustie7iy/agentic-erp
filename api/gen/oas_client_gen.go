@@ -102,6 +102,17 @@ type Invoker interface {
 	//
 	// POST /v1/memo-records/{id}:acceptProposal
 	AcceptMemoRecordProposal(ctx context.Context, request OptMemoRecordAccept, params AcceptMemoRecordProposalParams) (AcceptMemoRecordProposalRes, error)
+	// AcceptQuotation invokes acceptQuotation operation.
+	//
+	// Records that the customer accepted an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `accepted` once. One
+	// that is not open is refused (409 `sales.invalid_status`), and so is one whose `valid_until` is
+	// before the company's date today in its time zone (409 `sales.quotation_expired`): it is made again.
+	// Nothing is posted. Audited, and published as QuotationChanged. A retry with the same
+	// `Idempotency-Key` answers the accepted quotation. Human-only (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:accept
+	AcceptQuotation(ctx context.Context, params AcceptQuotationParams) (AcceptQuotationRes, error)
 	// AcceptVarianceComment invokes acceptVarianceComment operation.
 	//
 	// A person accepts an agent's proposed comment (409 `closing.comment_not_proposed` for any other)
@@ -1054,6 +1065,33 @@ type Invoker interface {
 	//
 	// POST /v1/purchase-orders/{id}/changes
 	CreatePurchaseOrderChange(ctx context.Context, request *PurchaseOrderChangeCreate, params CreatePurchaseOrderChangeParams) (CreatePurchaseOrderChangeRes, error)
+	// CreateQuotation invokes createQuotation operation.
+	//
+	// Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a
+	// date. It is created `open`, dated the company's date today in its time zone, with a document number
+	// from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no
+	// document is sent to the customer. The customer is an active business partner with the customer role
+	// that is not blocked for posting in the company (422 `request.reference_not_found` naming
+	// `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is
+	// required from the sales order, not here. `valid_until` is not before the quotation's date (422
+	// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
+	// `item_key` (there is no material master; neither is white space alone, 422
+	// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
+	// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
+	// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
+	// `price_unit`, the revenue account its billing credits, one that can be posted in the company (422
+	// `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the
+	// company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming
+	// `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422
+	// `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is
+	// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+	// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the
+	// quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the
+	// order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation
+	// created. Human-only (`x-agent: false`).
+	//
+	// POST /v1/quotations
+	CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error)
 	// CreateRecommendation invokes createRecommendation operation.
 	//
 	// Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -1177,6 +1215,18 @@ type Invoker interface {
 	//
 	// POST /v1/recommendations/{id}:decide
 	DecideRecommendation(ctx context.Context, request *RecommendationDecide, params DecideRecommendationParams) (DecideRecommendationRes, error)
+	// DeclineQuotation invokes declineQuotation operation.
+	//
+	// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
+	// caller read (`If-Match`): the quotation is read under a row lock and moves to `rejected` once,
+	// whether or not it is still valid. One that is not open is refused (409 `sales.invalid_status`). The
+	// action is `:decline` because `:reject` is an approval decision's, made on approval requests alone
+	// (04 §4.9); a quotation has no approval. Nothing is posted. Audited, and published as
+	// QuotationChanged. A retry with the same `Idempotency-Key` answers the rejected quotation. Human-only
+	// (`x-agent: false`).
+	//
+	// POST /v1/quotations/{id}:decline
+	DeclineQuotation(ctx context.Context, params DeclineQuotationParams) (DeclineQuotationRes, error)
 	// DeleteWebhookSubscription invokes deleteWebhookSubscription operation.
 	//
 	// Ends the subscription: its status becomes `deleted`, nothing more is sent to it, and it no longer
@@ -2347,6 +2397,15 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders/{id}/document
 	GetPurchaseOrderDocument(ctx context.Context, params GetPurchaseOrderDocumentParams) (GetPurchaseOrderDocumentRes, error)
+	// GetQuotation invokes getQuotation operation.
+	//
+	// One quotation (ADR-0067 §2, T78a) with its company's code and name, its customer's number and name,
+	// its net value and its items, each with its quantity, unit price, net value and its revenue account's
+	// number and name. One of a company the caller may not act in is not found (404), as one that does not
+	// exist.
+	//
+	// GET /v1/quotations/{id}
+	GetQuotation(ctx context.Context, params GetQuotationParams) (GetQuotationRes, error)
 	// GetRecommendation invokes getRecommendation operation.
 	//
 	// Returns one recommendation.
@@ -3524,6 +3583,15 @@ type Invoker interface {
 	//
 	// GET /v1/purchase-orders
 	ListPurchaseOrders(ctx context.Context, params ListPurchaseOrdersParams) (ListPurchaseOrdersRes, error)
+	// ListQuotations invokes listQuotations operation.
+	//
+	// The quotations of the companies the caller may act in (ADR-0067 §2, T78a), each as `getQuotation`
+	// gives it: with its company's code and name, its customer's number and name, its net value and its
+	// items. Filtered by company, customer, status and document number. Sortable by: `quotation_date`,
+	// `document_number`.
+	//
+	// GET /v1/quotations
+	ListQuotations(ctx context.Context, params ListQuotationsParams) (ListQuotationsRes, error)
 	// ListRecommendations invokes listRecommendations operation.
 	//
 	// Agent recommendations, newest first. Sortable by: `created_at`.
@@ -6265,6 +6333,168 @@ func (c *Client) sendAcceptMemoRecordProposal(ctx context.Context, request OptMe
 
 	stage = "DecodeResponse"
 	result, err := decodeAcceptMemoRecordProposalResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// AcceptQuotation invokes acceptQuotation operation.
+//
+// Records that the customer accepted an `open` quotation (ADR-0067 §2, T78a), at the version the
+// caller read (`If-Match`): the quotation is read under a row lock and moves to `accepted` once. One
+// that is not open is refused (409 `sales.invalid_status`), and so is one whose `valid_until` is
+// before the company's date today in its time zone (409 `sales.quotation_expired`): it is made again.
+// Nothing is posted. Audited, and published as QuotationChanged. A retry with the same
+// `Idempotency-Key` answers the accepted quotation. Human-only (`x-agent: false`).
+//
+// POST /v1/quotations/{id}:accept
+func (c *Client) AcceptQuotation(ctx context.Context, params AcceptQuotationParams) (AcceptQuotationRes, error) {
+	res, err := c.sendAcceptQuotation(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendAcceptQuotation(ctx context.Context, params AcceptQuotationParams) (res AcceptQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("acceptQuotation"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/quotations/{id}:accept"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, AcceptQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/quotations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":accept"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, AcceptQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeAcceptQuotationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -16564,6 +16794,157 @@ func (c *Client) sendCreatePurchaseOrderChange(ctx context.Context, request *Pur
 	return result, nil
 }
 
+// CreateQuotation invokes createQuotation operation.
+//
+// Creates a quotation to a customer (ADR-0067 §2-§4, T78a): what the company offers, valid until a
+// date. It is created `open`, dated the company's date today in its time zone, with a document number
+// from the company's `quotation` number range of that date's fiscal year; nothing is posted, and no
+// document is sent to the customer. The customer is an active business partner with the customer role
+// that is not blocked for posting in the company (422 `request.reference_not_found` naming
+// `customer_id` for an unknown one, `sales.customer_not_usable` otherwise); its data in the company is
+// required from the sales order, not here. `valid_until` is not before the quotation's date (422
+// `sales.invalid_validity`). Each item names what is sold by a description and an optional free-text
+// `item_key` (there is no material master; neither is white space alone, 422
+// `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
+// of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
+// `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
+// `price_unit`, the revenue account its billing credits, one that can be posted in the company (422
+// `sales.account_not_postable` naming `items[i].account_id`), and optionally an output tax code of the
+// company with a rate in force on the quotation's date (422 `sales.unknown_tax_code` naming
+// `items[i].tax_code`; a code that levies the subdivision its lines name is refused, 422
+// `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An item's `net_amount` is
+// quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit and
+// more than zero (422 `sales.amount_not_positive` naming `items[i].unit_price.amount`); the
+// quotation's `net_amount` is their sum, exactly. Amounts are net: the tax is calculated when the
+// order is billed, at the invoice date. A retry with the same `Idempotency-Key` answers the quotation
+// created. Human-only (`x-agent: false`).
+//
+// POST /v1/quotations
+func (c *Client) CreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (CreateQuotationRes, error) {
+	res, err := c.sendCreateQuotation(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendCreateQuotation(ctx context.Context, request *QuotationCreate, params CreateQuotationParams) (res CreateQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("createQuotation"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/quotations"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, CreateQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/quotations"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodeCreateQuotationRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, CreateQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeCreateQuotationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // CreateRecommendation invokes createRecommendation operation.
 //
 // Records an agent's recommendation on a business object for people to decide. Agents recommend;
@@ -18322,6 +18703,169 @@ func (c *Client) sendDecideRecommendation(ctx context.Context, request *Recommen
 
 	stage = "DecodeResponse"
 	result, err := decodeDecideRecommendationResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// DeclineQuotation invokes declineQuotation operation.
+//
+// Records that the customer rejected an `open` quotation (ADR-0067 §2, T78a), at the version the
+// caller read (`If-Match`): the quotation is read under a row lock and moves to `rejected` once,
+// whether or not it is still valid. One that is not open is refused (409 `sales.invalid_status`). The
+// action is `:decline` because `:reject` is an approval decision's, made on approval requests alone
+// (04 §4.9); a quotation has no approval. Nothing is posted. Audited, and published as
+// QuotationChanged. A retry with the same `Idempotency-Key` answers the rejected quotation. Human-only
+// (`x-agent: false`).
+//
+// POST /v1/quotations/{id}:decline
+func (c *Client) DeclineQuotation(ctx context.Context, params DeclineQuotationParams) (DeclineQuotationRes, error) {
+	res, err := c.sendDeclineQuotation(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendDeclineQuotation(ctx context.Context, params DeclineQuotationParams) (res DeclineQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("declineQuotation"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/quotations/{id}:decline"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, DeclineQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/quotations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":decline"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, DeclineQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeDeclineQuotationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -32394,6 +32938,140 @@ func (c *Client) sendGetPurchaseOrderDocument(ctx context.Context, params GetPur
 
 	stage = "DecodeResponse"
 	result, err := decodeGetPurchaseOrderDocumentResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetQuotation invokes getQuotation operation.
+//
+// One quotation (ADR-0067 §2, T78a) with its company's code and name, its customer's number and name,
+// its net value and its items, each with its quantity, unit price, net value and its revenue account's
+// number and name. One of a company the caller may not act in is not found (404), as one that does not
+// exist.
+//
+// GET /v1/quotations/{id}
+func (c *Client) GetQuotation(ctx context.Context, params GetQuotationParams) (GetQuotationRes, error) {
+	res, err := c.sendGetQuotation(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetQuotation(ctx context.Context, params GetQuotationParams) (res GetQuotationRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getQuotation"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/quotations/{id}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetQuotationOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/v1/quotations/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, GetQuotationOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetQuotationResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -58363,6 +59041,245 @@ func (c *Client) sendListPurchaseOrders(ctx context.Context, params ListPurchase
 
 	stage = "DecodeResponse"
 	result, err := decodeListPurchaseOrdersResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListQuotations invokes listQuotations operation.
+//
+// The quotations of the companies the caller may act in (ADR-0067 §2, T78a), each as `getQuotation`
+// gives it: with its company's code and name, its customer's number and name, its net value and its
+// items. Filtered by company, customer, status and document number. Sortable by: `quotation_date`,
+// `document_number`.
+//
+// GET /v1/quotations
+func (c *Client) ListQuotations(ctx context.Context, params ListQuotationsParams) (ListQuotationsRes, error) {
+	res, err := c.sendListQuotations(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendListQuotations(ctx context.Context, params ListQuotationsParams) (res ListQuotationsRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listQuotations"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/v1/quotations"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListQuotationsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/v1/quotations"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "legal_entity_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "legal_entity_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.LegalEntityID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "customer_id" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "customer_id",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CustomerID.Get(); ok {
+				return e.EncodeValue(conv.UUIDToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "status" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "status",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Status.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "document_number" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "document_number",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.DocumentNumber.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_size" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_size",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageSize.Get(); ok {
+				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "page_token" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "page_token",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.PageToken.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "order_by" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "order_by",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.OrderBy.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, ListQuotationsOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodeListQuotationsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
