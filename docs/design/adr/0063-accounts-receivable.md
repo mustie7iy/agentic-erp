@@ -513,7 +513,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   for this): `ledger.AgingDays` (the default and the ascending check that
   `listOpenItems` makes of `aging_days`), `ledger.AgingBucket` (an item's
   bucket from `ReceivableItem.DaysOverdue`: without terms it has no due
-  date; due on the key date or later it is not due; else the bucket
+  date (since 2026-11-12 it is due on its document date: As built, Items
+  without payment terms); due on the key date or later it is not due; else the bucket
   holding its days) and `ledger.AgingRange` (a bucket's name and days,
   which `listOpenItems`' own aging now reads too). The list's aging counts
   in SQL (`agingSelect`); `TestAgingBucketAsTheList` (ledger) holds
@@ -522,7 +523,8 @@ Plan defaults 1-5 above. Taken in T75a beside them:
   report's totals, bucket by bucket, to `GET /v1/open-items` of the
   receivables account and to that account's open lines. So an item without
   terms, and an item due on the key date, are treated as `listOpenItems`'
-  aging treats them.
+  aging treats them (an item without terms no longer, since 2026-11-12:
+  As built, Items without payment terms).
 - **Paging.** One row per customer with open items, by customer id (the
   order the ledger reads them in), in cursor pages (`page_size`, at most
   500); the token is signed for the company, key date, days and customer
