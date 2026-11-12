@@ -4570,6 +4570,13 @@
         "c": []
        },
        {
+        "s": "D",
+        "t": "fix: a price a person enters on a quotation or order item is the final net price: the pricing procedure takes no discount off it and the item lists its price alone; a price from the price list keeps its discounts",
+        "r": "T80c · internal/sales/pricing.go (conditioned) · walkthrough step_price_list · ADR-0067 §11 and As built",
+        "src": "po:2026-11-12",
+        "c": []
+       },
+       {
         "s": "T",
         "t": "later: pricing configuration variants: several procedures chosen by customer and document type, access sequences, fixed-amount and quantity-based conditions, header conditions, condition exclusion, statistical conditions, tax as a condition, pricing configuration generated from SAP's condition tables (after 1 December 2026: depth phase, not to be picked up before)",
         "r": "docs/design/plan-breadth-week2.md §T80b, Later",
@@ -4588,6 +4595,13 @@
         "t": "A pricing analyst records prices for item keys, for every customer or for one, with validity dates; a quotation or order item naming an item key without a price takes the price valid on the document's date (POST /v1/sales-prices)",
         "r": "T80a · docs/design/plan-breadth-week2.md §T80a · db/migrations/000294 · sales.price · price_source on sales.quotation_item, sales_order_item · POST /v1/sales-prices · GET /v1/sales-prices · GET /v1/sales-prices/{id} · SalesPriceChanged · sales.price.read, .write · walkthrough step_price_list · ADR-0067 §10 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
+        "c": []
+       },
+       {
+        "s": "D",
+        "t": "fix: a quotation or sales order item that sends price_unit without unit_price is refused naming the field (422), where it was silently ignored",
+        "r": "T80d · internal/sales/pricing.go (unitPrice) · SalesItemCreate.price_unit · walkthrough step_price_list · ADR-0067 §10 and As built",
+        "src": "po:2026-11-12",
         "c": []
        },
        {

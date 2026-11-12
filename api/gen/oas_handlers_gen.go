@@ -17915,25 +17915,28 @@ func (s *Server) handleCreatePurchaseOrderChangeRequest(args [1]string, argsEsca
 // `request.validation_failed` naming the field), with a quantity more than zero in a unit of measure
 // of the reference data (422 `sales.invalid_quantity` naming `items[i].quantity.value`,
 // `sales.unknown_unit` naming `items[i].quantity.unit`), a unit price in the quotation's currency per
-// `price_unit`, or without one the price recorded for its `item_key` that is valid on the quotation's
-// date in the item's unit and the quotation's currency, the customer's before the general one and then
-// the latest `valid_from` (`createSalesPrice`; `price_source` says which; an item with neither a price
-// nor such a record is refused, 422 `sales.no_price` naming `items[i].unit_price`), the revenue
-// account its billing credits, one that can be posted in the company (422 `sales.account_not_postable`
-// naming `items[i].account_id`), and optionally an output tax code of the company with a rate in force
-// on the quotation's date (422 `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies
-// the subdivision its lines name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer
-// invoice refuses it). An item's `net_amount` is quantity × unit price ÷ price unit, rounded half
-// away from zero to the currency's minor unit and more than zero (422 `sales.amount_not_positive`
-// naming `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not
-// give); the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a
-// pricing procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key
-// and valid on the quotation's date, the customer's before the general one, is taken off in the
-// procedure's order, as a percentage of the value before it rounded half away from zero; `conditions`
-// lists the price and the discounts applied, and `net_amount` is the value less the discounts, still
-// more than zero (ADR-0067 §11). Amounts are net: the tax is calculated when the order is billed, at
-// the invoice date. A retry with the same `Idempotency-Key` answers the quotation created. Human-only
-// (`x-agent: false`).
+// `price_unit` (1 when absent; sent without a unit price it is refused, 422
+// `request.validation_failed` naming `items[i].price_unit`), or without one the price recorded for its
+// `item_key` that is valid on the quotation's date in the item's unit and the quotation's currency,
+// the customer's before the general one and then the latest `valid_from` (`createSalesPrice`;
+// `price_source` says which; an item with neither a price nor such a record is refused, 422
+// `sales.no_price` naming `items[i].unit_price`), the revenue account its billing credits, one that
+// can be posted in the company (422 `sales.account_not_postable` naming `items[i].account_id`), and
+// optionally an output tax code of the company with a rate in force on the quotation's date (422
+// `sales.unknown_tax_code` naming `items[i].tax_code`; a code that levies the subdivision its lines
+// name is refused, 422 `sales.tax_jurisdiction_not_supported`, as a customer invoice refuses it). An
+// item's `net_amount` is quantity × unit price ÷ price unit, rounded half away from zero to the
+// currency's minor unit and more than zero (422 `sales.amount_not_positive` naming
+// `items[i].unit_price.amount`, or `items[i].quantity.value` for a price the request did not give);
+// the quotation's `net_amount` is their sum, exactly. When the tenant's configuration has a pricing
+// procedure (`pricing.procedure`), each discount of the procedure recorded for the item's key and
+// valid on the quotation's date, the customer's before the general one, is taken off an item priced
+// from the price records, in the procedure's order, as a percentage of the value before it rounded
+// half away from zero; `conditions` lists the price and the discounts applied, and `net_amount` is the
+// value less the discounts, still more than zero (ADR-0067 §11). A `unit_price` entered with the item
+// is its final net price: no discount is taken off it, and its price is its only condition. Amounts
+// are net: the tax is calculated when the order is billed, at the invoice date. A retry with the same
+// `Idempotency-Key` answers the quotation created. Human-only (`x-agent: false`).
 //
 // POST /v1/quotations
 func (s *Server) handleCreateQuotationRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
@@ -19824,8 +19827,9 @@ func (s *Server) handleCreateSalesOrderRequest(args [0]string, argsEscaped bool,
 // one of kind `discount_percent` a discount, which gives `percent`, more than 0 and less than 100 (422
 // `sales.invalid_percent`), and no unit, price or price unit; a price gives no percent (422
 // `sales.price_or_percent` naming the field given or missing). A discount is taken off an item of the
-// item key when the pricing procedure names its type, the customer's before the general one as a price
-// is found (ADR-0067 §11). A record is never changed or deleted: a new price is recorded with a later
+// item key that is priced from the price records when the pricing procedure names its type, the
+// customer's before the general one as a price is found (ADR-0067 §11); an item whose `unit_price`
+// was entered has none. A record is never changed or deleted: a new price is recorded with a later
 // `valid_from`, and the items priced before keep their price. Audited, and published as
 // SalesPriceChanged. A retry with the same `Idempotency-Key` answers the record created. Human-only
 // (`x-agent: false`).

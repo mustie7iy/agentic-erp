@@ -7166,10 +7166,13 @@ step_billing() {
 # before. T80b (ADR-0067 §11): Ada activates a pricing procedure, a price
 # and a customer discount, through a governed change; Paula records
 # Northwind's discount of five percent; a new quotation item shows the
-# price, the discount and the net value after it.
+# price, the discount and the net value after it. T80c (product owner
+# 2026-11-12): a price Sally enters for the same item is its final net
+# price, with no discount. T80d: a price unit sent without a price is
+# refused naming it.
 step_price_list() {
-  heading "Step 65 — Sales prices: a general price and a customer's price recorded for an item key; a quotation item without a price takes the customer's, another customer's the general one; an entered price stays; the price is fixed on the item; a pricing procedure through a governed change, a customer's discount, and an item's conditions with its net value after them"
-  local customer=$CUSTOMER sales ar until from item manual quotation contoso base cr request
+  heading "Step 65 — Sales prices: a general price and a customer's price recorded for an item key; a quotation item without a price takes the customer's, another customer's the general one; an entered price stays; the price is fixed on the item; a pricing procedure through a governed change, a customer's discount, and an item's conditions with its net value after them; an entered price is final, with no discount; a price unit without a price is refused"
+  local customer=$CUSTOMER sales ar until from item manual quotation contoso base cr request entered
   [ -n "$customer" ] || fail "step 47's customer is not there"
   as ada
   say "Ada adds Paula, the pricing analyst, to the team:"
@@ -7224,6 +7227,11 @@ step_price_list() {
   refused 422 sales.no_price createQuotation \
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$item, ${item/\"item_key\": \"BRACKET-M8\", /}]}"
   expect "the field refused" "$(field '.errors[0].field')" "items[1].unit_price"
+  say "A price unit belongs to a price the item sends: one sent without a price is refused naming it, since the"
+  say "record's price comes with its own (product owner 2026-11-12, T80d):"
+  refused 422 request.validation_failed createQuotation \
+    -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$contoso\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [${item/\"account_id\"/\"price_unit\": 100, \"account_id\"}]}"
+  expect "the field refused" "$(field '.errors[0].field')" "items[0].price_unit"
   say "Paula raises the general price to 13.25 from today. A record is never changed: the new price is a new"
   say "record, and Contoso's quotation keeps the price it was made with:"
   as paula
@@ -7273,6 +7281,15 @@ step_price_list() {
     "PR00 price 2937.48, K007 discount_percent -146.87"
   expect "the discount's rate" "$(field '.items[0].conditions[1].percent')" 5
   expect "the item's net value after the discount" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2790.61 2790.61 CAD"
+  say "For a rush order Sally agrees 11.00 CAD a bracket with Northwind and enters it. A price a person enters is the"
+  say "final net price (product owner 2026-11-12, T80c): Northwind's discount is not taken off it, and the item lists"
+  say "its price alone, 250 at 11.00, 2750.00:"
+  entered="{\"item_key\": \"BRACKET-M8\", \"description\": \"Machined bracket M8\", \"quantity\": {\"value\": \"250\", \"unit\": \"EA\"}, \"unit_price\": {\"amount\": \"11.00\", \"currency\": \"CAD\"}, \"account_id\": \"$sales\", \"tax_code\": \"GO5\"}"
+  api 201 '"quotation \(.document_number) to \(.customer_number) \(.customer_name): net \(.net_amount.amount) \(.net_amount.currency)", (.items[] | "  item \(.item_no) \(.item_key) \(.description): \(.quantity.value) \(.quantity.unit) at \(.unit_price.amount) per \(.price_unit) (\(.price_source)), net \(.net_amount.amount)", (.conditions[] | "    \(.condition_type) \(.name): \(if .kind == "price" then "\(.unit_price.amount) per \(.price_unit)" else "\(.percent) percent" end) = \(.amount.amount) \(.amount.currency)"))' \
+    createQuotation -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"valid_until\": \"$until\", \"currency\": \"CAD\", \"items\": [$entered]}"
+  expect "the entered price's source and conditions" "$(field '.items[0] | "\(.price_source): \([.conditions[] | "\(.condition_type) \(.kind) \(.amount.amount)"] | join(", "))"')" \
+    "manual: PR00 price 2750.00"
+  expect "the entered price in full" "$(field '"\(.items[0].net_amount.amount) \(.net_amount.amount) \(.net_amount.currency)"')" "2750.00 2750.00 CAD"
   passed
 }
 # step_revenue_contract is T81a (ADR-0068 §3-§4): Sally confirms a second

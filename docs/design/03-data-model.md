@@ -4807,7 +4807,9 @@ erDiagram
   its order. Each has `condition_type`, `name`, `kind` and `amount`
   (minor units of the document's currency, a discount's negative); a
   price its `unit_price` and `price_unit`, a discount its `percent`. The
-  amounts add up to the item's `net_amount`.
+  amounts add up to the item's `net_amount`. An item whose price was
+  entered (`price_source` `manual`) has its price alone: an entered
+  price is the final net price (T80c, product owner 2026-11-12).
 - `sales.outbox`, `sales.inbox`: the context's events
   (`QuotationChanged`, `SalesOrderChanged`, `SalesOrderDelivered`,
   `BillingDocumentChanged`, `BillingDocumentPosted`, `SalesPriceChanged`,

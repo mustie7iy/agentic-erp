@@ -188,6 +188,11 @@ func TestItemConditions(t *testing.T) {
 	e.priced(t, rec{condition: "KA00", percent: "10"})
 	e.priced(t, rec{condition: "KA00", percent: "50", from: "2021-01-01", to: "2021-12-31"}) // over
 	e.priced(t, rec{condition: "K007", percent: "7.5", key: "WASHER"})                       // another key's
+	e.priced(t, rec{amount: "0.10", key: "CLIP"})
+	e.priced(t, rec{condition: "K007", percent: "5", key: "CLIP", customer: e.customer})
+	e.priced(t, rec{condition: "KA00", percent: "10", key: "CLIP"})
+	e.priced(t, rec{amount: "0.04", key: "PIN"})
+	e.priced(t, rec{condition: "KA00", percent: "10", key: "PIN"})
 	cases := []struct {
 		name       string
 		customer   uuid.UUID
@@ -205,12 +210,17 @@ func TestItemConditions(t *testing.T) {
 			"PR00 Price 10.01 EUR per 1 = 25.03 EUR; KA00 Promotion 10% = -2.50 EUR", "10.01 EUR per 1, price_list, net 22.53 EUR"},
 		// 5% of 0.10 is 0.005: 0.01, half away from zero, leaving 0.09.
 		// 10% of 0.09 is 0.009: 0.01, leaving 0.08.
-		{"half a minor unit rounds away from zero, on an entered price", e.customer, e.item(line{price: "0.10", key: "BRACKET-M8"}),
+		{"half a minor unit rounds away from zero", e.customer, e.unpriced(line{key: "CLIP"}),
 			"PR00 Price 0.10 EUR per 1 = 0.10 EUR; K007 Customer discount 5% = -0.01 EUR; KA00 Promotion 10% = -0.01 EUR",
-			"0.10 EUR per 1, manual, net 0.08 EUR"},
+			"0.10 EUR per 1, price_list, net 0.08 EUR"},
 		// 10% of 0.04 is 0.004: nothing.
-		{"a discount that rounds to nothing is still listed", other, e.item(line{price: "0.04", key: "BRACKET-M8"}),
-			"PR00 Price 0.04 EUR per 1 = 0.04 EUR; KA00 Promotion 10% = 0.00 EUR", "0.04 EUR per 1, manual, net 0.04 EUR"},
+		{"a discount that rounds to nothing is still listed", other, e.unpriced(line{key: "PIN"}),
+			"PR00 Price 0.04 EUR per 1 = 0.04 EUR; KA00 Promotion 10% = 0.00 EUR", "0.04 EUR per 1, price_list, net 0.04 EUR"},
+		// The key has the customer's 5% and the promotion's 10%: neither is
+		// taken off a price the person entered (PO 2026-11-12, T80c).
+		{"an entered price is the final net price: its key's discounts are not taken off", e.customer,
+			e.item(line{price: "9.00", quantity: "2.5", key: "BRACKET-M8"}), "PR00 Price 9.00 EUR per 1 = 22.50 EUR",
+			"9.00 EUR per 1, manual, net 22.50 EUR"},
 		{"an item without a key has its price alone", e.customer, e.item(line{price: "20.00", quantity: "3", priceUnit: 2}),
 			"PR00 Price 20.00 EUR per 2 = 30.00 EUR", "20.00 EUR per 2, manual, net 30.00 EUR"},
 		{"a key without discounts", e.customer, e.item(line{price: "20.00", key: "NUT"}), "PR00 Price 20.00 EUR per 1 = 20.00 EUR",
@@ -258,9 +268,15 @@ func TestItemConditions(t *testing.T) {
 	t.Run("discounts that leave nothing", func(t *testing.T) {
 		e.priced(t, rec{condition: "K007", percent: "50", key: "CENT"})
 		// 50% of 0.01 is 0.005: 0.01, leaving nothing.
-		got := e.In(t).Problem(422, "sales.amount_not_positive", "POST", "/v1/quotations", e.body(other, far, e.item(line{price: "0.01", key: "CENT"})), "")
-		if f := field(got); f != "items[0].unit_price.amount" {
-			t.Errorf("field: got %v, want items[0].unit_price.amount", f)
+		e.priced(t, rec{amount: "0.01", key: "CENT"})
+		got := e.In(t).Problem(422, "sales.amount_not_positive", "POST", "/v1/quotations", e.body(other, far, e.unpriced(line{key: "CENT"})), "")
+		if f := field(got); f != "items[0].quantity.value" {
+			t.Errorf("field: got %v, want items[0].quantity.value, the price not being the request's", f)
+		}
+		// The same price entered keeps its value: no discount is taken off it.
+		it := e.quotedItem(t, other, e.item(line{price: "0.01", key: "CENT"}))
+		if got, want := pricing(t, it), "0.01 EUR per 1, manual, net 0.01 EUR"; got != want {
+			t.Errorf("the price entered: got %s, want %s", got, want)
 		}
 	})
 }
@@ -275,7 +291,7 @@ func TestConditionsOnDocuments(t *testing.T) {
 	e.priced(t, rec{amount: "10.01"})
 	e.priced(t, rec{condition: "K007", percent: "5", customer: e.customer})
 	const want = "PR00 Price 10.01 EUR per 1 = 25.03 EUR; K007 Customer discount 5% = -1.25 EUR"
-	quotation := e.accepted(t, e.customer, e.unpriced(line{quantity: "2.5"}), e.item(line{price: "3.00"}))
+	quotation := e.accepted(t, e.customer, e.unpriced(line{quantity: "2.5"}), e.item(line{price: "3.00", key: "BRACKET-M8"}))
 	quoted, _ := e.Must(200, "GET", "/v1/quotations/"+quotation, "", "")
 	if a := amount(t, quoted, "net_amount"); a != "26.78 EUR" {
 		t.Errorf("the quotation's net value: got %s, want 26.78 EUR, 23.78 and 3.00", a)
@@ -288,13 +304,21 @@ func TestConditionsOnDocuments(t *testing.T) {
 	if a := amount(t, order, "net_amount"); a != "26.78 EUR" {
 		t.Errorf("the order's net value: got %s, want 26.78 EUR, the quotation's", a)
 	}
+	// The second item's price was entered: the order copies it without the
+	// key's discount, as the quotation priced it (T80c).
+	if got, want := applied(t, items(t, order)[1]), "PR00 Price 3.00 EUR per 1 = 3.00 EUR"; got != want {
+		t.Errorf("the entered price's conditions on the order: got %s, want %s", got, want)
+	}
 	// 9% of 25.03 is 2.2527: 2.25.
-	direct, _ := e.Must(201, "POST", "/v1/sales-orders", e.direct(e.customer, "", e.unpriced(line{quantity: "2.5"})), "")
+	direct, _ := e.Must(201, "POST", "/v1/sales-orders", e.direct(e.customer, "", e.unpriced(line{quantity: "2.5"}), e.item(line{price: "3.00", key: "BRACKET-M8"})), "")
 	if got, want := applied(t, items(t, direct)[0]), "PR00 Price 10.01 EUR per 1 = 25.03 EUR; K007 Customer discount 9% = -2.25 EUR"; got != want {
 		t.Errorf("a direct order's conditions: got %s, want %s", got, want)
 	}
-	if a := amount(t, direct, "net_amount"); a != "22.78 EUR" {
-		t.Errorf("a direct order's net value: got %s, want 22.78 EUR", a)
+	if got, want := applied(t, items(t, direct)[1]), "PR00 Price 3.00 EUR per 1 = 3.00 EUR"; got != want {
+		t.Errorf("a direct order's entered price: got %s, want %s", got, want)
+	}
+	if a := amount(t, direct, "net_amount"); a != "25.78 EUR" {
+		t.Errorf("a direct order's net value: got %s, want 25.78 EUR, 22.78 and the 3.00 entered", a)
 	}
 	err := e.inRequest(t, func(ctx context.Context) error {
 		o, ok, err := sales.Orders{}.Order(ctx, uuid.MustParse(order["id"].(string)))

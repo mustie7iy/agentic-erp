@@ -6,7 +6,7 @@ the sales context and the documents of T78a-T79b
 (`docs/design/plan-breadth-week2.md`, Lane A): quotation, sales order,
 delivery confirmation and billing document. Prices (T80a, T80b) and the
 order credit block (T77b) record what they build here too. Each slice
-records what it built under "As built"; T78a's to T79b's, T80a's and T80b's are there now. The defaults
+records what it built under "As built"; T78a's to T79b's, T80a's and T80b's are there now, with T80c's change of §11 (an entered price is the final net price) and T80d's of default 12 (a price unit without a unit price is refused), both the product owner's of 2026-11-12. The defaults
 taken and the questions left are listed at the end for the product owner's
 digest.
 
@@ -248,7 +248,10 @@ A record in another unit or another currency is not converted and does
 not count: the unit and the currency must be the item's. An item with
 neither a price nor such a record, or without an item key to look one
 up by, is refused naming the price it lacks (422 `sales.no_price`,
-`items[i].unit_price`). The item key is compared exactly, as it is
+`items[i].unit_price`). An item that sends a `price_unit` without a
+`unit_price` is refused naming it (422 `request.validation_failed`,
+`items[i].price_unit`; product owner 2026-11-12, T80d): the record's
+price comes with its own price unit. The item key is compared exactly, as it is
 stored.
 
 The price is fixed on the item when it is created: the item stores the
@@ -300,10 +303,13 @@ item keeps the conditions applied, each with its type, the type's name
 then, its rate (a price's unit price per price unit, a discount's
 percent) and its amount, a discount's negative: the amounts add up to
 the net value. They are fixed with the price when the item is created
-and copied to the order a quotation gives. A discount applies to an
-entered price as to a recorded one: the entered price takes the place of
-the price list's price, not of the customer's discount. An item without
-an item key has no discount, since discounts are recorded by key.
+and copied to the order a quotation gives. A price entered with the
+item is its final net price (product owner 2026-11-12, T80c): no
+discount is taken off it, its price is its only condition and its net
+value is its value. As T80b built it, a discount applied to an entered
+price as to a recorded one; that was default 15, which the product
+owner overruled. An item without an item key has no discount either,
+since discounts are recorded by key.
 
 ## Alternatives
 - **Discounts in a table of their own, with their own endpoint**: the
@@ -316,7 +322,8 @@ an item key has no discount, since discounts are recorded by key.
 - **An entered price as the final net value, with no discount**: it
   would make the entered price a way round the customer's discount in
   one direction and deny the customer its discount in the other. Not
-  taken (default 15, for the product owner).
+  taken in T80b (default 15); the product owner chose it on 2026-11-12
+  (T80c, §11).
 - **A price record changed in place, with versions**: the items priced
   from it would point at a row that no longer says what they took. An
   insert-only record with a validity is what the plan names, and the
@@ -382,7 +389,8 @@ Taken in T80a beside plan default 8:
     customer role, not blocked for posting in the company); `valid_from`
     may be any day, past or to come.
 12. `price_unit` sent without a `unit_price` is not read: a recorded
-    price comes with its own.
+    price comes with its own. Overruled by the product owner on
+    2026-11-12: it is refused naming the field (T80d).
 13. Recording prices is human-only, as every sales write (§7).
 
 Taken in T80b beside plan default 9:
@@ -392,6 +400,8 @@ Taken in T80b beside plan default 9:
     (an access sequence, which the plan leaves for later).
 15. With a procedure, the discounts found for an item's key are taken
     off an entered price too; an item without a key has none.
+    Overruled by the product owner on 2026-11-12: an entered price is
+    the final net price and has no discount (T80c).
 16. A discount is more than 0 and less than 100 percent: one of 100
     would leave an item no value, which no item may have (default 4).
 17. A price recorded without a condition type counts as the procedure's
@@ -410,7 +420,7 @@ Taken in T80b beside plan default 9:
 - **Discounts on an entered price** (product owner; a money rule):
   default 15 takes the customer's discount off a price the sales
   representative enters. Should an entered price be the final net value
-  instead?
+  instead? Answered 2026-11-12: yes (T80c).
 - **Billing at the order's prices** (product owner, T79a): once an item
   has discounts its net value is less than quantity × unit price ÷ price
   unit, so a billing document must take its share of the item's net
@@ -946,6 +956,62 @@ Taken in T80b beside plan default 9:
   conditions, condition exclusion, statistical conditions, tax as a
   condition, rebates, pricing configuration generated from SAP's
   condition tables.
+
+### T80c An entered price is the final net price (no migration)
+- **Decision (product owner, 2026-11-12, row 2):** a price entered with
+  a quotation or order item is the item's final net price. The pricing
+  procedure takes no discount off it; a price determined from the price
+  records has its discounts as before. This overrules default 15.
+- `internal/sales/pricing.go`: `conditioned` stops after the price for
+  an item whose source is `manual`, as it does for an item without a
+  key. With a procedure the item's `conditions` are its price alone,
+  whose amount is the net value; without one they are empty, as before.
+- `price_source` keeps its two values: `manual` is the entered price,
+  `price_list` the determined one. No new value, no schema change.
+- Items priced before the change keep the conditions and net value they
+  were stored with: an item is priced once, when it is created (§10),
+  and an order from a quotation copies the quotation's items.
+- Billing is unchanged: a billing document shares out the order item's
+  net value (§9), which for an entered price is now quantity × unit
+  price ÷ price unit, and shows the order item's conditions
+  (`TestBillingAnEnteredPrice`, beside
+  `TestBillingSharesOutTheDiscountedNet` for a determined price).
+- Contract: descriptions only (`createQuotation`, `createSalesPrice`,
+  `SalesItemCreate.unit_price`, `SalesItem.conditions`).
+- Walkthrough `step_price_list` (step 65) extended: after Northwind's
+  discount is recorded, Sally quotes the bracket at a price she enters,
+  11.00; the item reads `manual`, lists the price alone and keeps
+  2750.00, beside the item priced from the price list with its discount.
+
+### T80d A price unit without a unit price is refused (no migration)
+- **Decision (product owner, 2026-11-12, row 3):** `price_unit` sent
+  without `unit_price` is refused with a field error; it was silently
+  ignored (default 12), so an item could be priced per another quantity
+  than its request said.
+- `internal/sales/pricing.go`: `unitPrice` refuses the item, 422
+  `request.validation_failed` naming `items[i].price_unit`, before it
+  looks for a price record, whatever the price unit sent, 1 included.
+  `itemInputs` passes a price unit the request did not give as 0, and an
+  entered price without one is per 1, as before.
+- It applies wherever the pair is accepted: `SalesItemCreate`, the item
+  of `POST /v1/quotations` and of `POST /v1/sales-orders` with `items`.
+  No operation changes an item afterwards, and an order from a
+  quotation sends no items.
+- Contract: `SalesItemCreate.price_unit` loses its `default: 1`. With
+  it the generated decoder set the field on every request, so one sent
+  could not be told from one absent; the description says 1 when absent.
+  A request that sends no `price_unit` is read as before.
+- **Decided by default:** the code is `request.validation_failed`, as
+  procurement refuses a requisition item without the `unit_price` it
+  must send, not a new `sales.*` code: the request's shape is wrong, not
+  a rule of the sales context broken. Procurement's endpoints with the
+  pair were left alone and need no change: a purchase order, contract,
+  catalog, requisition and supplier quotation item require `unit_price`, and a
+  requisition item from the catalog refuses a `price_unit` sent (422
+  `procurement.catalog_item_override`).
+- Walkthrough `step_price_list` (step 65) extended: Sally's item with a
+  price unit of 100 and no price is refused naming
+  `items[0].price_unit`.
 
 ### T77b Order credit block (migration 000300)
 
