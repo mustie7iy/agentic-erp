@@ -425,3 +425,53 @@ func TestBillingsListed(t *testing.T) {
 		e.In(t).Problem(404, "request.not_found", "GET", billings+"/"+uuid.NewString(), "", "")
 	})
 }
+
+// TestBillingSharesOutTheDiscountedNet: an order item priced through the
+// pricing procedure with a discount (T80b) is billed in parts (T79a) by
+// its net value after the discount, not by its unit price: 3 EA at the
+// price list's 3.35 are 10.05, the customer's 5 percent takes 0.50 off,
+// and the three documents share out 9.55, each with an amount and
+// together the item's net value to the minor unit.
+func TestBillingSharesOutTheDiscountedNet(t *testing.T) {
+	e := setupPricing(t, "PR00", "K007")
+	e.priced(t, rec{amount: "3.35"})
+	e.priced(t, rec{condition: "K007", percent: "5", customer: e.customer})
+	id, today := e.confirmed(t, e.unpriced(line{quantity: "3"}))
+	order, _ := e.Must(200, "GET", "/v1/sales-orders/"+id, "", "")
+	item := items(t, order)[0]
+	if got, want := applied(t, item), "PR00 Price 3.35 EUR per 1 = 10.05 EUR; K007 Customer discount 5% = -0.50 EUR"; got != want {
+		t.Fatalf("the order item's conditions: got %s, want %s", got, want)
+	}
+	if got := amount(t, item, "net_amount"); got != "9.55 EUR" {
+		t.Fatalf("the order item's net value: got %s, want 9.55 EUR", got)
+	}
+	// A third of 9.55 is 3.1833: 3.18, then 6.37 less 3.18, then the remainder.
+	for i, want := range []string{"1: 1 EA = 3.18 EUR", "1: 1 EA = 3.19 EUR", "1: 1 EA = 3.18 EUR"} {
+		t.Run(fmt.Sprintf("document %d", i+1), func(t *testing.T) {
+			e.In(t).Must(201, "POST", deliveries(id), delivered(today, "1 1 EA"), "")
+			got, _ := e.In(t).Must(201, "POST", billings, bill(id, ""), "")
+			if b := billed(t, got); b != want {
+				t.Errorf("items: got %s, want %s", b, want)
+			}
+			if a, net := amount(t, got, "net_amount"), strings.SplitN(want, " = ", 2)[1]; a != net {
+				t.Errorf("net value: got %s, want %s", a, net)
+			}
+		})
+	}
+	var documents, least, total int64
+	pgtest.Scan(t, `SELECT count(*), min(net_amount), sum(net_amount)::bigint FROM sales.billing_document_item
+		WHERE tenant_id = $1 AND sales_order_id = $2 AND order_item_no = 1`, []any{e.Tenant.ID, id}, &documents, &least, &total)
+	if documents != 3 {
+		t.Errorf("documents of the item: got %d, want 3", documents)
+	}
+	if least <= 0 {
+		t.Errorf("the least amount billed: got %d, want above zero", least)
+	}
+	if total != 955 {
+		t.Errorf("billed of the item in all: got %d, want 955, its net value after the discount", total)
+	}
+	if b := e.quantities(t, id, "billed_quantity"); b != "3 EA" {
+		t.Errorf("billed of the order: got %s, want 3 EA", b)
+	}
+	e.In(t).Problem(422, "sales.nothing_to_bill", "POST", billings, bill(id, ""), "")
+}

@@ -249,7 +249,7 @@ other; the order's items are the buyer's, as today.
 - **Budget.** `TestCatalogSearchBudget`: one page of a company's 50,000
   active items among its tenant's 200,000 against the list budget (p95
   150 ms), the worst case being a text nothing contains.
-- **Walkthrough.** `step_catalog` (step 54): Priya loads three items of
+- **Walkthrough.** `step_catalog` (step 61): Priya loads three items of
   Tyrell into Maple's catalog, a second item with a key in use is
   refused, she retires one; Ben finds the other two by a word of their
   description, one by text and supplier, and the retired one only with

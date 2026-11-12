@@ -458,7 +458,7 @@ Taken in T80b beside plan default 9:
 - `QuotationChanged` (`x-webhook`; created, accepted, rejected) and the
   audit records `sales.quotation.create`, `.accept` and `.decline`, in the
   change's transaction.
-- Walkthrough `step_quotation` (step 54): Sally, the sales
+- Walkthrough `step_quotation` (step 62): Sally, the sales
   representative, makes a quotation to the customer of `step_customer`,
   reads it back with its net value, is refused an input tax code naming
   its field, and records that the customer accepted it; a second answer
@@ -522,8 +522,8 @@ Taken in T80b beside plan default 9:
   `sales.sales_order.create` and `.confirm`, in the change's transaction.
 - `sales.Orders.Order` is the published read (an order with its items,
   company access left to the caller), for T81a.
-- Walkthrough `step_sales_order` (step 55): Sally creates the order from
-  the quotation of step 54, on Northwind's term NT30, with its items'
+- Walkthrough `step_sales_order` (step 63): Sally creates the order from
+  the quotation of step 62, on Northwind's term NT30, with its items'
   ordered, delivered and billed quantities; a second order from the
   quotation is refused; she confirms it, once; nothing is posted. The
   pilot's settings (step 2) add the `sales_order` number range.
@@ -594,7 +594,7 @@ Taken in T80b beside plan default 9:
 - `sales.Orders.Order` gives each item's deliveries (`ItemDelivery`: date
   and quantity, by date and then in the order they were confirmed), for
   T81c; the API's own reads of an order do not read them.
-- Walkthrough `step_sales_order` (step 55) extended: Sally confirms 100
+- Walkthrough `step_sales_order` (step 63) extended: Sally confirms 100
   of the 120 brackets as delivered and the order shows 100 delivered at a
   new version; 21 more and a date after today are refused naming their
   fields; a second delivery brings the last 20 and the installation's
@@ -667,8 +667,8 @@ Taken in T80b beside plan default 9:
   `ledger.no_fiscal_period`; no number range `config.no_number_range`.
 - `BillingDocumentChanged` (`x-webhook`; created) and the audit record
   `sales.billing_document.create`, in the change's transaction.
-- Walkthrough `step_billing` (step 56): Ruth creates the billing
-  document for the delivered order of step 55; its items and net value
+- Walkthrough `step_billing` (step 64): Ruth creates the billing
+  document for the delivered order of step 63; its items and net value
   are the order's; the order shows everything billed at a new version; a
   second document is refused; nothing is posted. The pilot's settings
   (step 2) add the `billing_document` number range.
@@ -739,8 +739,8 @@ Taken in T80b beside plan default 9:
   change forces: three literals in `quotations_test.go`,
   `orders_test.go` and `failures_test.go` give the now optional price as
   an optional value, and the tests' permission list names the two new
-  permissions. Walkthrough steps 54 and 55 are unchanged.
-- Walkthrough `step_price_list` (step 56): Paula, the pricing analyst,
+  permissions. Walkthrough steps 62 and 63 are unchanged.
+- Walkthrough `step_price_list` (step 65): Paula, the pricing analyst,
   records the general price of BRACKET-M8 and Northwind's own per 100;
   Sally's quotation item without a price takes Northwind's (250 at
   1174.99 per 100: 2937.48, rounded half away from zero) beside an item
@@ -790,7 +790,7 @@ Taken in T80b beside plan default 9:
   decimal above 0 and below 100 of at most six decimals
   `sales.invalid_percent` (`percent`). Of an item: discounts that leave
   no value `sales.amount_not_positive`.
-- Walkthrough `step_price_list` (step 56) extended: Ada's pricing
+- Walkthrough `step_price_list` (step 65) extended: Ada's pricing
   procedure, PR00 and K007, is approved as a tier 2 change and
   activated; Paula records Northwind's discount of five percent on
   BRACKET-M8, and a record of an unknown type is refused; Sally's new

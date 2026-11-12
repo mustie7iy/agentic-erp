@@ -217,7 +217,7 @@ as missing (04 §4.9). None is an approval permission in T82a and T82b.
   have one (`RQ`). The configuration generated from an SAP extract
   (`internal/delivery/sapconfig`) does not add one yet, as it adds none
   for customer invoices.
-- **Walkthrough.** `step_rfq` (step 54): an RFQ for two items with two
+- **Walkthrough.** `step_rfq` (step 60): an RFQ for two items with two
   suppliers invited, a supplier named twice and a past due date refused,
   published once.
 

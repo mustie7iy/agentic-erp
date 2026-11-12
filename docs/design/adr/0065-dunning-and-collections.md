@@ -290,7 +290,7 @@ is a report read and gets a budget test.
   items in one query, not a computed report (07 §7.7 item 7); starting a
   run is bounded by §5. T76c's worklist, computed on read, gets the
   budget.
-- **Walkthrough.** `step_dunning` (step 56): Ruth posts an invoice to
+- **Walkthrough.** `step_dunning` (step 57): Ruth posts an invoice to
   Northwind on NT30; a run before Maple has dunning levels is refused;
   Ada gives Maple its levels through a tier 2 change; a run at a key date
   40 days after the invoice date, ten days past its due date, proposes
@@ -422,9 +422,9 @@ is a report read and gets a budget test.
   `TestCollectionWorklistBudget` (2,000 customers with 50 items each,
   every item dunned once, a page of 100): p95 1.2-1.5 s at a load
   average of 35-47, 2026-11-12.
-- **Walkthrough.** `step_collections` (step 57): at the key date of the
+- **Walkthrough.** `step_collections` (step 58): at the key date of the
   run confirmed in `step_dunning`, Northwind leads Maple's worklist with
   its notice's overdue amount, its items' due date, level 1 and the key
   date as last dunning date, its open amount less than that by the
-  credit memo of step 54, which reduces nothing overdue; at the due date
+  credit memo of step 55, which reduces nothing overdue; at the due date
   it is not listed.
