@@ -43,7 +43,7 @@ pointing its schema at a separate database. Callers do not change.
 | **ledger** | Chart of accounts, fiscal calendars, periods, currencies, exchange rates, journal entries, open items, clearing, balances, balance carry-forward runs (ADR-0060) | `JournalEntryPosted`, `PeriodClosed`, `BalanceCarriedForward` |
 | **procurement** | Requisitions, purchase orders, contracts, goods receipts | `PurchaseOrderReleased`, `GoodsReceived` |
 | **payables** | Supplier invoices, matching results, invoice holds | `SupplierInvoicePosted`, `InvoiceHeld` |
-| **receivables** (ADR-0063) | Customer invoices entered without a sales order, with their items and the output tax calculated for them (T75a); their posting as the customer's open items, incoming payments applied, credit memos and the aging read planned (T75b-T75e) | `CustomerInvoiceChanged` |
+| **receivables** (ADR-0063) | Customer invoices entered without a sales order, with their items and the output tax calculated for them (T75a), and posted as the customer's open items with their payment terms (T75b); incoming payments applied, credit memos and the aging read planned (T75c-T75e) | `CustomerInvoiceChanged`, `CustomerInvoicePosted` |
 | **payments** | Payment proposals, payments, bank files, bank statements | `PaymentRunReleased` |
 | **workflow** | Approval requests, steps, decisions | `ApprovalCompleted` |
 | **audit** | Audit events (hash-chained) | — (consumes everything) |

@@ -1273,6 +1273,10 @@ type PostBankStatementLineRes interface {
 	postBankStatementLineRes()
 }
 
+type PostCustomerInvoiceRes interface {
+	postCustomerInvoiceRes()
+}
+
 type PostGoodsReceiptRes interface {
 	postGoodsReceiptRes()
 }

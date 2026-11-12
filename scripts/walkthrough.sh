@@ -1533,7 +1533,8 @@ PILOT_SETTINGS='
     | .fx_valuation.accounts += (["1020", "1030", "1040"] | map({"account": ., "unrealised_gain": "4900", "unrealised_loss": "6900"}))
     | .bank_statements = {"matching_rules": [{"kind": "end_to_end_id"}, {"kind": "amount", "date_window_days": 5, "counterparty": true}],
         "approval_tiers": [{"up_to": "10000.00", "steps": []}, {"steps": [{"role": "controller", "approvals": 1}]}]})
-| .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999}]'
+| .number_ranges += [{"company": "@CC@", "document_type": "customer_invoice", "fiscal_year": @YEAR@, "prefix": "CI", "first": 1, "last": 999999},
+    {"company": "@CC@", "document_type": "journal_dr", "fiscal_year": @YEAR@, "first": 1800000000, "last": 1899999999}]'
 
 step_pack() {
   heading "Step 2 — The Canada country pack and the pilot's settings, before migration, through a governed change request"
@@ -5730,12 +5731,16 @@ step_customer() {
   passed
 }
 
-# step_customer_invoice is T75a (ADR-0063 §2-§4): a customer invoice
-# entered without a sales order and read back; nothing is posted. The
-# customer is step_customer's, CUSTOMER.
+# step_customer_invoice is T75a and T75b (ADR-0063 §2-§5): a customer
+# invoice entered without a sales order and read back, nothing posted;
+# then posted, once: its entry debits the customer's receivables account
+# and credits revenue and output tax, and its debit line is the customer's
+# open item with the customer's payment terms and net due date. The
+# customer is step_customer's, CUSTOMER; the posted invoice is
+# CUSTOMER_INVOICE, its entry CUSTOMER_INVOICE_ENTRY.
 step_customer_invoice() {
-  heading "Step 48 — Customer invoices: an invoice to a customer entered without a sales order, its GST calculated per item at the invoice date, read back; nothing posted"
-  local customer=$CUSTOMER sales invoice number item1 item2 item3
+  heading "Step 48 — Customer invoices: an invoice to a customer entered without a sales order, its GST calculated per item at the invoice date, read back; posted once as the customer's open item with its terms and due date"
+  local customer=$CUSTOMER sales invoice number item1 item2 item3 entry due tag
   as alex
   say "Maple invoices Northwind Traders for October's consulting. The ERP issues no legal tax invoice and sends no"
   say "e-invoice (ADR-0049 §7): the customer invoice entered here is the accounting record of the invoice Maple"
@@ -5767,9 +5772,39 @@ step_customer_invoice() {
   refused 422 receivables.unknown_tax_code createCustomerInvoice \
     -body "{\"legal_entity_id\": \"$LE\", \"customer_id\": \"$customer\", \"invoice_date\": \"$TODAY\", \"currency\": \"CAD\", \"items\": [${item1/GO5/GA}]}"
   expect "the field refused" "$(field '.errors[0].field')" "items[0].tax_code"
-  say "Nothing is posted: the customer has no open item. Posting the invoice is T75b."
+  say "Nothing is posted yet: the customer has no open item."
   QUIET=1 api 200 '' listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
   expect "the customer's open items" "$(field '.items | length')" 0
+  as ruth
+  say "Ruth, the AR accountant, posts the invoice (T75b, ADR-0063 §5). It names no payment term, so it posts with"
+  say "Northwind's in Maple, NT30, counted from the invoice date:"
+  due=$(jq -rn --arg d "$TODAY" '$d | strptime("%Y-%m-%d") | mktime + 30 * 86400 | strftime("%Y-%m-%d")')
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  tag=$ETAG
+  api 200 '"customer invoice \(.document_number): \(.status) on \(.posting_date) as journal entry \(.journal_entry_number), terms \(.payment_term_code), due \(.net_due_date)"' \
+    postCustomerInvoice -p "id=$invoice" -if-match "$tag" -body "{\"posting_date\": \"$TODAY\"}"
+  expect "the posted invoice" "$(field '"\(.status) \(.posting_date) \(.payment_term_code) \(.net_due_date) \(.version)"')" "posted $TODAY NT30 $due 2"
+  entry=$(field .journal_entry_id)
+  CUSTOMER_INVOICE=$invoice CUSTOMER_INVOICE_ENTRY=$entry
+  say "The entry debits Northwind on 1200 Trade receivables with the gross and credits 4000 Sales per item and"
+  say "2300 GST/HST payable with the tax; it balances and names receivables as its source:"
+  api 200 '"journal entry \(.document_number), \(.document_type), source \(.source_context)", (.lines[] | "  \(.account_id | acct): \(.amount.amount) \(.amount.currency)")' \
+    getJournalEntry -p "id=$entry"
+  expect "the entry's source" "$(field '"\(.document_type) \(.source_context) \(.source_document_id)"')" "DR receivables $invoice"
+  expect "the entry's amounts" "$(field '[.lines[].amount.amount] | join(" ")')" "1595.05 -1000.10 -499.95 -20.00 -75.00"
+  expect "the entry's accounts" "$(field '[.lines[].account_id] | join(" ")')" "$(account 1200) $sales $sales $sales $(account 2300)"
+  expect "the receivable line's partner" "$(field '.lines[0].partner_id')" "$customer"
+  say "The debit line is Northwind's open item, with the terms it was posted with and its net due date:"
+  api 200 '.items[] | "  open item \(.document_number): \(.amount.amount) \(.amount.currency), terms \(.payment_terms.code), due \(.payment_terms.net_due_date)"' \
+    listOpenItems -p "legal_entity_id=$LE" -p "partner_id=$customer"
+  expect "the customer's open item" "$(field '[.items[] | "\(.journal_entry_id) \(.amount.amount) \(.amount.currency) \(.payment_terms.code) \(.payment_terms.net_due_date)"] | join(", ")')" \
+    "$entry 1595.05 CAD NT30 $due"
+  say "A second post is refused, and the ledger does not reverse the entry: a posted customer invoice is corrected"
+  say "by a credit memo (ADR-0063 §5)."
+  QUIET=1 api 200 '' getCustomerInvoice -p "id=$invoice"
+  refused 409 receivables.invalid_status postCustomerInvoice -p "id=$invoice" -if-match "$ETAG" -body '{}'
+  QUIET=1 api 200 '' getJournalEntry -p "id=$entry"
+  refused 409 ledger.entry_owned_elsewhere reverseJournalEntry -p "id=$entry" -if-match "$ETAG" -body '{}'
   passed
 }
 

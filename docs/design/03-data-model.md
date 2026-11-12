@@ -3999,7 +3999,9 @@ partner context, tenancy and the configuration through its ports, posts
 only through the ledger (§3.16) and keeps no foreign key out of its schema
 (02 §2.1). T75a (migration 000265) builds the schema with its outbox and
 inbox and the customer invoice, the accounting record of an invoice the
-company issued, entered as a draft; nothing is posted yet.
+company issued, entered as a draft. T75b (migration 000267) posts it,
+once: the invoice names its journal entry, whose debit line on the
+customer's reconciliation account is the customer's open item (§3.7).
 
 ```mermaid
 erDiagram
@@ -4010,12 +4012,16 @@ erDiagram
     uuid customer_id "partner, customer role"
     text kind "invoice"
     date invoice_date "the tax date"
-    date posting_date "optional"
+    date posting_date "optional; set when posted"
     char currency
     bigint net_amount
     bigint tax_amount
     bigint gross_amount "net + tax"
-    text status "draft"
+    text status "draft, posted"
+    text payment_term_code "optional; the term posted with"
+    date net_due_date "when posted"
+    smallint journal_entry_year "when posted"
+    uuid journal_entry_id "ledger, when posted"
     int version }
   customer_invoice_item { int item_no PK
     text description
@@ -4031,11 +4037,16 @@ erDiagram
   never negative (`customer_invoice_amounts_not_negative`); the kind gives
   their direction. `gross_amount = net_amount + tax_amount`
   (`customer_invoice_totals`). The number is unique per company
-  (`customer_invoice_number_once`). The kind is `invoice` and the status
-  `draft` alone (`customer_invoice_kind_check`,
-  `customer_invoice_status_check`), which T75d (`credit_memo`) and T75b
-  (`posted`) widen. The application may insert and read: nothing changes
-  or deletes a draft in the first version.
+  (`customer_invoice_number_once`). The kind is `invoice` alone
+  (`customer_invoice_kind_check`), which T75d widens (`credit_memo`); the
+  status is `draft` or `posted` (`customer_invoice_status_check`). A
+  posted invoice names its journal entry with its year, its posting
+  date, the payment term it posted with and its net due date, and a
+  draft names no entry (`customer_invoice_posted`); an entry is one
+  invoice's (`customer_invoice_entry_once`). Posting is the only change:
+  the application may update the columns posting sets, and the trigger
+  `customer_invoice_posted_once` refuses a change of anything but a
+  draft being posted. Nothing deletes an invoice.
 - `receivables.customer_invoice_item`: a net amount above zero
   (`customer_invoice_item_net_positive`) on an account, with the tax its
   output tax code gave at the invoice date, never negative and 0 without a
@@ -4044,6 +4055,9 @@ erDiagram
   (`platform.forbid_mutation`). The items' net and tax add up to the
   header's, which the context writes in one transaction.
 - `receivables.outbox`, `receivables.inbox`: the context's events
-  (`CustomerInvoiceChanged`).
-- Permissions `receivables.invoice.read`, `.write` and `.post` (the last
-  used from T75b).
+  (`CustomerInvoiceChanged`, `CustomerInvoicePosted`).
+- Permissions `receivables.invoice.read`, `.write` and `.post`.
+- In the ledger, `ledger.open_item_terms` keeps the terms of a customer
+  open item as of a supplier's (T75b), and `ledger.OpenItems.Receivable`
+  reads the customer open items of a company for the aging, dunning, the
+  collection worklist and the credit exposure (ADR-0063 As built).

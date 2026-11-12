@@ -770,19 +770,22 @@ type Invoker interface {
 	// an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It
 	// is created `draft` with a document number from the company's `customer_invoice` number range of the
 	// invoice date's fiscal year; nothing is posted. The customer is an active business partner with the
-	// customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one,
-	// `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the
-	// invoice's currency on an account that can be posted in the company (422
-	// `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks
-	// of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax
-	// code of the company with a rate in force on the invoice date, the tax date (422
-	// `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's
-	// rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net
-	// and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`,
-	// exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one
-	// code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names
-	// no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only
-	// (`x-agent: false`).
+	// customer role that is not blocked for posting in the company (422 `request.reference_not_found`
+	// naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise); its data in
+	// the company (reconciliation account, payment term) is required only when the invoice posts
+	// (`postCustomerInvoice`). A `payment_term_code` is a configured payment term (422
+	// `receivables.unknown_payment_term` naming it); absent, the invoice posts with the customer's term in
+	// the company. Each item is a net amount, more than zero, in the invoice's currency on an account that
+	// can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`),
+	// with the centers the ledger asks of the account on the posting date, else the invoice date. An
+	// item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the
+	// tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at
+	// that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the
+	// items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
+	// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
+	// lines name (one code for every emirate) is refused, 422
+	// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
+	// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
 	//
 	// POST /v1/customer-invoices
 	CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error)
@@ -1822,8 +1825,9 @@ type Invoker interface {
 	//
 	// One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
 	// and name, its net, tax and gross totals and its items, each with its account's number and name, its
-	// centers' codes and the tax calculated for it when it was entered. One of a company the caller may
-	// not act in is not found (404), as one that does not exist.
+	// centers' codes and the tax calculated for it when it was entered; a posted one (T75b) with its
+	// journal entry's id, year and number, its payment term and net due date. One of a company the caller
+	// may not act in is not found (404), as one that does not exist.
 	//
 	// GET /v1/customer-invoices/{id}
 	GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error)
@@ -3742,6 +3746,32 @@ type Invoker interface {
 	//
 	// POST /v1/bank-statements/{id}/lines/{line_no}:post
 	PostBankStatementLine(ctx context.Context, request OptStatementLinePostInput, params PostBankStatementLineParams) (PostBankStatementLineRes, error)
+	// PostCustomerInvoice invokes postCustomerInvoice operation.
+	//
+	// Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
+	// reconciliation account in the company (the customer's company data) with the customer, the invoice's
+	// gross amount, and credits each item's account with its net amount, tax code and centers, and output
+	// tax, one line per tax code and component on the component's account. The entry has the document type
+	// `DR`, the invoice's number as its reference and `source_context` `receivables`; the invoice date is
+	// its document date and its tax date. Its debit line is the customer's open item
+	// (`GET /v1/open-items`), kept with its payment terms: the term entered with the invoice, else the
+	// customer's in the company, counted from the invoice date, so its net due date is the invoice date
+	// plus the term's net days. The posting date is the request's, else the one entered with the invoice,
+	// else today, the company's date in its time zone; it must be in an open period (409
+	// `ledger.period_not_open`). The invoice becomes `posted` and names its `journal_entry_id`,
+	// `journal_entry_year`, `journal_entry_number`, `posting_date`, `payment_term_code` and
+	// `net_due_date`; an audit record and CustomerInvoicePosted are written with it. A customer that is
+	// not active, no longer holds the customer role, has no data in the company or is blocked for posting
+	// there is refused (422 `receivables.customer_not_usable`). The tax is calculated again on the invoice
+	// date: when the codes no longer give the tax the invoice was entered with, it is refused (409
+	// `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
+	// draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
+	// the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
+	// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
+	// Human-only (`x-agent: false`).
+	//
+	// POST /v1/customer-invoices/{id}:post
+	PostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error)
 	// PostGoodsReceipt invokes postGoodsReceipt operation.
 	//
 	// Posts a goods receipt (101) against released purchase order items, or a return to the supplier (122,
@@ -13383,19 +13413,22 @@ func (c *Client) sendCreateCostCenter(ctx context.Context, request *CostCenterCr
 // an invoice the company issued to a customer, not the legal tax invoice, and no e-invoice is sent. It
 // is created `draft` with a document number from the company's `customer_invoice` number range of the
 // invoice date's fiscal year; nothing is posted. The customer is an active business partner with the
-// customer role (422 `request.reference_not_found` naming `customer_id` for an unknown one,
-// `receivables.customer_not_usable` otherwise). Each item is a net amount, more than zero, in the
-// invoice's currency on an account that can be posted in the company (422
-// `receivables.account_not_postable` naming `items[i].account_id`), with the centers the ledger asks
-// of the account on the posting date, else the invoice date. An item's `tax_code` is an output tax
-// code of the company with a rate in force on the invoice date, the tax date (422
-// `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at that date's
-// rates, rounded as the company's tax settings say, and each item keeps its share, so the items' net
-// and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its `gross_amount`,
-// exactly. An item without a code bears no tax. A code that levies the subdivision its lines name (one
-// code for every emirate) is refused, 422 `receivables.tax_jurisdiction_not_supported`: an item names
-// no jurisdiction yet. A retry with the same `Idempotency-Key` answers the invoice entered. Human-only
-// (`x-agent: false`).
+// customer role that is not blocked for posting in the company (422 `request.reference_not_found`
+// naming `customer_id` for an unknown one, `receivables.customer_not_usable` otherwise); its data in
+// the company (reconciliation account, payment term) is required only when the invoice posts
+// (`postCustomerInvoice`). A `payment_term_code` is a configured payment term (422
+// `receivables.unknown_payment_term` naming it); absent, the invoice posts with the customer's term in
+// the company. Each item is a net amount, more than zero, in the invoice's currency on an account that
+// can be posted in the company (422 `receivables.account_not_postable` naming `items[i].account_id`),
+// with the centers the ledger asks of the account on the posting date, else the invoice date. An
+// item's `tax_code` is an output tax code of the company with a rate in force on the invoice date, the
+// tax date (422 `receivables.unknown_tax_code` naming `items[i].tax_code`); the tax is calculated at
+// that date's rates, rounded as the company's tax settings say, and each item keeps its share, so the
+// items' net and tax add up to the invoice's `net_amount` and `tax_amount`, and these to its
+// `gross_amount`, exactly. An item without a code bears no tax. A code that levies the subdivision its
+// lines name (one code for every emirate) is refused, 422
+// `receivables.tax_jurisdiction_not_supported`: an item names no jurisdiction yet. A retry with the
+// same `Idempotency-Key` answers the invoice entered. Human-only (`x-agent: false`).
 //
 // POST /v1/customer-invoices
 func (c *Client) CreateCustomerInvoice(ctx context.Context, request *CustomerInvoiceCreate, params CreateCustomerInvoiceParams) (CreateCustomerInvoiceRes, error) {
@@ -25915,8 +25948,9 @@ func (c *Client) sendGetCurrentPrincipal(ctx context.Context) (res GetCurrentPri
 //
 // One customer invoice (ADR-0063 §2, T75a) with its company's code and name, its customer's number
 // and name, its net, tax and gross totals and its items, each with its account's number and name, its
-// centers' codes and the tax calculated for it when it was entered. One of a company the caller may
-// not act in is not found (404), as one that does not exist.
+// centers' codes and the tax calculated for it when it was entered; a posted one (T75b) with its
+// journal entry's id, year and number, its payment term and net due date. One of a company the caller
+// may not act in is not found (404), as one that does not exist.
 //
 // GET /v1/customer-invoices/{id}
 func (c *Client) GetCustomerInvoice(ctx context.Context, params GetCustomerInvoiceParams) (GetCustomerInvoiceRes, error) {
@@ -62712,6 +62746,186 @@ func (c *Client) sendPostBankStatementLine(ctx context.Context, request OptState
 
 	stage = "DecodeResponse"
 	result, err := decodePostBankStatementLineResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// PostCustomerInvoice invokes postCustomerInvoice operation.
+//
+// Posts a draft customer invoice to the ledger, once (ADR-0063 §5, T75b): it debits the customer's
+// reconciliation account in the company (the customer's company data) with the customer, the invoice's
+// gross amount, and credits each item's account with its net amount, tax code and centers, and output
+// tax, one line per tax code and component on the component's account. The entry has the document type
+// `DR`, the invoice's number as its reference and `source_context` `receivables`; the invoice date is
+// its document date and its tax date. Its debit line is the customer's open item
+// (`GET /v1/open-items`), kept with its payment terms: the term entered with the invoice, else the
+// customer's in the company, counted from the invoice date, so its net due date is the invoice date
+// plus the term's net days. The posting date is the request's, else the one entered with the invoice,
+// else today, the company's date in its time zone; it must be in an open period (409
+// `ledger.period_not_open`). The invoice becomes `posted` and names its `journal_entry_id`,
+// `journal_entry_year`, `journal_entry_number`, `posting_date`, `payment_term_code` and
+// `net_due_date`; an audit record and CustomerInvoicePosted are written with it. A customer that is
+// not active, no longer holds the customer role, has no data in the company or is blocked for posting
+// there is refused (422 `receivables.customer_not_usable`). The tax is calculated again on the invoice
+// date: when the codes no longer give the tax the invoice was entered with, it is refused (409
+// `receivables.tax_changed`) and entered again, since a draft is not changed. An invoice that is not a
+// draft is refused (409 `receivables.invalid_status`); a retry with the same `Idempotency-Key` answers
+// the posted invoice. A posted customer invoice is not reversed: the ledger's `reverseJournalEntry`
+// refuses its entry (409 `ledger.entry_owned_elsewhere`), and it is corrected by a credit memo.
+// Human-only (`x-agent: false`).
+//
+// POST /v1/customer-invoices/{id}:post
+func (c *Client) PostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (PostCustomerInvoiceRes, error) {
+	res, err := c.sendPostCustomerInvoice(ctx, request, params)
+	return res, err
+}
+
+func (c *Client) sendPostCustomerInvoice(ctx context.Context, request OptCustomerInvoicePost, params PostCustomerInvoiceParams) (res PostCustomerInvoiceRes, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("postCustomerInvoice"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.URLTemplateKey.String("/v1/customer-invoices/{id}:post"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, PostCustomerInvoiceOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/v1/customer-invoices/"
+	{
+		// Encode "id" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "id",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.UUIDToString(params.ID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = ":post"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "POST", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+	if err := encodePostCustomerInvoiceRequest(request, r); err != nil {
+		return res, errors.Wrap(err, "encode request")
+	}
+
+	stage = "EncodeHeaderParams"
+	h := uri.NewHeaderEncoder(r.Header)
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "If-Match",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IfMatch))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+	{
+		cfg := uri.HeaderParameterEncodingConfig{
+			Name:    "Idempotency-Key",
+			Explode: false,
+		}
+		if err := h.EncodeParam(cfg, func(e uri.Encoder) error {
+			return e.EncodeValue(conv.StringToString(params.IdempotencyKey))
+		}); err != nil {
+			return res, errors.Wrap(err, "encode header")
+		}
+	}
+
+	{
+		type bitset = [1]uint8
+		var satisfied bitset
+		{
+			stage = "Security:Oidc"
+			switch err := c.securityOidc(ctx, PostCustomerInvoiceOperation, r); {
+			case err == nil: // if NO error
+				satisfied[0] |= 1 << 0
+			case errors.Is(err, ogenerrors.ErrSkipClientSecurity):
+				// Skip this security.
+			default:
+				return res, errors.Wrap(err, "security \"Oidc\"")
+			}
+		}
+
+		if ok := func() bool {
+		nextRequirement:
+			for _, requirement := range []bitset{
+				{0b00000001},
+			} {
+				for i, mask := range requirement {
+					if satisfied[i]&mask != mask {
+						continue nextRequirement
+					}
+				}
+				return true
+			}
+			return false
+		}(); !ok {
+			return res, ogenerrors.ErrSecurityRequirementIsNotSatisfied
+		}
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer func() {
+		// Drain the body to EOF before closing, so the underlying
+		// connection can be reused by the Transport regardless of the
+		// response status code. See https://github.com/ogen-go/ogen/issues/1670.
+		_, _ = io.Copy(io.Discard, body)
+		_ = body.Close()
+	}()
+
+	stage = "DecodeResponse"
+	result, err := decodePostCustomerInvoiceResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}

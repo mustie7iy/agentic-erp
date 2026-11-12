@@ -413,6 +413,7 @@ channels:
     parameters: {cell: {$ref: '#/components/parameters/cell'}, tenant: {$ref: '#/components/parameters/tenant'}, event: {$ref: '#/components/parameters/event'}}
     messages:
       CustomerInvoiceChanged: {$ref: '#/components/messages/CustomerInvoiceChanged'}
+      CustomerInvoicePosted: {$ref: '#/components/messages/CustomerInvoicePosted'}
   einvoicing:
     address: 'erp.{cell}.einvoicing.{tenant}.{event}'
     title: E-invoicing events
@@ -671,6 +672,7 @@ operations:
     channel: {$ref: '#/channels/receivables'}
     messages:
       - $ref: '#/channels/receivables/messages/CustomerInvoiceChanged'
+      - $ref: '#/channels/receivables/messages/CustomerInvoicePosted'
   publishEInvoicingEvents:
     action: send
     title: E-invoicing publishes
@@ -3586,9 +3588,9 @@ components:
       title: Customer invoice changed
       summary: A customer invoice was entered.
       description: |
-        Emitted at each change of a customer invoice's status (ADR-0063 §9,
-        T75a): when it is entered (`draft`, status_before null). The slices
-        that post it add its posting. It carries the document's totals, not
+        Emitted when a customer invoice is entered (ADR-0063 §9, T75a):
+        `draft`, status_before null. Its posting is CustomerInvoicePosted,
+        which is emitted alone. It carries the document's totals, not
         its items, and names the customer by id and number, never by name.
         `GET /v1/customer-invoices/{id}` returns the document at `version`
         or later. Subject is the customer invoice id.
@@ -3603,6 +3605,30 @@ components:
         - name: entered
           headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f01, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_changed.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:00:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
           payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, status: draft, status_before: null, version: 1}
+    CustomerInvoicePosted:
+      name: CustomerInvoicePosted
+      x-webhook: true
+      title: Customer invoice posted
+      summary: A customer invoice was posted to the ledger.
+      description: |
+        Emitted when a draft customer invoice is posted (ADR-0063 §5, §9,
+        T75b): its journal entry debits the customer's reconciliation
+        account, and that line is the customer's open item with the payment
+        term and net due date given here. It carries the document's totals,
+        not its items, and names the customer by id and number, never by
+        name. `GET /v1/customer-invoices/{id}` returns the document at
+        `version` or later. Subject is the customer invoice id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.receivables.customer_invoice_posted.v1}
+      payload: {$ref: '#/components/schemas/CustomerInvoicePostedV1'}
+      examples:
+        - name: posted
+          headers: {specversion: '1.0', id: 0192a000-0000-7000-8000-e00000000f02, source: /erp/eu-1/receivables, type: com.example.erp.receivables.customer_invoice_posted.v1, subject: 0192a000-0000-7000-8000-000000000f11, time: '2026-11-11T10:05:00Z', datacontenttype: application/json, tenantid: 0192a000-0000-7000-8000-000000000001, actorid: 0192a000-0000-7000-8000-000000000101}
+          payload: {customer_invoice_id: 0192a000-0000-7000-8000-000000000f11, document_number: CI100001, legal_entity_id: 0192a000-0000-7000-8000-000000000201, legal_entity_code: '3000', customer_id: 0192a000-0000-7000-8000-000000000f21, customer_number: BP100042, kind: invoice, invoice_date: '2026-11-11', posting_date: '2026-11-11', net_amount: {amount: '1000.00', currency: CAD}, tax_amount: {amount: '50.00', currency: CAD}, gross_amount: {amount: '1050.00', currency: CAD}, payment_term_code: NT30, net_due_date: '2026-12-11', journal_entry_id: 0192a000-0000-7000-8000-000000000f31, journal_entry_year: 2026, journal_entry_number: '1800000001', status: posted, status_before: draft, version: 2}
     AiPolicyChanged:
       name: AiPolicyChanged
       title: AI policy changed
@@ -4236,6 +4262,30 @@ components:
         gross_amount: {$ref: '#/components/schemas/Money', description: 'What the customer owes: net and tax.'}
         status: {type: string, description: "The document's status after the change. Open enum: draft."}
         status_before: {type: [string, 'null'], description: 'Its status before; null when it was entered.'}
+        version: {type: integer, description: "The document's version after the change."}
+    CustomerInvoicePostedV1:
+      type: object
+      required: [customer_invoice_id, document_number, legal_entity_id, legal_entity_code, customer_id, customer_number, kind, invoice_date, posting_date, net_amount, tax_amount, gross_amount, payment_term_code, net_due_date, journal_entry_id, journal_entry_year, journal_entry_number, status, status_before, version]
+      properties:
+        customer_invoice_id: {$ref: '#/components/schemas/Uuid', description: '`receivables.customer_invoice.id`.'}
+        document_number: {type: string, description: "The document number."}
+        legal_entity_id: {$ref: '#/components/schemas/Uuid', description: The company that issued it.}
+        legal_entity_code: {type: string, description: 'The company code of `legal_entity_id`, as LegalEntityCreated gives it.'}
+        customer_id: {$ref: '#/components/schemas/Uuid', description: 'The customer: `partner.business_partner.id`.'}
+        customer_number: {type: string, description: "The customer's business partner number."}
+        kind: {type: string, description: 'Open enum: invoice.'}
+        invoice_date: {$ref: '#/components/schemas/Date'}
+        posting_date: {$ref: '#/components/schemas/Date', description: The date it posted on.}
+        net_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' net amounts."}
+        tax_amount: {$ref: '#/components/schemas/Money', description: "The sum of the items' tax."}
+        gross_amount: {$ref: '#/components/schemas/Money', description: "What the customer owes: net and tax, the open item's amount."}
+        payment_term_code: {type: string, description: "The payment term the open item keeps: the invoice's, else the customer's in the company."}
+        net_due_date: {$ref: '#/components/schemas/Date', description: "When the open item is due: the invoice date plus the term's net days."}
+        journal_entry_id: {$ref: '#/components/schemas/Uuid', description: '`ledger.journal_entry.id` of the entry it posted.'}
+        journal_entry_year: {type: integer, description: "The entry's fiscal year."}
+        journal_entry_number: {type: string, description: "The entry's document number."}
+        status: {type: string, description: "The document's status after the change: posted."}
+        status_before: {type: string, description: 'Its status before: draft.'}
         version: {type: integer, description: "The document's version after the change."}
     ConsolidationRunChangedV1:
       type: object

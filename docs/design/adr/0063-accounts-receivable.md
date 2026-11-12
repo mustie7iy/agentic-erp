@@ -4,8 +4,9 @@
 `go-reviewer` had no blocking finding on T75a's last commit). It decides
 the receivables context and the documents of T75a-T75e
 (`docs/design/plan-breadth-week1.md`, Lane A). Each slice records what it
-built under "As built"; T75a's is there now. The defaults taken and the
-questions left are listed at the end for the product owner's digest.
+built under "As built"; T75a's and T75b's are there now. The defaults
+taken and the questions left are listed at the end for the product
+owner's digest.
 
 ## Context
 The product owner asked for a first usable version of every capability in
@@ -93,13 +94,16 @@ default 1.
 
 ### 3. The customer
 The customer is a business partner with the customer role, as the ledger
-checks one today: active and holding the role
-(`partner.Postings.PostingBlock`). T75a checks that and nothing more, so it
-does not wait for T74a. From T75b a receivables document **requires the
-customer's company data** in the company (its reconciliation account and
-payment terms, `partner.customer_company`, T74a): a customer without it is
-refused at posting, 422. A customer without company data stays postable by
-manual journal entries as today — plan default 2.
+checks one of a line on a customer reconciliation account
+(`partner.Postings.PostingBlock`): active, holding the role and, since
+T74a, not blocked for posting in the company (422
+`receivables.customer_not_usable` otherwise). Entering an invoice checks
+that and nothing more: a customer without company data may be invoiced.
+From T75b a receivables document **requires the customer's company data**
+in the company to post (its reconciliation account and payment terms,
+`partner.customer_company`, T74a): a customer without it is refused at
+posting, 422. A customer without company data stays postable by manual
+journal entries as today — plan default 2.
 
 ### 4. Tax
 Each item's tax is what its **output** tax code gives at the **invoice
@@ -164,7 +168,8 @@ billing enters them in process.
 Every state change writes an audit record and publishes an event through
 the context's outbox in the same transaction. `CustomerInvoiceChanged`
 (T75a) is emitted when an invoice is entered, with the status before and
-after; T75b adds `CustomerInvoicePosted`, T75c `IncomingPaymentApplied`.
+after; T75b adds `CustomerInvoicePosted`, emitted alone when an invoice
+posts, T75c `IncomingPaymentApplied`.
 Events carry the totals, not the items, and name the customer by id and
 number, never by name, as the product owner decided for suppliers in
 webhook events (2026-11-05).
@@ -277,3 +282,82 @@ Plan defaults 1-5 above. Taken in T75a beside them:
 - **Decided by default:** the six defaults above. Not built, by the plan:
   posting, changing or cancelling a draft, payment terms on the invoice
   (T75b reads them), a tax date of its own, attachments and custom fields.
+
+### T75b Customer invoice posted: the customer's open item (migration 000267)
+- `internal/receivables/post.go`: `POST /v1/customer-invoices/{id}:post`
+  (`receivables.invoice.post`, `If-Match`, idempotent by
+  `Idempotency-Key`, human-only) posts a draft once through
+  `ledger.Postings.Post`: Dr the customer's reconciliation account in the
+  company with the customer, the gross; Cr each item's account with its
+  net, tax code and centers; Cr output tax, one line per code and
+  component on the component's account. The entry has the document type
+  `DR` (number range `journal_dr`), the invoice's number as its reference,
+  the invoice date as document and tax date and `source_context`
+  `receivables`; the ledger derives its tax items from the lines and
+  holds the tax lines to the codes (ADR-0049 §7), as for the pilot's
+  sales entries.
+- The invoice's row is read `FOR UPDATE` and only a draft posts (409
+  `receivables.invalid_status`); a concurrent post waits and then meets
+  another version (412). The entry, the invoice's status, the audit
+  record `receivables.customer_invoice.post` and `CustomerInvoicePosted`
+  (`x-webhook`) are written in one transaction.
+- Migration 000267: `payment_term_code` (optional at entry),
+  `net_due_date`, `journal_entry_year`, `journal_entry_id` on
+  `receivables.customer_invoice`; the status `posted`;
+  `customer_invoice_posted` (a posted invoice names its entry, posting
+  date, term and due date; a draft no entry); `customer_invoice_entry_once`;
+  the trigger `customer_invoice_posted_once` (only a draft changes, and
+  only by being posted); the update grant on the columns posting sets.
+  Schema tests in `db/receivables_test.go`.
+- Terms: the term entered with the invoice (`payment_term_code` on
+  `createCustomerInvoice`, a configured term, 422
+  `receivables.unknown_payment_term` naming it), else the customer's in
+  the company, counted from the invoice date. In the ledger `keepTerms`
+  keeps `Posting.Terms` with customer open items as with supplier ones
+  (`ledger.open_item_terms`), so `GET /v1/open-items` shows the item's
+  `payment_terms` and ages it by its net due date.
+- `ledger.OpenItems.Receivable(ctx, legalEntity, customers)`
+  (`internal/ledger/receivable.go`): the legal entity's open items on
+  customer reconciliation accounts in the leading ledger, of the customers
+  named or of all, ordered by customer and item; each a
+  `ledger.ReceivableItem` with its item reference, account, customer,
+  document and posting dates, amount in transaction and in local currency
+  with their exponents (debit positive), the terms it was posted with
+  (nil without), its special G/L indicator, its entry's number and
+  reference and the document that posted it; `NetDueDate()` and
+  `DaysOverdue(on)` give its due date and days overdue, none without
+  terms. Cleared lines and lines of a reversed entry or a reversal are
+  left out; company access is the caller's to check. T75e, T76a, T76c
+  and T77a read it.
+- Refusals at posting: a customer that is not active, no longer a
+  customer, without company data in the company or blocked for posting
+  there 422 `receivables.customer_not_usable`; a closed period 409
+  `ledger.period_not_open`; tax the codes no longer give on the invoice
+  date 409 `receivables.tax_changed`; a tax component without an account
+  422 `receivables.no_tax_account`; the ledger's refusals of the entry.
+  The ledger's `:reverse` refuses the entry, 409
+  `ledger.entry_owned_elsewhere` (04 §4.9, as built before T75b for
+  every context without a reversal path).
+- The invoice shows `payment_term_code`, `net_due_date`,
+  `journal_entry_id`, `journal_entry_year` and `journal_entry_number`
+  (read through `ledger.OpenItems.Numbers`).
+- Walkthrough `step_customer_invoice` (step 48) extended: Ruth posts the
+  invoice; the entry's lines move 1200, 4000 and 2300 by the invoice's
+  amounts; Northwind's open item shows with NT30 and its due date; a
+  second post and the ledger's `:reverse` are refused. Step 2 adds the
+  `journal_dr` number range.
+- **Decided by default:** (1) the journal document type is `DR`, with its
+  own number range `journal_dr` (SAP's customer invoice type, stated from
+  memory, not checked against a source in the lane); (2) posting is
+  human-only, as entering is; (3) an optional `payment_term_code` is
+  entered with the invoice, since a draft cannot be changed; cash
+  discount tiers of the term are kept with the item as information, and
+  no discount is granted (plan, "Later"); (4) the tax is recalculated at
+  posting and a difference refuses the post rather than posting other
+  tax than the document shows; (5) in a foreign currency the tax lines'
+  local amounts are the posting date's conversion, as a manual sales
+  entry's are (ADR-0049 §7); (6) the posting emits `CustomerInvoicePosted` alone, not also
+  `CustomerInvoiceChanged`.
+- Known limit, the ledger's (ADR-0049 §7 As built): an output tax code
+  whose components share one account is refused at posting, 422
+  `ledger.output_tax_mismatch`, as a manual entry with it is.

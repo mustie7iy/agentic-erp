@@ -403,11 +403,14 @@ func payablesEndpoints(cfg Config, uploads *payables.Uploads) *payables.Endpoint
 
 // Receivables is the receivables context as the API wires it (ADR-0063
 // §1): the ledger, the partner context, tenancy and the configuration
-// through its ports, as payables reads them.
+// through its ports, as payables reads them. The payment terms are the
+// tenant's, for customers as for suppliers: partner.Suppliers is their one
+// reader.
 func Receivables(cfg Config) *receivables.Endpoints {
-	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, Partners: partner.Payees{},
-		Accounts: ledger.Accounts{}, References: ledger.AssetReads{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
-		Settings: configuration.Settings{}}
+	return &receivables.Endpoints{Pages: cfg.Pages, LegalEntities: tenancy.Directory{}, Customers: partner.Postings{}, CustomerData: partner.Customers{},
+		Terms: partner.Suppliers{}, Partners: partner.Payees{}, Accounts: ledger.Accounts{}, References: ledger.AssetReads{},
+		Postings: postings(), Entries: ledger.OpenItems{}, Numbers: configuration.Numbers{}, Calendar: calendar(),
+		Settings: configuration.Settings{}, Now: cfg.Now}
 }
 
 // uploads is the API's direct-upload service (ADR-0020).

@@ -324,6 +324,7 @@ const (
 	PingWebhookSubscriptionOperation               OperationName = "PingWebhookSubscription"
 	PlaceInHierarchyOperation                      OperationName = "PlaceInHierarchy"
 	PostBankStatementLineOperation                 OperationName = "PostBankStatementLine"
+	PostCustomerInvoiceOperation                   OperationName = "PostCustomerInvoice"
 	PostGoodsReceiptOperation                      OperationName = "PostGoodsReceipt"
 	PostJournalEntryOperation                      OperationName = "PostJournalEntry"
 	PostParkedJournalEntryOperation                OperationName = "PostParkedJournalEntry"

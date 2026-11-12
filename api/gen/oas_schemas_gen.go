@@ -21833,6 +21833,7 @@ func (*ConflictHeaders) pauseWebhookSubscriptionRes()              {}
 func (*ConflictHeaders) pingWebhookSubscriptionRes()               {}
 func (*ConflictHeaders) placeInHierarchyRes()                      {}
 func (*ConflictHeaders) postBankStatementLineRes()                 {}
+func (*ConflictHeaders) postCustomerInvoiceRes()                   {}
 func (*ConflictHeaders) postGoodsReceiptRes()                      {}
 func (*ConflictHeaders) postJournalEntryRes()                      {}
 func (*ConflictHeaders) postParkedJournalEntryRes()                {}
@@ -28267,7 +28268,8 @@ type CustomerInvoice struct {
 	Kind string `json:"kind"`
 	// The invoice date, its tax date.
 	InvoiceDate time.Time `json:"invoice_date"`
-	// The posting date entered; absent when none was.
+	// The posting date entered; once posted, the date the invoice posted on. Absent on a draft entered
+	// without one.
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217).
 	Currency string `json:"currency"`
@@ -28277,9 +28279,22 @@ type CustomerInvoice struct {
 	TaxAmount Money `json:"tax_amount"`
 	// What the customer owes: `net_amount` and `tax_amount`.
 	GrossAmount Money `json:"gross_amount"`
-	// `draft`: entered, not posted. Open enumeration: clients must accept and preserve values not listed
+	// `draft`: entered, not posted. `posted`: posted to the ledger (`postCustomerInvoice`); its debit line
+	// is the customer's open item. Open enumeration: clients must accept and preserve values not listed
 	// here; values may be added within /v1.
 	Status string `json:"status"`
+	// The payment term entered; once posted, the term the invoice posted with (the customer's in the
+	// company when none was entered). Absent on a draft entered without one.
+	PaymentTermCode OptString `json:"payment_term_code"`
+	// When the invoice's open item is due: the invoice date plus its payment term's net days, as the
+	// ledger keeps it with the item. Absent until posted.
+	NetDueDate OptDate `json:"net_due_date"`
+	// The journal entry the invoice posted (`GET /v1/journal-entries/{id}`). Absent until posted.
+	JournalEntryID OptUUID `json:"journal_entry_id"`
+	// The entry's fiscal year. Absent until posted.
+	JournalEntryYear OptInt32 `json:"journal_entry_year"`
+	// The entry's document number. Absent until posted.
+	JournalEntryNumber OptString `json:"journal_entry_number"`
 	// The items, by item number.
 	Items []CustomerInvoiceItem `json:"items"`
 }
@@ -28387,6 +28402,31 @@ func (s *CustomerInvoice) GetGrossAmount() Money {
 // GetStatus returns the value of Status.
 func (s *CustomerInvoice) GetStatus() string {
 	return s.Status
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerInvoice) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
+}
+
+// GetNetDueDate returns the value of NetDueDate.
+func (s *CustomerInvoice) GetNetDueDate() OptDate {
+	return s.NetDueDate
+}
+
+// GetJournalEntryID returns the value of JournalEntryID.
+func (s *CustomerInvoice) GetJournalEntryID() OptUUID {
+	return s.JournalEntryID
+}
+
+// GetJournalEntryYear returns the value of JournalEntryYear.
+func (s *CustomerInvoice) GetJournalEntryYear() OptInt32 {
+	return s.JournalEntryYear
+}
+
+// GetJournalEntryNumber returns the value of JournalEntryNumber.
+func (s *CustomerInvoice) GetJournalEntryNumber() OptString {
+	return s.JournalEntryNumber
 }
 
 // GetItems returns the value of Items.
@@ -28499,6 +28539,31 @@ func (s *CustomerInvoice) SetStatus(val string) {
 	s.Status = val
 }
 
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerInvoice) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
+}
+
+// SetNetDueDate sets the value of NetDueDate.
+func (s *CustomerInvoice) SetNetDueDate(val OptDate) {
+	s.NetDueDate = val
+}
+
+// SetJournalEntryID sets the value of JournalEntryID.
+func (s *CustomerInvoice) SetJournalEntryID(val OptUUID) {
+	s.JournalEntryID = val
+}
+
+// SetJournalEntryYear sets the value of JournalEntryYear.
+func (s *CustomerInvoice) SetJournalEntryYear(val OptInt32) {
+	s.JournalEntryYear = val
+}
+
+// SetJournalEntryNumber sets the value of JournalEntryNumber.
+func (s *CustomerInvoice) SetJournalEntryNumber(val OptString) {
+	s.JournalEntryNumber = val
+}
+
 // SetItems sets the value of Items.
 func (s *CustomerInvoice) SetItems(val []CustomerInvoiceItem) {
 	s.Items = val
@@ -28517,6 +28582,9 @@ type CustomerInvoiceCreate struct {
 	PostingDate OptDate `json:"posting_date"`
 	// The invoice's currency (ISO 4217), every item's.
 	Currency string `json:"currency"`
+	// The payment term the invoice posts with: a configured term (`payment_terms` of the configuration);
+	// absent: the customer's in the company when the invoice posts.
+	PaymentTermCode OptString `json:"payment_term_code"`
 	// The items, numbered in this order from 1.
 	Items []CustomerInvoiceItemCreate `json:"items"`
 }
@@ -28544,6 +28612,11 @@ func (s *CustomerInvoiceCreate) GetPostingDate() OptDate {
 // GetCurrency returns the value of Currency.
 func (s *CustomerInvoiceCreate) GetCurrency() string {
 	return s.Currency
+}
+
+// GetPaymentTermCode returns the value of PaymentTermCode.
+func (s *CustomerInvoiceCreate) GetPaymentTermCode() OptString {
+	return s.PaymentTermCode
 }
 
 // GetItems returns the value of Items.
@@ -28574,6 +28647,11 @@ func (s *CustomerInvoiceCreate) SetPostingDate(val OptDate) {
 // SetCurrency sets the value of Currency.
 func (s *CustomerInvoiceCreate) SetCurrency(val string) {
 	s.Currency = val
+}
+
+// SetPaymentTermCode sets the value of PaymentTermCode.
+func (s *CustomerInvoiceCreate) SetPaymentTermCode(val OptString) {
+	s.PaymentTermCode = val
 }
 
 // SetItems sets the value of Items.
@@ -28902,6 +28980,24 @@ func (s *CustomerInvoicePage) SetNextPageToken(val OptString) {
 }
 
 func (*CustomerInvoicePage) listCustomerInvoicesRes() {}
+
+// Options for posting a customer invoice.
+// Ref: #/components/schemas/CustomerInvoicePost
+type CustomerInvoicePost struct {
+	// The posting date; absent: the one entered with the invoice, else today, the company's date in its
+	// time zone (`companies[].time_zone`).
+	PostingDate OptDate `json:"posting_date"`
+}
+
+// GetPostingDate returns the value of PostingDate.
+func (s *CustomerInvoicePost) GetPostingDate() OptDate {
+	return s.PostingDate
+}
+
+// SetPostingDate sets the value of PostingDate.
+func (s *CustomerInvoicePost) SetPostingDate(val OptDate) {
+	s.PostingDate = val
+}
 
 type DecideRecommendationBadRequest Problem
 
@@ -50956,6 +51052,52 @@ func (o OptCreditLimit) Or(d CreditLimit) CreditLimit {
 	return d
 }
 
+// NewOptCustomerInvoicePost returns new OptCustomerInvoicePost with value set to v.
+func NewOptCustomerInvoicePost(v CustomerInvoicePost) OptCustomerInvoicePost {
+	return OptCustomerInvoicePost{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptCustomerInvoicePost is optional CustomerInvoicePost.
+type OptCustomerInvoicePost struct {
+	Value CustomerInvoicePost
+	Set   bool
+}
+
+// IsSet returns true if OptCustomerInvoicePost was set.
+func (o OptCustomerInvoicePost) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptCustomerInvoicePost) Reset() {
+	var v CustomerInvoicePost
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptCustomerInvoicePost) SetTo(v CustomerInvoicePost) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptCustomerInvoicePost) Get() (v CustomerInvoicePost, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptCustomerInvoicePost) Or(d CustomerInvoicePost) CustomerInvoicePost {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptDate returns new OptDate with value set to v.
 func NewOptDate(v time.Time) OptDate {
 	return OptDate{
@@ -59216,6 +59358,69 @@ func (*PostBankStatementLinePreconditionRequired) postBankStatementLineRes() {}
 type PostBankStatementLineUnprocessableEntity Problem
 
 func (*PostBankStatementLineUnprocessableEntity) postBankStatementLineRes() {}
+
+type PostCustomerInvoiceBadRequest Problem
+
+func (*PostCustomerInvoiceBadRequest) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceForbidden Problem
+
+func (*PostCustomerInvoiceForbidden) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceNotFound Problem
+
+func (*PostCustomerInvoiceNotFound) postCustomerInvoiceRes() {}
+
+// PostCustomerInvoiceOKHeaders wraps CustomerInvoice with response headers.
+type PostCustomerInvoiceOKHeaders struct {
+	ETag               OptString
+	IdempotentReplayed OptBool
+	Response           CustomerInvoice
+}
+
+// GetETag returns the value of ETag.
+func (s *PostCustomerInvoiceOKHeaders) GetETag() OptString {
+	return s.ETag
+}
+
+// GetIdempotentReplayed returns the value of IdempotentReplayed.
+func (s *PostCustomerInvoiceOKHeaders) GetIdempotentReplayed() OptBool {
+	return s.IdempotentReplayed
+}
+
+// GetResponse returns the value of Response.
+func (s *PostCustomerInvoiceOKHeaders) GetResponse() CustomerInvoice {
+	return s.Response
+}
+
+// SetETag sets the value of ETag.
+func (s *PostCustomerInvoiceOKHeaders) SetETag(val OptString) {
+	s.ETag = val
+}
+
+// SetIdempotentReplayed sets the value of IdempotentReplayed.
+func (s *PostCustomerInvoiceOKHeaders) SetIdempotentReplayed(val OptBool) {
+	s.IdempotentReplayed = val
+}
+
+// SetResponse sets the value of Response.
+func (s *PostCustomerInvoiceOKHeaders) SetResponse(val CustomerInvoice) {
+	s.Response = val
+}
+
+func (*PostCustomerInvoiceOKHeaders) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoicePreconditionFailed Problem
+
+func (*PostCustomerInvoicePreconditionFailed) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoicePreconditionRequired Problem
+
+func (*PostCustomerInvoicePreconditionRequired) postCustomerInvoiceRes() {}
+
+type PostCustomerInvoiceUnprocessableEntity Problem
+
+func (*PostCustomerInvoiceUnprocessableEntity) postCustomerInvoiceRes() {}
 
 type PostGoodsReceiptBadRequest Problem
 
@@ -71939,6 +72144,7 @@ func (*TooManyRequestsHeaders) pauseWebhookSubscriptionRes()              {}
 func (*TooManyRequestsHeaders) pingWebhookSubscriptionRes()               {}
 func (*TooManyRequestsHeaders) placeInHierarchyRes()                      {}
 func (*TooManyRequestsHeaders) postBankStatementLineRes()                 {}
+func (*TooManyRequestsHeaders) postCustomerInvoiceRes()                   {}
 func (*TooManyRequestsHeaders) postGoodsReceiptRes()                      {}
 func (*TooManyRequestsHeaders) postJournalEntryRes()                      {}
 func (*TooManyRequestsHeaders) postParkedJournalEntryRes()                {}
@@ -72448,6 +72654,7 @@ func (*UnauthorizedHeaders) pauseWebhookSubscriptionRes()              {}
 func (*UnauthorizedHeaders) pingWebhookSubscriptionRes()               {}
 func (*UnauthorizedHeaders) placeInHierarchyRes()                      {}
 func (*UnauthorizedHeaders) postBankStatementLineRes()                 {}
+func (*UnauthorizedHeaders) postCustomerInvoiceRes()                   {}
 func (*UnauthorizedHeaders) postGoodsReceiptRes()                      {}
 func (*UnauthorizedHeaders) postJournalEntryRes()                      {}
 func (*UnauthorizedHeaders) postParkedJournalEntryRes()                {}

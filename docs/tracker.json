@@ -1107,9 +1107,9 @@
         "c": []
        },
        {
-        "s": "T",
+        "s": "D",
         "t": "An AR accountant posts the customer invoice: it is the customer's open item with its payment terms and net due date in GET /v1/open-items; the ledger's reader of customer open items",
-        "r": "T75b · docs/design/plan-breadth-week1.md §T75b",
+        "r": "T75b · docs/design/plan-breadth-week1.md §T75b · db/migrations/000267 · POST /v1/customer-invoices/{id}:post · CustomerInvoicePosted · ledger.OpenItems.Receivable (internal/ledger/receivable.go), terms kept for customer open items (keepTerms) · walkthrough step_customer_invoice · ADR-0063 §3, §5, §9 and As built",
         "src": "po:2026-11-10 · design:03 §3.16",
         "c": []
        },

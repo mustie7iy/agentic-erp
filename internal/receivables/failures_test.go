@@ -47,11 +47,22 @@ func TestDatabaseFailures(t *testing.T) {
 	entered, _ := e.Must(201, "POST", "/v1/customer-invoices", e.invoice(e.customer, "2026-03-10", e.item("100.00", "A1")), "")
 	id := uuid.MustParse(entered["id"].(string))
 	create := &gen.CustomerInvoiceCreate{LegalEntityID: e.DE, CustomerID: e.customer, InvoiceDate: date(t, "2026-03-10"),
-		PostingDate: gen.NewOptDate(date(t, "2026-03-11")), Currency: "EUR", Items: []gen.CustomerInvoiceItemCreate{
+		PostingDate: gen.NewOptDate(date(t, "2026-03-11")), Currency: "EUR", PaymentTermCode: gen.NewOptString("NT14"), Items: []gen.CustomerInvoiceItemCreate{
 			{AccountID: e.revenue, NetAmount: gen.Money{Amount: "100.00", Currency: "EUR"}, TaxCode: gen.NewOptString("A1"),
 				CostCenterID: gen.NewOptUUID(c.Sales), ProfitCenterID: gen.NewOptUUID(c.Profit), Description: gen.NewOptString("Goods")},
 			{AccountID: e.revenue, NetAmount: gen.Money{Amount: "5.00", Currency: "EUR"}}}}
+	draft, _ := e.Must(201, "POST", "/v1/customer-invoices", e.invoice(e.customer, "2026-03-10", e.item("100.00", "A1")), "")
+	post := gen.PostCustomerInvoiceParams{ID: uuid.MustParse(draft["id"].(string)), IfMatch: `"1"`}
+	h.Now = func() time.Time { return date(t, "2026-03-15") }
 	calls := map[string]func(ctx context.Context) error{
+		"post": func(ctx context.Context) error {
+			_, err := h.PostCustomerInvoice(ctx, gen.NewOptCustomerInvoicePost(gen.CustomerInvoicePost{PostingDate: gen.NewOptDate(date(t, "2026-03-12"))}), post)
+			return err
+		},
+		"post on the company's date": func(ctx context.Context) error {
+			_, err := h.PostCustomerInvoice(ctx, gen.OptCustomerInvoicePost{}, post)
+			return err
+		},
 		"create": func(ctx context.Context) error {
 			_, err := h.CreateCustomerInvoice(ctx, create, gen.CreateCustomerInvoiceParams{})
 			return err
