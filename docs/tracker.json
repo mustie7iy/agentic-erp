@@ -3044,7 +3044,7 @@
       "c": [
        {
         "s": "T",
-        "t": "The lease accountant reads the contract's schedule (the opening lease liability as the present value of its payments, and per period the interest, the payment, the closing liability and the right-of-use asset's depreciation on a straight line) and activates the contract, which posts the right-of-use asset against the lease liability (GET /v1/lease-contracts/{id}/schedule, :activate)",
+        "t": "The lease accountant reads the contract's schedule (the lease liability at commencement as the present value of the payments not paid on the commencement date, and per period the interest, the payment, the closing liability and the right-of-use asset's depreciation on a straight line) and activates the contract, which posts the right-of-use asset against the lease liability (GET /v1/lease-contracts/{id}/schedule, :activate)",
         "r": "T88b · docs/design/plan-breadth-week3.md §T88b",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []

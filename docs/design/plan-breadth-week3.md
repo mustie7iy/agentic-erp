@@ -569,8 +569,8 @@ contracts over from SAP RE-FX.
 ### T88b Lease schedule read and the contract activated
 
 **Capability.** The lease accountant reads the contract's schedule: the
-opening lease liability as the present value of its payments, and per
-period the interest, the payment, the closing liability and the
+lease liability at commencement as the present value of the payments not
+paid on the commencement date, and per period the interest, the payment, the closing liability and the
 right-of-use asset's depreciation on a straight line. Activating the
 contract posts the right-of-use asset against the lease liability.
 
@@ -601,9 +601,12 @@ contract posts the right-of-use asset against the lease liability.
   day; each period's interest is the period's rate × the balance
   outstanding during it: the opening balance for payments in arrears,
   the opening balance less the period's payment for payments in advance;
-  the last period takes only the rounding remainder so the liability
-  ends at exactly zero, and a test bounds that remainder by one minor
-  unit per period; the depreciation's
+  each closing balance is computed as the exact present value of the
+  payments still to come, rounded once, and the period's interest is the
+  closing balance less the opening balance plus the payment, so rounding
+  never accumulates and the liability ends at exactly zero by
+  construction, with no remainder for a last period to absorb (a test
+  over a 360-period contract); the depreciation's
   shares add up to the opening right-of-use amount exactly; a draft's
   schedule is computed on read and an active one's is the stored one;
   activation moves `draft` to `active` once, on the commencement date in
@@ -2120,8 +2123,10 @@ How the slices use them, and no further:
   of it and applies no exemption of statement 6: a contract entered is
   capitalized.
 - The **system** does the arithmetic: the present value of statement 2
-  (T88b); the right-of-use asset at the liability's initial amount, the
-  other parts of statement 3 being left to "later"; the interest of
+  (T88b); the right-of-use asset at the liability's initial amount plus
+  a payment made on the commencement date, the other parts of statement
+  3 (incentives, initial direct costs, restoration) being left to
+  "later"; the interest of
   statement 4 and the straight-line depreciation over the lease term of
   statement 5 (T88b's schedule, T88c's run).
 - The **postings** are the plan's reading of those statements, not a
@@ -2260,8 +2265,9 @@ that makes the main path work, and the slice records it in its ADR.
    year. A payment due on the commencement date is not part of the
    measured lease liability; it is added to the right-of-use asset and
    bears no interest. Interest is on the balance outstanding during the
-   period. Amounts are rounded half away from zero and the last period
-   takes the rounding remainder only.
+   period. Each closing balance is the exact present value of the
+   payments still to come, rounded half away from zero once, so no
+   remainder accumulates.
 7. A lease posts through the ledger with five accounts from the account
    determination; the right-of-use asset is not an asset record; the run
    posts interest and depreciation and never the payment.
