@@ -85,6 +85,10 @@ type BlockPrincipalRes interface {
 	blockPrincipalRes()
 }
 
+type CallOffScheduleLineRes interface {
+	callOffScheduleLineRes()
+}
+
 type CancelApprovalRequestRes interface {
 	cancelApprovalRequestRes()
 }
@@ -371,6 +375,10 @@ type CreateSalesOrderRes interface {
 
 type CreateSalesPriceRes interface {
 	createSalesPriceRes()
+}
+
+type CreateScheduleLineRes interface {
+	createScheduleLineRes()
 }
 
 type CreateSegmentRes interface {
@@ -1387,6 +1395,10 @@ type ListSalesOrdersRes interface {
 
 type ListSalesPricesRes interface {
 	listSalesPricesRes()
+}
+
+type ListScheduleLinesRes interface {
+	listScheduleLinesRes()
 }
 
 type ListSegmentsRes interface {

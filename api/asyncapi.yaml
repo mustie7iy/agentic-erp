@@ -268,6 +268,8 @@ channels:
       RfqPublished: {$ref: '#/components/messages/RfqPublished'}
       SupplierQuotationRecorded: {$ref: '#/components/messages/SupplierQuotationRecorded'}
       RfqAwarded: {$ref: '#/components/messages/RfqAwarded'}
+      ScheduleLineChanged: {$ref: '#/components/messages/ScheduleLineChanged'}
+      ScheduleLineCalledOff: {$ref: '#/components/messages/ScheduleLineCalledOff'}
   payables:
     address: 'erp.{cell}.payables.{tenant}.{event}'
     title: Accounts payable events
@@ -602,6 +604,8 @@ operations:
       - $ref: '#/channels/procurement/messages/RfqPublished'
       - $ref: '#/channels/procurement/messages/SupplierQuotationRecorded'
       - $ref: '#/channels/procurement/messages/RfqAwarded'
+      - $ref: '#/channels/procurement/messages/ScheduleLineChanged'
+      - $ref: '#/channels/procurement/messages/ScheduleLineCalledOff'
   publishPayablesEvents:
     action: send
     title: Payables publishes
@@ -3007,6 +3011,54 @@ components:
         - name: example
           headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000704", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.rfq_awarded.v1", "subject": "0192a000-0000-7000-8000-000000000701", "time": "2026-12-07T11:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
           payload: {"rfq_id": "0192a000-0000-7000-8000-000000000701", "document_number": "RQ100000", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_quotation_id": "0192a000-0000-7000-8000-000000000711", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "supplier_reference": "Q-2026-0457", "contract_id": "0192a000-0000-7000-8000-000000000721", "contract_document_number": "4600100000", "valid_from": "2027-01-01", "valid_to": "2027-12-31", "total": {"amount": "20666.67", "currency": "EUR"}}
+    ScheduleLineChanged:
+      name: ScheduleLineChanged
+      title: Schedule line changed
+      summary: "A line of a scheduling agreement's delivery schedule was entered or called off."
+      description: |
+        Emitted by `contracts/{id}/schedule-lines` (POST) and
+        `contracts/{id}/schedule-lines/{line_no}:callOff`, ADR-0070 §3-§5,
+        with the line as the change left it: the agreement, the item asked
+        for, the quantity in that item's unit, the date it is due, the
+        line's value in the agreement's currency and its status. `change`
+        says what happened: `created` or `called_off`; a line called off
+        names its purchase order. The supplier is named by id and number,
+        never by name (a partner may be a person; product owner,
+        2026-11-05). Subject is the schedule line id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.schedule_line_changed.v1}
+      payload: {$ref: '#/components/schemas/ScheduleLineChangedV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000705", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.schedule_line_changed.v1", "subject": "0192a000-0000-7000-8000-000000000731", "time": "2026-11-20T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"schedule_line_id": "0192a000-0000-7000-8000-000000000731", "contract_id": "0192a000-0000-7000-8000-000000000721", "document_number": "CT100001", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "line_no": 1, "contract_item_no": 1, "material_key": "CHAIR-ERGO-01", "delivery_date": "2026-12-15", "quantity": {"value": "40", "unit": "EA"}, "amount": {"amount": "16500.00", "currency": "EUR"}, "status": "scheduled", "change": "created"}
+    ScheduleLineCalledOff:
+      name: ScheduleLineCalledOff
+      title: Schedule line called off
+      summary: "A schedule line of a scheduling agreement was called off as a draft purchase order."
+      description: |
+        Emitted by `contracts/{id}/schedule-lines/{line_no}:callOff`,
+        ADR-0070 §4, once per line: the line, and the draft purchase order
+        created against the agreement for its quantity at the agreement's
+        price, due on the line's date. The order is released, received and
+        invoiced as any order, with its own events. The supplier is named
+        by id and number, never by name (a partner may be a person; product
+        owner, 2026-11-05). Subject is the schedule line id.
+      traits: [{$ref: '#/components/messageTraits/CloudEvent'}]
+      headers:
+        allOf:
+          - $ref: '#/components/schemas/CloudEventHeaders'
+          - properties:
+              type: {const: com.example.erp.procurement.schedule_line_called_off.v1}
+      payload: {$ref: '#/components/schemas/ScheduleLineCalledOffV1'}
+      examples:
+        - name: example
+          headers: {"specversion": "1.0", "id": "0192a000-0000-7000-8000-e00000000706", "source": "/erp/eu-1/procurement", "type": "com.example.erp.procurement.schedule_line_called_off.v1", "subject": "0192a000-0000-7000-8000-000000000731", "time": "2026-12-01T09:00:00Z", "datacontenttype": "application/json", "tenantid": "0192a000-0000-7000-8000-000000000001", "actorid": "0192a000-0000-7000-8000-000000000101"}
+          payload: {"schedule_line_id": "0192a000-0000-7000-8000-000000000731", "contract_id": "0192a000-0000-7000-8000-000000000721", "document_number": "CT100001", "legal_entity_id": "0192a000-0000-7000-8000-000000000201", "legal_entity_code": "2000", "supplier_id": "0192a000-0000-7000-8000-000000000301", "supplier_number": "BP90000001", "line_no": 1, "contract_item_no": 1, "material_key": "CHAIR-ERGO-01", "delivery_date": "2026-12-15", "quantity": {"value": "40", "unit": "EA"}, "amount": {"amount": "16500.00", "currency": "EUR"}, "purchase_order_id": "0192a000-0000-7000-8000-000000000741", "purchase_order_document_number": "PO100007", "order_date": "2026-12-01"}
     ContractExpired:
       name: ContractExpired
       title: Contract expired
@@ -6789,6 +6841,47 @@ components:
         valid_from: {"$ref": "#/components/schemas/Date", "description": "The first day the contract is valid."}
         valid_to: {"$ref": "#/components/schemas/Date", "description": "The last day the contract is valid."}
         total: {"$ref": "#/components/schemas/Money", "description": "The quotation's total, the contract's target value, in the RFQ's currency."}
+    ScheduleLineChangedV1:
+      type: object
+      required: ["schedule_line_id", "contract_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_id", "supplier_number", "line_no", "contract_item_no", "material_key", "delivery_date", "quantity", "amount", "status", "change"]
+      properties:
+        schedule_line_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.schedule_line.id`."}
+        contract_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.contract.id`: the scheduling agreement."}
+        document_number: {"type": "string", "description": "The scheduling agreement's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the agreement's supplier."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        line_no: {"type": "integer", "description": "The line's number within the agreement."}
+        contract_item_no: {"type": "integer", "description": "The item of the agreement the line asks for."}
+        material_key: {"type": "string", "description": "That item's material key."}
+        delivery_date: {"$ref": "#/components/schemas/Date", "description": "The date the quantity is due."}
+        quantity: {"$ref": "#/components/schemas/Quantity", "description": "The quantity due, in the agreement item's unit."}
+        amount: {"$ref": "#/components/schemas/Money", "description": "The line's value at the agreement item's price, in the agreement's currency."}
+        status: {"type": "string", "description": "The line's status after the change. Open enum: scheduled, called_off."}
+        change: {"type": "string", "description": "What happened to the line. Open enum: created, called_off."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the order the line was called off as; absent while it is scheduled."}
+        purchase_order_document_number: {"type": "string", "description": "That purchase order's document number; absent when `purchase_order_id` is."}
+    ScheduleLineCalledOffV1:
+      type: object
+      required: ["schedule_line_id", "contract_id", "document_number", "legal_entity_id", "legal_entity_code", "supplier_id", "supplier_number", "line_no", "contract_item_no", "material_key", "delivery_date", "quantity", "amount", "purchase_order_id", "purchase_order_document_number", "order_date"]
+      properties:
+        schedule_line_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.schedule_line.id`."}
+        contract_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.contract.id`: the scheduling agreement."}
+        document_number: {"type": "string", "description": "The scheduling agreement's document number."}
+        legal_entity_id: {"$ref": "#/components/schemas/Uuid"}
+        legal_entity_code: {"type": "string", "description": "The company code of `legal_entity_id`, as LegalEntityCreated gives it."}
+        supplier_id: {"$ref": "#/components/schemas/Uuid", "description": "`partner.business_partner.id`: the agreement's supplier, and the order's."}
+        supplier_number: {"type": "string", "description": "The business partner's number."}
+        line_no: {"type": "integer", "description": "The line's number within the agreement."}
+        contract_item_no: {"type": "integer", "description": "The item of the agreement the line asks for."}
+        material_key: {"type": "string", "description": "That item's material key."}
+        delivery_date: {"$ref": "#/components/schemas/Date", "description": "The date the quantity is due: the order item's delivery date."}
+        quantity: {"$ref": "#/components/schemas/Quantity", "description": "The quantity called off, in the agreement item's unit."}
+        amount: {"$ref": "#/components/schemas/Money", "description": "The line's value at the agreement item's price, the order's total, in the agreement's currency."}
+        purchase_order_id: {"$ref": "#/components/schemas/Uuid", "description": "`procurement.purchase_order.id`: the draft order created."}
+        purchase_order_document_number: {"type": "string", "description": "The purchase order's document number."}
+        order_date: {"$ref": "#/components/schemas/Date", "description": "The order's date: the legal entity's date on the day of the call-off, in its company's time zone."}
     ContractExpiredV1:
       type: object
       required: ["contract_id", "document_number", "legal_entity_id", "supplier_id", "valid_to", "consumed_value", "previous_status", "status"]

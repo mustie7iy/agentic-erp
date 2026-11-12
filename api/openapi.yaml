@@ -11509,7 +11509,7 @@ paths:
       tags:
         - procurement
       summary: List contracts
-      description: "Purchasing contracts. Sortable by: `valid_from`, `document_number`."
+      description: "Purchasing contracts and scheduling agreements (`kind`). Sortable by: `valid_from`, `document_number`."
       x-permission: procurement.contract.read
       x-problem-codes:
         - request.invalid_order_by
@@ -11531,6 +11531,16 @@ paths:
               - expired
               - terminated
               - cancelled
+        - name: kind
+          in: query
+          required: false
+          description: "Only contracts of this kind: `contract`, or `scheduling_agreement` (ADR-0070). A value that is no kind matches none."
+          schema:
+            type: string
+            description: "The contract's kind. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - contract
+              - scheduling_agreement
         - name: expiring_before
           in: query
           required: false
@@ -11562,7 +11572,7 @@ paths:
       tags:
         - procurement
       summary: Create a contract
-      description: Creates a draft contract.
+      description: "Creates a draft contract of the `kind` given: a `contract` (the default), against which purchase orders are created at its prices, or a `scheduling_agreement` (ADR-0070), whose delivery schedule is entered once it is released (`contracts/{id}/schedule-lines`). Another kind is refused (422 `procurement.invalid_kind`). Both are numbered from the company's `contract` number range and are changed, released, cancelled, terminated, renewed and expire alike; a contract keeps its kind."
       x-permission: procurement.contract.manage
       x-problem-codes:
         - config.no_number_range
@@ -11575,6 +11585,7 @@ paths:
         - procurement.duplicate_material_key
         - procurement.invalid_amount
         - procurement.invalid_item_no
+        - procurement.invalid_kind
         - procurement.invalid_renewal
         - procurement.invalid_validity
         - procurement.legal_entity_not_active
@@ -11922,6 +11933,211 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Contract"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "412":
+          $ref: "#/components/responses/PreconditionFailed"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/contracts/{id}/schedule-lines":
+    get:
+      operationId: listScheduleLines
+      tags:
+        - procurement
+      summary: List a scheduling agreement's schedule lines
+      description: "The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one date in the order entered: each line with the agreement's number, the agreement item it asks for (its material key and description), its quantity in that item's unit, the item's price and the line's value, its `status` and, once it is called off (`schedule-lines/{line_no}:callOff`), the purchase order by id and number. A contract of the kind `contract` has none and answers an empty page. A contract of a legal entity the caller cannot act in is answered as missing (404). Sortable by: `delivery_date`."
+      x-permission: procurement.contract.read
+      x-problem-codes:
+        - request.invalid_order_by
+        - request.invalid_page_size
+        - request.invalid_page_token
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: contract_item_no
+          in: query
+          required: false
+          description: Only the lines of this item of the agreement.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - name: line_no
+          in: query
+          required: false
+          description: Only the line with this number.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+        - name: status
+          in: query
+          required: false
+          description: "Only the lines in this status: `scheduled` (still to call off) or `called_off`. A value that is no status matches none."
+          schema:
+            type: string
+            description: "A schedule line's status. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+            x-extensible-enum:
+              - scheduled
+              - called_off
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/PageToken"
+        - $ref: "#/components/parameters/OrderBy"
+        - $ref: "#/components/parameters/Include"
+      responses:
+        "200":
+          description: One page of the agreement's schedule lines.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleLinePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+    post:
+      operationId: createScheduleLine
+      tags:
+        - procurement
+      summary: Enter a schedule line of a scheduling agreement
+      description: "Enters one line of a scheduling agreement's delivery schedule (ADR-0070 §3): a quantity of one of the agreement's items due on a date. The contract is read under its row lock: it must be a scheduling agreement (409 `procurement.not_a_scheduling_agreement` for a contract of the kind `contract`) that is `active` (409 `procurement.invalid_status` for a draft, or one cancelled, terminated or expired). The line names an item of the agreement by `contract_item_no`, with its quantity in that item's unit (422 `procurement.invalid_contract_item`, naming `contract_item_no`, for an item the agreement lacks or another unit), positive (422 `procurement.invalid_quantity`), due on a date within the agreement's validity (422 `procurement.schedule_line_outside_validity`, naming `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit, rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422 `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is `scheduled` until it is called off as a purchase order (`schedule-lines/{line_no}:callOff`), and is not otherwise changed or deleted in the first version. The line has no address of its own: `Location` is the agreement's schedule filtered to it. Audited, and published as ScheduleLineChanged, which names the supplier by id and number."
+      x-permission: procurement.contract.manage
+      x-problem-codes:
+        - procurement.amount_too_large
+        - procurement.invalid_contract_item
+        - procurement.invalid_quantity
+        - procurement.invalid_status
+        - procurement.legal_entity_not_active
+        - procurement.not_a_scheduling_agreement
+        - procurement.schedule_line_outside_validity
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        description: The schedule line.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleLineCreate"
+      responses:
+        "201":
+          description: "Created; the schedule line as entered."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Location:
+              $ref: "#/components/headers/Location"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleLine"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "428":
+          $ref: "#/components/responses/PreconditionRequired"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  "/v1/contracts/{id}/schedule-lines/{line_no}:callOff":
+    post:
+      operationId: callOffScheduleLine
+      tags:
+        - procurement
+      summary: Call off a schedule line as a purchase order
+      description: "Calls off one line of a scheduling agreement's delivery schedule (ADR-0070 §4), at the version of the line the caller read (`If-Match`), once: it creates a draft purchase order against the agreement through the purchase order's own path, as `POST /v1/purchase-orders` would with its checks, validation rules, number and audit record, and the line then names that order (`purchase_order_id`, `purchase_order_document_number`, `status` `called_off`). The order is of the agreement's legal entity, supplier and currency, dated the legal entity's date today in its company's time zone, with the supplier's payment terms, the agreement as its contract and one item: the agreement's item (its description, unit, account and price) in the line's quantity, due on the line's delivery date. The contract and the line are read under their row locks, so of two call-offs of one line one creates the order and the other finds the line called off (409 `procurement.schedule_line_called_off`, naming the order; a line called off is refused so whatever `If-Match` carries, since both callers read the same version), while the same request with its `Idempotency-Key` again answers the same line and order. The contract must be a scheduling agreement (409 `procurement.not_a_scheduling_agreement`) that is `active` (409 `procurement.invalid_status`) and valid on the legal entity's date today (409 `procurement.agreement_not_valid`, naming the validity, that date and the zone); a line number the agreement lacks is answered as missing (404). What the order's own checks refuse is refused as there, naming the order's field: the agreement's supplier no longer one an order can be placed with (422 `procurement.supplier_not_usable`, `supplier_id`), the item's account no longer postable (422 `procurement.account_not_postable`, `items[0].account_id`), a validation rule of the tenant (422 `request.rule_refused`). The order is a draft and from there any purchase order: it is changed, released (the release strategy and its approvals apply, and the release consumes the agreement's target value, refused with 409 `procurement.contract_exceeded` when the order exceeds what remains), received and invoiced as one created directly; a line whose order is cancelled stays called off. An agent needs autonomy level 2: a call-off reserves the line. Audited, and published as ScheduleLineCalledOff, which names the supplier by id and number, and ScheduleLineChanged."
+      x-permission: procurement.order.create
+      x-problem-codes:
+        - config.no_number_range
+        - config.not_bootstrapped
+        - config.number_range_exhausted
+        - ledger.no_fiscal_period
+        - procurement.account_not_postable
+        - procurement.agreement_not_valid
+        - procurement.amount_too_large
+        - procurement.currency_mismatch
+        - procurement.invalid_account_assignment
+        - procurement.invalid_amount
+        - procurement.invalid_change
+        - procurement.invalid_contract
+        - procurement.invalid_contract_item
+        - procurement.invalid_item_no
+        - procurement.invalid_org_unit
+        - procurement.invalid_quantity
+        - procurement.invalid_status
+        - procurement.invalid_tolerance
+        - procurement.legal_entity_not_active
+        - procurement.not_a_scheduling_agreement
+        - procurement.requisition_mismatch
+        - procurement.requisition_ordered
+        - procurement.schedule_line_called_off
+        - procurement.supplier_not_usable
+        - procurement.unknown_currency
+        - procurement.unknown_payment_term
+        - procurement.unknown_tax_code
+        - procurement.unknown_unit
+        - request.invalid_amount
+        - request.invalid_extension
+        - request.rule_refused
+        - request.rule_unevaluable
+        - request.version_mismatch
+      parameters:
+        - $ref: "#/components/parameters/Id"
+        - name: line_no
+          in: path
+          required: true
+          description: "The schedule line's number within the agreement (`line_no`)."
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+          example: 1
+        - $ref: "#/components/parameters/IfMatch"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: "The schedule line after callOffScheduleLine, naming the purchase order created."
+          headers:
+            ETag:
+              $ref: "#/components/headers/ETag"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleLine"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -41192,12 +41408,13 @@ components:
           uom_code: EA
           account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
     Contract:
-      description: A purchasing contract (outline agreement). Consumption is the sum of the orders released against it.
+      description: "A purchasing contract (outline agreement) or, by its `kind`, a scheduling agreement (ADR-0070). Consumption is the sum of the orders released against it."
       allOf:
         - $ref: "#/components/schemas/AuditFields"
         - type: object
           required:
             - document_number
+            - kind
             - legal_entity_id
             - supplier_id
             - currency
@@ -41211,6 +41428,13 @@ components:
             document_number:
               type: string
               description: Document number.
+              readOnly: true
+            kind:
+              type: string
+              description: "What the contract is, fixed when it is created (ADR-0070): a `contract`, against which purchase orders are created, or a `scheduling_agreement`, which has a delivery schedule (`contracts/{id}/schedule-lines`). Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - contract
+                - scheduling_agreement
               readOnly: true
             legal_entity_id:
               type: string
@@ -41290,6 +41514,7 @@ components:
           created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
           updated_at: "2026-10-09T14:03:11Z"
           document_number: "5100000123"
+          kind: contract
           legal_entity_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5dbf"
           supplier_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d57"
           currency: EUR
@@ -41322,6 +41547,13 @@ components:
         - target_value
         - items
       properties:
+        kind:
+          type: string
+          description: "What the contract is (ADR-0070): `contract`, or `scheduling_agreement` for one with a delivery schedule. Open enumeration: values may be added within /v1; one the server does not know is refused (422 `procurement.invalid_kind`)."
+          default: contract
+          x-extensible-enum:
+            - contract
+            - scheduling_agreement
         legal_entity_id:
           type: string
           format: uuid
@@ -41444,6 +41676,161 @@ components:
                     currency: EUR
                   uom_code: EA
                   account_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d9e"
+    ScheduleLine:
+      description: "A line of a scheduling agreement's delivery schedule (ADR-0070 §3): a quantity of one of the agreement's items due on a date."
+      allOf:
+        - $ref: "#/components/schemas/AuditFields"
+        - type: object
+          required:
+            - contract_id
+            - contract_document_number
+            - line_no
+            - contract_item_no
+            - material_key
+            - description
+            - delivery_date
+            - quantity
+            - unit_price
+            - price_unit
+            - amount
+            - status
+          properties:
+            contract_id:
+              type: string
+              format: uuid
+              description: The scheduling agreement.
+              readOnly: true
+            contract_document_number:
+              type: string
+              description: The scheduling agreement's document number.
+              readOnly: true
+            line_no:
+              type: integer
+              format: int32
+              description: "The line's number: lines are numbered 1 to n per agreement in the order entered."
+              minimum: 1
+              readOnly: true
+            contract_item_no:
+              type: integer
+              format: int32
+              description: The item of the agreement the line asks for.
+              minimum: 1
+            material_key:
+              type: string
+              description: That item's material key.
+              readOnly: true
+            description:
+              type: string
+              description: That item's description.
+              readOnly: true
+            delivery_date:
+              type: string
+              format: date
+              description: "The date the quantity is due, within the agreement's validity."
+            quantity:
+              $ref: "#/components/schemas/Quantity"
+              description: "The quantity due, in the agreement item's unit; positive."
+            unit_price:
+              $ref: "#/components/schemas/Money"
+              description: "The agreement item's price per `price_unit`, in the agreement's currency."
+              readOnly: true
+            price_unit:
+              type: integer
+              format: int32
+              description: Quantity the unit price refers to.
+              minimum: 1
+              readOnly: true
+            amount:
+              $ref: "#/components/schemas/Money"
+              description: "The line's value: quantity × unit price ÷ price unit, rounded half away from zero to the currency's minor unit."
+              readOnly: true
+            status:
+              type: string
+              description: "`scheduled` until the line is called off, then `called_off` (`schedule-lines/{line_no}:callOff`); a line is called off once. Open enumeration: clients must accept and preserve values not listed here; values may be added within /v1."
+              x-extensible-enum:
+                - scheduled
+                - called_off
+              readOnly: true
+            purchase_order_id:
+              type: string
+              format: uuid
+              description: "The purchase order the line was called off as; absent while the line is `scheduled`. What became of it (released, received, cancelled) is the order's own status."
+              readOnly: true
+            purchase_order_document_number:
+              type: string
+              description: "That purchase order's document number; absent when `purchase_order_id` is."
+              readOnly: true
+      examples:
+        - id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5e11"
+          version: 1
+          created_at: "2026-11-20T09:00:00Z"
+          created_by: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d74"
+          updated_at: "2026-11-20T09:00:00Z"
+          contract_id: "01929a1e-4c2b-7a10-9b3e-1f2a3b4c5d41"
+          contract_document_number: "5100000123"
+          line_no: 1
+          contract_item_no: 1
+          material_key: CHAIR-ERGO-01
+          description: Office chairs, ergonomic
+          delivery_date: "2026-12-15"
+          quantity:
+            value: "40"
+            unit: EA
+          unit_price:
+            amount: "412.50"
+            currency: EUR
+          price_unit: 1
+          amount:
+            amount: "16500.00"
+            currency: EUR
+          status: scheduled
+    ScheduleLineCreate:
+      type: object
+      description: Enter a schedule line of a scheduling agreement.
+      required:
+        - contract_item_no
+        - delivery_date
+        - quantity
+      properties:
+        contract_item_no:
+          type: integer
+          format: int32
+          description: The item of the agreement the line asks for.
+          minimum: 1
+        delivery_date:
+          type: string
+          format: date
+          description: "The date the quantity is due, within the agreement's validity."
+        quantity:
+          $ref: "#/components/schemas/Quantity"
+          description: "The quantity due, in the agreement item's unit; positive."
+      additionalProperties: false
+      examples:
+        - contract_item_no: 1
+          delivery_date: "2026-12-15"
+          quantity:
+            value: "40"
+            unit: EA
+    ScheduleLinePage:
+      type: object
+      description: One page of a scheduling agreement's schedule lines.
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleLine"
+          description: The schedule lines on this page.
+        next_page_token:
+          type: string
+          description: "Opaque cursor for the next page; absent on the last page."
+          maxLength: 2048
+        total_estimate:
+          type: integer
+          format: int64
+          description: "Planner estimate of the total number of matches; present only when `include=total_estimate` was requested and the estimate is cheap."
+          minimum: 0
     RfqItemInput:
       type: object
       description: "An item of a request for quotation as it is created: what is asked for, without a price."

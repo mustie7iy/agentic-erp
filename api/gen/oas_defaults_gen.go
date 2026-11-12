@@ -27,6 +27,14 @@ func (s *CatalogItemCreate) setDefaults() {
 }
 
 // setDefaults set default value of fields.
+func (s *ContractCreate) setDefaults() {
+	{
+		val := string("contract")
+		s.Kind.SetTo(val)
+	}
+}
+
+// setDefaults set default value of fields.
 func (s *ContractItem) setDefaults() {
 	{
 		val := int32(1)

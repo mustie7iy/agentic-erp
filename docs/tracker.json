@@ -3810,21 +3810,21 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Scheduling agreements",
       "r": "split once into first-version slices and one later leaf (product owner 2026-11-10, breadth first) · docs/design/plan-breadth-week2.md · not in the first pilot (PO 2026-10-21)",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "A buyer creates a scheduling agreement with a supplier (a contract of the kind scheduling_agreement, its items priced) and, once it is released, enters its delivery schedule: per item, dates and quantities; its ADR (POST /v1/contracts/{id}/schedule-lines)",
-        "r": "T83a · docs/design/plan-breadth-week2.md §T83a",
+        "r": "T83a · docs/design/plan-breadth-week2.md §T83a · migration 000301 · internal/procurement/schedule.go, schedule_api.go, contracts.go · ADR-0070 · scripts/walkthrough.sh step_scheduling_agreement",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
        {
-        "s": "T",
-        "t": "The buyer calls off a schedule line: a purchase order for its quantity is created against the agreement at the agreement's price, due on the line's date, then released, received and invoiced as any order (POST /v1/contracts/{id}/schedule-lines/{line_no}:call-off)",
-        "r": "T83b · docs/design/plan-breadth-week2.md §T83b",
+        "s": "D",
+        "t": "The buyer calls off a schedule line: a purchase order for its quantity is created against the agreement at the agreement's price, due on the line's date, then released, received and invoiced as any order (POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff)",
+        "r": "T83b · docs/design/plan-breadth-week2.md §T83b · migration 000302 · internal/procurement/schedule_calloff.go, schedule_api.go · ADR-0070 §4 · scripts/walkthrough.sh step_scheduling_agreement",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

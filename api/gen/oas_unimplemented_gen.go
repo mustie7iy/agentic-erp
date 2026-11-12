@@ -365,6 +365,40 @@ func (UnimplementedHandler) BlockPrincipal(ctx context.Context, req *ReasonInput
 	return r, ht.ErrNotImplemented
 }
 
+// CallOffScheduleLine implements callOffScheduleLine operation.
+//
+// Calls off one line of a scheduling agreement's delivery schedule (ADR-0070 §4), at the version of
+// the line the caller read (`If-Match`), once: it creates a draft purchase order against the agreement
+// through the purchase order's own path, as `POST /v1/purchase-orders` would with its checks,
+// validation rules, number and audit record, and the line then names that order (`purchase_order_id`,
+// `purchase_order_document_number`, `status` `called_off`). The order is of the agreement's legal
+// entity, supplier and currency, dated the legal entity's date today in its company's time zone, with
+// the supplier's payment terms, the agreement as its contract and one item: the agreement's item (its
+// description, unit, account and price) in the line's quantity, due on the line's delivery date. The
+// contract and the line are read under their row locks, so of two call-offs of one line one creates
+// the order and the other finds the line called off (409 `procurement.schedule_line_called_off`,
+// naming the order; a line called off is refused so whatever `If-Match` carries, since both callers
+// read the same version), while the same request with its `Idempotency-Key` again answers the same
+// line and order. The contract must be a scheduling agreement (409
+// `procurement.not_a_scheduling_agreement`) that is `active` (409 `procurement.invalid_status`) and
+// valid on the legal entity's date today (409 `procurement.agreement_not_valid`, naming the validity,
+// that date and the zone); a line number the agreement lacks is answered as missing (404). What the
+// order's own checks refuse is refused as there, naming the order's field: the agreement's supplier no
+// longer one an order can be placed with (422 `procurement.supplier_not_usable`, `supplier_id`), the
+// item's account no longer postable (422 `procurement.account_not_postable`, `items[0].account_id`), a
+// validation rule of the tenant (422 `request.rule_refused`). The order is a draft and from there any
+// purchase order: it is changed, released (the release strategy and its approvals apply, and the
+// release consumes the agreement's target value, refused with 409 `procurement.contract_exceeded` when
+// the order exceeds what remains), received and invoiced as one created directly; a line whose order
+// is cancelled stays called off. An agent needs autonomy level 2: a call-off reserves the line.
+// Audited, and published as ScheduleLineCalledOff, which names the supplier by id and number, and
+// ScheduleLineChanged.
+//
+// POST /v1/contracts/{id}/schedule-lines/{line_no}:callOff
+func (UnimplementedHandler) CallOffScheduleLine(ctx context.Context, params CallOffScheduleLineParams) (r CallOffScheduleLineRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // CancelApprovalRequest implements cancelApprovalRequest operation.
 //
 // Withdraws a pending request. Only the requester may cancel, with a comment; agents and services may
@@ -1123,7 +1157,11 @@ func (UnimplementedHandler) CreateConsolidationRun(ctx context.Context, req *Con
 
 // CreateContract implements createContract operation.
 //
-// Creates a draft contract.
+// Creates a draft contract of the `kind` given: a `contract` (the default), against which purchase
+// orders are created at its prices, or a `scheduling_agreement` (ADR-0070), whose delivery schedule is
+// entered once it is released (`contracts/{id}/schedule-lines`). Another kind is refused (422
+// `procurement.invalid_kind`). Both are numbered from the company's `contract` number range and are
+// changed, released, cancelled, terminated, renewed and expire alike; a contract keeps its kind.
 //
 // POST /v1/contracts
 func (UnimplementedHandler) CreateContract(ctx context.Context, req *ContractCreate, params CreateContractParams) (r CreateContractRes, _ error) {
@@ -1722,6 +1760,30 @@ func (UnimplementedHandler) CreateSalesOrder(ctx context.Context, req *SalesOrde
 //
 // POST /v1/sales-prices
 func (UnimplementedHandler) CreateSalesPrice(ctx context.Context, req *SalesPriceCreate, params CreateSalesPriceParams) (r CreateSalesPriceRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateScheduleLine implements createScheduleLine operation.
+//
+// Enters one line of a scheduling agreement's delivery schedule (ADR-0070 §3): a quantity of one of
+// the agreement's items due on a date. The contract is read under its row lock: it must be a
+// scheduling agreement (409 `procurement.not_a_scheduling_agreement` for a contract of the kind
+// `contract`) that is `active` (409 `procurement.invalid_status` for a draft, or one cancelled,
+// terminated or expired). The line names an item of the agreement by `contract_item_no`, with its
+// quantity in that item's unit (422 `procurement.invalid_contract_item`, naming `contract_item_no`,
+// for an item the agreement lacks or another unit), positive (422 `procurement.invalid_quantity`), due
+// on a date within the agreement's validity (422 `procurement.schedule_line_outside_validity`, naming
+// `delivery_date` and the validity). Its value is quantity × the item's unit price ÷ price unit,
+// rounded half away from zero to the currency's minor unit, and must be in the range of an amount (422
+// `procurement.amount_too_large`). Lines are numbered 1 to n per agreement in the order entered
+// (`line_no`); the same request with its `Idempotency-Key` again answers the same line. A line is
+// `scheduled` until it is called off as a purchase order (`schedule-lines/{line_no}:callOff`), and is
+// not otherwise changed or deleted in the first version. The line has no address of its own:
+// `Location` is the agreement's schedule filtered to it. Audited, and published as
+// ScheduleLineChanged, which names the supplier by id and number.
+//
+// POST /v1/contracts/{id}/schedule-lines
+func (UnimplementedHandler) CreateScheduleLine(ctx context.Context, req *ScheduleLineCreate, params CreateScheduleLineParams) (r CreateScheduleLineRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -4372,7 +4434,8 @@ func (UnimplementedHandler) ListConsolidationRuns(ctx context.Context, params Li
 
 // ListContracts implements listContracts operation.
 //
-// Purchasing contracts. Sortable by: `valid_from`, `document_number`.
+// Purchasing contracts and scheduling agreements (`kind`). Sortable by: `valid_from`,
+// `document_number`.
 //
 // GET /v1/contracts
 func (UnimplementedHandler) ListContracts(ctx context.Context, params ListContractsParams) (r ListContractsRes, _ error) {
@@ -5303,6 +5366,21 @@ func (UnimplementedHandler) ListSalesOrders(ctx context.Context, params ListSale
 //
 // GET /v1/sales-prices
 func (UnimplementedHandler) ListSalesPrices(ctx context.Context, params ListSalesPricesParams) (r ListSalesPricesRes, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListScheduleLines implements listScheduleLines operation.
+//
+// The delivery schedule of one scheduling agreement (ADR-0070 §3), by delivery date, lines of one
+// date in the order entered: each line with the agreement's number, the agreement item it asks for
+// (its material key and description), its quantity in that item's unit, the item's price and the
+// line's value, its `status` and, once it is called off (`schedule-lines/{line_no}:callOff`), the
+// purchase order by id and number. A contract of the kind `contract` has none and answers an empty
+// page. A contract of a legal entity the caller cannot act in is answered as missing (404). Sortable
+// by: `delivery_date`.
+//
+// GET /v1/contracts/{id}/schedule-lines
+func (UnimplementedHandler) ListScheduleLines(ctx context.Context, params ListScheduleLinesParams) (r ListScheduleLinesRes, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
