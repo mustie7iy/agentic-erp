@@ -419,7 +419,7 @@ func TestAgentErrors(t *testing.T) {
 	t.Chdir(t.TempDir())
 	model(t)
 	fakeAPI(t, routes{})
-	fails(t, "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft", "agent")
+	fails(t, "agent invoices | config | migration | test | reconcile | close-accruals | close-variances | cash-variance | tax-draft | credit-score | access-roles", "agent")
 	fails(t, "unknown agent", "agent", "bogus")
 	fails(t, "flag provided", "agent", "config", "-x")
 	fails(t, "say what to change", "agent", "config")

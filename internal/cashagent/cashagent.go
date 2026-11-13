@@ -133,18 +133,13 @@ func (r *Result) record(into *[]string) func(apitools.Response) {
 // whatever a document says.
 var ErrOtherVariance = errors.New("cashagent: a proposal names another company, period or lag than this run's")
 
-type legalEntity struct {
-	ID   string `json:"id"`
-	Code string `json:"code"`
-}
-
 // Explain runs one session on the company's variance: it finds the
 // company's legal entity and reads the variance (a company or variance
 // the agent may not read, or one that cannot be compared, stops the run
 // before a session starts), offers the model the tools and reports what
 // it proposed, also when the run fails after proposing.
 func (a *Agent) Explain(ctx context.Context, p Period) (Result, error) {
-	le, err := a.legalEntity(ctx, p.Company)
+	le, err := apitools.LegalEntity(ctx, a.API, p.Company)
 	if err != nil {
 		return Result{}, err
 	}
@@ -188,20 +183,6 @@ func (a *Agent) Explain(ctx context.Context, p Period) (Result, error) {
 		res.Reply = llm.Text(msg)
 	}
 	return res, err
-}
-
-// legalEntity is the id of the company's legal entity, by its code.
-func (a *Agent) legalEntity(ctx context.Context, code string) (string, error) {
-	les, err := apitools.List[legalEntity](ctx, a.API, "/v1/legal-entities", nil)
-	if err != nil {
-		return "", err
-	}
-	for _, le := range les {
-		if le.Code == code {
-			return le.ID, nil
-		}
-	}
-	return "", fmt.Errorf("cashagent: no company %s that the agent may read", code)
 }
 
 // guard refuses, and counts, a proposal ok does not admit.

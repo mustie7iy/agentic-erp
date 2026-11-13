@@ -948,7 +948,28 @@ checked against `listForecastVarianceDocuments` as the agent may see it; a
 person takes it up, as it stands or in their own words, with
 `acceptForecastVarianceCommentProposal` or turns it down with
 `rejectForecastVarianceCommentProposal`, `x-agent: false`); free-text
-advice is a recommendation. Bank statements reach agents with the accounts masked to
+advice is a recommendation.
+The recommending agents of the breadth phase (ADR-0072) are all built to
+one pattern (`internal/recommend`): reads of the contract and
+`createRecommendation` are their only tools, each run leaves at most one
+recommendation per object it was given, of a kind the agent lists for the
+object's type, the amounts a recommendation states are ones a read of the
+run returned, and nothing happens when a person accepts one: the person
+acts through the normal operation. The credit scoring agent
+(`erp agent credit-score -company CODE -customer ID`, agent type
+`credit_scoring`, T105a) recommends on a customer's `credit_limit`
+(`raise_limit`, `lower_limit`, `keep_limit`) or, for a customer without
+one, on the `business_partner` (`set_limit`); setting and changing a limit
+stay people's (`x-agent: false`, ADR-0066). The access agent
+(`erp agent access-roles -role CODE -period FROM..TO`, agent type
+`access`, T106a) recommends on a `role`: `remove_permissions`, naming the
+permissions that only operations changing something need and in whose
+audited contexts no holder has an audit event in the period, or `keep`;
+a permission a read needs is listed as "use not recorded".
+It holds `identity.access.read` and `audit.event.read` only where a
+tenant's administrator granted them to its role, and identity writes stay
+people's.
+Bank statements reach agents with the accounts masked to
 their last four characters, as partner bank accounts reach everyone. A
 report that names no account, such as a house bank's reconciliation
 (`getBankReconciliation`, ADR-0047, T49h: its statements' balances against

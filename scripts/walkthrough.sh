@@ -553,8 +553,9 @@ provider_stub() {
 }
 
 # model_stub starts the stand-in for the model provider (step 18's capture,
-# the tax agent's run in step 11, the forecast agent's in step 39, the close
-# agent's in step_close) and points erp-server's model gateway at it. While
+# the tax agent's run in step 11, the forecast agent's in step 39, the
+# recommending agents' in steps 66 and after, each writing and removing
+# its own script, and the close agent's in step_close) and points erp-server's model gateway at it. While
 # model-script.json exists it answers each call with its next turn (the
 # tax agent's, which tax_agent writes and removes, the forecast agent's,
 # which step 39 writes and removes, and the close agent's, which
@@ -7940,6 +7941,235 @@ step_spend() {
   as ben
   passed
 }
+
+# step_credit_agent is T105a (ADR-0072): the credit scoring agent, erp
+# agent credit-score through the model stand-in answering from a script of
+# turns (its suite's replay, evals/credit_scoring), reviews the limit of
+# step_credit_limit's customer, Northwind. It reads the exposure, the
+# aging on the company's day, the dunning runs, the payments and the
+# invoices, and leaves one recommendation on the limit, naming the limit,
+# the exposure and the overdue amount: the limit it recommends is the
+# exposure, so the kind follows from how the two stand when the step runs
+# (lower_limit, raise_limit, or keep_limit when they are equal); should
+# the customer owe nothing, its credits being above its items, the limit
+# is kept as it is. A limit the agent computed, the one it then recommends
+# with a tenth on top, is refused by the run first: every amount is one
+# the API returned. Ruth, the credit
+# manager, overrides the recommendation; the limit is as it was, and the
+# agent's own change of it is refused.
+step_credit_agent() {
+  heading "Step 66 — The credit scoring agent: a customer's limit reviewed from its exposure, aging, dunning notices and payments; one recommendation with the API's figures, a computed amount refused; the credit manager decides, the limit unchanged"
+  local customer=$CUSTOMER role id tag limit exposure overdue kind target why computed got session rec
+  as ada
+  say "Ada sets up the credit scoring agent (ADR-0072): an agent principal of type credit_scoring at autonomy level 1"
+  say "on erp-default. Its role reads credit limits and exposures, receivables, dunning and partners, and records"
+  say "its sessions and recommendations; it holds no permission that sets or changes a limit."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "credit_agent", "name": "Credit scoring agent"}'
+  role=$(field .id)
+  grant "$role" tenancy.org.read credit.limit.read receivables.invoice.read collections.dunning.read partner.supplier.read \
+    agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "credit-agent", "display_name": "Credit scoring agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "credit_scoring", "model": "erp-default", "description": "Recommends credit limits for a credit manager to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$role\"}"
+  token credit-agent "Credit scoring agent"
+  as ruth
+  say "What the agent will find, as Ruth reads it: Northwind's exposure against its limit, and its aging today."
+  api 200 '"\(.customer_number) \(.customer_name): exposure \(.exposure.amount) \(.exposure.currency), limit \(.limit.amount), available \(.available.amount)"' \
+    getCreditExposure -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  id=$(field .credit_limit_id) limit=$(field .limit.amount) exposure=$(field .exposure.amount)
+  cp "$WORK/last.json" "$WORK/credit-reads.json"
+  api 200 '.items[] | "  \(.customer_number): \(.amount.amount) \(.amount.currency) in \(.item_count) item(s); \([.buckets[] | "\(.bucket) \(.days_from // "")\(if .days_to then "-\(.days_to)" else "" end) \(.amount.amount)"] | join(", "))"' \
+    getReceivablesAging -p "legal_entity_id=$LE" -p "key_date=$TODAY" -p "customer_id=$customer"
+  # The overdue amount named: the first overdue bucket that holds items,
+  # or, with nothing overdue, the first overdue bucket's 0.00; the totals'
+  # when the customer has no open item and so no row.
+  overdue=$(field '[(.items[0] // .totals).buckets[] | select(.bucket == "overdue")] | ((map(select(.item_count > 0)) | .[0]) // .[0]) | .amount.amount')
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' listDunningRuns -p "legal_entity_id=$LE"
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' listIncomingPayments -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' listCustomerInvoices -p "legal_entity_id=$LE" -p "customer_id=$customer"
+  expect "the customer has a history: invoices" "$(field '.items | length > 0')" true
+  cat "$WORK/last.json" >>"$WORK/credit-reads.json"
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  tag=$ETAG
+  kind=keep_limit target=$limit why="The customer owes nothing, so the limit is kept as it is."
+  if [ "$(cents "$exposure")" -gt 0 ]; then
+    target=$exposure why="The limit recommended is the exposure: a credit manager who expects further orders on account keeps more."
+    if [ "$(cents "$exposure")" -lt "$(cents "$limit")" ]; then kind=lower_limit; fi
+    if [ "$(cents "$exposure")" -gt "$(cents "$limit")" ]; then kind=raise_limit; fi
+  fi
+  # A limit the agent would compute: the one it recommends and a tenth,
+  # moved on by a cent while any of the reads returned that very amount.
+  computed=$(amount $(($(cents "$target") * 11 / 10 + 1)))
+  while grep -q "\"$computed\"" "$WORK/credit-reads.json"; do computed=$(amount $(($(cents "$computed") + 1))); done
+  say "The agent runs: erp agent credit-score starts a session on erp-default, reads through its tools and recommends."
+  say "The model is the stand-in, answering from a script of turns as the agent's evaluation suite replays them"
+  say "(evals/credit_scoring): it reads the exposure, the aging, the dunning runs, the payments and the invoices; asks"
+  say "for a limit of $computed CAD, $target CAD with a tenth on top, which no read returned (refused by the run:"
+  say "the agent computes no amount and gives no score); then recommends $kind at $target CAD."
+  credit_agent_script "$customer" "$id" "$kind" "$limit" "$exposure" "$overdue" "$computed" "$target" "$why"
+  show ERP_AGENT_TOKEN=… erp agent credit-score -company "$CC" -customer "$customer"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/credit-agent") "$ERP" agent credit-score -company "$CC" -customer "$customer" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent credit-score failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 1."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): $kind on credit_limit $id\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent credit-score printed no $kind on the limit $id"
+  say "Ruth, the credit manager, reads the recommendation on the limit:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"): \(.content)")' listRecommendations -p "object_id=$id"
+  expect "the recommendations on the limit, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the limit recommended, the limit, the exposure and the overdue amount" \
+    "$(jq -r --arg t "$target" --arg l "$limit" --arg x "$exposure" --arg o "$overdue" '.items[0].content | startswith("Limit \($t) CAD") and contains("limit is \($l) CAD") and contains("exposure \($x) CAD") and contains("\($o) CAD overdue")' "$WORK/last.json")" true
+  as credit-agent
+  say "Recommending is all it may do: changing a limit and deciding a recommendation are a person's (x-agent: false),"
+  say "erp agent builds it no tool for them, and the API refuses its own calls:"
+  refused 403 identity.agent_not_allowed updateCreditLimit -p "id=$id" -if-match "$tag" -body "{\"limit\": {\"amount\": \"$computed\", \"currency\": \"CAD\"}}"
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  refused 403 identity.agent_not_allowed decideRecommendation -p "id=$rec" -if-match "$ETAG" -body '{"outcome": "accepted"}'
+  say "Its session, which the command named, records each tool call, the refused one too:"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" \
+    "getCreditExposure getReceivablesAging listDunningRuns listIncomingPayments listCustomerInvoices createRecommendation createRecommendation"
+  as ruth
+  say "Ruth agreed Northwind's limit with sales (step 59) and keeps it: she overrides the recommendation. Nothing"
+  say "would have changed had she accepted it: a person changes a limit with updateCreditLimit."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "overridden", "comment": "The limit was agreed with sales; it stays."}'
+  expect "the recommendation's outcome" "$(field .outcome)" overridden
+  QUIET=1 api 200 '' getCreditLimit -p "id=$id"
+  expect "the limit as it was" "$(field .limit.amount) $ETAG" "$limit $tag"
+  passed
+}
+
+# credit_agent_script CUSTOMER LIMIT_ID KIND LIMIT EXPOSURE OVERDUE COMPUTED
+# TARGET WHY writes the stand-in's turns of the credit scoring agent's
+# run: its reads, a recommendation at COMPUTED, an amount no read
+# returned (refused by the run), and the recommendation of KIND at
+# TARGET, for the reason WHY.
+credit_agent_script() {
+  jq -n --arg le "$LE" --arg day "$TODAY" --arg customer "$1" --arg id "$2" --arg kind "$3" --arg limit "$4" --arg x "$5" --arg overdue "$6" \
+    --arg computed "$7" --arg target "$8" --arg why "$9" '
+    {session_id: "{{session}}", object_type: "credit_limit", object_id: $id, kind: $kind} as $on |
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "getCreditExposure", input: {legal_entity_id: $le, customer_id: $customer}},
+      {tool: "getReceivablesAging", input: {legal_entity_id: $le, key_date: $day, customer_id: $customer}},
+      {tool: "listDunningRuns", input: {legal_entity_id: $le}},
+      {tool: "listIncomingPayments", input: {legal_entity_id: $le, customer_id: $customer}},
+      {tool: "listCustomerInvoices", input: {legal_entity_id: $le, customer_id: $customer}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Limit \($computed) CAD: \($target) CAD with a tenth on top."})}},
+      {tool: "createRecommendation", input: {body: ($on + {content: "Limit \($target) CAD. Northwind Traders\u0027 limit is \($limit) CAD and its exposure \($x) CAD, with \($overdue) CAD overdue in the aging of today. \($why)"})}},
+      {final: "Recommended \($kind) at \($target) CAD; a credit manager decides, and changes the limit herself."}]}' >"$WORK/model-script.json"
+}
+
+# step_access_agent is T106a (ADR-0072): the access agent, erp agent
+# access-roles through the model stand-in answering from a script of
+# turns (its suite's replay, evals/access), reviews a role against what
+# its holders did by the audit trail. Ada gives Ruth a role of her own,
+# credit_controller: reading and changing credit limits and, left over
+# from the role it was copied from, preparing tax returns. Ruth set and
+# changed a credit limit today (step 59) and never acted in tax. The
+# agent's role holds its sessions and recommendations only, so its first
+# run is refused before a session starts; Ada then grants the role
+# identity data and the audit trail, which nothing grants by default
+# (product owner, 2026-11-12). The agent recommends removing
+# tax.return.prepare, names it, and lists credit.limit.read as "use not
+# recorded": a read leaves no audit event. It cannot end the grant
+# itself. Ada accepts, which changes nothing, and ends the grant herself.
+# The period is yesterday to tomorrow in UTC, the audit trail's days.
+step_access_agent() {
+  heading "Step 67 — The access agent: a role's permissions against what its holders did by the audit trail; identity and audit reads granted by the administrator, not by default; the permission nobody used recommended for removal and named, a read permission listed as not recorded; the administrator decides and ends the grant herself"
+  local role agent_role ruth from to got session rec grant
+  as ada
+  say "Ada gives Ruth a role of her own for credit control, credit_controller: reading and changing credit limits and,"
+  say "left over from the role it was copied from, preparing tax returns."
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "credit_controller", "name": "Credit controller"}'
+  role=$(field .id)
+  grant "$role" credit.limit.read credit.limit.write tax.return.prepare
+  ruth=$(awk -F'\t' '$2 == "Ruth Receivables" { print $1 }' "$WORK/names")
+  [ -n "$ruth" ] || fail "Ruth is not among the people of the walkthrough"
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$ruth\", \"role_id\": \"$role\"}"
+  say "She sets up the access agent (ADR-0072): an agent principal of type access at autonomy level 1 on erp-default,"
+  say "whose role records its sessions and recommendations and holds nothing else:"
+  api 201 '"role \(.code), \(.name)"' createRole -body '{"code": "access_agent", "name": "Access agent"}'
+  agent_role=$(field .id)
+  grant "$agent_role" agents.session.read agents.session.record agents.model.invoke
+  api 201 '"\(.kind) \(.display_name) of type \(.agent_profile.agent_type), level \(.agent_profile.autonomy_level) on \(.agent_profile.model), budget \(.agent_profile.monthly_budget.amount) \(.agent_profile.monthly_budget.currency) a month"' \
+    createPrincipal -body '{"kind": "agent", "external_subject": "access-agent", "display_name": "Access agent", "all_companies": true, "agent_profile": {"autonomy_level": 1, "agent_type": "access", "model": "erp-default", "description": "Reviews roles against their use for an identity administrator to decide (ADR-0072)", "monthly_budget": {"amount": "2.00", "currency": "USD"}}}'
+  QUIET=1 api 201 '' createRoleAssignment -body "{\"principal_id\": \"$(field .id)\", \"role_id\": \"$agent_role\"}"
+  token access-agent "Access agent"
+  from=$(date_add "$(utc_day)" -1) to=$(date_add "$(utc_day)" 1)
+  say "Nothing gives an agent identity data or the audit trail by default. Without them the agent's run stops before"
+  say "a session starts, refused its first read:"
+  show ERP_AGENT_TOKEN=… erp agent access-roles -role credit_controller -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-roles -role credit_controller -period "$from..$to" 2>&1 || true) # refused: checked below
+  printf '%s\n' "$got" | sed 's/^/     /'
+  expect "the refusal names the missing permission" "$(printf '%s' "$got" | grep -c 'identity.permission_missing' || true)" 1
+  expect "no session was started" "$(printf '%s' "$got" | grep -c '^Session ' || true)" 0
+  say "Ada, the tenant's administrator, grants the agent's role the two reads (product owner, 2026-11-12: an agent"
+  say "reads identity data and the audit trail only where an administrator grants it):"
+  api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$agent_role" -body '{"permission_code": "identity.access.read"}'
+  api 201 '"  granted \(.permission_code) to the agent'"'"'s role"' grantRolePermission -p "id=$agent_role" -body '{"permission_code": "audit.event.read"}'
+  say "The agent runs: erp agent access-roles reads the role's permissions, its holders and the audit events of"
+  say "$from to $to (UTC) itself, page by page, and starts a session on erp-default. The model is the stand-in,"
+  say "answering from a script of turns as the agent's evaluation suite replays them (evals/access): it reads who"
+  say "holds the role and their names, and recommends removing tax.return.prepare: Ruth acted in credit, never in tax."
+  jq -n --arg role "$role" '
+    {vars: {session: "session id is ([0-9a-f-]{36})"},
+     turns: [
+      {tool: "listRoleAssignments", input: {role_id: $role}},
+      {tool: "listPrincipals", input: {}},
+      {tool: "createRecommendation", input: {body: {session_id: "{{session}}", object_type: "role", object_id: $role, kind: "remove_permissions",
+        content: "Remove: tax.return.prepare\nUse not recorded: credit.limit.read\nRuth Receivables, the role'"'"'s one holder, set and changed a credit limit in the period (credit.credit_limit.create, credit.credit_limit.change), so credit.limit.write counts as used. No holder has an audit event in tax: nobody holding this role prepared or withdrew a tax return."}}},
+      {final: "Recommended removing tax.return.prepare from credit_controller; an identity administrator decides, and ends the grant herself."}]}' >"$WORK/model-script.json"
+  show ERP_AGENT_TOKEN=… erp agent access-roles -role credit_controller -period "$from..$to"
+  got=$(ERP_AGENT_TOKEN=$(cat "$WORK/tokens/access-agent") "$ERP" agent access-roles -role credit_controller -period "$from..$to" 2>"$WORK/stderr") ||
+    { rm -f "$WORK/model-script.json"; fail "erp agent access-roles failed ($(cat "$WORK/stderr"))"; }
+  rm -f "$WORK/model-script.json"
+  printf '%s\n' "$got" | sed 's/^/     /'
+  session=$(printf '%s\n' "$got" | sed -nE '1s/^Session ([0-9a-f-]{36}): .*/\1/p')
+  expect "what the agent made" "$(printf '%s\n' "$got" | sed -nE '1s/^Session [0-9a-f-]{36}: //p')" "recommendations made 1, refused 0."
+  rec=$(printf '%s\n' "$got" | sed -nE "s/^  recommendation ([0-9a-f-]{36}): remove_permissions on role $role\$/\1/p")
+  [ -n "$rec" ] || fail "erp agent access-roles printed no remove_permissions on the role $role"
+  as ada
+  say "Ada, who administers identity, reads the recommendation on the role:"
+  api 200 '(.items[] | "  \(.kind) on the \(.object_type), \(.outcome // "open"):", (.content | split("\n")[] | "    \(.)"))' listRecommendations -p "object_id=$role"
+  expect "the recommendations on the role, the one the agent printed" "$(field '[.items[].id] | join(" ")')" "$rec"
+  expect "made in its session" "$(field '.items[0].session_id')" "$session"
+  expect "naming the permission nobody used, first" "$(field '.items[0].content | split("\n")[0]')" "Remove: tax.return.prepare"
+  expect "the read permission listed as not recorded, never as unused" "$(field '.items[0].content | split("\n")[1]')" "Use not recorded: credit.limit.read"
+  QUIET=1 api 200 '' listRolePermissions -p "id=$role" -p "valid_on=$(utc_day)"
+  grant=$(field '.items[] | select(.permission_code == "tax.return.prepare") | .id')
+  as access-agent
+  say "Recommending is all it may do: identity writes are people's (x-agent: false), erp agent builds it no tool for"
+  say "them, and the API refuses its own call:"
+  QUIET=1 api 200 '' getRolePermission -p "id=$role" -p "permission_id=$grant"
+  refused 403 identity.agent_not_allowed endRolePermission -p "id=$role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  api 200 '"  session \(.id[0:8])… \(.status) on \(.model): \(.purpose)"' getAgentSession -p "id=$session"
+  expect "the session" "$(field .status)" completed
+  api 200 '"  its tool calls: \([.items[].tool] | join(", "))"' listAgentToolCalls -p "id=$session"
+  expect "its tool calls" "$(field '[.items[].tool] | join(" ")')" "listRoleAssignments listPrincipals createRecommendation"
+  as ada
+  say "Ada accepts the recommendation. Accepting changes nothing: the role holds the permission as before."
+  QUIET=1 api 200 '' getRecommendation -p "id=$rec"
+  api 200 '"  recommendation \(.outcome) by a person"' decideRecommendation -p "id=$rec" -if-match "$ETAG" \
+    -body '{"outcome": "accepted", "comment": "Ruth does not prepare tax returns."}'
+  expect "the recommendation's outcome" "$(field .outcome)" accepted
+  QUIET=1 api 200 '' getRolePermission -p "id=$role" -p "permission_id=$grant"
+  expect "the grant after the acceptance, not ended" "$(field '.valid_to // "open"')" open
+  say "She ends the grant herself, through the normal operation, from $to:"
+  api 200 '"  \(.permission_code) on the role: valid from \(.valid_from) to \(.valid_to)"' endRolePermission -p "id=$role" -p "permission_id=$grant" -if-match "$ETAG" -body "{\"valid_to\": \"$to\"}"
+  expect "the grant ended" "$(field '.valid_to != null')" true
+  passed
+}
 # step_close is the financial close (ADR-0058), the story's last step: it
 # stays last, and each slice of T64 adds its part before the sign-off
 # (ADR-0058, Steps). T64a: Ada proposes the close template, a tier 2 change
@@ -9964,7 +10194,7 @@ cash_agent_script() {
     >"$WORK/model-script.json"
 }
 
-STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_controls step_control_matrix step_sales_analytics step_spend step_close'
+STORY='step_tenant step_pack step_migrate step_procure step_invoices step_credit step_payment step_statement step_fx step_ledgers step_tax step_centers step_cash step_reports step_grir step_downpayment step_audit step_capture step_assets step_asset_master step_cash_items step_asset_acquisitions step_cash_forecast step_asset_reversal step_asset_depreciation step_cash_snapshot step_cash_actuals step_cash_variance step_depreciation_run step_cash_variance_comment step_asset_retirement step_asset_transfer step_cash_orders step_asset_history_sheet step_cash_export step_cash_group step_cash_analytics step_cash_forecast_analytics step_cash_forecast_agent step_consolidation step_uae step_year_end step_einvoice step_asset_estimate step_asset_held_for_sale step_asset_order_expenses step_customer step_customer_invoice step_internal_order step_order_budget step_order_settlement step_distribution step_assessment step_incoming_payment step_customer_credit step_ar_aging step_dunning step_collections step_credit_limit step_rfq step_catalog step_quotation step_sales_order step_billing step_price_list step_rfq_award step_revenue_contract step_credit_block step_scheduling_agreement step_controls step_control_matrix step_sales_analytics step_spend step_credit_agent step_access_agent step_close'
 
 main() {
   stop_unseen

@@ -2671,6 +2671,13 @@
         "c": []
        },
        {
+        "s": "T",
+        "t": "fetchEInvoices audits its request in the caller's name (ADR-0011): starting the fetch records nothing for the person who asked, and what the fetch records it records as the system, so the audit trail does not show who fetched; the access agent classes einvoicing.einvoice.manage as use not recorded until then (accessagent.Unaudited, which then empties)",
+        "r": "internal/einvoicing/fetch.go FetchEInvoices · internal/accessagent Unaudited · ADR-0072 As built T106a",
+        "src": "review:T106a",
+        "c": []
+       },
+       {
         "s": "D",
         "t": "Scheduled e-invoice fetch, changed bytes and the original: the workflow dispatcher and ERP_EINVOICE_FETCH_INTERVAL; changed_hash set by an update guarded on the new hash, one audit record and event per change (run-twice test); the gauge erp_einvoices_unacknowledged; GET /v1/e-invoices/{id}/content (x-agent false); walkthrough: Alex downloads the e-invoice with the stand-in's hash, a redelivery with other bytes is counted as changed once",
         "r": "db/migrations/000233-000236 · workflow ScheduledEInvoiceFetch · ERP_EINVOICE_FETCH_INTERVAL · integration.EInvoiceConnectors · operations.StartTaken · einvoicing.einvoice.changed_hash · GET /v1/e-invoices/{id}/content · einvoicing.document_changed · erp_einvoices_unacknowledged · walkthrough step_einvoice · ADR-0061 §4, §8 and As built · T65b",
@@ -2850,13 +2857,13 @@
       ]
      },
      {
-      "s": "T",
+      "s": "P",
       "t": "Credit scoring agent",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The credit scoring agent reads a customer's exposure, limit, aging, dunning history and payments and recommends a credit limit with its reasons for a credit manager to decide; it never changes a limit (erp agent credit-score); the ADR of the recommending agents",
-        "r": "T105a · docs/design/plan-breadth-week3.md §T105a",
+        "r": "T105a · docs/design/plan-breadth-week3.md §T105a · internal/recommend · internal/creditagent · agent type credit_scoring · erp agent credit-score · evals/credit_scoring · walkthrough step_credit_agent · no migration · ADR-0072 and As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },
@@ -10360,13 +10367,13 @@
     "ph": 2,
     "c": [
      {
-      "s": "T",
+      "s": "P",
       "t": "Roles from actual usage",
       "c": [
        {
-        "s": "T",
+        "s": "D",
         "t": "The access agent reads a role's permissions, who holds it and which operations they called in a period, and recommends the permissions the role needs with those never used, for an identity administrator to decide; it never changes a role (erp agent access-roles)",
-        "r": "T106a · docs/design/plan-breadth-week3.md §T106a",
+        "r": "T106a · docs/design/plan-breadth-week3.md §T106a · internal/accessagent · agent type access · erp agent access-roles · evals/access · walkthrough step_access_agent · no migration · ADR-0072 As built",
         "src": "po:2026-11-10 · design:01 §1.2",
         "c": []
        },

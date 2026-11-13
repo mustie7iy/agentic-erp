@@ -82,6 +82,7 @@ var webForbidden = []string{"platform/uow", "platform/outbox", "platform/audit",
 // makes today, by importing unit. A new one fails TestImportRules; one that
 // is no longer made fails it too, so the list stays exact.
 var allowed = map[string][]string{
+	"accessagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration, what it reads before its session and its check
 	"agent":                   {"apitools", "llm"},
 	"analytics":               {"apitools", "config", "configuration"},
 	"apitools":                {"llm"},
@@ -100,6 +101,7 @@ var allowed = map[string][]string{
 	"credit":                  {"ledger", "partner", "tenancy"}, // a leaf (ADR-0066 §1): the ledger's customer open items, partners' customers and names and tenancy through its ports, by the types their published APIs give
 	"controlling":             {"config", "ledger", "tenancy"},  // plan values over the ledger's centers and actuals, through ledger.AssignmentBalances (ADR-0050 §2); config: a company's date in its time zone (config.DocumentDay over controlling.Settings, ADR-0064 §3)
 	"countrypack":             {"config"},
+	"creditagent":             {"apitools", "llm", "recommend"}, // a recommending agent (ADR-0072): its declaration and its check
 	"controlplane":            {"agents", "audit", "config", "directory", "identity", "offboarding", "provisioning", "tenancy"},
 	"delivery/configagent":    {"apitools", "llm"},
 	"delivery/migrationagent": {"apitools", "llm"},
@@ -122,6 +124,7 @@ var allowed = map[string][]string{
 	"sales":                   {"config", "ledger", "partner", "receivables", "tenancy"}, // as receivables reads them; receivables itself for billing, which posts through it (ADR-0067 §1, §9)
 	"revenue":                 {"partner", "sales", "tenancy"},                           // a leaf (ADR-0068 §1): the sales context's orders (sales.Orders), partners' names and tenancy through its ports
 	"reconagent":              {"apitools", "llm"},
+	"recommend":               {"apitools", "llm"}, // the recommending agents' one pattern (ADR-0072): every such agent imports it, and it no agent
 	"cashagent":               {"apitools", "llm"},
 	"router":                  {"directory"},
 	"taxagent":                {"apitools", "llm"},
